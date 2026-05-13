@@ -1,0 +1,76 @@
+//! Memory layout descriptions.
+//!
+//! Design:
+//! keep allocation requirements as plain data so allocators and containers can
+//! share one vocabulary.
+
+use base.num.USIZE_MAX;
+
+/// The size and alignment required for an allocation.
+pub/ struct Layout {
+    /// The number of bytes required by the allocation.
+    pub size: usize,
+    /// The byte alignment required by the allocation.
+    pub align: usize,
+};
+
+impl Layout {
+    /// Returns `true` when the layout describes a zero-sized value.
+    pub const fn is_zst() bool {
+        return self.size == 0;
+    }
+}
+
+/// Rounds `value` up to `align`.
+///
+/// Returns:
+/// `None` when the rounded value cannot fit in `usize`.
+pub/ fn align_up(value: usize, align: usize) ?usize {
+    let align = if (align == 0) 1usize else align;
+    let remainder = value % align;
+    if (remainder == 0) {
+        return .{ Some: value };
+    }
+    let padding = align - remainder;
+    if (value > USIZE_MAX - padding) {
+        return .None;
+    }
+    return .{ Some: value + padding };
+}
+
+/// Returns the layout of a single `T`.
+///
+/// This is a compile-time query and does not allocate.
+pub/ const fn layout_of[T]() Layout {
+    return .{
+        size: @sizeOf[T](),
+        align: @alignOf[T](),
+    };
+}
+
+/// Returns the layout of an array of `count` elements.
+///
+/// Returns:
+/// `None` when the total size would overflow `usize`.
+pub/ const fn array_layout_of[T](count: usize) ?Layout {
+    let elem = layout_of[T]();
+    if (elem.size == 0) {
+        return .{
+            Some: .{
+                size: 0,
+                align: elem.align,
+            },
+        };
+    }
+
+    if (count > USIZE_MAX / elem.size) {
+        return .None;
+    }
+
+    return .{
+        Some: .{
+            size: count * elem.size,
+            align: elem.align,
+        },
+    };
+}

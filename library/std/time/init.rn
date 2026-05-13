@@ -1,0 +1,225 @@
+//! Monotonic time measurement helpers.
+//!
+//!
+//! Design:
+//! `Instant` and `Duration` support benchmark-style elapsed-time measurement
+//! without pulling date/time-zone policy into the core standard library.
+
+use base.cmp.{
+    Comparable,
+    Ord,
+    Ordering,
+    LESS,
+    EQUAL,
+    GREATER,
+};
+use base.hash.{Hash, mix_u64};
+
+const U64_MAX = ~0u64;
+const NS_PER_MICRO = 1_000u64;
+const NS_PER_MILLI = 1_000_000u64;
+const NS_PER_SEC = 1_000_000_000u64;
+
+pub struct Duration {
+    nanos: u64,
+};
+
+impl Duration {
+    pub const fn is_zero() bool {
+        return self.nanos == 0;
+    }
+
+    pub const fn as_nanos() u64 {
+        return self.nanos;
+    }
+
+    pub const fn as_micros() u64 {
+        return self.nanos / NS_PER_MICRO;
+    }
+
+    pub const fn as_millis() u64 {
+        return self.nanos / NS_PER_MILLI;
+    }
+
+    pub const fn as_secs() u64 {
+        return self.nanos / NS_PER_SEC;
+    }
+
+    pub const fn subsec_nanos() u64 {
+        return self.nanos % NS_PER_SEC;
+    }
+
+    pub const fn saturating_add(other: Duration) Duration {
+        return .{ nanos: saturating_add_u64(self.nanos, other.nanos) };
+    }
+
+    pub const fn saturating_sub(other: Duration) Duration {
+        return if (self.nanos <= other.nanos) {
+            zero_duration()
+        } else {
+            .{ nanos: self.nanos - other.nanos }
+        };
+    }
+
+    pub const fn saturating_mul(scale: u64) Duration {
+        return .{ nanos: saturating_mul_u64(self.nanos, scale) };
+    }
+
+    pub const fn div_u64(divisor: u64) Duration {
+        return if (divisor == 0) {
+            zero_duration()
+        } else {
+            .{ nanos: self.nanos / divisor }
+        };
+    }
+
+    pub const fn units_per_sec(units: u64) u64 {
+        if (units == 0 or self.nanos == 0) {
+            return 0;
+        }
+
+        let whole = units / self.nanos;
+        let rem = units % self.nanos;
+        let whole_scaled = saturating_mul_u64(whole, NS_PER_SEC);
+        let rem_scaled = saturating_mul_u64(rem, NS_PER_SEC) / self.nanos;
+        return saturating_add_u64(whole_scaled, rem_scaled);
+    }
+
+    pub fn sleep() void {
+        if (self.is_zero()) {
+            return;
+        }
+        platform_sleep_nanos(self.nanos);
+    }
+}
+
+impl Duration : Eq[Duration] {
+    pub fn eq(other: Duration) bool {
+        return self.nanos == other.nanos;
+    }
+}
+
+impl Duration : Comparable[Duration] {
+    pub fn cmp(other: Duration) Ordering {
+        if (self.nanos < other.nanos) return LESS;
+        if (self.nanos > other.nanos) return GREATER;
+        return EQUAL;
+    }
+}
+
+impl Duration : Ord[Duration] {}
+
+impl Duration : Hash[Duration] {
+    pub fn hash() u64 {
+        return mix_u64(self.nanos);
+    }
+}
+
+pub struct Instant {
+    nanos: u64,
+};
+
+impl Instant {
+    pub fn elapsed() Duration {
+        return duration_between(self.nanos, monotonic_now_nanos());
+    }
+
+    pub fn duration_since(earlier: Instant) Duration {
+        return duration_between(earlier.nanos, self.nanos);
+    }
+}
+
+impl Instant : Eq[Instant] {
+    pub fn eq(other: Instant) bool {
+        return self.nanos == other.nanos;
+    }
+}
+
+impl Instant : Comparable[Instant] {
+    pub fn cmp(other: Instant) Ordering {
+        if (self.nanos < other.nanos) return LESS;
+        if (self.nanos > other.nanos) return GREATER;
+        return EQUAL;
+    }
+}
+
+impl Instant : Ord[Instant] {}
+
+impl Instant : Hash[Instant] {
+    pub fn hash() u64 {
+        return mix_u64(self.nanos);
+    }
+}
+
+pub struct Clock {};
+
+impl Clock {
+    pub fn now() Instant {
+        return .{ nanos: monotonic_now_nanos() };
+    }
+}
+
+#[if(os == "linux")]
+mod linux;
+#[if(os == "linux")]
+use .linux.{monotonic_now_nanos, sleep_nanos as platform_sleep_nanos};
+
+#[if(os == "darwin")]
+mod darwin;
+#[if(os == "darwin")]
+use .darwin.{monotonic_now_nanos, sleep_nanos as platform_sleep_nanos};
+
+#[if(os == "windows")]
+mod windows;
+#[if(os == "windows")]
+use .windows.{monotonic_now_nanos, sleep_nanos as platform_sleep_nanos};
+
+const fn saturating_mul_u64(lhs: u64, rhs: u64) u64 {
+    if (lhs == 0 or rhs == 0) {
+        return 0;
+    }
+    if (lhs > U64_MAX / rhs) {
+        return U64_MAX;
+    }
+    return lhs * rhs;
+}
+
+const fn saturating_add_u64(lhs: u64, rhs: u64) u64 {
+    if (lhs > U64_MAX - rhs) {
+        return U64_MAX;
+    }
+    return lhs + rhs;
+}
+
+fn duration_between(start_nanos: u64, end_nanos: u64) Duration {
+    if (end_nanos <= start_nanos) {
+        return zero_duration();
+    }
+    return .{ nanos: end_nanos - start_nanos };
+}
+
+const fn zero_duration() Duration {
+    return .{ nanos: 0 };
+}
+
+pub fn monotonic() Clock {
+    return .{};
+}
+
+impl u64 {
+    pub const fn nanos() Duration {
+        return .{ nanos: self };
+    }
+
+    pub const fn micros() Duration {
+        return .{ nanos: saturating_mul_u64(self, NS_PER_MICRO) };
+    }
+
+    pub const fn millis() Duration {
+        return .{ nanos: saturating_mul_u64(self, NS_PER_MILLI) };
+    }
+
+    pub const fn secs() Duration {
+        return .{ nanos: saturating_mul_u64(self, NS_PER_SEC) };
+    }
+}

@@ -1,0 +1,19 @@
+[workspace]
+name = "workspace"
+members = [
+    "base",
+    "kernlib-test",
+    "std",
+    "rt",
+]
+
+[workspace.package]
+description = "Official Kern library workspace"
+license = "MIT"
+authors = ["softfault <givenyoung46@gmail.com>"]
+readme = "README.md"
+
+[workspace.dependencies]
+base = { path = "base" }
+std = { path = "std" }
+rt = { path = "rt" }

@@ -1,0 +1,211 @@
+//! Tests for ordered tree maps.
+
+use base.coll.{tree, string};
+use base.cmp.{Comparable, Ord, Ordering, LESS, EQUAL, GREATER};
+use base.io;
+use base.mem.alloc.gpa;
+use base.test.{Report, report};
+use std.mem.Page;
+
+struct Key {
+    major: i32,
+    minor: i32,
+};
+
+impl Key : Eq[Key] {
+    pub fn eq(other: Key) bool {
+        return self.major == other.major and self.minor == other.minor;
+    }
+}
+
+impl Key : Comparable[Key] {
+    pub fn cmp(other: Key) Ordering {
+        if (self.major < other.major) return LESS;
+        if (self.major > other.major) return GREATER;
+        if (self.minor < other.minor) return LESS;
+        if (self.minor > other.minor) return GREATER;
+        return EQUAL;
+    }
+}
+
+impl Key : Ord[Key] {}
+
+fn check_basic_tree[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let map = tree[i32, i32]()..&;
+    defer map.deinit(gpa);
+    let mut lazy_calls = 0i32;
+
+    let mut i = 0;
+    while (i < 32) {
+        let key = i as i32;
+        map.try_insert(gpa, key, key * 2).should_ok().sum(@loc(), t);
+        i += 1;
+    }
+
+    map.try_insert(gpa, 7, 99).should_ok().sum(@loc(), t);
+    map.get(7).should_some().eq(99).sum(@loc(), t);
+    map.get(31).should_some().eq(62).sum(@loc(), t);
+
+    let value_ptr = map.get_ptr(7).should_some().sum(@loc(), t);
+    value_ptr.* = 123;
+    map.get(7).should_some().eq(123).sum(@loc(), t);
+
+    let existing = map.try_get_or_insert_with(gpa, 7, [calls = lazy_calls..&]() i32 {
+        calls.* += 1;
+        return 700;
+    }).should_ok().sum(@loc(), t);
+    existing.*.should().eq(123).sum(@loc(), t);
+    lazy_calls.should().eq(0).sum(@loc(), t);
+
+    let inserted = map.try_get_or_insert(gpa, 100, 500).should_ok().sum(@loc(), t);
+    inserted.*.should().eq(500).sum(@loc(), t);
+
+    let lazy_inserted = map.try_get_or_insert_with(gpa, 200, [calls = lazy_calls..&]() i32 {
+        calls.* += 1;
+        return 900;
+    }).should_ok().sum(@loc(), t);
+    lazy_inserted.*.should().eq(900).sum(@loc(), t);
+    lazy_calls.should().eq(1).sum(@loc(), t);
+
+    map.contains(15).should().sum(@loc(), t);
+    map.contains(1000).not().should().sum(@loc(), t);
+    map.len().should().eq(34usize).sum(@loc(), t);
+}
+
+fn check_custom_key_tree[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let map = tree[Key, i32]()..&;
+    defer map.deinit(gpa);
+
+    map.try_insert(gpa, Key.{ major: 1, minor: 0 }, 10).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, Key.{ major: 0, minor: 8 }, 8).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, Key.{ major: 1, minor: 2 }, 12).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, Key.{ major: 1, minor: 0 }, 99).should_ok().sum(@loc(), t);
+
+    map.get(Key.{ major: 1, minor: 0 }).should_some().eq(99).sum(@loc(), t);
+    map.get(Key.{ major: 0, minor: 8 }).should_some().eq(8).sum(@loc(), t);
+    map.contains(Key.{ major: 2, minor: 0 }).not().should().sum(@loc(), t);
+    map.len().should().eq(3usize).sum(@loc(), t);
+}
+
+fn check_traversal_and_boundaries[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let map = tree[i32, i32]()..&;
+    defer map.deinit(gpa);
+
+    map.try_insert(gpa, 3, 30).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, 1, 10).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, 4, 40).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, 2, 20).should_ok().sum(@loc(), t);
+
+    let order = string()..&;
+    defer order.deinit(gpa);
+    map.for_each([order, gpa](key: i32, _: i32) void {
+        let _ = order.try_push_char(gpa, (key as u8) + b'0');
+    });
+    (order.* == "1234").should().sum(@loc(), t);
+
+    map.fold(0i32, [](accum: i32, key: i32, value: i32) i32 {
+        return accum + key * value;
+    }).should().eq(300).sum(@loc(), t);
+
+    map.for_each_mut([](key: i32, value: &mut i32) void {
+        value.* += key;
+    });
+    map.get(1).should_some().eq(11).sum(@loc(), t);
+    map.get(2).should_some().eq(22).sum(@loc(), t);
+    map.get(3).should_some().eq(33).sum(@loc(), t);
+    map.get(4).should_some().eq(44).sum(@loc(), t);
+
+    map.first_key().should_some().eq(1).sum(@loc(), t);
+    map.first().should_some().eq(11).sum(@loc(), t);
+    map.last_key().should_some().eq(4).sum(@loc(), t);
+    map.last().should_some().eq(44).sum(@loc(), t);
+    map.ceil_key(0).should_some().eq(1).sum(@loc(), t);
+    map.ceil(2).should_some().eq(22).sum(@loc(), t);
+    map.floor_key(5).should_some().eq(4).sum(@loc(), t);
+    map.floor(3).should_some().eq(33).sum(@loc(), t);
+    map.ceil_key(5).should_none().sum(@loc(), t);
+    map.floor_key(0).should_none().sum(@loc(), t);
+}
+
+fn check_remove[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let map = tree[i32, i32]()..&;
+    defer map.deinit(gpa);
+
+    let mut i = 1i32;
+    while (i <= 40) {
+        map.try_insert(gpa, i, i * 10).should_ok().sum(@loc(), t);
+        i += 1;
+    }
+
+    map.remove(gpa, 20).should_some().eq(200).sum(@loc(), t);
+    map.contains(20).not().should().sum(@loc(), t);
+    map.remove(gpa, 1).should_some().eq(10).sum(@loc(), t);
+    map.contains(1).not().should().sum(@loc(), t);
+    map.remove(gpa, 40).should_some().eq(400).sum(@loc(), t);
+    map.contains(40).not().should().sum(@loc(), t);
+    map.remove(gpa, 99).should_none().sum(@loc(), t);
+    map.len().should().eq(37usize).sum(@loc(), t);
+
+    map.first_key().should_some().eq(2).sum(@loc(), t);
+    map.last_key().should_some().eq(39).sum(@loc(), t);
+    map.ceil_key(20).should_some().eq(21).sum(@loc(), t);
+    map.floor_key(20).should_some().eq(19).sum(@loc(), t);
+
+    let mut count = 0i32;
+    let ordered = string()..&;
+    defer ordered.deinit(gpa);
+    map.for_each([count = count..&, ordered, gpa](key: i32, _: i32) void {
+        count.* += 1;
+        if (key >= 2 and key <= 9) {
+            let _ = ordered.try_push_char(gpa, (key as u8) + b'0');
+        }
+    });
+    count.should().eq(37).sum(@loc(), t);
+    (ordered.* == "23456789").should().sum(@loc(), t);
+
+    let small = tree[i32, i32]()..&;
+    defer small.deinit(gpa);
+    small.try_insert(gpa, 2, 20).should_ok().sum(@loc(), t);
+    small.try_insert(gpa, 1, 10).should_ok().sum(@loc(), t);
+    small.try_insert(gpa, 3, 30).should_ok().sum(@loc(), t);
+    small.remove(gpa, 2).should_some().eq(20).sum(@loc(), t);
+    small.remove(gpa, 1).should_some().eq(10).sum(@loc(), t);
+    small.remove(gpa, 3).should_some().eq(30).sum(@loc(), t);
+    small.is_empty().should().sum(@loc(), t);
+    small.first().should_none().sum(@loc(), t);
+    small.last().should_none().sum(@loc(), t);
+}
+
+#[test]
+fn tree_collections() i32 {
+    let t = report(io.discard())..&;
+    check_basic_tree(t);
+    check_custom_key_tree(t);
+    check_traversal_and_boundaries(t);
+    check_remove(t);
+    return 0;
+}

@@ -411,7 +411,7 @@ fn official_library_workspace_is_present(path: &Path) -> bool {
 
 fn official_library_workspace_error(path: &Path) -> String {
     format!(
-        "official Kern library workspace `{}` is missing or incomplete; set KERNLIB_PATH to a kernlib checkout, run `git submodule update --init library` from the Kern repository, or provide explicit --module-path mappings",
+        "official Kern library workspace `{}` is missing or incomplete; set KERNLIB_PATH to an external compatible library workspace, restore the in-tree `library/` directory, or provide explicit --module-path mappings",
         path.display()
     )
 }
@@ -707,7 +707,7 @@ mod tests {
         };
         let err = validate_compile_options(&options).unwrap_err();
         assert!(err.contains("KERNLIB_PATH"));
-        assert!(err.contains("git submodule update --init library"));
+        assert!(err.contains("in-tree `library/` directory"));
 
         options
             .module_aliases

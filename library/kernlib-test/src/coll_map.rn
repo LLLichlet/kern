@@ -1,0 +1,302 @@
+//! Tests for hash map and string trait helpers.
+
+use base.coll.{map, string};
+use base.cmp.{LESS, EQUAL, GREATER};
+use base.hash.{Hash, hash_of};
+use base.io;
+use base.mem.alloc.gpa;
+use base.test.{Report, report};
+use std.mem.Page;
+
+struct Key {
+    group: i32,
+    id: i32,
+};
+
+impl Key : Eq[Key] {
+    pub fn eq(other: Key) bool {
+        return self.group == other.group and self.id == other.id;
+    }
+}
+
+impl Key : Hash[Key] {
+    pub fn hash() u64 {
+        return self.group as u64;
+    }
+}
+
+fn check_integer_map[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let map = map[i32, i32]()..&;
+    defer map.deinit(gpa);
+
+    let mut i = 0;
+    while (i < 128) {
+        let key = i as i32;
+        map.try_insert(gpa, key, key * 3).should_ok().sum(@loc(), t);
+        i += 1;
+    }
+
+    map.try_insert(gpa, 7, 99).should_ok().sum(@loc(), t);
+    map.len().should().eq(128usize).sum(@loc(), t);
+
+    let value_ptr = map.get_ptr(7).should_some().sum(@loc(), t);
+    value_ptr.* = 123;
+    map.get(7).should_some().eq(123).sum(@loc(), t);
+    map.remove(7).should_some().eq(123).sum(@loc(), t);
+    map.contains(7).not().should().sum(@loc(), t);
+
+    map.try_insert(gpa, 7, 777).should_ok().sum(@loc(), t);
+    map.get(7).should_some().eq(777).sum(@loc(), t);
+    map.get(100).should_some().eq(300).sum(@loc(), t);
+
+    let before_compact = map.capacity;
+    map.try_compact(gpa).should_ok().sum(@loc(), t);
+    map.capacity.should().eq(before_compact).sum(@loc(), t);
+    map.remove(999).should_none().sum(@loc(), t);
+
+    map.clear();
+    map.is_empty().should().sum(@loc(), t);
+    map.len().should().eq(0usize).sum(@loc(), t);
+
+    map.try_insert(gpa, 42, 4242).should_ok().sum(@loc(), t);
+    map.get(42).should_some().eq(4242).sum(@loc(), t);
+    map.try_shrink_to_fit(gpa).should_ok().sum(@loc(), t);
+    map.capacity.should().eq(8usize).sum(@loc(), t);
+}
+
+fn check_custom_key_map[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let map = map[Key, i32]()..&;
+    defer map.deinit(gpa);
+
+    map.try_insert(gpa, Key.{ group: 1, id: 10 }, 10).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, Key.{ group: 1, id: 11 }, 11).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, Key.{ group: 1, id: 12 }, 12).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, Key.{ group: 2, id: 99 }, 99).should_ok().sum(@loc(), t);
+    map.len().should().eq(4usize).sum(@loc(), t);
+
+    map.get(Key.{ group: 1, id: 11 }).should_some().eq(11).sum(@loc(), t);
+    map.remove(Key.{ group: 1, id: 10 }).should_some().eq(10).sum(@loc(), t);
+    map.try_insert(gpa, Key.{ group: 1, id: 13 }, 13).should_ok().sum(@loc(), t);
+    map.get(Key.{ group: 1, id: 12 }).should_some().eq(12).sum(@loc(), t);
+    map.get(Key.{ group: 1, id: 13 }).should_some().eq(13).sum(@loc(), t);
+    map.contains(Key.{ group: 1, id: 10 }).not().should().sum(@loc(), t);
+
+    let cap_before = map.capacity;
+    map.try_reserve(gpa, 64).should_ok().sum(@loc(), t);
+    (map.capacity >= cap_before).should().sum(@loc(), t);
+    map.get(Key.{ group: 1, id: 11 }).should_some().eq(11).sum(@loc(), t);
+}
+
+fn check_byte_slice_keys[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let map = map[&[u8], i32]()..&;
+    defer map.deinit(gpa);
+
+    let alpha = [5]u8.{ b'a', b'l', b'p', b'h', b'a' };
+    let alpha_probe = [5]u8.{ b'a', b'l', b'p', b'h', b'a' };
+    let beta = [4]u8.{ b'b', b'e', b't', b'a' };
+
+    map.try_insert(gpa, alpha.&[0 .. 5], 7).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, beta.&[0 .. 4], 9).should_ok().sum(@loc(), t);
+    map.contains(alpha_probe.&[0 .. 5]).should().sum(@loc(), t);
+    map.get(alpha_probe.&[0 .. 5]).should_some().eq(7).sum(@loc(), t);
+    map.remove(alpha_probe.&[0 .. 5]).should_some().eq(7).sum(@loc(), t);
+    map.contains(alpha.&[0 .. 5]).not().should().sum(@loc(), t);
+    map.get(beta.&[0 .. 4]).should_some().eq(9).sum(@loc(), t);
+}
+
+fn check_string_traits[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let alpha = string()..&;
+    defer alpha.deinit(gpa);
+    alpha.try_clone_from(gpa, "alpha").should_ok().sum(@loc(), t);
+
+    let alpha_copy = string()..&;
+    defer alpha_copy.deinit(gpa);
+    alpha_copy.try_clone_from(gpa, "alpha").should_ok().sum(@loc(), t);
+
+    let beta = string()..&;
+    defer beta.deinit(gpa);
+    beta.try_clone_from(gpa, "beta").should_ok().sum(@loc(), t);
+
+    (alpha.*.cmp(alpha_copy.*) == EQUAL).should().sum(@loc(), t);
+    (alpha.*.cmp(beta.*) == LESS).should().sum(@loc(), t);
+    (beta.*.cmp(alpha.*) == GREATER).should().sum(@loc(), t);
+
+    let alpha_hash = hash_of(alpha.*);
+    let alpha_copy_hash = hash_of(alpha_copy.*);
+    let beta_hash = hash_of(beta.*);
+
+    alpha_hash.should().eq(alpha_copy_hash).sum(@loc(), t);
+    (alpha_hash != beta_hash).should().sum(@loc(), t);
+}
+
+fn check_get_or_insert[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let map = map[i32, i32]()..&;
+    defer map.deinit(gpa);
+    let mut lazy_calls = 0i32;
+
+    for (i: base.coll.range(0i32, 6i32)) {
+        map.try_insert(gpa, i, i + 10i32).should_ok().sum(@loc(), t);
+    }
+    map.capacity.should().eq(8usize).sum(@loc(), t);
+    map.len().should().eq(6usize).sum(@loc(), t);
+
+    map.try_insert(gpa, 3, 99).should_ok().sum(@loc(), t);
+    map.len().should().eq(6usize).sum(@loc(), t);
+
+    let existing = map.try_get_or_insert(gpa, 3, 111).should_ok().sum(@loc(), t);
+    existing.*.should().eq(99).sum(@loc(), t);
+    existing.* = 123;
+    map.get(3).should_some().eq(123).sum(@loc(), t);
+
+    let inserted = map.try_get_or_insert(gpa, 100, 500).should_ok().sum(@loc(), t);
+    inserted.*.should().eq(500).sum(@loc(), t);
+    map.len().should().eq(7usize).sum(@loc(), t);
+
+    let lazy_existing = map.try_get_or_insert_with(gpa, 100, [calls = lazy_calls..&]() i32 {
+        calls.* += 1;
+        return 700;
+    }).should_ok().sum(@loc(), t);
+    lazy_existing.*.should().eq(500).sum(@loc(), t);
+    lazy_calls.should().eq(0).sum(@loc(), t);
+
+    let lazy_inserted = map.try_get_or_insert_with(gpa, 200, [calls = lazy_calls..&]() i32 {
+        calls.* += 1;
+        return 900;
+    }).should_ok().sum(@loc(), t);
+    lazy_inserted.*.should().eq(900).sum(@loc(), t);
+    lazy_calls.should().eq(1).sum(@loc(), t);
+    map.len().should().eq(8usize).sum(@loc(), t);
+}
+
+fn check_traversal_predicates_and_lists[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let map = map[i32, i32]()..&;
+    defer map.deinit(gpa);
+
+    map.try_insert(gpa, 1, 10).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, 2, 20).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, 3, 30).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, 4, 40).should_ok().sum(@loc(), t);
+
+    let mut key_sum = 0i32;
+    let mut value_sum = 0i32;
+    map.for_each([key_sum = key_sum..&, value_sum = value_sum..&](key: i32, value: i32) void {
+        key_sum.* += key;
+        value_sum.* += value;
+    });
+    key_sum.should().eq(10).sum(@loc(), t);
+    value_sum.should().eq(100).sum(@loc(), t);
+    map.fold(0i32, [](accum: i32, key: i32, value: i32) i32 {
+        return accum + key + value;
+    }).should().eq(110).sum(@loc(), t);
+
+    map.for_each_mut([](key: i32, value: &mut i32) void {
+        value.* += key;
+    });
+    map.get(1).should_some().eq(11).sum(@loc(), t);
+    map.get(2).should_some().eq(22).sum(@loc(), t);
+    map.get(3).should_some().eq(33).sum(@loc(), t);
+    map.get(4).should_some().eq(44).sum(@loc(), t);
+
+    map.any([](key: i32, value: i32) bool {
+        return key == 3 and value == 33;
+    }).should().sum(@loc(), t);
+    map.all([](_: i32, value: i32) bool {
+        return value >= 11;
+    }).should().sum(@loc(), t);
+    map.count([](key: i32, _: i32) bool {
+        return key % 2 == 0;
+    }).should().eq(2usize).sum(@loc(), t);
+    map.find_map([](key: i32, value: i32) ?i32 {
+        if (key == 4) return .{ Some: value + 4 };
+        return .None;
+    }).should_some().eq(48).sum(@loc(), t);
+
+    map.retain_mut([](key: i32, value: &mut i32) bool {
+        value.* += key;
+        return key >= 2;
+    });
+    map.len().should().eq(3usize).sum(@loc(), t);
+    map.contains(1).not().should().sum(@loc(), t);
+    map.get(2).should_some().eq(24).sum(@loc(), t);
+    map.get(3).should_some().eq(36).sum(@loc(), t);
+    map.get(4).should_some().eq(48).sum(@loc(), t);
+    map.remove_where([](key: i32, value: i32) bool {
+        return key == 3 and value == 36;
+    }).should_some().eq(36).sum(@loc(), t);
+    map.contains(3).not().should().sum(@loc(), t);
+    map.len().should().eq(2usize).sum(@loc(), t);
+
+    let keys = base.coll.list[i32]()..&;
+    defer keys.deinit(gpa);
+    let values = base.coll.list[i32]()..&;
+    defer values.deinit(gpa);
+    keys.try_push(gpa, 1000).should_ok().sum(@loc(), t);
+    values.try_push(gpa, 2000).should_ok().sum(@loc(), t);
+    map.try_append_keys(gpa, keys).should_ok().sum(@loc(), t);
+    map.try_append_values(gpa, values).should_ok().sum(@loc(), t);
+    keys.len().should().eq(3usize).sum(@loc(), t);
+    values.len().should().eq(3usize).sum(@loc(), t);
+    keys.first().should_some().eq(1000).sum(@loc(), t);
+    values.first().should_some().eq(2000).sum(@loc(), t);
+    keys.count([](key: i32) bool {
+        return key == 2 or key == 4;
+    }).should().eq(2usize).sum(@loc(), t);
+    values.count([](value: i32) bool {
+        return value == 24 or value == 48;
+    }).should().eq(2usize).sum(@loc(), t);
+
+    let owned_keys = map.keys(gpa).should_ok().sum(@loc(), t)..&;
+    defer owned_keys.deinit(gpa);
+    let owned_values = map.values(gpa).should_ok().sum(@loc(), t)..&;
+    defer owned_values.deinit(gpa);
+    owned_keys.len().should().eq(2usize).sum(@loc(), t);
+    owned_values.len().should().eq(2usize).sum(@loc(), t);
+}
+
+#[test]
+fn map_collections() i32 {
+    let t = report(io.discard())..&;
+    check_integer_map(t);
+    check_custom_key_map(t);
+    check_byte_slice_keys(t);
+    check_string_traits(t);
+    check_get_or_insert(t);
+    check_traversal_predicates_and_lists(t);
+    return 0;
+}

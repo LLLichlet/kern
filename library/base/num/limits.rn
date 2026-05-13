@@ -1,0 +1,14 @@
+//! Integer limits.
+
+/// The minimum representable `i8`.
+pub const I8_MIN = -128i8;
+/// The maximum representable `i8`.
+pub const I8_MAX = 127i8;
+
+/// The maximum representable `usize`.
+pub const USIZE_MAX = ~0usize;
+/// The minimum representable `usize`.
+pub const USIZE_MIN = 0usize;
+
+/// The maximum representable `isize`.
+pub const ISIZE_MAX = (USIZE_MAX >> 1) as isize;

@@ -1,0 +1,256 @@
+//! Tests for hosted `std.fs` file and directory operations.
+
+use base.io.Write;
+use base.mem.alloc.gpa;
+use base.test.{Report, report};
+use std.env;
+use std.fs;
+use std.io;
+use std.mem.Page;
+
+fn test_root[W](gpa: &mut base.mem.alloc.Allocator, t: &mut Report[W]) base.coll.String
+    where &mut W: Write,
+{
+    return "CRAFT_TEST_TMPDIR".env().get(gpa)
+        .should_ok()
+        .sum(@loc(), t)
+        .should_some()
+        .sum(@loc(), t);
+}
+
+fn check_file_roundtrip[W](gpa: &mut base.mem.alloc.Allocator, root: &[u8], t: &mut Report[W]) void
+    where &mut W: Write,
+{
+    let file_path = fs.join(gpa, root, "data.txt").should_ok().sum(@loc(), t)..&;
+    defer file_path.deinit(gpa);
+
+    file_path.as_str().path().exists(gpa).should_ok().eq(false).sum(@loc(), t);
+    file_path.as_str().path().write_all(gpa, "abc123").should_ok().eq(6usize).sum(@loc(), t);
+    file_path.as_str().path().exists(gpa).should_ok().eq(true).sum(@loc(), t);
+    file_path.as_str().path().is_file(gpa).should_ok().eq(true).sum(@loc(), t);
+    file_path.as_str().path().is_dir(gpa).should_ok().eq(false).sum(@loc(), t);
+    file_path.as_str().path().file_size(gpa).should_ok().eq(6usize).sum(@loc(), t);
+    file_path.as_str().path().is_empty_file(gpa).should_ok().eq(false).sum(@loc(), t);
+
+    let text = file_path.as_str().path().read_to_string(gpa).should_ok().sum(@loc(), t)..&;
+    defer text.deinit(gpa);
+    text.as_str().should().eq("abc123").sum(@loc(), t);
+
+    file_path.as_str().path().append_all(gpa, "-tail").should_ok().eq(5usize).sum(@loc(), t);
+    let appended = file_path.as_str().path().read_to_string(gpa).should_ok().sum(@loc(), t)..&;
+    defer appended.deinit(gpa);
+    appended.as_str().should().eq("abc123-tail").sum(@loc(), t);
+
+    let bytes = file_path.as_str().path().read_all(gpa).should_ok().sum(@loc(), t)..&;
+    defer bytes.deinit(gpa);
+    bytes.as_slice().should().eq("abc123-tail").sum(@loc(), t);
+
+    let copy_path = fs.join(gpa, root, "copy.txt").should_ok().sum(@loc(), t)..&;
+    defer copy_path.deinit(gpa);
+    file_path.as_str().path().copy_to(gpa, copy_path.as_str()).should_ok().eq(11usize).sum(@loc(), t);
+    let copied = copy_path.as_str().path().read_to_string(gpa).should_ok().sum(@loc(), t)..&;
+    defer copied.deinit(gpa);
+    copied.as_str().should().eq("abc123-tail").sum(@loc(), t);
+
+    let renamed_path = fs.join(gpa, root, "renamed.txt").should_ok().sum(@loc(), t)..&;
+    defer renamed_path.deinit(gpa);
+    copy_path.as_str().path().rename(gpa, renamed_path.as_str()).should_ok().eq(true).sum(@loc(), t);
+    copy_path.as_str().path().exists(gpa).should_ok().eq(false).sum(@loc(), t);
+    renamed_path.as_str().path().exists(gpa).should_ok().eq(true).sum(@loc(), t);
+
+    file_path.as_str().path().remove_file(gpa).should_ok().eq(true).sum(@loc(), t);
+    renamed_path.as_str().path().remove_file_if_exists(gpa).should_ok().eq(true).sum(@loc(), t);
+    renamed_path.as_str().path().remove_file_if_exists(gpa).should_ok().eq(false).sum(@loc(), t);
+}
+
+fn check_direct_file_ops[W](gpa: &mut base.mem.alloc.Allocator, root: &[u8], t: &mut Report[W]) void
+    where &mut W: Write,
+{
+    let path = fs.join(gpa, root, "direct.bin").should_ok().sum(@loc(), t)..&;
+    defer path.deinit(gpa);
+
+    let options = fs.OpenOptions.{
+        read: true,
+        write: true,
+        create: true,
+        truncate: true,
+    };
+    let file = path.as_str().path().open(gpa, options.&).should_ok().sum(@loc(), t)..&;
+    file.write_all("abcdef").should_ok().eq(6usize).sum(@loc(), t);
+    file.tell().should_ok().eq(6usize).sum(@loc(), t);
+    file.seek(.{ Start: 2 }).should_ok().eq(2usize).sum(@loc(), t);
+
+    let mut mid: [2]u8 = undef;
+    file.read_exact(mid..&[0 .. 2]).should_ok().eq(true).sum(@loc(), t);
+    mid.&[0 .. 2].should().eq("cd").sum(@loc(), t);
+
+    file.seek(.{ End: -2 }).should_ok().eq(4usize).sum(@loc(), t);
+    let mut tail: [4]u8 = undef;
+    file.read(tail..&[0 .. 4]).should_ok().eq(2usize).sum(@loc(), t);
+    tail.&[0 .. 2].should().eq("ef").sum(@loc(), t);
+
+    file.truncate(3).should_ok().eq(true).sum(@loc(), t);
+    file.flush().should_ok().eq(true).sum(@loc(), t);
+    file.seek(.{ Start: 0 }).should_ok().eq(0usize).sum(@loc(), t);
+    let mut all = file.read_to_end(gpa).should_ok().sum(@loc(), t);
+    defer all..&.deinit(gpa);
+    all.as_slice().should().eq("abc").sum(@loc(), t);
+
+    let mut too_much: [1]u8 = undef;
+    match (file.read_exact(too_much..&[0 .. 1]).should_err().sum(@loc(), t)) {
+        .UnexpectedEof => {},
+        _ => false.should().sum(@loc(), t),
+    }
+    file.close().should_ok().eq(true).sum(@loc(), t);
+
+    path.as_str().path().file_size(gpa).should_ok().eq(3usize).sum(@loc(), t);
+    path.as_str().path().remove_file(gpa).should_ok().eq(true).sum(@loc(), t);
+}
+
+fn check_open_variants_and_atomic[W](gpa: &mut base.mem.alloc.Allocator, root: &[u8], t: &mut Report[W]) void
+    where &mut W: Write,
+{
+    let path = fs.join(gpa, root, "open.txt").should_ok().sum(@loc(), t)..&;
+    defer path.deinit(gpa);
+
+    let created = path.as_str().path().create_new(gpa).should_ok().sum(@loc(), t)..&;
+    created.write_all("ab").should_ok().eq(2usize).sum(@loc(), t);
+    created.deinit();
+    path.as_str().path().create_new(gpa).should_err().sum(@loc(), t).kind()
+        .should()
+        .eq(fs.ErrorKind.AlreadyExists)
+        .sum(@loc(), t);
+
+    let appended = path.as_str().path().open_append(gpa).should_ok().sum(@loc(), t)..&;
+    appended.write_all("cd").should_ok().eq(2usize).sum(@loc(), t);
+    appended.deinit();
+
+    let writer = path.as_str().path().open_write(gpa).should_ok().sum(@loc(), t)..&;
+    writer.write_all("Z").should_ok().eq(1usize).sum(@loc(), t);
+    writer.deinit();
+
+    let text = path.as_str().path().read_to_string(gpa).should_ok().sum(@loc(), t)..&;
+    defer text.deinit(gpa);
+    text.as_str().should().eq("Zbcd").sum(@loc(), t);
+
+    let atomic_path = fs.join(gpa, root, "atomic.txt").should_ok().sum(@loc(), t)..&;
+    defer atomic_path.deinit(gpa);
+    let tmp_path = fs.join(gpa, root, "atomic.tmp").should_ok().sum(@loc(), t)..&;
+    defer tmp_path.deinit(gpa);
+
+    atomic_path.as_str().path().write_all(gpa, "old").should_ok().eq(3usize).sum(@loc(), t);
+    atomic_path.as_str().path().write_all_atomic_tmp(gpa, tmp_path.as_str(), "new-data")
+        .should_ok()
+        .eq(8usize)
+        .sum(@loc(), t);
+    tmp_path.as_str().path().exists(gpa).should_ok().eq(false).sum(@loc(), t);
+    let atomic_text = atomic_path.as_str().path().read_to_string(gpa).should_ok().sum(@loc(), t)..&;
+    defer atomic_text.deinit(gpa);
+    atomic_text.as_str().should().eq("new-data").sum(@loc(), t);
+
+    let auto_path = fs.join(gpa, root, "auto.txt").should_ok().sum(@loc(), t)..&;
+    defer auto_path.deinit(gpa);
+    auto_path.as_str().path().write_all_atomic(gpa, "auto-data")
+        .should_ok()
+        .eq(9usize)
+        .sum(@loc(), t);
+    let auto_text = auto_path.as_str().path().read_to_string(gpa).should_ok().sum(@loc(), t)..&;
+    defer auto_text.deinit(gpa);
+    auto_text.as_str().should().eq("auto-data").sum(@loc(), t);
+
+    path.as_str().path().remove_file(gpa).should_ok().eq(true).sum(@loc(), t);
+    atomic_path.as_str().path().remove_file(gpa).should_ok().eq(true).sum(@loc(), t);
+    auto_path.as_str().path().remove_file(gpa).should_ok().eq(true).sum(@loc(), t);
+}
+
+fn check_dirs[W](gpa: &mut base.mem.alloc.Allocator, root: &[u8], t: &mut Report[W]) void
+    where &mut W: Write,
+{
+    let nested = fs.join(gpa, root, "a/b/c").should_ok().sum(@loc(), t)..&;
+    defer nested.deinit(gpa);
+    let note = fs.join(gpa, nested.as_str(), "note.txt").should_ok().sum(@loc(), t)..&;
+    defer note.deinit(gpa);
+    let root_note = fs.join(gpa, root, "root.txt").should_ok().sum(@loc(), t)..&;
+    defer root_note.deinit(gpa);
+
+    nested.as_str().path().create_dir_all(gpa).should_ok().eq(true).sum(@loc(), t);
+    root.path().is_dir(gpa).should_ok().eq(true).sum(@loc(), t);
+    nested.as_str().path().is_dir(gpa).should_ok().eq(true).sum(@loc(), t);
+    nested.as_str().path().create_dir_all(gpa).should_ok().eq(false).sum(@loc(), t);
+
+    note.as_str().path().write_all(gpa, "nested").should_ok().eq(6usize).sum(@loc(), t);
+    root_note.as_str().path().write_all(gpa, "root").should_ok().eq(4usize).sum(@loc(), t);
+    note.as_str().path().is_file(gpa).should_ok().eq(true).sum(@loc(), t);
+
+    let mut saw_note = false;
+    let visited = nested.as_str().path().read_dir(gpa, [saw = saw_note..&](entry: fs.DirEntry) bool {
+        if (entry.name == "note.txt" and entry.is_file()) {
+            saw.* = true;
+        }
+        return true;
+    }).should_ok().sum(@loc(), t);
+    (visited >= 1).should().sum(@loc(), t);
+    saw_note.should().sum(@loc(), t);
+
+    let entries = nested.as_str().path().read_dir_entries(gpa).should_ok().sum(@loc(), t)..&;
+    defer entries.deinit(gpa);
+    (entries.len() >= 1).should().sum(@loc(), t);
+
+    let mut walked_all = 0usize;
+    root.path().walk_dir(gpa, [walked = walked_all..&](_: &[u8], _: fs.DirEntry, _: usize) bool {
+        walked.* += 1;
+        return true;
+    }).should_ok().sum(@loc(), t).should().eq(5usize).sum(@loc(), t);
+    walked_all.should().eq(5usize).sum(@loc(), t);
+
+    let mut files = 0usize;
+    let walked_files = root.path().walk_files(gpa, [files = files..&](_: &[u8], entry: fs.DirEntry, depth: usize) bool {
+        if (entry.is_file() and depth >= 1) {
+            files.* += 1;
+        }
+        return true;
+    }).should_ok().sum(@loc(), t);
+    walked_files.should().eq(5usize).sum(@loc(), t);
+    files.should().eq(2usize).sum(@loc(), t);
+
+    let mut dirs = 0usize;
+    root.path().walk_dirs(gpa, [dirs = dirs..&](_: &[u8], entry: fs.DirEntry, _: usize) bool {
+        if (entry.is_dir()) {
+            dirs.* += 1;
+        }
+        return true;
+    }).should_ok().sum(@loc(), t).should().eq(5usize).sum(@loc(), t);
+    dirs.should().eq(3usize).sum(@loc(), t);
+
+    let missing = fs.join(gpa, root, "missing.txt").should_ok().sum(@loc(), t)..&;
+    defer missing.deinit(gpa);
+    let err = missing.as_str().path().metadata(gpa).should_err().sum(@loc(), t);
+    err.kind().should().eq(fs.ErrorKind.NotFound).sum(@loc(), t);
+    let _ = err.os_code().should_some().sum(@loc(), t);
+    err.is_not_found().should().sum(@loc(), t);
+    err.is_already_exists().not().should().sum(@loc(), t);
+
+    root.path().remove_dir_all(gpa).should_ok().eq(true).sum(@loc(), t);
+    root.path().exists(gpa).should_ok().eq(false).sum(@loc(), t);
+    root.path().remove_dir_if_exists(gpa).should_ok().eq(false).sum(@loc(), t);
+}
+
+#[test]
+fn filesystem_io() i32 {
+    let t = report(std.io.stderr())..&;
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let root = test_root(gpa, t)..&;
+    defer root.deinit(gpa);
+    _ = root.as_str().path().remove_dir_all(gpa);
+    root.as_str().path().create_dir_all(gpa).should_ok().eq(true).sum(@loc(), t);
+
+    check_file_roundtrip(gpa, root.as_str(), t);
+    check_direct_file_ops(gpa, root.as_str(), t);
+    check_open_variants_and_atomic(gpa, root.as_str(), t);
+    check_dirs(gpa, root.as_str(), t);
+
+    return 0;
+}

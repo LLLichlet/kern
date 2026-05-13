@@ -1,0 +1,222 @@
+//! Core B-tree storage primitives.
+//!
+//! Design:
+//! keep node capacity fixed and surface search hits explicitly so higher layers
+//! can compose inserts and deletes.
+
+use base.cmp.Ord;
+/// The minimum branching factor of the tree.
+pub.. const MIN_DEGREE = 8usize;
+/// The maximum number of keys stored in one node.
+pub.. const MAX_KEYS = 15usize;
+/// The maximum number of child pointers stored in one node.
+pub.. const MAX_CHILDREN = 16usize;
+
+/// A B-tree node.
+pub.. struct Node[K, V] {
+    /// Indicates whether the node has no children.
+    pub is_leaf: bool,
+    /// The number of initialized keys in the node.
+    pub len: usize,
+    /// Sorted keys stored in this node.
+    /// B-tree updates rewrite these slots in place, so the element storage must
+    /// be declared mutable explicitly.
+    pub keys: [15]K,
+    /// Values parallel to `keys`.
+    pub values: [15]V,
+    /// Child pointers between key ranges.
+    pub children: [16]&mut Node[K, V],
+};
+
+/// The location of a matched or neighboring key inside the tree.
+pub.. struct SearchHit[K, V] {
+    /// The node containing the hit.
+    pub node: &mut Node[K, V],
+    /// The index inside `node`.
+    pub index: usize,
+};
+
+/// Returns the key at `index`.
+pub.. fn key_at[K, V](node: &mut Node[K, V], index: usize) K {
+    return node.keys.[index];
+}
+
+/// Returns the value at `index`.
+pub.. fn value_at[K, V](node: &mut Node[K, V], index: usize) V {
+    return node.values.[index];
+}
+
+/// Returns the child pointer at `index`.
+pub.. fn child_at[K, V](node: &mut Node[K, V], index: usize) &mut Node[K, V] {
+    return node.children.[index];
+}
+
+/// Returns a sentinel child pointer for unused leaf slots.
+///
+/// Leaf child slots are never dereferenced, so any stable non-zero sentinel is
+/// sufficient.
+pub.. fn dangling_child[K, V]() &mut Node[K, V] {
+    return 1usize.as_mut_ptr[Node[K, V]]();
+}
+
+/// Wraps a node pointer in the tree's canonical optional-root form.
+pub.. fn some_node[K, V](node: &mut Node[K, V]) ?&mut Node[K, V] {
+    return .{ Some: node };
+}
+
+/// Writes the key at `index`.
+pub.. fn set_key[K, V](node: &mut Node[K, V], index: usize, key: K) void {
+    node.keys.[index] = key;
+}
+
+/// Writes the value at `index`.
+pub.. fn set_value[K, V](node: &mut Node[K, V], index: usize, value: V) void {
+    node.values.[index] = value;
+}
+
+/// Writes the child pointer at `index`.
+pub.. fn set_child[K, V](node: &mut Node[K, V], index: usize, child: &mut Node[K, V]) void {
+    node.children.[index] = child;
+}
+
+/// Returns the first key position in the tree.
+///
+/// Returns:
+/// `None` when the tree is empty.
+pub.. fn first_hit[K, V](root: ?&mut Node[K, V]) ?SearchHit[K, V] {
+    let root = root.?;
+
+    let mut node = root;
+        while (!node.is_leaf) {
+        node = child_at[K, V](node, 0usize);
+    }
+    return .{ Some: SearchHit[K, V].{ node: node, index: 0usize } };
+}
+
+/// Returns the last key position in the tree.
+///
+/// Returns:
+/// `None` when the tree is empty.
+pub.. fn last_hit[K, V](root: ?&mut Node[K, V]) ?SearchHit[K, V] {
+    let root = root.?;
+
+    let mut node = root;
+        while (!node.is_leaf) {
+        node = child_at[K, V](node, node.len);
+    }
+    return .{ Some: SearchHit[K, V].{ node: node, index: node.len - 1 } };
+}
+
+/// Returns the first key position whose key is greater than or equal to `key`.
+///
+/// This is the lower-bound search primitive used by ordered queries.
+pub.. fn ceil_hit[K, V](root: ?&mut Node[K, V], key: K) ?SearchHit[K, V]
+    where K: Ord[K],
+{
+    let root = root.?;
+    let mut node = root;
+    let mut found = ?SearchHit[K, V].None;
+
+        while (true) {
+        let current = node;
+        let mut index = 0usize;
+                while (index < current.len) {
+            let cmp = key_at[K, V](current, index).cmp(key);
+            if (cmp >= 0) {
+                found = .{ Some: SearchHit[K, V].{ node: current, index: index } };
+                if (cmp == 0 or current.is_leaf) {
+                    return found;
+                }
+                node = child_at[K, V](current, index);
+                break;
+            }
+
+            index += 1;
+        }
+
+        if (index == current.len) {
+            if (current.is_leaf) {
+                return found;
+            }
+            node = child_at[K, V](current, current.len);
+        }
+    }
+}
+
+/// Returns the last key position whose key is less than or equal to `key`.
+///
+/// This is the upper-bound search primitive used by ordered queries.
+pub.. fn floor_hit[K, V](root: ?&mut Node[K, V], key: K) ?SearchHit[K, V]
+    where K: Ord[K],
+{
+    let root = root.?;
+    let mut node = root;
+    let mut found = ?SearchHit[K, V].None;
+
+        while (true) {
+        let mut index = 0usize;
+                while (index < node.len) {
+            let cmp = key_at[K, V](node, index).cmp(key);
+            if (cmp > 0) {
+                break;
+            }
+            found = .{ Some: SearchHit[K, V].{ node: node, index: index } };
+            if (cmp == 0) {
+                return found;
+            }
+
+            index += 1;
+        }
+
+        if (node.is_leaf) {
+            return found;
+        }
+
+        node = child_at[K, V](node, index);
+    }
+}
+
+/// An ordered map backed by a B-tree.
+///
+/// The mutable layer owns balancing and node allocation; this base type only
+/// stores the root pointer and entry count.
+pub.. struct Tree[K, V] where K: Ord[K] {
+    /// The root node pointer when the tree is non-empty.
+    pub root: ?&mut Node[K, V] = .None,
+    /// The number of key-value pairs stored in the tree.
+    len: usize = 0,
+};
+
+pub.. fn set_len[K, V](tree: &mut Tree[K, V], len: usize) void
+    where K: Ord[K],
+{
+    tree.len = len;
+}
+
+impl[K, V] Tree[K, V]
+    where K: Ord[K],
+{
+    /// Returns the number of key-value pairs stored in the tree.
+    pub fn len() usize {
+        return self.len;
+    }
+
+    /// Returns `true` when the tree contains no entries.
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+}
+
+impl[K, V] &Tree[K, V]
+    where K: Ord[K],
+{
+    /// Returns the number of key-value pairs stored in the tree.
+    pub fn len() usize {
+        return self.len;
+    }
+
+    /// Returns `true` when the tree contains no entries.
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+}

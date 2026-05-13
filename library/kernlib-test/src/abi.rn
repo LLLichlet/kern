@@ -1,0 +1,24 @@
+//! Tests for ABI helpers shared by hosted and freestanding code.
+
+use base.abi;
+use base.test.{Report, report};
+use base.io;
+use base.mem.alloc.gpa;
+use std.mem.Page;
+
+#[test]
+fn abi_helpers() i32 {
+    let t = report(io.discard())..&;
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let text = abi.cstr.owned(gpa, "kern").should_ok().sum(@loc(), t)..&;
+    defer text.deinit(gpa);
+
+    text.len().should().eq(4usize).sum(@loc(), t);
+    text.ptr().cstr_len().should().eq(4usize).sum(@loc(), t);
+    ((text.ptr() + 4usize).* == 0u8).should().sum(@loc(), t);
+
+    return 0;
+}

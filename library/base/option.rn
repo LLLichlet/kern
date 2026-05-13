@@ -1,0 +1,115 @@
+//! Optional values.
+//!
+//! `?T` models the presence or absence of a value without relying on
+//! sentinel values or out-of-band error codes.
+
+impl[T] ?T {
+    /// Returns `true` when the option does not contain a value.
+    pub fn is_none() bool {
+        match (self) {
+            .{ Some: _ } => false,
+            .None => true,
+        }
+    }
+
+    /// Returns `true` when the option contains a value.
+    pub fn is_some() bool {
+        return !(self.is_none());
+    }
+
+    /// Returns `true` when the option is empty or the predicate accepts the value.
+    pub fn is_none_or(call_back: &Fn(T) bool) bool {
+        match (self) {
+            .None => true,
+            .{ Some: a } => call_back(a),
+        }
+    }
+
+    /// Returns `true` when the option contains a value accepted by the predicate.
+    pub fn is_some_and(call_back: &Fn(T) bool) bool {
+        match (self) {
+            .None => false,
+            .{ Some: a } => call_back(a),
+        }
+    }
+
+    /// Maps `Some(T)` to `Some(U)` and leaves `None` unchanged.
+    pub fn map[U](call_back: &Fn(T) U) ?U {
+        match (self) {
+            .{ Some: a } => .{ Some: call_back(a) },
+            .None => .None,
+        }
+    }
+
+    /// Maps the value when present and otherwise returns `default`.
+    pub fn map_or[U](default: U, call_back: &Fn(T) U) U {
+        match (self) {
+            .{ Some: a } => call_back(a),
+            .None => default,
+        }
+    }
+
+    /// Lazily computes the fallback value when the option is empty.
+    pub fn map_or_else[U](default: &Fn() U, call_back: &Fn(T) U) U {
+        match (self) {
+            .{ Some: a } => call_back(a),
+            .None => default(),
+        }
+    }
+
+    /// Converts `Some(T)` into `Ok(T)` and maps `None` to `Err(err)`.
+    pub fn ok_or[E](err: E) T!E {
+        match (self) {
+            .{ Some: a } => .{ Ok: a },
+            .None => .{ Err: err },
+        }
+    }
+
+    /// Lazily computes the error when the option is empty.
+    pub fn ok_or_else[E](call_back: &Fn() E) T!E {
+        match (self) {
+            .{ Some: a } => .{ Ok: a },
+            .None => .{ Err: call_back() },
+        }
+    }
+
+    /// Chains another optional computation after `Some(T)`.
+    pub fn and_then[U](call_back: &Fn(T) ?U) ?U {
+        match (self) {
+            .{ Some: a } => call_back(a),
+            .None => .None,
+        }
+    }
+
+    /// Computes a replacement option only when the receiver is `None`.
+    pub fn or_else(call_back: &Fn() ?T) ?T {
+        match (self) {
+            .{ Some: _ } => self,
+            .None => call_back(),
+        }
+    }
+
+    /// Keeps the value only when the predicate returns `true`.
+    pub fn filter(pred: &Fn(T) bool) ?T {
+        match (self) {
+            .{ Some: a } => {
+                if (pred(a)) {
+                    return .{ Some: a };
+                }
+                return .None;
+            },
+            .None => .None,
+        }
+    }
+
+    /// Runs a side effect on `Some(T)` and returns the original option.
+    pub fn inspect(call_back: &Fn(T) void) ?T {
+        match (self) {
+            .{ Some: a } => {
+                call_back(a);
+                return self;
+            },
+            .None => return self,
+        }
+    }
+}

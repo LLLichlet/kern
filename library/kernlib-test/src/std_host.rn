@@ -1,0 +1,95 @@
+//! Tests for hosted `std` helpers that do not require external harness setup.
+
+use base.cmp.{LESS, EQUAL, GREATER};
+use base.io;
+use base.mem.alloc.gpa;
+use base.test.{Report, report};
+use std.mem.Page;
+use std.proc;
+use std.term;
+use std.time;
+
+fn check_proc[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let pid = proc.process_id();
+    (pid != 0).should().sum(@loc(), t);
+    proc.process_id().should().eq(pid).sum(@loc(), t);
+
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let mut capture = "echo shell_capture".shell_capture(gpa).should_ok().sum(@loc(), t);
+    defer capture..&.deinit(gpa);
+    capture.success().should().sum(@loc(), t);
+    (capture.len() != 0).should().sum(@loc(), t);
+    capture.is_empty().not().should().sum(@loc(), t);
+    capture.as_str().starts_with("shell_capture").should().sum(@loc(), t);
+
+    "echo status_only".shell_status(gpa).should_ok().eq(0).sum(@loc(), t);
+    "echo success_only".shell_success(gpa).should_ok().eq(true).sum(@loc(), t);
+}
+
+fn check_time[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let fixed = 1500u64.millis();
+    fixed.as_secs().should().eq(1u64).sum(@loc(), t);
+    fixed.as_millis().should().eq(1500u64).sum(@loc(), t);
+    fixed.subsec_nanos().should().eq(500_000_000u64).sum(@loc(), t);
+    fixed.div_u64(3).as_millis().should().eq(500u64).sum(@loc(), t);
+    fixed.saturating_mul(2).as_secs().should().eq(3u64).sum(@loc(), t);
+    fixed.saturating_add(600u64.millis()).as_millis().should().eq(2100u64).sum(@loc(), t);
+    fixed.saturating_sub(2u64.secs()).as_nanos().should().eq(0u64).sum(@loc(), t);
+    2u64.secs().units_per_sec(400).should().eq(200u64).sum(@loc(), t);
+    (1u64.secs() == 1000u64.millis()).should().sum(@loc(), t);
+    (1u64.secs() == 999u64.millis()).not().should().sum(@loc(), t);
+    (1u64.millis().cmp(1u64.secs()) == LESS).should().sum(@loc(), t);
+    (1u64.secs().cmp(1000u64.millis()) == EQUAL).should().sum(@loc(), t);
+    (2u64.secs().cmp(1u64.secs()) == GREATER).should().sum(@loc(), t);
+    let _ = 250u64.micros().hash();
+
+    let clock = time.monotonic();
+    let start = clock.now();
+    1u64.nanos().sleep();
+    1u64.micros().sleep();
+    1u64.millis().sleep();
+    0u64.secs().sleep();
+    let elapsed = start.elapsed();
+    (elapsed.as_nanos() != 0).should().sum(@loc(), t);
+    (elapsed.div_u64(2).as_nanos() != 0).should().sum(@loc(), t);
+    (elapsed.units_per_sec(2) != 0).should().sum(@loc(), t);
+    let end = clock.now();
+    (end.cmp(start) != LESS).should().sum(@loc(), t);
+    let _ = end.hash();
+}
+
+fn check_term[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let _ = term.stdin().is_terminal();
+    let _ = term.stdout().is_terminal();
+    let _ = term.stderr().is_terminal();
+
+    let out_size = term.stdout().size();
+    if (out_size.is_ok()) {
+        let size = out_size.should_ok().sum(@loc(), t);
+        (size.rows != 0).should().sum(@loc(), t);
+        (size.cols != 0).should().sum(@loc(), t);
+    }
+
+    let _ = term.stdin().size();
+    let _ = term.stderr().size();
+    let _ = term.stdout().rows();
+    let _ = term.stdout().columns();
+}
+
+#[test]
+fn hosted_std_helpers() i32 {
+    let t = report(io.discard())..&;
+    check_proc(t);
+    check_time(t);
+    check_term(t);
+    return 0;
+}

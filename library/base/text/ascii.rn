@@ -1,0 +1,115 @@
+//! ASCII byte classification and digit conversion.
+//!
+//! These helpers are byte-oriented and do not imply UTF-8 validation. They are
+//! useful for parsers whose grammars reserve ASCII syntax bytes inside larger
+//! byte streams.
+
+/// Returns `true` for ASCII whitespace bytes.
+pub fn is_whitespace(byte: u8) bool {
+    return byte == b' '
+        or byte == b'\t'
+        or byte == b'\n'
+        or byte == b'\r'
+        or byte == 11u8
+        or byte == 12u8;
+}
+
+/// Returns `true` for ASCII decimal digits.
+pub fn is_digit(byte: u8) bool {
+    return byte >= b'0' and byte <= b'9';
+}
+
+/// Returns `true` for ASCII uppercase letters.
+pub fn is_upper(byte: u8) bool {
+    return byte >= b'A' and byte <= b'Z';
+}
+
+/// Returns `true` for ASCII lowercase letters.
+pub fn is_lower(byte: u8) bool {
+    return byte >= b'a' and byte <= b'z';
+}
+
+/// Returns `true` for ASCII alphabetic letters.
+pub fn is_alpha(byte: u8) bool {
+    return is_upper(byte) or is_lower(byte);
+}
+
+/// Returns `true` for ASCII letters or decimal digits.
+pub fn is_alnum(byte: u8) bool {
+    return is_alpha(byte) or is_digit(byte);
+}
+
+/// Returns `true` for ASCII hexadecimal digits.
+pub fn is_hex_digit(byte: u8) bool {
+    return is_digit(byte)
+        or (byte >= b'a' and byte <= b'f')
+        or (byte >= b'A' and byte <= b'F');
+}
+
+/// Returns an ASCII digit value in `0..radix`, for radices `2..=36`.
+pub fn digit_value(byte: u8, radix: u8) ?u8 {
+    if (radix < 2 or radix > 36) return .None;
+    let value = if (byte >= b'0' and byte <= b'9') {
+        byte - b'0'
+    } else if (byte >= b'a' and byte <= b'z') {
+        byte - b'a' + 10
+    } else if (byte >= b'A' and byte <= b'Z') {
+        byte - b'A' + 10
+    } else {
+        return .None;
+    };
+    if (value >= radix) return .None;
+    return .{ Some: value };
+}
+
+/// Returns the ASCII hexadecimal digit value in `0..=15`.
+pub fn hex_value(byte: u8) ?u8 {
+    return digit_value(byte, 16);
+}
+
+impl u8 {
+    /// Returns `true` when this byte is ASCII whitespace.
+    pub fn is_ascii_whitespace() bool {
+        return is_whitespace(self);
+    }
+
+    /// Returns `true` when this byte is an ASCII decimal digit.
+    pub fn is_ascii_digit() bool {
+        return is_digit(self);
+    }
+
+    /// Returns `true` when this byte is an ASCII uppercase letter.
+    pub fn is_ascii_upper() bool {
+        return is_upper(self);
+    }
+
+    /// Returns `true` when this byte is an ASCII lowercase letter.
+    pub fn is_ascii_lower() bool {
+        return is_lower(self);
+    }
+
+    /// Returns `true` when this byte is an ASCII alphabetic letter.
+    pub fn is_ascii_alpha() bool {
+        return is_alpha(self);
+    }
+
+    /// Returns `true` when this byte is an ASCII letter or decimal digit.
+    pub fn is_ascii_alnum() bool {
+        return is_alnum(self);
+    }
+
+    /// Returns `true` when this byte is an ASCII hexadecimal digit.
+    pub fn is_ascii_hex_digit() bool {
+        return is_hex_digit(self);
+    }
+
+    /// Returns this byte's digit value in `0..radix`, for radices `2..=36`.
+    pub fn ascii_digit_value(radix: u8) ?u8 {
+        return digit_value(self, radix);
+    }
+
+    /// Returns this byte's hexadecimal digit value in `0..=15`.
+    pub fn ascii_hex_value() ?u8 {
+        return hex_value(self);
+    }
+}

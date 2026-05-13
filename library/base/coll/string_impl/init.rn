@@ -1,0 +1,157 @@
+//! Owned byte strings.
+//!
+//! `String` is a growable UTF-8-oriented byte buffer built on top of `List[u8]`.
+
+use base.mem.alloc.{AllocError, Allocator};
+use base.coll.{InsertError, List};
+
+mod query;
+
+/// An owned growable string buffer.
+pub/ struct String {
+    raw: List[u8] = List[u8].{},
+};
+
+impl &mut String {
+    /// Inserts a single byte at `index`.
+    pub fn try_insert_char(alloc: &mut Allocator, index: usize, byte: u8) void!InsertError {
+        return self.raw..&.try_insert(alloc, index, byte);
+    }
+
+    /// Inserts a byte slice at `index`.
+    pub fn try_insert_str(alloc: &mut Allocator, index: usize, text: &[u8]) void!InsertError {
+        return self.raw..&.try_insert_slice(alloc, index, text);
+    }
+
+    /// Inserts another string at `index`.
+    pub fn try_insert_string(alloc: &mut Allocator, index: usize, other: &String) void!InsertError {
+        return self.try_insert_str(alloc, index, other.as_str());
+    }
+
+    /// Returns a mutable byte slice view.
+    pub fn as_mut_bytes() &mut [u8] {
+        return self.raw..&.as_mut_slice();
+    }
+
+    /// Reserves space and reports whether overflow or allocation failed.
+    pub fn try_reserve(alloc: &mut Allocator, additional: usize) void!AllocError {
+        return self.raw..&.try_reserve(alloc, additional);
+    }
+
+    /// Appends one byte or returns a structured allocation error.
+    pub fn try_push_char(alloc: &mut Allocator, c: u8) void!AllocError {
+        return self.raw..&.try_push(alloc, c);
+    }
+
+    /// Appends a byte slice or returns a structured allocation error.
+    pub fn try_push_str(alloc: &mut Allocator, text: &[u8]) void!AllocError {
+        return self.raw..&.try_append_slice(alloc, text);
+    }
+
+    /// Appends `count` copies of `byte` or returns a structured allocation error.
+    pub fn try_push_repeat(alloc: &mut Allocator, byte: u8, count: usize) void!AllocError {
+        return self.raw..&.try_append_repeat(alloc, byte, count);
+    }
+
+    /// Appends another string or returns a structured allocation error.
+    pub fn try_push_string(alloc: &mut Allocator, other: &String) void!AllocError {
+        return self.try_push_str(alloc, other.as_str());
+    }
+
+    /// Replaces the contents of the string with `text`.
+    pub fn try_clone_from(alloc: &mut Allocator, text: &[u8]) void!AllocError {
+        self.clear();
+        return self.try_push_str(alloc, text);
+    }
+
+    /// Replaces the contents of the string with `text`, using exact growth when needed.
+    pub fn try_clone_from_exact(alloc: &mut Allocator, text: &[u8]) void!AllocError {
+        self.clear();
+        return self.raw..&.try_append_slice_exact(alloc, text);
+    }
+
+    /// Replaces the contents of the string with another string.
+    pub fn try_clone_from_string(alloc: &mut Allocator, other: &String) void!AllocError {
+        return self.try_clone_from(alloc, other.as_str());
+    }
+
+    /// Grows the string and returns the appended range or an allocation error.
+    pub fn try_append_uninit(alloc: &mut Allocator, count: usize) (&mut [u8])!AllocError {
+        return self.raw..&.try_append_uninit(alloc, count);
+    }
+
+    /// Grows the string exactly and returns the appended range or an allocation error.
+    pub fn try_append_uninit_exact(
+        alloc: &mut Allocator,
+        count: usize,
+    ) (&mut [u8])!AllocError {
+        return self.raw..&.try_append_uninit_exact(alloc, count);
+    }
+
+    /// Removes and returns the final byte.
+    pub fn pop_char() ?u8 {
+        return self.raw..&.pop();
+    }
+
+    /// Removes and returns the byte at `index`.
+    pub fn remove_char(index: usize) ?u8 {
+        return self.raw..&.remove(index);
+    }
+
+    /// Shrinks capacity down to the current length.
+    pub fn try_shrink_to_fit(alloc: &mut Allocator) void!AllocError {
+        return self.raw..&.try_shrink_to_fit(alloc);
+    }
+
+    /// Releases the backing allocation.
+    pub fn deinit(alloc: &mut Allocator) void {
+        self.raw..&.deinit(alloc);
+    }
+
+    /// Removes all bytes without releasing capacity.
+    pub fn clear() void {
+        self.raw..&.clear();
+    }
+
+    /// Shortens the string to `new_len` bytes.
+    pub fn truncate(new_len: usize) void {
+        self.raw..&.truncate(new_len);
+    }
+
+    /// Reverses the byte order in place.
+    pub fn reverse_bytes() void {
+        self.raw..&.reverse();
+    }
+
+    /// Retains only the bytes accepted by `pred`.
+    pub fn retain_bytes(pred: &Fn(u8) bool) void {
+        self.raw..&.retain(pred);
+    }
+}
+
+impl &String {
+    /// Returns the string as an immutable byte slice.
+    pub fn as_str() &[u8] {
+        return self.raw.&.as_slice();
+    }
+
+    /// Alias for `as_str`.
+    pub fn as_bytes() &[u8] {
+        return self.as_str();
+    }
+
+    /// Returns the current byte length.
+    pub fn len() usize {
+        return self.raw.&.len();
+    }
+
+    /// Returns the current byte capacity.
+    pub fn capacity() usize {
+        return self.raw.&.capacity();
+    }
+
+    /// Returns `true` when the string is empty.
+    pub fn is_empty() bool {
+        return self.raw.&.is_empty();
+    }
+}

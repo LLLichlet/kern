@@ -1,0 +1,280 @@
+//! Tests for sequence collections, slice algorithms, ranges, and carriers.
+
+use base;
+use base.coll.{
+    Iterator,
+    List,
+    String,
+    list,
+    range,
+    range_down,
+    range_down_inclusive,
+    range_inclusive,
+    string,
+};
+use base.cmp.{GREATER, LESS, EQUAL, Ordering};
+use base.io;
+use base.mem.{array_layout_of, layout_of};
+use base.mem.alloc.gpa;
+use base.num;
+use base.test.{Report, report};
+use std.mem.Page;
+
+fn check_layout_and_array_eq[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let page = Page.{}..&;
+    let item_layout = layout_of[u64]();
+    item_layout.size.should().eq(8usize).sum(@loc(), t);
+    item_layout.align.should().eq(8usize).sum(@loc(), t);
+
+    let array_layout = array_layout_of[u32](6).should_some().sum(@loc(), t);
+    array_layout.size.should().eq(24usize).sum(@loc(), t);
+    array_layout.align.should().eq(4usize).sum(@loc(), t);
+
+    let ptr = page.alloc(array_layout).should_some().sum(@loc(), t);
+    page.free(ptr, array_layout);
+
+    let values = [4]i32.{ 1, 2, 3, 4 };
+    values.len().should().eq(4usize).sum(@loc(), t);
+    ([4]i32.{ 1, 2, 3, 4 } == [4]i32.{ 1, 2, 3, 4 }).should().sum(@loc(), t);
+    ([4]i32.{ 1, 2, 3, 4 } != [4]i32.{ 1, 2, 3, 5 }).should().sum(@loc(), t);
+}
+
+fn check_list_string_and_slice[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let items = list[i32]()..&;
+    defer items.deinit(gpa);
+
+    items.try_reserve(gpa, 6).should_ok().sum(@loc(), t);
+    (items.capacity() >= 6).should().sum(@loc(), t);
+    items.try_push(gpa, 1).should_ok().sum(@loc(), t);
+    items.try_push(gpa, 2).should_ok().sum(@loc(), t);
+    items.try_push(gpa, 3).should_ok().sum(@loc(), t);
+    items.try_insert(gpa, 1, 9).should_ok().sum(@loc(), t);
+    items.remove(2).should_some().eq(2).sum(@loc(), t);
+
+    let prefix = items.as_slice();
+    items.try_append_slice(gpa, prefix).should_ok().sum(@loc(), t);
+
+    let data = items.as_slice();
+    (data == [6]i32.{1, 9, 3, 1, 9, 3}).should().sum(@loc(), t);
+    data.starts_with([3]i32.{1, 9, 3}).should().sum(@loc(), t);
+    data.ends_with([3]i32.{1, 9, 3}).should().sum(@loc(), t);
+    data.contains([2]i32.{9, 3}).should().sum(@loc(), t);
+    data.find([2]i32.{9, 3}).should_some().eq(1usize).sum(@loc(), t);
+    data.first().should_some().eq(1).sum(@loc(), t);
+    data.last().should_some().eq(3).sum(@loc(), t);
+
+    let view = items.as_mut_slice();
+    view.[1] = 8;
+    items.truncate(4);
+    (items.as_slice() == [4]i32.{1, 8, 3, 1}).should().sum(@loc(), t);
+    items.contains([2]i32.{8, 3}).should().sum(@loc(), t);
+    (items.lex_cmp([4]i32.{1, 8, 3, 2}) == LESS).should().sum(@loc(), t);
+    items.position([](value: i32) bool { return value > 2; }).should_some().eq(1usize).sum(@loc(), t);
+    items.rposition([](value: i32) bool { return value > 2; }).should_some().eq(2usize).sum(@loc(), t);
+    items.any([](value: i32) bool { return value == 8; }).should().sum(@loc(), t);
+    items.all([](value: i32) bool { return value < 8; }).not().should().sum(@loc(), t);
+    items.strip_prefix([2]i32.{1, 8}).should_some().eq([2]i32.{3, 1}).sum(@loc(), t);
+    items.strip_suffix([2]i32.{3, 1}).should_some().eq([2]i32.{1, 8}).sum(@loc(), t);
+
+    items.reverse();
+    (items.as_slice() == [4]i32.{1, 3, 8, 1}).should().sum(@loc(), t);
+
+    let mut kept = 0i32;
+    items.retain([counter = kept..&](value: i32) bool {
+        counter.* += 1;
+        return value >= 3;
+    });
+    kept.should().eq(4).sum(@loc(), t);
+    (items.as_slice() == [2]i32.{3, 8}).should().sum(@loc(), t);
+    items.try_shrink_to_fit(gpa).should_ok().sum(@loc(), t);
+    items.capacity().should().eq(items.len()).sum(@loc(), t);
+    items.count([](value: i32) bool { return value >= 3; }).should().eq(2usize).sum(@loc(), t);
+    items.find_map([](value: i32) ?i32 {
+        if (value > 3) {
+            return .{ Some: value * 10 };
+        }
+        return .None;
+    }).should_some().eq(80).sum(@loc(), t);
+
+    let sorted = [6]i32.{1, 3, 3, 5, 8, 9};
+    let sorted_view = sorted.&[0 .. 6];
+    sorted_view.partition_point([](value: i32) bool {
+        return value < 5;
+    }).should().eq(3usize).sum(@loc(), t);
+    sorted_view.binary_search(8).should_some().eq(4usize).sum(@loc(), t);
+    sorted_view.binary_search(7).should_none().sum(@loc(), t);
+
+    let text = string()..&;
+    defer text.deinit(gpa);
+    text.try_reserve(gpa, 16).should_ok().sum(@loc(), t);
+    (text.capacity() >= 16).should().sum(@loc(), t);
+    text.try_push_str(gpa, "kern").should_ok().sum(@loc(), t);
+    text.try_push_char(gpa, b'-').should_ok().sum(@loc(), t);
+    text.try_push_str(gpa, "lang").should_ok().sum(@loc(), t);
+    text.starts_with("kern").should().sum(@loc(), t);
+    text.ends_with("lang").should().sum(@loc(), t);
+    text.contains("-la").should().sum(@loc(), t);
+    text.find("lang").should_some().eq(5usize).sum(@loc(), t);
+    text.find_byte(b'-').should_some().eq(4usize).sum(@loc(), t);
+    (text.lex_cmp("kern-lang") == EQUAL).should().sum(@loc(), t);
+    (text.lex_cmp("kern-lano") == LESS).should().sum(@loc(), t);
+    (text.lex_cmp("kern-lanf") == GREATER).should().sum(@loc(), t);
+    text.strip_prefix("kern-").should_some().eq("lang").sum(@loc(), t);
+    text.strip_suffix("-lang").should_some().eq("kern").sum(@loc(), t);
+
+    let shaped = string()..&;
+    defer shaped.deinit(gpa);
+    shaped.try_clone_from_string(gpa, text).should_ok().sum(@loc(), t);
+    shaped.try_insert_char(gpa, 4, b'_').should_ok().sum(@loc(), t);
+    shaped.try_insert_str(gpa, 5, "std").should_ok().sum(@loc(), t);
+    (shaped.* == "kern_std-lang").should().sum(@loc(), t);
+    shaped.truncate(9);
+    (shaped.* == "kern_std-").should().sum(@loc(), t);
+    shaped.retain_bytes([](byte: u8) bool {
+        return byte != b'_';
+    });
+    (shaped.* == "kernstd-").should().sum(@loc(), t);
+}
+
+fn check_numeric_and_sorting[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    const SAT_ADD = num.USIZE_MAX.saturating_add(1);
+    const SAT_MUL = num.USIZE_MAX.saturating_mul(2);
+    SAT_ADD.should().eq(num.USIZE_MAX).sum(@loc(), t);
+    SAT_MUL.should().eq(num.USIZE_MAX).sum(@loc(), t);
+
+    let mut values = [8]i32.{ 5, 1, 3, 3, 9, 0, 8, 3 };
+    let view = values..&[0 .. 8];
+    view.sort();
+    let sorted = values.&[0 .. 8];
+    sorted.is_sorted().should().sum(@loc(), t);
+    (sorted == [8]i32.{ 0, 1, 3, 3, 3, 5, 8, 9 }).should().sum(@loc(), t);
+    sorted.lower_bound(3).should().eq(2usize).sum(@loc(), t);
+    sorted.upper_bound(3).should().eq(5usize).sum(@loc(), t);
+    sorted.binary_search(8).should_some().eq(6usize).sum(@loc(), t);
+
+    view.sort_by([](lhs: i32, rhs: i32) Ordering {
+        return rhs.cmp(lhs);
+    });
+    (values.&[0 .. 8] == [8]i32.{ 9, 8, 5, 3, 3, 3, 1, 0 }).should().sum(@loc(), t);
+
+    let mut words = [5]&[u8].{ "gamma", "alpha", "beta", "beta", "delta" };
+    let word_view = words..&[0 .. 5];
+    word_view.sort();
+    let sorted_words = words.&[0 .. 5];
+    sorted_words.is_sorted().should().sum(@loc(), t);
+    sorted_words.lower_bound("beta").should().eq(1usize).sum(@loc(), t);
+    sorted_words.upper_bound("beta").should().eq(3usize).sum(@loc(), t);
+
+    let mut ring = [6]i32.{ 0, 1, 2, 3, 4, 5 };
+    let ring_view = ring..&[0 .. 6];
+    ring_view.rotate_left(2);
+    (ring.&[0 .. 6] == [6]i32.{ 2, 3, 4, 5, 0, 1 }).should().sum(@loc(), t);
+    ring_view.rotate_right(8);
+    (ring.&[0 .. 6] == [6]i32.{ 0, 1, 2, 3, 4, 5 }).should().sum(@loc(), t);
+    ring_view.copy_within(0, 3, 2).should().sum(@loc(), t);
+    (ring.&[0 .. 6] == [6]i32.{ 0, 1, 0, 1, 2, 5 }).should().sum(@loc(), t);
+}
+
+fn check_ranges[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let mut sum = 0i32;
+    for (i: range(0i32, 5i32)) {
+        sum += i;
+    }
+    sum.should().eq(10i32).sum(@loc(), t);
+
+    let mut inclusive_sum = 0i32;
+    for (i: range_inclusive(-2i32, 2i32)) {
+        inclusive_sum += i;
+    }
+    inclusive_sum.should().eq(0i32).sum(@loc(), t);
+
+    let mut descending_sum = 0i32;
+    for (value: range_down(5i32, 2i32)) {
+        descending_sum += value;
+    }
+    descending_sum.should().eq(12i32).sum(@loc(), t);
+
+    let mut inclusive_descending_sum = 0i32;
+    for (value: range_down_inclusive(3i32, 1i32)) {
+        inclusive_descending_sum += value;
+    }
+    inclusive_descending_sum.should().eq(6i32).sum(@loc(), t);
+
+    let mut count_range = range(2i32, 7i32);
+    count_range..&.count().should().eq(5usize).sum(@loc(), t);
+
+    let mut nth_range = range(10i32, 20i32);
+    nth_range..&.nth(3usize).should_some().eq(13i32).sum(@loc(), t);
+    nth_range..&.next().should_some().eq(14i32).sum(@loc(), t);
+
+    let mut fold_range = range_down_inclusive(4i32, 1i32);
+    fold_range..&.fold[i32](0i32, [](accum: i32, value: i32) i32 {
+        return accum + value;
+    }).should().eq(10i32).sum(@loc(), t);
+
+    let mut find_range = range(3i32, 9i32);
+    find_range..&.find([](value: i32) bool {
+        return value % 2i32 == 0i32;
+    }).should_some().eq(4i32).sum(@loc(), t);
+}
+
+fn check_option_result[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let mut seen = 0i32;
+    let option = ?i32.{ Some: 7i32 };
+    option.map([seen = seen..&](value: i32) i32 {
+        seen.* += value;
+        return value * 3i32;
+    }).should_some().eq(21i32).sum(@loc(), t);
+    seen.should().eq(7i32).sum(@loc(), t);
+    option.filter([](value: i32) bool {
+        return value == 7i32;
+    }).should_some().eq(7i32).sum(@loc(), t);
+
+    let none = ?i32.None;
+    let fallback = none.map_or_else([seen = seen..&]() i32 {
+        seen.* += 10i32;
+        return 99i32;
+    }, [](value: i32) i32 {
+        return value;
+    });
+    fallback.should().eq(99i32).sum(@loc(), t);
+    seen.should().eq(17i32).sum(@loc(), t);
+
+    let result = i32!i32.{ Ok: 5i32 };
+    let mapped_result = result.map([seen = seen..&](value: i32) i32 {
+        seen.* += value;
+        return value + 1i32;
+    });
+    mapped_result.and_then([](value: i32) i32!i32 {
+        return .{ Ok: value * 2i32 };
+    }).should_ok().eq(12i32).sum(@loc(), t);
+    seen.should().eq(22i32).sum(@loc(), t);
+
+    (?i32.{ Some: 7i32 }).ok_or(11i32).should_ok().eq(7i32).sum(@loc(), t);
+    (?i32.None).ok_or(31i32).should_err().eq(31i32).sum(@loc(), t);
+}
+
+#[test]
+fn sequence_collections() i32 {
+    let t = report(io.discard())..&;
+    check_layout_and_array_eq(t);
+    check_list_string_and_slice(t);
+    check_numeric_and_sorting(t);
+    check_ranges(t);
+    check_option_result(t);
+    return 0;
+}

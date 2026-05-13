@@ -35,7 +35,7 @@ Available test layers:
 - `all`: `smoke` plus `hosted`.
 
 Prefer adding a test to the narrowest existing suite that matches the behavior
-under change. Pure kernlib behavior belongs in the external kernlib workspace's
-Kern test packages, not in this Rust compiler harness. If a new compiler or
-runtime area becomes large enough to deserve its own suite, create another file
-in this directory and keep the support logic shared through `support/mod.rs`.
+under change. Pure library behavior belongs in the Kern test packages under
+`library/`, not in this Rust compiler harness. If a new compiler or runtime
+area becomes large enough to deserve its own suite, create another file in this
+directory and keep the support logic shared through `support/mod.rs`.

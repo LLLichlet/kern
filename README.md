@@ -208,16 +208,16 @@ files.
 For local compiler development:
 
 ```sh
-git clone --recurse-submodules https://github.com/kern-project/kern.git
+git clone https://github.com/kern-project/kern.git
 cd kern
 cargo build --release
 cargo test
 ```
 
 This builds `kernc`, `craft`, and `kern-lsp` under `target/release/`.
-If you cloned without submodules, run `git submodule update --init library`
-before using commands that need the official libraries. You can also set
-`KERNLIB_PATH` to an external `kernlib` checkout.
+The official library workspace is checked in under `library/`. You can still
+set `KERNLIB_PATH` to an external compatible library workspace when testing an
+alternate library snapshot.
 
 Windows source builds require a full LLVM 21 development prefix, not only the
 installed end-user SDK. If `cargo build` reports missing LLVM libraries such as

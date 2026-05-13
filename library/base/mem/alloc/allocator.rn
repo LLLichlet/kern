@@ -1,0 +1,31 @@
+//! Allocator trait.
+//!
+//! Kern allocators are explicit objects. Callers pass `Layout` on allocation
+//! and must return the same layout when freeing.
+//!
+//! Design:
+//! keep allocation policy outside the type system and force layout bookkeeping to stay explicit.
+
+use base.mem.Layout;
+
+/// Allocation failure categories shared by collection helpers.
+pub enum AllocError {
+    /// Requested capacity or byte size cannot fit in `usize`.
+    CapacityOverflow,
+    /// The allocator could not satisfy the request.
+    OutOfMemory,
+}
+
+/// The interface implemented by allocation backends.
+pub/ trait Allocator {
+    /// Allocates memory for the requested layout.
+    ///
+    /// Returns:
+    /// `None` when the allocator cannot satisfy the request.
+    fn alloc(layout: Layout) ?&mut u8;
+    /// Frees a block previously returned from `alloc`.
+    ///
+    /// Safety:
+    /// callers must pass the original pointer and the original layout.
+    fn free(ptr: &mut u8, layout: Layout) void;
+};

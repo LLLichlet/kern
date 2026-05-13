@@ -1,0 +1,323 @@
+//! Process environment access.
+//!
+//! Public APIs in this module keep names and values as UTF-8 byte slices or
+//! owned `String` values while platform-specific enumeration stays internal.
+//! Hosted environment access is provided through `std.host.os`, not through a
+//! mandatory libc dependency.
+
+use base.abi;
+use base.coll.String;
+use base.mem.{array_layout_of, null_mut_ptr};
+use base.mem.alloc.{AllocError, Allocator};
+use std.host.os;
+
+/// A borrowed environment variable entry.
+pub struct Var {
+    /// The variable name.
+    pub name: &[u8],
+    /// The variable value.
+    pub value: &[u8],
+};
+
+/// A borrowed view over the process environment.
+pub struct Vars {};
+
+/// A borrowed environment variable name.
+pub struct Key {
+    name: &[u8],
+};
+
+fn bytes_eq(lhs: &[u8], rhs: &[u8]) bool {
+    if (#lhs != #rhs) {
+        return false;
+    }
+
+    let mut i = 0usize;
+    while (i < #lhs) {
+        if (lhs.[i] != rhs.[i]) {
+            return false;
+        }
+        i += 1;
+    }
+    return true;
+}
+
+impl Var {
+    /// Returns `true` when the variable has this name.
+    pub fn name_eq(name: &[u8]) bool {
+        return bytes_eq(self.name, name);
+    }
+
+    /// Returns `true` when the variable has this value.
+    pub fn value_eq(value: &[u8]) bool {
+        return bytes_eq(self.value, value);
+    }
+
+    /// Returns `true` when both name and value match.
+    pub fn eq(name: &[u8], value: &[u8]) bool {
+        return self.name_eq(name) and self.value_eq(value);
+    }
+}
+
+#[if((os == "linux" or os == "darwin") or os == "windows")]
+fn split_var(entry: &[u8]) ?Var {
+    if (#entry == 0) {
+        return .None;
+    }
+
+    let mut start = 0usize;
+    if (entry.[0] == b'=' and #entry > 1) {
+        start = 1;
+    }
+
+        let mut i = start;
+    while (i < #entry) {
+        if (entry.[i] != b'=') {
+            i += 1;
+            continue;
+        }
+        return .{
+            Some: Var.{
+                name: entry.&[0 .. i],
+                value: entry.&[i + 1 .. #entry],
+            },
+        };
+
+        i += 1;
+    }
+
+    return .None;
+}
+
+#[if((os == "linux" or os == "darwin") or os == "windows")]
+fn clone_c_value(
+    alloc: &mut Allocator,
+    ptr: &u8,
+    len: usize,
+) String!AllocError {
+    let mut value = String.{};
+    if (value..&.try_push_str(alloc, ptr.&[0 .. len]).is_err()) {
+        value..&.deinit(alloc);
+        return .{ Err: .OutOfMemory };
+    }
+    return .{ Ok: value };
+}
+
+#[if(os == "linux" or os == "darwin")]
+fn get_posix(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
+    let c_name = abi.cstr.owned(alloc, name).!..&;
+    defer c_name.deinit(alloc);
+
+    let .{ Some: value_ptr } = os.find_environment_value(c_name.ptr())
+        else return .{ Ok: .None };
+    let value = clone_c_value(alloc, value_ptr, value_ptr.cstr_len()).!;
+    return .{ Ok: .{ Some: value } };
+}
+
+#[if(os == "windows")]
+fn get_windows(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
+    let c_name = abi.cstr.owned(alloc, name).!..&;
+    defer c_name.deinit(alloc);
+
+    let required = os.get_environment_variable(c_name.ptr(), null_mut_ptr[u8](), 0) as usize;
+    if (required == 0) {
+        return .{ Ok: .None };
+    }
+
+    let layout = array_layout_of[u8](required).ok_or(.CapacityOverflow).!;
+    let buffer = alloc.alloc(layout).ok_or(.OutOfMemory).!;
+    defer alloc.free(buffer, layout);
+
+    let written = os.get_environment_variable(c_name.ptr(), buffer, required as u32) as usize;
+    if (written == 0) {
+        return .{ Ok: .None };
+    }
+
+    let value = clone_c_value(alloc, buffer, written).!;
+    return .{ Ok: .{ Some: value } };
+}
+
+#[if(os == "linux" or os == "darwin")]
+fn visit_posix(visitor: &Fn(Var) bool) usize {
+    let .{ Some: envp_start } = os.environment_entries() else return 0usize;
+    let mut envp = envp_start;
+
+    let mut total = 0usize;
+        while (true) {
+        let entry_ptr = envp.*;
+        if ((entry_ptr as usize) == 0) {
+            return total;
+        }
+
+        let entry = entry_ptr.&[0 .. entry_ptr.cstr_len()];
+        let .{ Some: var } = split_var(entry) else {
+            envp = envp + 1usize;
+            envp = envp + 1usize;
+            continue;
+        };
+
+        total += 1;
+        if (!visitor(var)) {
+            return total;
+        }
+
+        envp = envp + 1usize;
+    }
+}
+
+#[if(os == "windows")]
+fn visit_windows(visitor: &Fn(Var) bool) usize {
+    let block = os.get_environment_strings();
+    if ((block as usize) == 0) {
+        return 0usize;
+    }
+    defer {
+        os.free_environment_strings(block);
+    };
+
+    let mut cursor = block;
+    let mut total = 0usize;
+        while (true) {
+        let len = cursor.cstr_len();
+        if (len == 0) {
+            return total;
+        }
+
+        let entry = cursor.&[0 .. len];
+        let .{ Some: var } = split_var(entry) else {
+            cursor = cursor + len + 1usize;
+            cursor = cursor + len + 1usize;
+            continue;
+        };
+
+        total += 1;
+        if (!visitor(var)) {
+            return total;
+        }
+
+        cursor = cursor + len + 1usize;
+    }
+}
+
+/// Returns a borrowed view over the process environment.
+pub fn vars() Vars {
+    return .{};
+}
+
+impl &[u8] {
+    /// Treats this text as an environment variable name.
+    pub fn env() Key {
+        return .{ name: self };
+    }
+}
+
+impl Vars {
+    /// Visits every environment variable until the visitor returns `false`.
+    ///
+    /// Returns:
+    /// the number of entries observed, including the last one passed to the visitor.
+    pub fn visit(visitor: &Fn(Var) bool) usize {
+        #[if(os == "linux" or os == "darwin")]
+        {
+            return visit_posix(visitor);
+        }
+
+        #[if(os == "windows")]
+        {
+            return visit_windows(visitor);
+        }
+
+        _ = visitor;
+        return 0;
+    }
+}
+
+impl Key {
+    /// Returns the borrowed variable name.
+    pub fn name() &[u8] {
+        return self.name;
+    }
+
+    /// Reads this environment variable into an owned `String`.
+    pub fn get(alloc: &mut Allocator) (?String)!AllocError {
+        if (#self.name == 0) {
+            return .{ Ok: .None };
+        }
+
+        #[if(os == "linux" or os == "darwin")]
+        {
+            return get_posix(alloc, self.name);
+        }
+
+        #[if(os == "windows")]
+        {
+            return get_windows(alloc, self.name);
+        }
+
+        _ = alloc;
+        return .{ Ok: .None };
+    }
+
+    /// Returns `true` when this environment variable exists.
+    pub fn has() bool {
+        if (#self.name == 0) {
+            return false;
+        }
+
+        let mut found = false;
+        _ = self.visit([found = found..&](_: &[u8]) bool {
+            found.* = true;
+            return false;
+        });
+        return found;
+    }
+
+    /// Returns this environment variable or a cloned fallback string.
+    pub fn get_or(alloc: &mut Allocator, fallback: &[u8]) String!AllocError {
+        let .{ Ok: maybe } = self.get(alloc) else {
+            .{ Err: err } => return .{ Err: err },
+        };
+        match (maybe) {
+            .{ Some: value } => return .{ Ok: value },
+            .None => {
+                let mut value = String.{};
+                value..&.try_push_str(alloc, fallback).!;
+                return .{ Ok: value };
+            },
+        }
+    }
+
+    /// Returns this environment variable or an empty owned string.
+    pub fn get_or_empty(alloc: &mut Allocator) String!AllocError {
+        return self.get_or(alloc, "");
+    }
+
+    /// Visits this environment variable's value when it exists.
+    pub fn visit(visitor: &Fn(&[u8]) bool) bool {
+        if (#self.name == 0) {
+            return false;
+        }
+
+        let mut found = false;
+        _ = vars().visit([needle = self.name, target = visitor, found = found..&](entry: Var) bool {
+            if (!entry.name_eq(needle)) {
+                return true;
+            }
+            found.* = true;
+            return target(entry.value);
+        });
+        return found;
+    }
+
+    /// Returns `true` when this environment variable exists with the expected value.
+    pub fn equals(expected: &[u8]) bool {
+        let mut matched = false;
+        let found = self.visit([expected, matched = matched..&](value: &[u8]) bool {
+            if (bytes_eq(value, expected)) {
+                matched.* = true;
+            }
+            return false;
+        });
+        return found and matched;
+    }
+}

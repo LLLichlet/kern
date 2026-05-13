@@ -82,8 +82,8 @@ def resolve_kernlib_root() -> Path:
         return root
     raise OpsError(
         "official Kern library workspace is missing or incomplete at "
-        f"`{root}`; set KERNLIB_PATH to a kernlib checkout or run "
-        "`git submodule update --init library`"
+        f"`{root}`; set KERNLIB_PATH to an external compatible library "
+        "workspace or restore the in-tree `library/` directory"
     )
 
 

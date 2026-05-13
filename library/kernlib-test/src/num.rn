@@ -1,0 +1,72 @@
+//! Tests for `base.num` parsing and numeric helpers.
+
+use base.num;
+use base.test.{Report, report};
+use base.io;
+
+#[test]
+fn numeric_helpers() i32 {
+    let t = report(io.discard())..&;
+
+    "255".parse[u8]().should_ok().eq(255u8).sum(@loc(), t);
+    "ff".parse_radix[u8](16u8).should_ok().eq(255u8).sum(@loc(), t);
+    "65535".parse[u16]().should_ok().eq(65535u16).sum(@loc(), t);
+    "ffff".parse_radix[u16](16u8).should_ok().eq(65535u16).sum(@loc(), t);
+    "4294967295".parse[u32]().should_ok().eq(4294967295u32).sum(@loc(), t);
+    "ffffffff".parse_radix[u32](16u8).should_ok().eq(4294967295u32).sum(@loc(), t);
+    "18446744073709551615".parse[u64]().should_ok().eq(~0u64).sum(@loc(), t);
+    "ff".parse_radix[u64](16u8).should_ok().eq(255u64).sum(@loc(), t);
+    "340282366920938463463374607431768211455".parse[u128]().should_ok().eq(~0u128).sum(@loc(), t);
+    "10000000000000000".parse_radix[u128](16u8).should_ok().eq(18446744073709551616u128).sum(@loc(), t);
+    "ZZ".parse_radix[u64](36u8).should_ok().eq(1295u64).sum(@loc(), t);
+    "42".parse[usize]().should_ok().eq(42usize).sum(@loc(), t);
+    "-128".parse[i8]().should_ok().eq(-128i8).sum(@loc(), t);
+    "7f".parse_radix[i8](16u8).should_ok().eq(127i8).sum(@loc(), t);
+    "-32768".parse[i16]().should_ok().eq(-32768i16).sum(@loc(), t);
+    "7fff".parse_radix[i16](16u8).should_ok().eq(32767i16).sum(@loc(), t);
+    "-80000000".parse_radix[i32](16u8).should_ok().eq(-2147483648i32).sum(@loc(), t);
+    "2147483647".parse[i32]().should_ok().eq(2147483647i32).sum(@loc(), t);
+    "-9223372036854775808".parse[i64]().should_ok().eq(-9223372036854775808i64).sum(@loc(), t);
+    "+9223372036854775807".parse[i64]().should_ok().eq(9223372036854775807i64).sum(@loc(), t);
+    "-170141183460469231731687303715884105728".parse[i128]().should_ok().eq(-170141183460469231731687303715884105728i128).sum(@loc(), t);
+    "170141183460469231731687303715884105727".parse[i128]().should_ok().eq(170141183460469231731687303715884105727i128).sum(@loc(), t);
+    "-42".parse[isize]().should_ok().eq(-42isize).sum(@loc(), t);
+
+    "".parse[u64]().should_err().eq(num.ParseIntError.Empty).sum(@loc(), t);
+    "-1".parse[u64]().should_err().eq(num.ParseIntError.InvalidDigit).sum(@loc(), t);
+    "2".parse_radix[u64](2u8).should_err().eq(num.ParseIntError.InvalidDigit).sum(@loc(), t);
+    "10".parse_radix[u64](1u8).should_err().eq(num.ParseIntError.InvalidRadix).sum(@loc(), t);
+    "256".parse[u8]().should_err().eq(num.ParseIntError.Overflow).sum(@loc(), t);
+    "65536".parse[u16]().should_err().eq(num.ParseIntError.Overflow).sum(@loc(), t);
+    "4294967296".parse[u32]().should_err().eq(num.ParseIntError.Overflow).sum(@loc(), t);
+    "18446744073709551616".parse[u64]().should_err().eq(num.ParseIntError.Overflow).sum(@loc(), t);
+    "340282366920938463463374607431768211456".parse[u128]().should_err().eq(num.ParseIntError.Overflow).sum(@loc(), t);
+    "-129".parse[i8]().should_err().eq(num.ParseIntError.Overflow).sum(@loc(), t);
+    "32768".parse[i16]().should_err().eq(num.ParseIntError.Overflow).sum(@loc(), t);
+    "9223372036854775808".parse[i64]().should_err().eq(num.ParseIntError.Overflow).sum(@loc(), t);
+    "-2147483649".parse[i32]().should_err().eq(num.ParseIntError.Overflow).sum(@loc(), t);
+    "170141183460469231731687303715884105728".parse[i128]().should_err().eq(num.ParseIntError.Overflow).sum(@loc(), t);
+    "12_3".parse[i32]().should_err().eq(num.ParseIntError.InvalidDigit).sum(@loc(), t);
+
+    const SAT_ADD = num.USIZE_MAX.saturating_add(1usize);
+    const SAT_MUL = num.USIZE_MAX.saturating_mul(2usize);
+    const CHECKED_SUM = 40usize.checked_add(2usize);
+    const CHECKED_OVERFLOW = num.USIZE_MAX.checked_add(1usize);
+    const CONST_ALIGNED = 17usize.align_up(8usize);
+
+    CONST_ALIGNED.should_some().eq(24usize).sum(@loc(), t);
+    SAT_ADD.should().eq(num.USIZE_MAX).sum(@loc(), t);
+    SAT_MUL.should().eq(num.USIZE_MAX).sum(@loc(), t);
+    CHECKED_SUM.should_some().eq(42usize).sum(@loc(), t);
+    CHECKED_OVERFLOW.should_none().sum(@loc(), t);
+    10usize.checked_sub(3usize).should_some().eq(7usize).sum(@loc(), t);
+    10usize.align_up(3usize).should_none().sum(@loc(), t);
+    64usize.is_power_of_two().should().sum(@loc(), t);
+    0usize.is_power_of_two().not().should().sum(@loc(), t);
+    8i32.min(3i32).should().eq(3i32).sum(@loc(), t);
+    8i32.max(3i32).should().eq(8i32).sum(@loc(), t);
+    19i32.clamp(-2i32, 9i32).should().eq(9i32).sum(@loc(), t);
+    (-5i32).clamp(-2i32, 9i32).should().eq(-2i32).sum(@loc(), t);
+
+    return 0;
+}

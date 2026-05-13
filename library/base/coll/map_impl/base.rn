@@ -1,0 +1,185 @@
+//! Core hash-map storage primitives.
+//!
+//! Design:
+//! keep probing, tombstones, and load-factor policy visible so higher layers stay predictable.
+
+use base.hash.Hash;
+/// Control byte for an unused slot.
+pub.. const EMPTY = 0u8;
+/// Control byte for a deleted slot.
+pub.. const DELETED = 1u8;
+/// Control byte for an occupied slot.
+pub.. const FULL = 2u8;
+/// The minimum table capacity.
+pub.. const MIN_CAPACITY = 8usize;
+
+/// A single occupied hash-map slot.
+pub.. struct Entry[K, V] {
+    /// The cached 64-bit hash of `key`.
+    pub hash64: u64,
+    /// The stored key.
+    pub key: K,
+    /// The stored value.
+    pub value: V,
+};
+
+/// A raw table allocation used during rebuilds.
+pub.. struct Table[K, V] {
+    /// Control bytes describing whether each slot is empty, deleted, or full.
+    pub ctrl: &mut u8,
+    /// Entry storage parallel to `ctrl`.
+    pub entries: &mut Entry[K, V],
+    /// The total number of addressable slots.
+    pub capacity: usize,
+};
+
+/// Reads a control byte.
+pub.. fn ctrl_at(ctrl: &u8, index: usize) u8 {
+    return (ctrl + index).*;
+}
+
+/// Writes a control byte.
+pub.. fn set_ctrl(ctrl: &mut u8, index: usize, value: u8) void {
+    (ctrl + index).* = value;
+}
+
+/// Returns a pointer to the entry slot at `index`.
+pub.. fn entry_ptr[K, V](entries: &mut Entry[K, V], index: usize) &mut Entry[K, V] {
+    return entries + index;
+}
+
+/// Visits every occupied entry in a raw table.
+///
+/// Returns:
+/// the number of occupied entries observed, including the last delivered one.
+pub.. fn visit_full[K, V](
+    ctrl: &u8,
+    entries: &mut Entry[K, V],
+    capacity: usize,
+    visitor: &Fn(&mut Entry[K, V]) bool,
+) usize {
+    let mut total = 0usize;
+        let mut i = 0usize;
+    while (i < capacity) {
+        if (ctrl_at(ctrl, i) != FULL) {
+            i += 1;
+            continue;
+        }
+
+        total += 1;
+        if (!visitor(entry_ptr[K, V](entries, i))) {
+            return total;
+        }
+
+        i += 1;
+    }
+    return total;
+}
+
+/// Computes the hash for a key.
+pub.. fn key_hash[K](key: K) u64
+    where K: Eq[K] + Hash[K],
+{
+    return key.hash();
+}
+
+/// Compares two keys for equality.
+pub.. fn keys_equal[K](lhs: K, rhs: K) bool
+    where K: Eq[K] + Hash[K],
+{
+    return lhs == rhs;
+}
+
+/// Finds the slot index for a key and precomputed hash.
+///
+/// The search stops at the first `EMPTY` slot, so deleted tombstones do not
+/// terminate probing.
+pub.. fn find_index_with_hash[K, V](
+    ctrl: &u8,
+    entries: &mut Entry[K, V],
+    capacity: usize,
+    key: K,
+    hash: u64,
+) ?usize
+    where K: Eq[K] + Hash[K],
+{
+    let mask = capacity - 1;
+    let mut index = (hash as usize) & mask;
+    let mut probes = 0usize;
+
+        while (probes < capacity) {
+        let state = ctrl_at(ctrl, index);
+        if (state == EMPTY) {
+            return .None;
+        }
+
+        if (state == FULL) {
+            let entry = entry_ptr[K, V](entries, index);
+            if (entry.hash64 == hash and keys_equal(entry.key, key)) {
+                return .{ Some: index };
+            }
+        }
+
+        index = (index + 1) & mask;
+
+        probes += 1;
+    }
+
+    return .None;
+}
+
+/// Returns the maximum number of occupied slots allowed before growing.
+///
+/// This keeps the steady-state load factor at or below 75%.
+pub.. fn max_occupied(capacity: usize) usize {
+    return capacity - capacity / 4;
+}
+
+/// An open-addressed hash map.
+///
+/// `Map` stores keys and values in parallel slot arrays and uses linear probing
+/// with tombstones for deletions.
+pub.. struct Map[K, V] where K: Eq[K] + Hash[K] {
+    pub ctrl: &mut u8 = 1usize.as_mut_ptr[u8](),
+    pub entries: &mut Entry[K, V] = 1usize.as_mut_ptr[Entry[K, V]](),
+    /// The number of allocated slots.
+    pub capacity: usize = 0,
+    /// The number of live entries.
+    len: usize = 0,
+    /// The number of deleted tombstone slots.
+    pub tombstones: usize = 0,
+};
+
+pub.. fn set_len[K, V](map: &mut Map[K, V], len: usize) void
+    where K: Eq[K] + Hash[K],
+{
+    map.len = len;
+}
+
+impl[K, V] Map[K, V]
+    where K: Eq[K] + Hash[K],
+{
+    /// Returns the number of live entries.
+    pub fn len() usize {
+        return self.len;
+    }
+
+    /// Returns `true` when the map contains no entries.
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+}
+
+impl[K, V] &Map[K, V]
+    where K: Eq[K] + Hash[K],
+{
+    /// Returns the number of live entries.
+    pub fn len() usize {
+        return self.len;
+    }
+
+    /// Returns `true` when the map contains no entries.
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+}

@@ -1,0 +1,88 @@
+//! Pointer/address conversion helpers.
+//!
+//! Design:
+//! keep raw-address to pointer conversion centralized in one module and expose
+//! explicit `usize` conversion methods so address-heavy code stays readable
+//! without duplicating the cast API.
+
+impl usize {
+    /// Reinterprets this address as `&T`.
+    pub fn as_ptr[T]() &T {
+        return self as &T;
+    }
+
+    /// Reinterprets this address as `&mut T`.
+    pub fn as_mut_ptr[T]() &mut T {
+        return self as &mut T;
+    }
+
+    /// Reinterprets this address as `^T`.
+    pub fn as_addr_ptr[T]() ^T {
+        return self as ^T;
+    }
+
+    /// Reinterprets this address as `^mut T`.
+    pub fn as_mut_addr_ptr[T]() ^mut T {
+        return self as ^mut T;
+    }
+}
+
+/// Returns the null pointer for `&T`.
+pub/ fn null_ptr[T]() &T {
+    return 0usize as &T;
+}
+
+/// Returns the null pointer for `&mut T`.
+pub/ fn null_mut_ptr[T]() &mut T {
+    return 0usize as &mut T;
+}
+
+/// Returns the null address pointer for `^T`.
+pub/ fn null_addr_ptr[T]() ^T {
+    return 0usize as ^T;
+}
+
+/// Returns the null address pointer for `^mut T`.
+pub/ fn null_mut_addr_ptr[T]() ^mut T {
+    return 0usize as ^mut T;
+}
+
+impl[T] &T {
+    pub fn is_null() bool {
+        return (self as usize) == 0;
+    }
+
+    pub fn byte_add(offset: usize) &T {
+        return ((self as usize) + offset).as_ptr[T]();
+    }
+
+    pub fn byte_sub(offset: usize) &T {
+        return ((self as usize) - offset).as_ptr[T]();
+    }
+}
+
+impl[T] &mut T {
+    pub fn is_null() bool {
+        return (self as usize) == 0;
+    }
+
+    pub fn byte_add(offset: usize) &mut T {
+        return ((self as usize) + offset).as_mut_ptr[T]();
+    }
+
+    pub fn byte_sub(offset: usize) &mut T {
+        return ((self as usize) - offset).as_mut_ptr[T]();
+    }
+}
+
+impl[T] ^T {
+    pub fn is_null() bool {
+        return (self as usize) == 0;
+    }
+}
+
+impl[T] ^mut T {
+    pub fn is_null() bool {
+        return (self as usize) == 0;
+    }
+}

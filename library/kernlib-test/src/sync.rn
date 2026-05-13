@@ -1,0 +1,161 @@
+//! Tests for `base.sync` synchronization primitives.
+
+use base.io;
+use base.sync.{
+    ACQUIRE,
+    ACQ_REL,
+    RELAXED,
+    RELEASE,
+    SEQ_CST,
+    atomic,
+    fence,
+    once,
+    spin_lock,
+};
+use base.test.{Report, report};
+
+struct Pair {
+    left: i32,
+    right: i32,
+};
+
+fn check_atomics[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let mut byte = atomic[u8](0);
+    byte..&.load[ACQUIRE]().should().eq(0u8).sum(@loc(), t);
+    byte..&.store[RELEASE](1);
+    byte..&.load[ACQUIRE]().should().eq(1u8).sum(@loc(), t);
+    byte..&.exchange[ACQ_REL](0).should().eq(1u8).sum(@loc(), t);
+    let byte_cas = byte..&.compare_exchange[ACQ_REL, ACQUIRE](0, 1);
+    byte_cas.success.should().sum(@loc(), t);
+    byte_cas.value.should().eq(0u8).sum(@loc(), t);
+
+    let mut flag = atomic[bool](false);
+    flag..&.load[ACQUIRE]().not().should().sum(@loc(), t);
+    flag..&.store[RELEASE](true);
+    flag..&.load[ACQUIRE]().should().sum(@loc(), t);
+    flag..&.exchange[ACQ_REL](false).should().sum(@loc(), t);
+    flag..&.load[ACQUIRE]().not().should().sum(@loc(), t);
+
+    let mut counter = atomic[usize](1);
+    counter..&.fetch_add[SEQ_CST](2).should().eq(1usize).sum(@loc(), t);
+    counter..&.load[ACQUIRE]().should().eq(3usize).sum(@loc(), t);
+    counter..&.fetch_sub[ACQ_REL](1).should().eq(3usize).sum(@loc(), t);
+    counter..&.exchange[SEQ_CST](10).should().eq(2usize).sum(@loc(), t);
+    let cas = counter..&.compare_exchange[ACQ_REL, ACQUIRE](10, 12);
+    cas.success.should().sum(@loc(), t);
+    cas.value.should().eq(10usize).sum(@loc(), t);
+    let weak = counter..&.compare_exchange_weak[ACQ_REL, ACQUIRE](99, 1);
+    weak.success.not().should().sum(@loc(), t);
+    weak.value.should().eq(12usize).sum(@loc(), t);
+    counter..&.fetch_or[ACQ_REL](3).should().eq(12usize).sum(@loc(), t);
+    counter..&.fetch_and[ACQ_REL](7).should().eq(15usize).sum(@loc(), t);
+    counter..&.fetch_xor[ACQ_REL](2).should().eq(7usize).sum(@loc(), t);
+    counter..&.load[ACQUIRE]().should().eq(5usize).sum(@loc(), t);
+
+    let mut left = 1usize;
+    let mut right = 2usize;
+    let mut ptr = atomic[&mut usize](left..&);
+    (ptr..&.load[ACQUIRE]() == left..&).should().sum(@loc(), t);
+    ptr..&.store[RELEASE](right..&);
+    (ptr..&.load[ACQUIRE]() == right..&).should().sum(@loc(), t);
+    let old_ptr = ptr..&.exchange[ACQ_REL](left..&);
+    (old_ptr == right..&).should().sum(@loc(), t);
+    (ptr..&.load[ACQUIRE]() == left..&).should().sum(@loc(), t);
+    let ptr_cas = ptr..&.compare_exchange[ACQ_REL, ACQUIRE](left..&, right..&);
+    ptr_cas.success.should().sum(@loc(), t);
+    (ptr_cas.value == left..&).should().sum(@loc(), t);
+
+    fence[SEQ_CST]();
+    let _ = RELAXED;
+}
+
+fn check_spin_lock[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let mut counter = spin_lock[i32](5);
+    counter..&.is_locked().not().should().sum(@loc(), t);
+
+    counter..&.with_lock[i32]([](value: &mut i32) i32 {
+        value.* += 1;
+        return value.*;
+    }).should().eq(6).sum(@loc(), t);
+    counter..&.is_locked().not().should().sum(@loc(), t);
+
+    counter..&.try_with_lock[i32]([](value: &mut i32) i32 {
+        value.* += 4;
+        return value.*;
+    }).should_some().eq(10).sum(@loc(), t);
+
+    let reentrant_blocked = counter..&.with_lock[bool]([lock = counter..&](value: &mut i32) bool {
+        if (!lock.is_locked()) {
+            return false;
+        }
+        let nested = lock.try_with_lock[i32]([](inner: &mut i32) i32 {
+            inner.* = 99;
+            return inner.*;
+        });
+        match (nested) {
+            .None => {},
+            .{ Some: _ } => return false,
+        }
+        value.* += 1;
+        return true;
+    });
+    reentrant_blocked.should().sum(@loc(), t);
+    counter..&.with_lock[i32]([](value: &mut i32) i32 {
+        return value.*;
+    }).should().eq(11).sum(@loc(), t);
+
+    let mut pair = spin_lock[Pair](Pair.{ left: 2, right: 3 });
+    pair..&.with_lock[i32]([](value: &mut Pair) i32 {
+        value.left *= 5;
+        value.right += 7;
+        return value.left + value.right;
+    }).should().eq(20).sum(@loc(), t);
+}
+
+fn check_once[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let mut gate = once();
+    gate..&.is_completed().not().should().sum(@loc(), t);
+
+    let mut hits = 0i32;
+    gate..&.call_once([hits = hits..&]() void {
+        hits.* += 1;
+    });
+    gate..&.is_completed().should().sum(@loc(), t);
+    hits.should().eq(1).sum(@loc(), t);
+
+    gate..&.call_once([hits = hits..&]() void {
+        hits.* += 10;
+    });
+    hits.should().eq(1).sum(@loc(), t);
+
+    gate..&.try_call_once([hits = hits..&]() void {
+        hits.* += 100;
+    }).not().should().sum(@loc(), t);
+    hits.should().eq(1).sum(@loc(), t);
+
+    let mut second = once();
+    second..&.try_call_once([hits = hits..&]() void {
+        hits.* += 7;
+    }).should().sum(@loc(), t);
+    hits.should().eq(8).sum(@loc(), t);
+    second..&.is_completed().should().sum(@loc(), t);
+    second..&.try_call_once([hits = hits..&]() void {
+        hits.* += 70;
+    }).not().should().sum(@loc(), t);
+    hits.should().eq(8).sum(@loc(), t);
+}
+
+#[test]
+fn synchronization_helpers() i32 {
+    let t = report(io.discard())..&;
+    check_atomics(t);
+    check_spin_lock(t);
+    check_once(t);
+    return 0;
+}

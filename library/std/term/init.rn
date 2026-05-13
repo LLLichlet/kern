@@ -1,0 +1,116 @@
+//! Terminal capability helpers.
+//!
+//! This module keeps TTY checks, raw mode, and viewport sizing explicit while
+//! building on top of the hosted OS implementation in `std.host.os`.
+
+use std.host.os;
+
+/// Terminal errors surfaced through `std.term`.
+pub enum Error {
+    NotTerminal,
+    Os: os.Error,
+};
+
+/// The visible terminal dimensions.
+pub type Size = os.TerminalSize;
+
+/// A borrowed standard terminal stream.
+pub struct Terminal {
+    handle: os.Handle,
+};
+
+/// Owns one active raw-mode terminal session and restores it on drop.
+pub struct RawMode {
+    handle: os.Handle,
+    state: os.TerminalState,
+    active: bool = false,
+};
+
+fn normalized_size(size: Size) Size {
+    let rows = if (size.rows == 0) 24usize else size.rows;
+    let cols = if (size.cols == 0) 80usize else size.cols;
+    return .{ rows: rows, cols: cols };
+}
+
+fn wrap_os_error(err: os.Error) Error {
+    return .{ Os: err };
+}
+
+fn size_for_handle(handle: os.Handle) Size!Error {
+    if (!os.is_terminal(handle)) {
+        return .{ Err: .NotTerminal };
+    }
+    return os
+        .terminal_size(handle)
+        .map(normalized_size)
+        .map_err(wrap_os_error);
+}
+
+/// Returns a borrowed wrapper around standard input.
+pub fn stdin() Terminal {
+    return .{ handle: os.get_stdin_handle() };
+}
+
+/// Returns a borrowed wrapper around standard output.
+pub fn stdout() Terminal {
+    return .{ handle: os.get_stdout_handle() };
+}
+
+/// Returns a borrowed wrapper around standard error.
+pub fn stderr() Terminal {
+    return .{ handle: os.get_stderr_handle() };
+}
+
+impl Terminal {
+    /// Returns `true` when this stream is attached to a terminal.
+    pub fn is_terminal() bool {
+        return os.is_terminal(self.handle);
+    }
+
+    /// Enables raw mode for this terminal stream.
+    pub fn raw_mode() RawMode!Error {
+        if (!self.is_terminal()) {
+            return .{ Err: .NotTerminal };
+        }
+        let handle = self.handle;
+        return os.enable_raw_mode(handle)
+            .map([handle](state: os.TerminalState) RawMode {
+                return .{ handle: handle, state: state, active: true };
+            })
+            .map_err(wrap_os_error);
+    }
+
+    /// Returns the current visible size for this terminal stream.
+    pub fn size() Size!Error {
+        return size_for_handle(self.handle);
+    }
+
+    /// Returns the current visible row count.
+    pub fn rows() usize!Error {
+        return self.size().map([](size: Size) usize { return size.rows; });
+    }
+
+    /// Returns the current visible column count.
+    pub fn columns() usize!Error {
+        return self.size().map([](size: Size) usize { return size.cols; });
+    }
+}
+
+impl &mut RawMode {
+    /// Restores the terminal to the state captured before raw mode was enabled.
+    pub fn restore() bool!Error {
+        if (!self.active) {
+            return .{ Ok: true };
+        }
+
+        let restored = os.restore_terminal_mode(self.handle, self.state..&)
+            .map_err(wrap_os_error).!;
+        self.active = false;
+        return .{ Ok: restored };
+    }
+
+    /// Best-effort destructor for raw terminal sessions.
+    pub fn deinit() void {
+        _ = self.restore();
+    }
+}

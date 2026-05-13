@@ -1,0 +1,20 @@
+[package]
+name = "std"
+version = "0.7.5"
+kern = "0.7.5"
+publish = false
+description = "User-facing Kern standard library"
+readme = "README.md"
+license = "MIT"
+authors = ["softfault <givenyoung46@gmail.com>"]
+
+[runtime]
+entry = "none"
+libc = false
+bundle = "std"
+
+[lib]
+root = "init.rn"
+
+[dependencies]
+base = { workspace = true }

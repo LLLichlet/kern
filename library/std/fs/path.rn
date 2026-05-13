@@ -1,0 +1,454 @@
+//! Pure path manipulation helpers.
+//!
+//! Design:
+//! keep normalization lexical and avoid hidden filesystem queries.
+
+use base.mem.alloc.{AllocError, Allocator};
+use base.coll.{String, List};
+use ..types.{Error, Path};
+
+fn wrap_alloc_error(_: AllocError) Error {
+    return .OutOfMemory;
+}
+
+/// Returns `true` when `byte` is treated as a path separator on the current platform.
+pub/ fn is_path_separator(byte: u8) bool {
+    #[if(os == "windows")]
+    {
+        return byte == b'/' or byte == b'\\';
+    }
+
+    return byte == b'/';
+}
+
+/// Returns the preferred path separator for the current platform.
+pub/ fn path_separator_byte() u8 {
+    #[if(os == "windows")]
+    {
+        return b'\\';
+    }
+
+    return b'/';
+}
+
+fn preferred_separator_byte(path: &[u8]) u8 {
+    #[if(os == "windows")]
+    {
+                let mut i = 0usize;
+        while (i < #path) {
+            if (path.[i] == b'\\') {
+                return b'\\';
+            }
+            if (path.[i] == b'/') {
+                return b'/';
+            }
+
+            i += 1;
+        }
+        return b'\\';
+    }
+
+    _ = path;
+    return b'/';
+}
+
+/// Returns the length of the root prefix of `path`.
+///
+/// Note:
+/// on Windows this includes drive prefixes and UNC roots.
+pub/ fn root_prefix_len(path: &[u8]) usize {
+    let len = #path;
+    if (len == 0) {
+        return 0usize;
+    }
+
+    #[if(os == "windows")]
+    {
+        if (len >= 2 and is_path_separator(path.[0]) and is_path_separator(path.[1])) {
+            let mut index = 2usize;
+            while (
+                index < len and
+                !is_path_separator(path.[index])
+            ) {
+                index += 1usize;
+            }
+            if (index >= len) {
+                return 2usize;
+            }
+
+            index += 1usize;
+            while (
+                index < len and
+                !is_path_separator(path.[index])
+            ) {
+                index += 1usize;
+            }
+            if (index < len and is_path_separator(path.[index])) {
+                return index + 1usize;
+            }
+            return index;
+        }
+
+        if (len >= 2) {
+            let drive = path.[0];
+            let is_alpha =
+                (drive >= b'a' and drive <= b'z') or
+                (drive >= b'A' and drive <= b'Z');
+            if (is_alpha and path.[1] == b':') {
+                if (len >= 3 and is_path_separator(path.[2])) {
+                    return 3usize;
+                }
+                return 2usize;
+            }
+        }
+    }
+
+    if (is_path_separator(path.[0])) {
+        return 1usize;
+    }
+    return 0usize;
+}
+
+/// Removes trailing separators while preserving the root prefix.
+pub/ fn trim_trailing_separators(path: &[u8]) &[u8] {
+    let prefix_len = root_prefix_len(path);
+    let mut end = #path;
+        while (end > prefix_len) {
+        if (!is_path_separator(path.[end - 1])) {
+            break;
+        }
+        end -= 1;
+    }
+    return path.&[0 .. end];
+}
+
+/// Builds `base/name` using the preferred separator for `base`.
+pub/ fn build_child_path(
+    alloc: &mut Allocator,
+    base: &[u8],
+    name: &[u8],
+) String!Error {
+    let mut out = String.{};
+    let sep = preferred_separator_byte(base);
+    out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).!;
+
+    if (#base > 0 and !is_path_separator(base.[#base - 1])) {
+        if (out..&.try_push_char(alloc, sep).is_err()) {
+            out..&.deinit(alloc);
+            return .{ Err: .OutOfMemory };
+        }
+    }
+
+    if (out..&.try_push_str(alloc, name).is_err()) {
+        out..&.deinit(alloc);
+        return .{ Err: .OutOfMemory };
+    }
+
+    return .{ Ok: out };
+}
+
+fn append_path_segment(
+    out: &mut String,
+    alloc: &mut Allocator,
+    prefix_len: usize,
+    sep: u8,
+    segment: &[u8],
+) bool {
+    let out_len = out.len();
+    if (
+        out_len > 0 and
+        !is_path_separator(out.as_str().[out_len - 1]) and
+        (prefix_len == 0 or out_len > prefix_len)
+    ) {
+        if (out.try_push_char(alloc, sep).is_err()) {
+            return false;
+        }
+    }
+
+    return out.try_push_str(alloc, segment).is_ok();
+}
+
+fn last_separator(path: &[u8]) ?usize {
+    let prefix_len = root_prefix_len(path);
+        let mut index = #path;
+    while (index > prefix_len) {
+        index -= 1;
+        if (is_path_separator(path.[index])) {
+            return .{ Some: index };
+        }
+    }
+    return .None;
+}
+
+/// Returns the final path component.
+pub/ fn file_name(path: &[u8]) ?&[u8] {
+    let trimmed = trim_trailing_separators(path);
+    let prefix_len = root_prefix_len(trimmed);
+    if (#trimmed == 0 or #trimmed == prefix_len) {
+        return .None;
+    }
+
+    let .{ Some: index } = last_separator(trimmed) else return .{ Some: trimmed };
+    return .{ Some: trimmed.&[index + 1 .. #trimmed] };
+}
+
+/// Returns the parent directory of a path.
+pub/ fn parent(path: &[u8]) ?&[u8] {
+    let trimmed = trim_trailing_separators(path);
+    let prefix_len = root_prefix_len(trimmed);
+    if (#trimmed == 0 or #trimmed == prefix_len) {
+        return .None;
+    }
+
+    let .{ Some: index } = last_separator(trimmed) else {
+        if (prefix_len > 0) {
+            return .{ Some: trimmed.&[0 .. prefix_len] };
+        }
+        return .None;
+    };
+    return .{ Some: trimmed.&[0 .. index] };
+}
+
+/// Returns the extension of the final path component without the dot.
+pub/ fn extension(path: &[u8]) ?&[u8] {
+    let name = file_name(path).?;
+
+        let mut index = #name;
+    while (index > 0) {
+        index -= 1;
+        if (name.[index] != b'.') {
+            continue;
+        }
+        if (index == 0 or index + 1 == #name) {
+            return .None;
+        }
+        return .{ Some: name.&[index + 1 .. #name] };
+    }
+
+    return .None;
+}
+
+/// Returns the final path component without its extension.
+pub/ fn file_stem(path: &[u8]) ?&[u8] {
+    let name = file_name(path).?;
+
+        let mut index = #name;
+    while (index > 0) {
+        index -= 1;
+        if (name.[index] != b'.') {
+            continue;
+        }
+        if (index == 0) {
+            return .{ Some: name };
+        }
+        return .{ Some: name.&[0 .. index] };
+    }
+
+    return .{ Some: name };
+}
+
+/// Joins `base` and `child`.
+///
+/// Note:
+/// absolute `child` paths replace `base`.
+pub/ fn join(
+    alloc: &mut Allocator,
+    base: &[u8],
+    child: &[u8],
+) String!Error {
+    if (root_prefix_len(child) > 0) {
+        let mut out = String.{};
+        out..&.try_push_str(alloc, child).map_err(wrap_alloc_error).!;
+        return .{ Ok: out };
+    }
+
+    if (#base == 0) {
+        let mut out = String.{};
+        out..&.try_push_str(alloc, child).map_err(wrap_alloc_error).!;
+        return .{ Ok: out };
+    }
+
+    if (#child == 0) {
+        let mut out = String.{};
+        out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).!;
+        return .{ Ok: out };
+    }
+
+    return build_child_path(alloc, base, child);
+}
+
+/// Normalizes `.` and `..` segments and collapses repeated separators.
+///
+/// Design:
+/// keep normalization lexical and preserve the original root prefix semantics.
+///
+/// This function does not consult the filesystem, so symbolic links and missing
+/// path segments are left uninterpreted.
+pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
+    let prefix_len = root_prefix_len(path);
+    let sep = preferred_separator_byte(path);
+    let segments = List[&[u8]].{}..&;
+    defer segments.deinit(alloc);
+
+    let mut index = prefix_len;
+        while (index < #path) {
+                while (index < #path and is_path_separator(path.[index])) {            index += 1;
+        }
+        if (index >= #path) {
+            break;
+        }
+
+        let start = index;
+                while (index < #path and !is_path_separator(path.[index])) {            index += 1;
+        }
+        let segment = path.&[start .. index];
+
+        if (segment == ".") {
+            continue;
+        }
+
+        if (segment == "..") {
+            let can_pop = segments.last().is_some_and([](last: &[u8]) bool {
+                return last != "..";
+            });
+            if (can_pop) {
+                _ = segments.pop();
+            } else if (prefix_len == 0) {
+                segments.try_push(alloc, segment).map_err(wrap_alloc_error).!;
+            }
+            continue;
+        }
+
+        segments.try_push(alloc, segment).map_err(wrap_alloc_error).!;
+    }
+
+    let mut out = String.{};
+    if (prefix_len > 0) {
+        out..&.try_push_str(alloc, path.&[0 .. prefix_len]).map_err(wrap_alloc_error).!;
+    }
+
+    if (segments.is_empty()) {
+        if (prefix_len > 0) {
+            return .{ Ok: out };
+        }
+        out..&.try_push_str(alloc, ".").map_err(wrap_alloc_error).!;
+        return .{ Ok: out };
+    }
+
+    let mut seg_index = 0usize;
+    while (seg_index < segments.len()) {
+        let .{ Some: segment } = segments.get(seg_index) else {
+            seg_index += 1;
+            continue;
+        };
+        if (!append_path_segment(out..&, alloc, prefix_len, sep, segment)) {
+            out..&.deinit(alloc);
+            return .{ Err: .OutOfMemory };
+        }
+
+        seg_index += 1;
+    }
+
+    return .{ Ok: out };
+}
+
+/// Returns `path` with its final component replaced by `name`.
+///
+/// Errors:
+/// returns `InvalidPath` when `name` is empty.
+pub/ fn with_file_name(
+    alloc: &mut Allocator,
+    path: &[u8],
+    name: &[u8],
+) String!Error {
+    if (#name == 0) {
+        return .{ Err: .InvalidPath };
+    }
+
+    let trimmed = trim_trailing_separators(path);
+    let prefix_len = root_prefix_len(trimmed);
+
+    let .{ Some: dir } = parent(trimmed) else {
+        if (#trimmed == prefix_len and prefix_len > 0) {
+            return join(alloc, trimmed, name);
+        }
+        return join(alloc, "", name);
+    };
+    return join(alloc, dir, name);
+}
+
+/// Returns `path` with its extension replaced by `ext`.
+///
+/// An empty `ext` removes the extension entirely.
+pub/ fn with_extension(
+    alloc: &mut Allocator,
+    path: &[u8],
+    ext: &[u8],
+) String!Error {
+    let stem = file_stem(path).ok_or(.InvalidPath).!;
+
+    let mut new_name = String.{};
+    new_name..&.try_push_str(alloc, stem).map_err(wrap_alloc_error).!;
+
+    if (#ext > 0) {
+        if (new_name..&.try_push_char(alloc, b'.').is_err()) {
+            new_name..&.deinit(alloc);
+            return .{ Err: .OutOfMemory };
+        }
+        if (new_name..&.try_push_str(alloc, ext).is_err()) {
+            new_name..&.deinit(alloc);
+            return .{ Err: .OutOfMemory };
+        }
+    }
+
+    let result = with_file_name(alloc, path, new_name.&.as_str());
+    new_name..&.deinit(alloc);
+    return result;
+}
+
+impl Path {
+    /// Returns the raw path bytes.
+    pub fn as_str() &[u8] {
+        return self.raw;
+    }
+
+    /// Returns the final path component.
+    pub fn file_name() ?&[u8] {
+        return file_name(self.raw);
+    }
+
+    /// Returns the parent directory.
+    pub fn parent() ?&[u8] {
+        return parent(self.raw);
+    }
+
+    /// Returns the extension of the final path component without the dot.
+    pub fn extension() ?&[u8] {
+        return extension(self.raw);
+    }
+
+    /// Returns the final path component without its extension.
+    pub fn file_stem() ?&[u8] {
+        return file_stem(self.raw);
+    }
+
+    /// Joins this path with `child`.
+    pub fn join(alloc: &mut Allocator, child: &[u8]) String!Error {
+        return join(alloc, self.raw, child);
+    }
+
+    /// Normalizes `.` and `..` segments and collapses repeated separators.
+    pub fn normalize(alloc: &mut Allocator) String!Error {
+        return normalize(alloc, self.raw);
+    }
+
+    /// Returns this path with its final component replaced by `name`.
+    pub fn with_file_name(alloc: &mut Allocator, name: &[u8]) String!Error {
+        return with_file_name(alloc, self.raw, name);
+    }
+
+    /// Returns this path with its extension replaced by `ext`.
+    pub fn with_extension(alloc: &mut Allocator, ext: &[u8]) String!Error {
+        return with_extension(alloc, self.raw, ext);
+    }
+}

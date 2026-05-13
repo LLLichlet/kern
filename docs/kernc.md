@@ -203,7 +203,7 @@ Use `--module-path <name=path>` to map a module root name to a physical path:
 kernc --module-path std=./library/std app.rn
 ```
 
-In a source checkout this path is inside the checked-out `kernlib` submodule.
+In a source checkout this path is inside the in-tree `library/` workspace.
 Installed SDKs normally use `--library-bundle` or `KERNLIB_PATH` instead of a
 repository-relative path.
 
@@ -246,8 +246,8 @@ workspace. `KERNLIB_PATH` may point at that workspace root, which must contain
 `Craft.toml` plus the `base`, `rt`, and `std` member directories. Without
 `KERNLIB_PATH`, `kernc` searches for `library` relative to the current
 executable, then for the SDK layout at `lib/kern`, and finally falls back to
-`library` in the repository layout. In a source checkout, `library` is the
-`kernlib` submodule; initialize it with `git submodule update --init library`.
+`library` in the repository layout. In a source checkout, `library/` is checked
+in as the official library workspace.
 
 The model is:
 

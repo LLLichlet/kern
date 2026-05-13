@@ -141,9 +141,9 @@ The public library/runtime split is:
 
 These are ordinary public packages in the official library workspace, not
 compiler-privileged crates. The workspace root is the stable boundary:
-the compiler repository keeps it at `library` as the `kernlib` submodule,
-`KERNLIB_PATH` can point at an external checkout, and SDK installs place the
-same workspace snapshot under `lib/kern`.
+the source repository keeps it at `library/`, `KERNLIB_PATH` can point at an
+external compatible workspace, and SDK installs place the same workspace
+snapshot under `lib/kern`.
 The official `rt` package is intentionally below the public library stack: it
 must not depend on `base` or `std`.
 

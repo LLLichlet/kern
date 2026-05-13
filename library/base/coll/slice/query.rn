@@ -1,0 +1,426 @@
+//! Read-only slice query helpers.
+//!
+//! Design:
+//! keep borrowed sequence queries allocation-free and composable.
+
+use base.cmp.{
+    Ord,
+    Ordering,
+    LESS,
+    EQUAL,
+    GREATER,
+};
+use base.coll.SliceIter;
+
+impl[T] &[T] {
+    /// Returns the number of elements in the slice.
+    pub fn len() usize {
+        return #self;
+    }
+
+    /// Returns an iterator over copied slice elements.
+    pub fn iter() SliceIter[T] {
+        return .{ data: self };
+    }
+
+    /// Returns `true` when the slice has no elements.
+    pub fn is_empty() bool {
+        return #self == 0;
+    }
+
+    /// Returns the element at `index`.
+    pub fn get(index: usize) ?T {
+        if (index >= #self) return .None;
+        return .{ Some: self.[index] };
+    }
+
+    /// Returns the first element.
+    pub fn first() ?T {
+        if (#self == 0) return .None;
+        return .{ Some: self.[0] };
+    }
+
+    /// Returns the last element.
+    pub fn last() ?T {
+        if (#self == 0) return .None;
+        return .{ Some: self.[#self - 1] };
+    }
+
+    /// Returns the first index accepted by `pred`.
+    pub fn position(pred: &Fn(T) bool) ?usize {
+                let mut i = 0usize;
+        while (i < #self) {
+            if (pred(self.[i])) {
+                return .{ Some: i };
+            }
+
+            i += 1;
+        }
+        return .None;
+    }
+
+    /// Returns the last index accepted by `pred`.
+    pub fn rposition(pred: &Fn(T) bool) ?usize {
+                let mut i = #self;
+        while (i > 0) {
+            i -= 1;
+            if (pred(self.[i])) {
+                return .{ Some: i };
+            }
+        }
+        return .None;
+    }
+
+    /// Returns `true` when any element satisfies `pred`.
+    pub fn any(pred: &Fn(T) bool) bool {
+        return self.position(pred).is_some();
+    }
+
+    /// Returns `true` when every element satisfies `pred`.
+    pub fn all(pred: &Fn(T) bool) bool {
+                let mut i = 0usize;
+        while (i < #self) {
+            if (!pred(self.[i])) {
+                return false;
+            }
+
+            i += 1;
+        }
+        return true;
+    }
+
+    /// Counts how many elements satisfy `pred`.
+    pub fn count(pred: &Fn(T) bool) usize {
+        let mut total = 0usize;
+                let mut i = 0usize;
+        while (i < #self) {
+            if (pred(self.[i])) {
+                total += 1;
+            }
+
+            i += 1;
+        }
+        return total;
+    }
+
+    /// Visits each element in order.
+    pub fn for_each(visitor: &Fn(T) void) void {
+                let mut i = 0usize;
+        while (i < #self) {
+            visitor(self.[i]);
+
+            i += 1;
+        }
+    }
+
+    /// Folds the slice from left to right.
+    pub fn fold[U](init: U, step: &Fn(U, T) U) U {
+        let mut accum = init;
+                let mut i = 0usize;
+        while (i < #self) {
+            accum = step(accum, self.[i]);
+
+            i += 1;
+        }
+        return accum;
+    }
+
+    /// Returns the first mapped value produced by `call_back`.
+    pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
+                let mut i = 0usize;
+        while (i < #self) {
+            match (call_back(self.[i])) {
+                .{ Some: value } => return .{ Some: value },
+                .None => {}
+            }
+
+            i += 1;
+        }
+        return .None;
+    }
+
+    /// Returns the partition point for a slice already partitioned by `pred`.
+    pub fn partition_point(pred: &Fn(T) bool) usize {
+        let mut left = 0usize;
+        let mut right = #self;
+
+                while (left < right) {
+            let mid = left + (right - left) / 2;
+            if (pred(self.[mid])) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+
+        return left;
+    }
+}
+
+impl[T, N: usize] [N]T {
+    /// Returns the number of elements in the array.
+    pub fn len() usize {
+        return N;
+    }
+}
+
+impl[T] &[T]
+    where T: Eq[T],
+{
+    /// Returns `true` when the slice begins with `prefix`.
+    #[inline]
+    pub fn starts_with(prefix: &[T]) bool {
+        if (#prefix > #self) return false;
+                let mut i = 0usize;
+        while (i < #prefix) {
+            if (self.[i] != prefix.[i]) {
+                return false;
+            }
+
+            i += 1;
+        }
+        return true;
+    }
+
+    /// Returns `true` when the slice ends with `suffix`.
+    #[inline]
+    pub fn ends_with(suffix: &[T]) bool {
+        if (#suffix > #self) return false;
+        let start = #self - #suffix;
+                let mut i = 0usize;
+        while (i < #suffix) {
+            if (self.[start + i] != suffix.[i]) {
+                return false;
+            }
+
+            i += 1;
+        }
+        return true;
+    }
+
+    /// Returns the first position of `needle`.
+    #[inline]
+    pub fn find(needle: &[T]) ?usize {
+        let needle_len = #needle;
+        if (needle_len == 0) {
+            return .{ Some: 0usize };
+        }
+        if (needle_len > #self) {
+            return .None;
+        }
+
+        let last_start = #self - needle_len;
+        let first = needle.[0];
+                let mut i = 0usize;
+        while (i <= last_start) {
+            if (self.[i] != first) {
+                i += 1;
+                continue;
+            }
+
+            let mut matched = true;
+                        let mut j = 1usize;
+            while (j < needle_len) {
+                if (self.[i + j] != needle.[j]) {
+                    matched = false;
+                    break;
+                }
+
+                j += 1;
+            }
+
+            if (matched) {
+                return .{ Some: i };
+            }
+
+            i += 1;
+        }
+
+        return .None;
+    }
+
+    /// Returns `true` when `needle` appears as a contiguous subsequence.
+    pub fn contains(needle: &[T]) bool {
+        return self.find(needle).is_some();
+    }
+
+    /// Removes `prefix` from the front when present.
+    pub fn strip_prefix(prefix: &[T]) ?&[T] {
+        if (!self.starts_with(prefix)) {
+            return .None;
+        }
+        return .{ Some: self.&[#prefix .. #self] };
+    }
+
+    /// Removes `suffix` from the end when present.
+    pub fn strip_suffix(suffix: &[T]) ?&[T] {
+        if (!self.ends_with(suffix)) {
+            return .None;
+        }
+        return .{ Some: self.&[0 .. #self - #suffix] };
+    }
+}
+
+impl[T] &[T] : Eq[&[T]]
+    where T: Eq[T],
+{
+    /// Gives ordinary slices a real trait-based equality path.
+    pub fn eq(other: &[T]) bool {
+        if (#self != #other) {
+            return false;
+        }
+
+                let mut i = 0usize;
+        while (i < #self) {
+            if (self.[i] != other.[i]) {
+                return false;
+            }
+
+            i += 1;
+        }
+
+        return true;
+    }
+}
+
+impl[T, N: usize] &[T] : Eq[[N]T]
+    where T: Eq[T],
+{
+    /// Allows `&[T] == [N]T` without reviving historical inherent `eq` methods.
+    pub fn eq(other: [N]T) bool {
+        if (#self != N) {
+            return false;
+        }
+
+                let mut i = 0usize;
+        while (i < N) {
+            if (self.[i] != other.[i]) {
+                return false;
+            }
+
+            i += 1;
+        }
+
+        return true;
+    }
+}
+
+impl[T, N: usize] [N]T : Eq[&[T]]
+    where T: Eq[T],
+{
+    /// Keeps equality symmetric for array/slice comparisons.
+    pub fn eq(other: &[T]) bool {
+        if (N != #other) {
+            return false;
+        }
+
+                let mut i = 0usize;
+        while (i < N) {
+            if (self.[i] != other.[i]) {
+                return false;
+            }
+
+            i += 1;
+        }
+
+        return true;
+    }
+}
+
+impl[T, N: usize] [N]T : Eq[[N]T]
+    where T: Eq[T],
+{
+    /// Gives fixed-size arrays the same trait-based equality path as slices.
+    pub fn eq(other: [N]T) bool {
+                let mut i = 0usize;
+        while (i < N) {
+            if (self.[i] != other.[i]) {
+                return false;
+            }
+
+            i += 1;
+        }
+
+        return true;
+    }
+}
+
+impl[T] &[T]
+    where T: Ord[T],
+{
+    /// Performs lexicographic comparison against `other`.
+    pub fn lex_cmp(other: &[T]) Ordering {
+        let shared = if (#self < #other) #self else #other;
+                let mut i = 0usize;
+        while (i < shared) {
+            let ord = self.[i].cmp(other.[i]);
+            if (ord != EQUAL) {
+                return ord;
+            }
+
+            i += 1;
+        }
+
+        if (#self < #other) return LESS;
+        if (#self > #other) return GREATER;
+        return EQUAL;
+    }
+
+    /// Performs binary search on a sorted slice.
+    pub fn binary_search(target: T) ?usize {
+        let left = self.lower_bound(target);
+
+        if (left < #self and self.[left].cmp(target) == EQUAL) {
+            return .{ Some: left };
+        }
+
+        return .None;
+    }
+
+    /// Returns the first index whose value is not less than `target`.
+    pub fn lower_bound(target: T) usize {
+        let mut left = 0usize;
+        let mut right = #self;
+
+        while (left < right) {
+            let mid = left + (right - left) / 2;
+            if (self.[mid].cmp(target) == LESS) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+
+        return left;
+    }
+
+    /// Returns the first index whose value is greater than `target`.
+    pub fn upper_bound(target: T) usize {
+        let mut left = 0usize;
+        let mut right = #self;
+
+        while (left < right) {
+            let mid = left + (right - left) / 2;
+            let ord = self.[mid].cmp(target);
+            if (ord == LESS or ord == EQUAL) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+
+        return left;
+    }
+
+    /// Returns `true` when the slice is sorted in nondecreasing order.
+    pub fn is_sorted() bool {
+        let mut i = 1usize;
+        while (i < #self) {
+            if (self.[i - 1].cmp(self.[i]) == GREATER) {
+                return false;
+            }
+            i += 1;
+        }
+        return true;
+    }
+}

@@ -1,0 +1,110 @@
+//! Small arithmetic helpers.
+
+use ..USIZE_MAX;
+use base.cmp.{Ord, LESS, GREATER};
+
+impl[T] T
+    where T: Ord[T],
+{
+    /// Returns the smaller of two ordered values.
+    pub fn min(other: T) T {
+        return if (self.cmp(other) == GREATER) other else self;
+    }
+
+    /// Returns the larger of two ordered values.
+    pub fn max(other: T) T {
+        return if (self.cmp(other) == LESS) other else self;
+    }
+
+    /// Clamps this value into the inclusive range `[lo, hi]`.
+    ///
+    /// Note:
+    /// when `lo > hi`, `lo` is returned. This keeps the helper total and avoids
+    /// hidden failure policy in low-level code.
+    pub fn clamp(lo: T, hi: T) T {
+        if (lo.cmp(hi) == GREATER) {
+            return lo;
+        }
+        if (self.cmp(lo) == LESS) {
+            return lo;
+        }
+        if (self.cmp(hi) == GREATER) {
+            return hi;
+        }
+        return self;
+    }
+}
+
+impl usize {
+    /// Checked addition.
+    pub const fn checked_add(rhs: usize) ?usize {
+        if (self > USIZE_MAX - rhs) {
+            return ?usize.None;
+        }
+        return .{ Some: self + rhs };
+    }
+
+    /// Checked subtraction.
+    pub const fn checked_sub(rhs: usize) ?usize {
+        if (self < rhs) {
+            return ?usize.None;
+        }
+        return .{ Some: self - rhs };
+    }
+
+    /// Checked multiplication.
+    pub const fn checked_mul(rhs: usize) ?usize {
+        if (self == 0 or rhs == 0) {
+            return .{ Some: 0usize };
+        }
+        if (self > USIZE_MAX / rhs) {
+            return ?usize.None;
+        }
+        return .{ Some: self * rhs };
+    }
+
+    /// Saturating addition.
+    pub const fn saturating_add(rhs: usize) usize {
+        if (self > USIZE_MAX - rhs) {
+            return USIZE_MAX;
+        }
+        return self + rhs;
+    }
+
+    /// Saturating subtraction.
+    pub const fn saturating_sub(rhs: usize) usize {
+        return if (self < rhs) 0usize else self - rhs;
+    }
+
+    /// Saturating multiplication.
+    pub const fn saturating_mul(rhs: usize) usize {
+        if (self == 0 or rhs == 0) {
+            return 0;
+        }
+        if (self > USIZE_MAX / rhs) {
+            return USIZE_MAX;
+        }
+        return self * rhs;
+    }
+
+    /// Returns `true` when this value is a non-zero power of two.
+    pub const fn is_power_of_two() bool {
+        return self != 0 and (self & (self - 1)) == 0;
+    }
+
+    /// Rounds this value up to `align`.
+    ///
+    /// Returns:
+    /// `None` when `align` is zero, not a power of two, or the rounded value would overflow.
+    pub const fn align_up(align: usize) ?usize {
+        if (align == 0 or (align & (align - 1)) != 0) {
+            return ?usize.None;
+        }
+        let mask = align - 1;
+        if (self > USIZE_MAX - mask) {
+            return ?usize.None;
+        }
+        let biased = self + mask;
+        return .{ Some: biased & ~mask };
+    }
+}

@@ -1,0 +1,49 @@
+//! Tests for `base.test` positive assertion helpers.
+
+use base.test.{Report, report};
+use base.io;
+
+enum Mode {
+    Fast,
+    Slow,
+};
+
+fn parse(flag: bool) usize!i32 {
+    if (flag) {
+        return .{ Ok: 7 };
+    }
+    return .{ Err: -1 };
+}
+
+#[test]
+fn assertion_helpers() i32 {
+    let t = report(io.discard())..&;
+
+    true.should().sum(@loc(), t);
+    (2i32 + 2i32 == 4i32).should().sum(@loc(), t);
+    "42".parse[i32]().should_ok().eq(42i32).sum(@loc(), t);
+    "ff".parse_radix[u8](16).should_ok().eq(255u8).sum(@loc(), t);
+    i32!i32.{ Ok: 42i32 }.should_ok().eq(42i32).sum(@loc(), t);
+    i32!i32.{ Err: -7i32 }.should_err().eq(-7i32).sum(@loc(), t);
+    (?usize.{ Some: 7usize }).should_some().eq(7usize).sum(@loc(), t);
+    (?usize.None).should_none().sum(@loc(), t);
+
+    (Mode.Fast == Mode.Fast).should().sum(@loc(), t);
+    (Mode.Fast != Mode.Slow).should().sum(@loc(), t);
+
+    let some = ?usize.{ Some: 9usize }.should_some().sum(@loc(), t);
+    some.should().eq(9usize).sum(@loc(), t);
+    (?usize.None).should_none().sum(@loc(), t);
+    (?usize.{ Some: 11usize }).should_some().eq(11usize).sum(@loc(), t);
+    (?usize.None).should_none().sum(@loc(), t);
+
+    let ok = parse(true).should_ok().sum(@loc(), t);
+    ok.should().eq(7usize).sum(@loc(), t);
+    parse(true).should_ok().eq(7usize).sum(@loc(), t);
+
+    let err = parse(false).should_err().sum(@loc(), t);
+    err.should().eq(-1i32).sum(@loc(), t);
+    parse(false).should_err().eq(-1i32).sum(@loc(), t);
+
+    return 0;
+}

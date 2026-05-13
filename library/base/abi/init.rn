@@ -1,0 +1,3 @@
+//! Byte-oriented ABI helpers shared across library layers.
+
+pub mod cstr;

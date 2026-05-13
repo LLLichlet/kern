@@ -1,0 +1,23 @@
+[package]
+name = "kernlib-test"
+version = "0.7.5"
+kern = "0.7.5"
+publish = false
+description = "Internal Kern tests for the official kernlib workspace"
+
+[test]
+roots = [
+    "src/abi.rn",
+    "src/alloc.rn",
+    "src/coll_map.rn",
+    "src/coll_seq.rn",
+    "src/coll_tree.rn",
+    "src/fs_io.rn",
+    "src/fs_path.rn",
+    "src/io.rn",
+    "src/num.rn",
+    "src/std_host.rn",
+    "src/sync.rn",
+    "src/test.rn",
+    "src/text.rn",
+]

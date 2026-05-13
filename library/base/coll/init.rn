@@ -1,0 +1,74 @@
+//! Collection types and slice helpers.
+//!
+//! The standard collections stay allocation-explicit and favor simple,
+//! inspectable representations over hidden policy.
+
+mod list_impl;
+mod map_impl;
+mod iter;
+mod ranges;
+mod slice;
+mod string_impl;
+mod tree_impl;
+
+use base.cmp.Ord;
+use base.hash.Hash;
+
+pub use .iter.{
+    Iterator,
+    SliceIter,
+    SliceMutIter,
+};
+pub use .list_impl.{InsertError, List};
+pub use .map_impl.Map;
+pub use .ranges.{
+    Range,
+    RangeInclusive,
+    RangeDown,
+    RangeDownInclusive,
+    range,
+    range_inclusive,
+    range_down,
+    range_down_inclusive,
+};
+pub use .slice.{
+    bytes_eq,
+    find_byte,
+    rfind_byte,
+    contains_byte,
+    trim_ascii_start,
+    trim_ascii_end,
+    trim_ascii,
+    is_ascii_whitespace,
+    is_ascii_digit,
+    is_ascii_upper,
+    is_ascii_lower,
+    is_ascii_alpha,
+    is_ascii_alnum,
+};
+pub use .string_impl.String;
+pub use .tree_impl.Tree;
+
+/// Creates an empty growable list.
+pub fn list[T]() List[T] {
+    return .{};
+}
+
+/// Creates an empty owned string.
+pub fn string() String {
+    return .{};
+}
+
+/// Creates an empty hash map.
+pub fn map[K, V]() Map[K, V]
+    where K: Eq[K] + Hash[K],
+{
+    return .{};
+}
+
+/// Creates an empty ordered tree.
+pub fn tree[K, V]() Tree[K, V]
+    where K: Ord[K],
+{
+    return .{};
+}

@@ -1,0 +1,171 @@
+//! Tests for `base.io` memory readers, writers, adapters, and formatting.
+
+use base.io.{FormatSpec, Formatable, Read, Write, discard};
+use base.coll.{string};
+use base.mem.alloc.gpa;
+use base.test.{Report, report};
+use std.mem.Page;
+
+struct Pair {
+    left: usize,
+    right: usize,
+};
+
+impl Pair : Formatable {
+    pub fn write_fmt(spec: FormatSpec, writer: &mut Write) void {
+        _ = spec;
+        let _ = writer.write("(");
+        self.left.&.write_to(writer);
+        let _ = writer.write(", ");
+        self.right.&.write_to(writer);
+        let _ = writer.write(")");
+    }
+}
+
+fn check_writers[T](t: &mut Report[T]) void
+    where &mut T: Write,
+{
+    let mut fixed_storage: [64]u8 = undef;
+    let mut fixed = (fixed_storage..&[0 .. 64]).writer();
+    let fixed_writer = (fixed..& as &mut Write);
+    "{}{} {{}} {}".fmt(.{ 12, "ab", false, }).write_to(fixed_writer);
+    fixed..&.as_slice().should().eq("12ab {} false").sum(@loc(), t);
+    fixed..&.did_overflow().not().should().sum(@loc(), t);
+
+    let mut small_storage: [5]u8 = undef;
+    let mut small = (small_storage..&[0 .. 5]).writer();
+    let small_writer = (small..& as &mut Write);
+    small_writer.write_all("abcdef").not().should().sum(@loc(), t);
+    small..&.as_slice().should().eq("abcde").sum(@loc(), t);
+    small..&.did_overflow().should().sum(@loc(), t);
+
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let out = string()..&;
+    defer out.deinit(gpa);
+    let mut string_sink = out.writer(gpa);
+    let sink_writer = (string_sink..& as &mut Write);
+    "[{}{}] {{x}}".fmt(.{ "id-", 7usize, }).write_to(sink_writer);
+    string_sink..&.did_fail().not().should().sum(@loc(), t);
+    out.as_str().should().eq("[id-7] {x}").sum(@loc(), t);
+
+    let mut fmt_storage: [256]u8 = undef;
+    let mut fmt = (fmt_storage..&[0 .. 256]).writer();
+    let fmt_writer = (fmt..& as &mut Write);
+    "p={02} r={>4} l={<4} c={^5} z={0>3} f={_>4} cut={.3} mix={>6.2} left={<6.2} zero={0>5.2} hex={x} HEX={X} bin={b} oct={o} alt={#x} wide={#08x} neg={x} bad={q} old={:02}"
+        .fmt(.{
+            7,
+            "go",
+            "go",
+            "go",
+            7,
+            7,
+            "abcdef",
+            "abcdef",
+            "abcdef",
+            12345,
+            48879u32,
+            48879u32,
+            10u8,
+            10u8,
+            48879u16,
+            255u16,
+            -1i8,
+        })
+        .write_to(fmt_writer);
+    fmt..&.as_slice()
+        .should()
+        .eq("p=07 r=  go l=go   c= go   z=007 f=___7 cut=abc mix=    ab left=ab     zero=00012 hex=beef HEX=BEEF bin=1010 oct=12 alt=0xbeef wide=00000xff neg=ff bad={q} old={:02}")
+        .sum(@loc(), t);
+
+    let pair = Pair.{ left: 2, right: 5 };
+    let mut pair_storage: [16]u8 = undef;
+    let mut pair_out = (pair_storage..&[0 .. 16]).writer();
+    let pair_writer = (pair_out..& as &mut Write);
+    "{}".fmt(.{ pair, }).write_to(pair_writer);
+    pair_out..&.as_slice().should().eq("(2, 5)").sum(@loc(), t);
+}
+
+fn check_readers[T](t: &mut Report[T]) void
+    where &mut T: Write,
+{
+    let mut reader = "abcdef".reader();
+    let reader_obj = (reader..& as &mut Read);
+
+    let mut head: [2]u8 = undef;
+    reader_obj.read_exact(head..&[0 .. 2]).should().sum(@loc(), t);
+    head.&[0 .. 2].should().eq("ab").sum(@loc(), t);
+    reader.&.remaining().should().eq(4usize).sum(@loc(), t);
+    reader.&.remaining_slice().should().eq("cdef").sum(@loc(), t);
+    reader_obj.skip(2).should().eq(2usize).sum(@loc(), t);
+
+    let mut tail: [3]u8 = undef;
+    reader_obj.read_exact(tail..&[0 .. 3]).not().should().sum(@loc(), t);
+    tail.[0].should().eq(b'e').sum(@loc(), t);
+    tail.[1].should().eq(b'f').sum(@loc(), t);
+    reader.&.is_empty().should().sum(@loc(), t);
+
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let mut reader2 = "kern-io".reader();
+    let reader2_obj = (reader2..& as &mut Read);
+    let bytes = reader2_obj.read_to_end(gpa).should_ok().sum(@loc(), t)..&;
+    defer bytes.deinit(gpa);
+    bytes.as_slice().should().eq("kern-io").sum(@loc(), t);
+    reader2_obj.skip(1).should().eq(0usize).sum(@loc(), t);
+}
+
+fn check_copy_adapters[T](t: &mut Report[T]) void
+    where &mut T: Write,
+{
+    let mut source = "abcdef".reader();
+    let source_reader = (source..& as &mut Read);
+
+    let mut storage: [8]u8 = undef;
+    let mut fixed = (storage..&[0 .. 8]).writer();
+    let fixed_writer = (fixed..& as &mut Write);
+    let mut counted = fixed_writer.counting();
+    let counted_writer = (counted..& as &mut Write);
+
+    source_reader.copy_n_to(counted_writer, 4).should().eq(4usize).sum(@loc(), t);
+    counted.&.bytes_written().should().eq(4usize).sum(@loc(), t);
+    fixed.&.as_slice().should().eq("abcd").sum(@loc(), t);
+    source.&.remaining_slice().should().eq("ef").sum(@loc(), t);
+
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let text = string()..&;
+    defer text.deinit(gpa);
+    let mut sink = text.writer(gpa);
+    let sink_writer = (sink..& as &mut Write);
+
+    let mut source2 = "0123456789".reader();
+    let source2_reader = (source2..& as &mut Read);
+    let mut limited = source2_reader.limit(6);
+    let limited_reader = (limited..& as &mut Read);
+    limited_reader.copy_to(sink_writer).should().eq(6usize).sum(@loc(), t);
+    text.as_str().should().eq("012345").sum(@loc(), t);
+    source2.&.remaining_slice().should().eq("6789").sum(@loc(), t);
+
+    let mut source3 = "discard".reader();
+    let source3_reader = (source3..& as &mut Read);
+    let mut null = discard();
+    let null_sink = (null..& as &mut Write);
+    source3_reader.copy_to(null_sink).should().eq(7usize).sum(@loc(), t);
+    source3.&.is_empty().should().sum(@loc(), t);
+}
+
+#[test]
+fn io_helpers() i32 {
+    let t = report(discard())..&;
+    check_writers(t);
+    check_readers(t);
+    check_copy_adapters(t);
+    return 0;
+}

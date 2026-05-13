@@ -1,0 +1,47 @@
+//! Filesystem operations.
+//!
+//! This module keeps path handling, directory walking, and file I/O in UTF-8
+//! slice form while delegating platform translation to `std.host.os`.
+//!
+//! Design:
+//! keep allocation and OS conversion explicit at the public boundary.
+
+mod types;
+mod path;
+mod c_path;
+mod file;
+mod dir;
+
+pub use .types.{
+    Error,
+    ErrorKind,
+    File,
+    Path,
+    FileType,
+    Metadata,
+    DirEntry,
+    OpenOptions,
+    SeekFrom,
+};
+
+pub use .file.{
+    stdin,
+    stdout,
+    stderr,
+};
+
+pub use .dir.{
+    OwnedDirEntry,
+    DirEntries,
+};
+
+pub use .path.{
+    file_name,
+    parent,
+    extension,
+    file_stem,
+    join,
+    normalize,
+    with_file_name,
+    with_extension,
+};

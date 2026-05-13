@@ -1,0 +1,12 @@
+//! Process invocation helpers.
+//!
+//! `std.proc` keeps hosted process APIs split by responsibility while
+//! re-exporting the stable public surface from this module.
+
+mod args;
+mod process;
+mod shell;
+
+pub use .args.{Args, ArgsIter, args};
+pub use .process.process_id;
+pub use .shell.{Capture, Error};

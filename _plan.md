@@ -19,17 +19,17 @@ range/match/slice split and replacing it with one orthogonal model.
 
 ## Core Principle
 
-`..` constructs a range value. Language contexts consume that value through a
-small set of protocols.
+Range syntax constructs a range value. Language contexts consume that value
+through a small set of protocols.
 
 ```text
-a .. b       constructs a range value
+a ... b      constructs a range value
 match        consumes Pattern
 slice        consumes Slicer
 for          consumes Iterator / IntoIterator
 ```
 
-`range(start, end)` and `start .. end` must not become two parallel concepts.
+`range(start, end)` and `start ... end` must not become two parallel concepts.
 The symbolic syntax is the canonical language form; library helpers may remain
 only as compatibility or readability wrappers while the language is still
 pre-1.0.
@@ -40,54 +40,46 @@ Range expressions should produce canonical builtin type families, not named
 builtin structs.
 
 ```kern
-0 .. 10      // i32..i32
+0 ... 10     // i32...i32
 0 ..= 10     // i32..=i32
-..10         // ..i32
+...10        // ...i32
 ..=10        // ..=i32
-10..         // i32..
-..           // ..
+10...        // i32...
+...          // ...
 ```
 
 Canonical type spelling:
 
 ```kern
-T..T         // half-open range [start, end)
+T...T        // half-open range [start, end)
 T..=T        // inclusive range [start, end]
-..T          // range-to
+...T         // range-to
 ..=T         // range-to-inclusive
-T..          // range-from
-..           // full range
+T...         // range-from
+...          // full range
 ```
 
-Open issue: `..T` currently collides with parent-anchored paths such as
-`..foo.Bar`. Phase 2 must resolve this before implementation. Options:
-
-- keep `..T` for range-to types and replace parent-anchored type paths with a
-  different spelling before 1.0;
-- keep parent-anchored paths and choose another canonical spelling for range-to
-  types;
-- disambiguate by grammar only if the result is simple, predictable, and does
-  not make either feature context-dependent in a surprising way.
-
-Do not silently choose one in the parser without documenting the language rule.
+This deliberately avoids the `..T` conflict with parent-anchored paths such as
+`..foo.Bar`. The inclusive forms keep `..=` because it is short, already
+unambiguous, and the `=` marker reads naturally as "include the end".
 
 These are like `?T` and `T!E`: builtin type forms with ordinary semantics. They
 are not named builtin structs. Their layout can be modeled structurally by the
 compiler:
 
 ```kern
-T..T         // struct { start: T, end: T }
+T...T        // struct { start: T, end: T }
 T..=T        // struct { start: T, end: T }
-..T          // struct { end: T }
+...T         // struct { end: T }
 ..=T         // struct { end: T }
-T..          // struct { start: T }
-..           // void-like zero-field value
+T...         // struct { start: T }
+...          // void-like zero-field value
 ```
 
 The constructor should be unique:
 
 ```kern
-let r = a .. b;
+let r = a ... b;
 ```
 
 Do not introduce `Range.{ start: a, end: b }` as another spelling for the same
@@ -108,7 +100,7 @@ trait Pattern[T] {
 
 ```kern
 1             // Bind = void
-0 .. 10       // Bind = void
+0 ... 10      // Bind = void
 .{ Some: x }  // Bind = struct { x: T }
 Point.{ x }   // Bind = struct { x: X }
 ```
@@ -188,9 +180,9 @@ trait Slicer[R] {
 Examples:
 
 ```kern
-buf[0 .. n]
-buf[..]
-buf[i ..]
+buf[0 ... n]
+buf[...]
+buf[i ...]
 buf[..=last]
 ```
 
@@ -201,7 +193,7 @@ These should parse as range expressions passed to indexing/slicing semantics.
 `for` should consume range values through the iterator protocol.
 
 ```kern
-for (i: 0 .. n) {
+for (i: 0 ... n) {
     ...
 }
 ```
@@ -216,7 +208,7 @@ Range patterns should be range values consumed as `Pattern[T]`.
 
 ```kern
 match (x) {
-    0 .. 10 => ...,
+    0 ... 10 => ...,
     10 ..= 20 => ...,
     _ => ...,
 }
@@ -242,19 +234,19 @@ pattern and cannot close exhaustiveness by itself.
 ### Phase 2: Range AST and Type Forms
 
 - [ ] Add AST nodes for range expressions:
-  - [ ] `start .. end`
+  - [ ] `start ... end`
   - [ ] `start ..= end`
-  - [ ] `.. end`
+  - [ ] `... end`
   - [ ] `..= end`
-  - [ ] `start ..`
-  - [ ] `..`
+  - [ ] `start ...`
+  - [ ] `...`
 - [ ] Add type AST forms for range type families:
-  - [ ] `T..T`
+  - [ ] `T...T`
   - [ ] `T..=T`
-  - [ ] `..T`
+  - [ ] `...T`
   - [ ] `..=T`
-  - [ ] `T..`
-  - [ ] `..`
+  - [ ] `T...`
+  - [ ] `...`
 - [ ] Resolve these into canonical type registry forms.
 - [ ] Define structural layouts for range values.
 - [ ] Add parser tests for expression and type precedence.
@@ -282,19 +274,19 @@ pattern and cannot close exhaustiveness by itself.
 - [ ] Replace slice-bound private grammar with range expression consumption.
 - [ ] Introduce or model `Slicer[R]`.
 - [ ] Implement slice consumption for:
-  - [ ] `usize..usize`
+  - [ ] `usize...usize`
   - [ ] `usize..=usize`
-  - [ ] `..usize`
+  - [ ] `...usize`
   - [ ] `..=usize`
-  - [ ] `usize..`
-  - [ ] `..`
+  - [ ] `usize...`
+  - [ ] `...`
 - [ ] Preserve existing slice semantics and diagnostics.
 
 ### Phase 6: For and Library Range Migration
 
 - [ ] Implement iterator behavior for range type families.
-- [ ] Make `for (i: 0 .. n)` work.
-- [ ] Migrate library/tests/tutorials from `range(0, n)` to `0 .. n`.
+- [ ] Make `for (i: 0 ... n)` work.
+- [ ] Migrate library/tests/tutorials from `range(0, n)` to `0 ... n`.
 - [ ] Decide whether `range(...)` helpers remain as wrappers or are removed
   before 1.0.
 

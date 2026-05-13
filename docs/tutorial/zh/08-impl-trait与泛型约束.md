@@ -294,10 +294,10 @@ fn add_to_i32[T](left: T, right: T) i32
 marker trait 不是能力 trait。`Integer` 表示这是整数类型族，但不等于“这个类型可以执行你要写的所有运算”；`Float` 表示浮点类型族，但不自动推出 `Add`、`Lt` 或格式化能力。泛型代码要约束自己真正使用的操作：
 
 ```kern
-fn next[T](value: T) T
+fn add[T](left: T, right: T) T
     where T: Integer + Add[T, Out = T],
 {
-    return value + T.{1};
+    return left + right;
 }
 ```
 

@@ -165,15 +165,16 @@ Pointer arithmetic stays explicit:
       * `fn fill(buf: &mut [4]u8) void { buf.*.[0] = 1; }` is valid because the mutable pointer reaches mutable array storage.
       * `fn fill(buf: &[4]u8) void { buf.*.[0] = 1; }` is rejected because the pointer path itself is read-only.
   * **Explicit Slice Permissions**: Slices remain views and therefore keep an explicit read/write split in the type.
-      * `arr.&[a .. b]` produces `&[T]` (read-only slice view).
-      * `arr..&[a .. b]` produces `&mut [T]` (mutable slice view), and requires the base storage path to be mutable.
+      * `arr.&[a...b]` produces `&[T]` (read-only slice view).
+      * `arr..&[a...b]` produces `&mut [T]` (mutable slice view), and requires the base storage path to be mutable.
       * The distinction is intentional: Kern does not silently upgrade a read-only view into a mutable one, even if the slice binding itself is declared with `let mut`.
+      * Slice brackets accept compiler-owned `SliceBounds` range values with `usize` bounds, including `a...b`, `a...`, `...b`, `...`, `a..=b`, and `..=b`. This marker is slice-specific; signed scalar match ranges such as `-1...5` do not become valid slice bounds.
   * **Semantic Checklist**:
       * `let mut arr = [N]T.{ ... };` makes the array storage mutable and permits `arr.[i] = ...`.
       * `let arr = [N]T.{ ... };` keeps the array storage immutable and rejects `arr.[i] = ...`.
       * `arr.[i]..&` yields `&mut T` only when the access path to `arr.[i]` is mutable; otherwise it yields `&T` or is rejected in a mutable context.
-      * `arr.&[a .. b]` is always `&[T]`.
-      * `arr..&[a .. b]` is `&mut [T]` only when the access path to `arr` is mutable.
+      * `arr.&[a...b]` is always `&[T]`.
+      * `arr..&[a...b]` is `&mut [T]` only when the access path to `arr` is mutable.
       * Field access composes normally: mutability flows through `obj.field.[i]` from the full storage path, not from a special array-element type qualifier.
       * Passing `[N]T` across a boundary may decay to `&[T]` freely, but decay to `&mut [T]` still requires a mutable source location.
   * **String Literals**: `"Hello"` evaluates to `[5]u8`.
@@ -359,9 +360,9 @@ No active鈥慺ield tracking; no default values.
 
 ### 5.3 Simple Enum (formerly Enums)
 
-Kern uses the `enum` keyword for both simple C-style enumerations and payload
-carrying tagged unions. For simple sets, the backing type can be explicitly
-defined (defaults to `u32`).
+Kern uses `enum` for strong algebraic data types. Payload-less enums may specify
+a backing integer type for representation, but they remain distinct enum types
+and do not implicitly inherit integer operators.
 
 ```kern
 enum Color: u8 {
@@ -370,6 +371,26 @@ enum Color: u8 {
     Blue,  // 2
 };
 ```
+
+Use `extern enum` for C ABI enum shapes and other integer-backed external
+protocols:
+
+```kern
+extern enum CMode: u32 {
+    Read = 1,
+    Write, // 2
+};
+```
+
+An `extern enum` must specify an integer backing type and cannot carry payloads.
+Values may flow to the exact backing integer type at explicit ABI boundaries,
+for example when passing `CMode.Read` to a parameter expecting `u32`. The reverse
+direction is intentionally not implicit: untrusted integers from C, hardware, or
+wire formats must be validated before being treated as enum values.
+An `extern enum` still does not inherit arithmetic or bitwise operator
+capability; enter the backing integer type first when the value is calculation
+material. C-style bitflag sets should remain integer constants until Kern grows
+a dedicated flag-set model.
 
   * **Enum Sanitization**: Kern **forbids** using the `as` operator or intrinsics to implicitly cast untrusted dynamic integers (e.g., hardware port reads) into Enum variants. Valid variants are constructed directly (`Color.Red`). Sanitizing external data must be explicitly handled by the programmer via an exhaustive `match` block:
 
@@ -391,27 +412,43 @@ let color = match (raw_data) {
 patterns describe the shape of the scrutinee, such as enum variants,
 destructured payloads, struct fields, `_`, and ranges over scalar domains.
 
-Ordinary value patterns compare the scrutinee with the arm pattern in arm order
-through the same equality capability as `==`. In trait terms, matching `target`
-against a value pattern `candidate` requires the target type to implement the
-appropriate `Eq[CandidateType]` capability, including existing heterogeneous
-implementations such as `String : Eq[&[u8]]`.
+Value patterns are either compiler-known exact structural/scalar forms or
+opaque values consumed through the `Pattern[T]` protocol. Equality is not a
+pattern protocol: implementing `Eq[Rhs]` enables `==`, but it does not make a
+value valid on the left side of a `match` arm.
 
 ```kern
-fn classify(text: &mut String) i32 {
+struct IsCommand {
+    name: &[u8],
+};
+
+impl IsCommand : Pattern[&[u8]] {
+    type Bind = void;
+
+    fn apply(value: &[u8]) ?Bind {
+        if (value == self.name) {
+            return .{ Some: {} };
+        }
+        return .None;
+    }
+}
+
+fn classify(text: &[u8]) i32 {
     return match (text) {
-        "kern" => 1,
-        "lang" => 2,
+        IsCommand.{ name: "kern" } => 1,
+        IsCommand.{ name: "lang" } => 2,
         _ => 0,
     };
 }
 ```
 
-This is intentionally not a separate pattern trait. It keeps `match` dispatch
-consistent with operator semantics and avoids a second equality protocol. The
-exhaustiveness rules remain conservative: structural enum and scalar matches can
-be proven exhaustive by the compiler, while open-ended `Eq` value matches still
-need a catch-all arm unless another pattern form closes the domain.
+If a value expression in pattern position is not one of the compiler-known
+exact scalar, enum, struct, or closed scalar range forms, Kern attempts to
+consume it through the `Pattern[T]` protocol described in
+[10.4 Pattern Matching](#104-pattern-matching-match). The exhaustiveness rules
+remain conservative: structural enum and scalar matches can be proven
+exhaustive by the compiler, while opaque user `Pattern` values still need a
+catch-all arm unless another pattern form closes the domain.
 
 ### 5.4 Conversions
 
@@ -419,7 +456,7 @@ Type conversions are explicitly and uniformly handled by the `as` operator.
 
   * **Numeric Conversions**: `as` is used for all safe and unsafe numeric conversions, including bit-width truncation, zero/sign-extension, and integer/floating-point conversions (e.g., `i32 as u8`, `f32 as i32`).
   * **Pointer Reinterpretation**: `as` preserves the physical bit pattern when casting between pointer types or between pointers and `usize`/`isize`.
-  * **Strict Boundaries**: The `as` operator can explicitly package compatible pointers into trait-object or closure-object fat pointers. It does not synthesize slice lengths from raw pointers, and it cannot cast arbitrary integers directly into `data` variants. Slice fat pointers must come from slice syntax such as `array.&[start .. end]`.
+  * **Strict Boundaries**: The `as` operator can explicitly package compatible pointers into trait-object or closure-object fat pointers. It does not synthesize slice lengths from raw pointers, and it cannot cast arbitrary integers directly into `data` variants. Slice fat pointers must come from slice syntax such as `array.&[start...end]`.
 
 ### 5.5 Anonymous Structs
 
@@ -487,14 +524,16 @@ This distinction is deliberate:
 Builtin traits split into two categories:
 
   * **Capability traits**: These describe operators and can participate in overload resolution. Equality and ordering use direct boolean-returning traits such as `Eq[Rhs]`, `Lt[Rhs]`, `Le[Rhs]`, `Gt[Rhs]`, and `Ge[Rhs]`. Arithmetic, bitwise, shift, and unary value operators use associated-result traits such as `Add[Rhs]`, `Sub[Rhs]`, `Mul[Rhs]`, `Div[Rhs]`, `Rem[Rhs]`, `BitAnd[Rhs]`, `BitOr[Rhs]`, `BitXor[Rhs]`, `Shl[Rhs]`, `Shr[Rhs]`, `Neg`, `BitNot`, and `Not`, each with an associated type `Out`.
-  * **Marker traits**: These classify type families but do not imply operator capability by themselves. Kern provides `Integer`, `SignedInteger`, `UnsignedInteger`, and `Float`.
+  * **Marker traits**: These classify type families but do not imply operator capability by themselves. Kern provides `Integer`, `SignedInteger`, `UnsignedInteger`, `Float`, and `SliceBounds`.
 
-The important rule is that marker traits are **not** shorthand for operator support. For example, `where T: Float` does not imply `where T: Add[T]`, and `where T: SignedInteger` does not imply `where T: Neg`. Generic code should constrain the exact capability it intends to use.
+The important rule is that marker traits are **not** shorthand for operator support or user-overload hooks. For example, `where T: Float` does not imply `where T: Add[T]`, `where T: SignedInteger` does not imply `where T: Neg`, and `where T: SliceBounds` does not mean user code can define custom slicing semantics. Generic code should constrain the exact capability it intends to use.
 
 This keeps the system explicit:
 
-  * use `Integer` / `SignedInteger` / `UnsignedInteger` / `Float` when classification is the point;
+  * use `Integer` / `SignedInteger` / `UnsignedInteger` / `Float` / `SliceBounds` when classification is the point;
   * use `Eq`, `Add`, `Neg`, and other operator traits when behavior is the point.
+
+`SliceBounds` is compiler-owned and cannot be implemented by user code. It classifies builtin range values that may appear inside slice-view brackets, such as `usize...usize`, `usize...`, `...usize`, `...`, `usize..=usize`, and `..=usize`. Slice construction itself remains the language-owned `.&[...]` / `..&[...]` memory operation, including read/write slice permissions and storage-path mutability checks.
 
 Associated types use direct names inside the owning trait or impl body, but in
 ordinary type positions they must be projected through an explicit receiver and
@@ -644,13 +683,13 @@ let a = if (b < 10) 10i32 else 20i32;
 Enhanced pattern matching and branching. `match` replaces `switch` for all
 branching logic (integers, strings, and `enum` variants). No fallthrough.
 
-  * **Ranges**: `..` defines a left-closed, right-open range. `..=` defines a fully inclusive range.
+  * **Ranges**: `...` defines a left-closed, right-open range. `..=` defines a fully inclusive range. In expression position these construct builtin range values with canonical type forms such as `T...T`, `T..=T`, `...T`, `..=T`, `T...`, and `...`. These are named builtin type families with compiler-owned layout; their `start` and `end` storage is not source-level field API. In match pattern position, closed scalar ranges are compiler-known no-binding patterns. All builtin integer types may be used as scalar match range bounds, including signed ranges such as `-1...5`.
 
 <!-- end list -->
 
 ```kern
 let result = match (val) {
-    1..10 => 10,       // 1 to 9
+    1...10 => 10,       // 1 to 9
     11, 12, 13 => 20,
     14..=15 => 30,     // 14 and 15
     _ => 0,
@@ -668,6 +707,12 @@ while (cond) { ... }
 while (true) { ... }             // infinite loop
 for (item: values.iter()) { ... }
 ```
+
+`for (pat: expr) body` is parser sugar for binding `expr` to a mutable hidden
+iterator and repeatedly calling `hidden..&.next()`. Range expressions have no
+special loop privilege: `for (i: 0...n)` works only when the compiled package
+provides an ordinary `next()` surface for that builtin range value. The compiler
+and package tools do not depend on `base` or `std` range adapters.
 
 ### 7.4 Defer
 
@@ -941,8 +986,8 @@ Tree.{ Branch: Node.{ left: Leaf.Empty, right } } => use(right),
 Tree.{ Branch: Node.{ left: Leaf.Empty, right: right } } => use(right),
 ```
 
-Conceptually, every match pattern is checked as a `Pattern[T]` operation over
-the matched value type:
+Every match arm is checked through a common binding model. User-defined pattern
+values use the `Pattern[T]` protocol over the matched value type:
 
 ```kern
 trait Pattern[T] {
@@ -959,8 +1004,36 @@ produces a structural binding environment equivalent to:
 struct { value: T }
 ```
 
-The compiler derives this environment from pattern syntax. User code does not
-spell it at the match site.
+The compiler derives this environment from structural pattern syntax. User code
+does not spell it at the match site.
+
+Any ordinary expression in value-pattern position may be used as an opaque user
+pattern when its type implements `Pattern[T]` for the scrutinee type:
+
+```kern
+struct IsEven {};
+
+impl IsEven : Pattern[i32] {
+    type Bind = struct { value: i32 };
+
+    fn apply(value: i32) ?Bind {
+        if ((value % 2) == 0) {
+            return .{ Some: .{ value: value } };
+        }
+        return .None;
+    }
+}
+
+match (n) {
+    IsEven.{} => value,
+    _ => 0,
+}
+```
+
+Only `Bind = void` and `Bind = struct { ... }` are currently valid binding
+shapes. Struct fields become arm-local bindings. User `Pattern` values are
+opaque to static coverage analysis: they can match at runtime, but they do not
+prove exhaustiveness or make later arms unreachable.
 
 When an arm has multiple alternative patterns, every alternative must produce
 the same `Bind` shape: the same field names, field types, and mutability. Field
@@ -972,9 +1045,9 @@ matter. This keeps the arm body in one coherent scope:
 .{ Int: n }, .{ Float: other } => bad, // invalid: different binding names
 ```
 
-Value patterns and range patterns are no-binding patterns. They participate in
-the same model with `Bind = void`; compiler-known forms also participate in
-exhaustiveness and unreachable-pattern analysis.
+Exact value patterns and closed scalar range patterns are no-binding patterns.
+They participate in the same binding model with `Bind = void`; compiler-known
+forms also participate in exhaustiveness and unreachable-pattern analysis.
 
 ### 10.5 Refutable `let` and `let else`
 
@@ -1270,7 +1343,10 @@ counter..&.store[RELEASE](1);
 let current = counter.&.load[ACQUIRE]();
 ```
 
-Code may also pass the raw compile-time integers directly (for example `1` for Acquire or `4` for SeqCst).
+`base.sync.MemOrder` is an `extern enum: u8`. The safe library wrappers take
+that enum as their const generic ordering parameter. Low-level compiler
+intrinsics remain freestanding and take raw `u8` ABI codes; `MemOrder` values
+can cross that boundary directly because their backing type is exactly `u8`.
 
 Supported atomic value types are:
 

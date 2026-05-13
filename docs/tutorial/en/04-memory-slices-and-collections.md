@@ -58,31 +58,36 @@ still does not own the elements; it is a view.
 Slices are fat pointers: data pointer plus length.
 
 ```kern
-let middle = values.&[1 .. 4];
-let head = values..&[0 .. 3];
+let middle = values.&[1...4];
+let head = values..&[0...3];
 ```
 
-`values.&[1 .. 4]` produces a read-only `&[i32]` over `[1, 4)`.
-`values..&[0 .. 3]` produces a writable `&mut [i32]`.
+`values.&[1...4]` produces a read-only `&[i32]` over `[1, 4)`.
+`values..&[0...3]` produces a writable `&mut [i32]`.
 
 Range endpoints can be omitted:
 
 ```kern
-let prefix = values.&[..3];
-let tail = values.&[2..];
-let whole = values.&[..];
+let prefix = values.&[...3];
+let tail = values.&[2...];
+let whole = values.&[...];
 let inclusive = values.&[1..=3];
 ```
+
+`...3` starts at the beginning, `2...` runs to the end, `...` covers the whole
+view, and `1..=3` includes the right endpoint. Slice bounds are memory offsets,
+so present endpoints have type `usize`; unsuffixed numbers usually infer that
+type from the slice context.
 
 Kern does not write mutability as `[5]mut i32`, because mutability belongs to
 the storage path, not to the element type:
 
 ```kern
 let fixed = [3]i32.{ 1, 2, 3 };
-let fixed_view = fixed.&[..];
+let fixed_view = fixed.&[...];
 
 let mut editable = [3]i32.{ 1, 2, 3 };
-let editable_view = editable..&[..];
+let editable_view = editable..&[...];
 editable_view.[0] = 9;
 ```
 
@@ -105,14 +110,12 @@ low-level library code.
 
 ## Iterators
 
-`base.coll` provides ranges, slice iterators, and common consuming methods.
-The direct form is `for`:
+`base.coll` provides iterator implementations for builtin ranges, slice
+iterators, and common consuming methods. The direct form is `for`:
 
 ```kern
-use base.coll.range;
-
 let mut total = 0;
-for (i: range(1, 4)) {
+for (i: 1...4) {
     total += i * i;
 }
 ```
@@ -133,7 +136,7 @@ When you want to emphasize the slice boundary or iterate over part of an array,
 write the slice explicitly:
 
 ```kern
-for (item: values.&[1..].iter()) {
+for (item: values.&[1...].iter()) {
     total += item;
 }
 ```
@@ -141,7 +144,7 @@ for (item: values.&[1..].iter()) {
 Iterators are explicit state values. A `for` loop has roughly this shape:
 
 ```kern
-let mut iter = range(1, 4);
+let mut iter = 1...4;
 while (true) {
     let .{ Some: i } = iter..&.next() else break;
     total += i * i;
@@ -184,12 +187,12 @@ Mutable slice iteration yields mutable element pointers:
 
 ```kern
 let mut values = [3]i32.{ 1, 2, 3 };
-for (item: values..&[..].iter()) {
+for (item: values..&[...].iter()) {
     item.* += 1;
 }
 ```
 
-`values..&[..]` is `&mut [i32]`, so the iterator produces `&mut i32` values.
+`values..&[...]` is `&mut [i32]`, so the iterator produces `&mut i32` values.
 
 ## Pointers
 

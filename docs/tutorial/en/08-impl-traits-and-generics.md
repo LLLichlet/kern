@@ -322,10 +322,10 @@ integer family; it does not automatically prove every operation you might write.
 Generic code should bound exactly what it uses:
 
 ```kern
-fn next[T](value: T) T
+fn add[T](left: T, right: T) T
     where T: Integer + Add[T, Out = T],
 {
-    return value + T.{1};
+    return left + right;
 }
 ```
 

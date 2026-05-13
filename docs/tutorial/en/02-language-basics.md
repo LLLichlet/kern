@@ -135,14 +135,14 @@ Slice types are written `&[T]` or `&mut [T]`. A slice is not an owning array; it
 is a view over contiguous elements plus a length.
 
 ```kern
-let view = bytes.&[1 .. 4];
+let view = bytes.&[1...4];
 ```
 
 `view` has type `&[u8]`, a read-only byte slice. Writable slices use `..&`:
 
 ```kern
 let mut data = [4]u8.{ 1, 2, 3, 4 };
-let head = data..&[0 .. 2];
+let head = data..&[0...2];
 ```
 
 When a function expects `&[u8]`, an array can naturally convert to a slice at
@@ -265,10 +265,8 @@ normally can behave as diverging computations.
 Iterators can be used with `for`:
 
 ```kern
-use base.coll.range;
-
 let mut sum = 0;
-for (i: range(1, 4)) {
+for (i: 1...4) {
     sum += i;
 }
 ```

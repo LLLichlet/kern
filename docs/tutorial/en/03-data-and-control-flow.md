@@ -123,15 +123,32 @@ fn class_of(byte: u8) i32 {
 }
 ```
 
-Value patterns use the same equality capability as `==`. That means matching a
-string-like value against a string literal works when the scrutinee type
-implements the relevant `Eq[...]` capability:
+`a ... b` is a left-closed, right-open range. `a ..= b` includes the right
+endpoint. Comma-separated patterns on one arm share the same result expression.
+
+Compiler-known value patterns include scalar literals, enum variants,
+structural data patterns, and closed scalar ranges. User-defined matching logic
+is expressed by values that implement `Pattern[T]`; `Eq[...]` only enables
+`==`, not `match` arms:
 
 ```kern
+struct IsCommand { name: &[u8] };
+
+impl IsCommand : Pattern[&[u8]] {
+    type Bind = void;
+
+    fn apply(value: &[u8]) ?Bind {
+        if (value == self.name) {
+            return .{ Some: {} };
+        }
+        return .None;
+    }
+}
+
 fn command_id(command: &[u8]) i32 {
     return match (command) {
-        "run" => 1,
-        "test" => 2,
+        IsCommand.{ name: "run" } => 1,
+        IsCommand.{ name: "test" } => 2,
         _ => 0,
     };
 }

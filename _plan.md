@@ -1,93 +1,21 @@
-# Range, Pattern, Slice, and Match Unification Plan
+# Pattern Protocol Completion Plan
 
-This plan records the design direction for removing the current hard-coded
-range/match/slice split and replacing it with one orthogonal model.
+This replaces the earlier range/slice/for audit as the active implementation
+plan. Range values were only the first cleanup step. The final goal of this
+round is to make `match` consume a real `Pattern[T]` protocol, while preserving
+the compiler-owned pieces Kern still needs for binding, privacy, and static
+coverage analysis.
 
-## Current State
+## Source Of Truth
 
-- Done: match alternatives now have an internal `Pattern -> Bind` model.
-- Done: one `match` arm with multiple alternatives must produce the same bind
-  shape.
-- Done: bind environments are represented internally as `void` or
-  `struct { name: T, ... }`, with fields canonicalized by name.
-- Not done: range syntax is not yet an expression-level value.
-- Not done: range forms are not yet canonical builtin type families.
-- Not done: slice bounds still use dedicated syntax paths.
-- Not done: match range patterns are still lowered through a range-specific
-  hard-coded path.
-- Not done: library iterator ranges still use `range(start, end)` constructors.
+- `docs/design.md` defines Kern semantics.
+- `docs/style.md` records how repository code should express them.
+- Kern is freestanding. `kernc`, `craft`, and language semantics must not
+  depend on `base`, `std`, `rt`, or any replaceable library implementation.
 
-## Core Principle
+## Core Model
 
-Range syntax constructs a range value. Language contexts consume that value
-through a small set of protocols.
-
-```text
-a ... b      constructs a range value
-match        consumes Pattern
-slice        consumes Slicer
-for          consumes Iterator / IntoIterator
-```
-
-`range(start, end)` and `start ... end` must not become two parallel concepts.
-The symbolic syntax is the canonical language form; library helpers may remain
-only as compatibility or readability wrappers while the language is still
-pre-1.0.
-
-## Range Type Families
-
-Range expressions should produce canonical builtin type families, not named
-builtin structs.
-
-```kern
-0 ... 10     // i32...i32
-0 ..= 10     // i32..=i32
-...10        // ...i32
-..=10        // ..=i32
-10...        // i32...
-...          // ...
-```
-
-Canonical type spelling:
-
-```kern
-T...T        // half-open range [start, end)
-T..=T        // inclusive range [start, end]
-...T         // range-to
-..=T         // range-to-inclusive
-T...         // range-from
-...          // full range
-```
-
-This deliberately avoids the `..T` conflict with parent-anchored paths such as
-`..foo.Bar`. The inclusive forms keep `..=` because it is short, already
-unambiguous, and the `=` marker reads naturally as "include the end".
-
-These are like `?T` and `T!E`: builtin type forms with ordinary semantics. They
-are not named builtin structs. Their layout can be modeled structurally by the
-compiler:
-
-```kern
-T...T        // struct { start: T, end: T }
-T..=T        // struct { start: T, end: T }
-...T         // struct { end: T }
-..=T         // struct { end: T }
-T...         // struct { start: T }
-...          // void-like zero-field value
-```
-
-The constructor should be unique:
-
-```kern
-let r = a ... b;
-```
-
-Do not introduce `Range.{ start: a, end: b }` as another spelling for the same
-thing.
-
-## Pattern Model
-
-Every match pattern is conceptually checked as:
+`match` is a sequence of pattern applications over the scrutinee type:
 
 ```kern
 trait Pattern[T] {
@@ -96,214 +24,171 @@ trait Pattern[T] {
 }
 ```
 
-`Bind` is the binding environment:
+- `Bind = void` means the pattern introduces no arm bindings.
+- `Bind = struct { name: T, ... }` introduces fields as arm-local bindings.
+- All alternatives in one arm must produce the same canonical bind shape:
+  same names, same field types, same mutability metadata.
+- User-defined opaque `Pattern` values are allowed in match arms, but do not
+  prove exhaustiveness or unreachable coverage.
+- Compiler-known patterns are represented through the same internal model, but
+  carry extra metadata for exhaustiveness, shadowing, enum/struct privacy, and
+  binding syntax.
+
+## Pattern Forms
+
+### User Pattern Values
+
+Any expression in pattern position may be consumed as a pattern value when its
+type implements `Pattern[Scrutinee]`.
 
 ```kern
-1             // Bind = void
-0 ... 10      // Bind = void
-.{ Some: x }  // Bind = struct { x: T }
-Point.{ x }   // Bind = struct { x: X }
-```
-
-`mut` is binding metadata, not part of the value type, but it is part of bind
-shape equality for an arm because the arm body must see one coherent local
-environment.
-
-For:
-
-```kern
-.{ Int: n }, .{ Float: n } => n
-```
-
-both alternatives bind:
-
-```kern
-struct { n: T }
-```
-
-For:
-
-```kern
-.{ Int: n }, .{ Float: other } => n
-```
-
-the alternatives bind different shapes and must be rejected.
-
-Compiler-known patterns still keep extra static power:
-
-- exhaustiveness checking
-- unreachable/shadowed pattern warnings
-- scalar interval coverage
-- enum/struct decomposition
-
-Opaque user-provided `Pattern` values may participate in runtime matching but
-cannot prove exhaustiveness unless the compiler has explicit static knowledge
-for them.
-
-## Value Matching
-
-Kern already has value patterns. They should be folded into the Pattern model
-instead of being treated as a separate ad-hoc match feature.
-
-Exact value matching should not mean "all `Eq` values are patterns".
-
-Possible internal model:
-
-```kern
-trait MatchValue[T] {
-    fn match_value(value: T) bool;
-}
-
-Exact[T] : Pattern[T]
-    where T: MatchValue[T],
-{
-    type Bind = void;
-}
-```
-
-`Eq` is ordinary equality. `MatchValue` is pattern semantics. The two can be
-related by library impls where appropriate, but they should remain distinct
-concepts.
-
-## Slice Consumption
-
-Slice syntax should consume a range value through a protocol rather than parse
-its own private range grammar.
-
-```kern
-trait Slicer[R] {
-    type Out;
-    fn slice(range: R) Out;
-}
-```
-
-Examples:
-
-```kern
-buf[0 ... n]
-buf[...]
-buf[i ...]
-buf[..=last]
-```
-
-These should parse as range expressions passed to indexing/slicing semantics.
-
-## For Consumption
-
-`for` should consume range values through the iterator protocol.
-
-```kern
-for (i: 0 ... n) {
-    ...
-}
-```
-
-Library range iterator constructors such as `range(0, n)` should become
-ordinary wrappers around the canonical range expression model, or be removed
-before 1.0 if they become redundant.
-
-## Match Consumption
-
-Range patterns should be range values consumed as `Pattern[T]`.
-
-```kern
-match (x) {
-    0 ... 10 => ...,
-    10 ..= 20 => ...,
+match (value) {
+    is_ascii_digit => ...,
+    positive_i32 => ...,
     _ => ...,
 }
 ```
 
-For compiler-known scalar range values, the compiler may keep static coverage
-analysis. For non-static or user-defined pattern values, the arm is a runtime
-pattern and cannot close exhaustiveness by itself.
+Lowering is conceptually:
 
-## Implementation Plan
+```kern
+let __p = pattern;
+let __matched = __p.apply(scrutinee);
+match (__matched) {
+    .{ Some: bind } => arm_body,
+    .None => next_pattern,
+}
+```
 
-### Phase 1: Pattern Bind Core
+The actual lowering may keep compiler-known patterns on optimized paths.
 
-- [x] Add internal bind shape model for match alternatives.
-- [x] Represent no-bind patterns as `void`.
-- [x] Represent binding environments as anonymous structs.
-- [x] Canonicalize bind field order by name.
-- [x] Require all alternatives in one arm to produce the same bind shape.
-- [x] Define arm-body bindings from the unified bind shape once.
-- [x] Add regression coverage for matching and mismatching alternative binds.
-- [x] Document `Pattern[T] -> ?Bind`.
+### Structural Patterns
 
-### Phase 2: Range AST and Type Forms
+Syntax such as:
 
-- [ ] Add AST nodes for range expressions:
-  - [ ] `start ... end`
-  - [ ] `start ..= end`
-  - [ ] `... end`
-  - [ ] `..= end`
-  - [ ] `start ...`
-  - [ ] `...`
-- [ ] Add type AST forms for range type families:
-  - [ ] `T...T`
-  - [ ] `T..=T`
-  - [ ] `...T`
-  - [ ] `..=T`
-  - [ ] `T...`
-  - [ ] `...`
-- [ ] Resolve these into canonical type registry forms.
-- [ ] Define structural layouts for range values.
-- [ ] Add parser tests for expression and type precedence.
+```kern
+.{ Some: value }
+Point.{ x, y }
+```
 
-### Phase 3: Range Expressions in Sema and Lowering
+is still compiler parsed, because syntax introduces binding names and because
+field/variant access must respect language rules. Semantically, the compiler
+generates a pattern adapter whose `Bind` is the canonical binding structure,
+for example:
 
-- [ ] Type-check range expressions.
-- [ ] Lower range values into their structural representation.
-- [ ] Decide and document field accessibility, if any.
-- [ ] Add tests for assigning, passing, and returning range values.
+```kern
+struct { value: T }
+```
 
-### Phase 4: Match Range De-Hardcoding
+This is not a separate match kernel. It is a compiler-generated `Pattern`
+instance with compiler-known coverage metadata.
 
-- [ ] Parse match range arms as range expressions where possible.
-- [ ] Convert scalar range pattern coverage to consume range expression facts.
-- [ ] Keep compiler-known static coverage for integer/bool-compatible range
-  forms.
-- [ ] Treat opaque pattern values as runtime-only patterns that do not prove
-  exhaustiveness.
-- [ ] Remove `MatchPatternKind::Range` if the unified representation can fully
-  replace it.
+### Value Patterns
 
-### Phase 5: Slice Through Slicer
+Value patterns remain exact-value patterns. They are compiler-known no-binding
+patterns and keep the existing equality capability used by `==`. This preserves
+current Kern style guidance while placing the result in the same `Bind = void`
+model.
 
-- [ ] Replace slice-bound private grammar with range expression consumption.
-- [ ] Introduce or model `Slicer[R]`.
-- [ ] Implement slice consumption for:
-  - [ ] `usize...usize`
-  - [ ] `usize..=usize`
-  - [ ] `...usize`
-  - [ ] `..=usize`
-  - [ ] `usize...`
-  - [ ] `...`
-- [ ] Preserve existing slice semantics and diagnostics.
+### Range Patterns
 
-### Phase 6: For and Library Range Migration
+Range syntax constructs builtin range values:
 
-- [ ] Implement iterator behavior for range type families.
-- [ ] Make `for (i: 0 ... n)` work.
-- [ ] Migrate library/tests/tutorials from `range(0, n)` to `0 ... n`.
-- [ ] Decide whether `range(...)` helpers remain as wrappers or are removed
-  before 1.0.
+```kern
+0 ... 10
+0 ..= 10
+...10
+..=10
+10...
+...
+```
 
-### Phase 7: Documentation and Cleanup
+Closed scalar range values in match position are compiler-known no-binding
+patterns. They also act like `Pattern[T]` where the scalar bound domain is
+valid, so they share the same model without giving slice bounds or iterator
+syntax special treatment.
 
-- [ ] Update `docs/design.md` with the full model.
-- [ ] Update tutorials in English and Chinese.
-- [ ] Remove stale wording that says range syntax is reserved only for slices
-  and match patterns.
-- [ ] Add examples showing `match`, `slice`, and `for` consuming the same range
-  values.
-- [ ] Run full compiler and library tests.
+Open-ended range patterns remain rejected in match until the coverage semantics
+are explicitly designed.
 
-## Non-Goals For The First Cut
+## Slice And For Boundaries
 
-- Do not make `Eq` automatically imply pattern semantics.
-- Do not add named builtin range structs.
-- Do not introduce parallel constructors for range values.
-- Do not let opaque user-defined patterns prove exhaustiveness unless the
-  compiler has a static coverage model for them.
+Slice construction remains language-owned memory syntax:
+
+```kern
+buf.&[0...n]
+buf..&[0...n]
+```
+
+`SliceBounds` is a compiler-owned marker like `Integer`: user code can mention
+it, but cannot implement it. It classifies accepted slice-bound range values
+and does not perform slicing.
+
+`for (pat: expr) body` remains the existing parser desugaring through
+`hidden..&.next()`. Ranges only work in `for` when ordinary method resolution
+makes the range expression iterable in the compiled package.
+
+## Implementation Phases
+
+### Phase 1: Real Pattern Trait
+
+- [x] Keep range syntax/type work already done.
+- [x] Keep `SliceBounds` as a compiler-owned marker.
+- [x] Inject builtin `Pattern[T]` with associated type `Bind` and method
+  `apply(value: T) ?Bind`.
+- [x] Permit user impls of `Pattern`; do not classify it as a compiler-owned
+  marker.
+- [x] Add semantic facts recording that a match expression-pattern uses
+  `Pattern[Scrutinee, Bind = B]`.
+
+### Phase 2: Match Sema
+
+- [x] For expression patterns, check compiler-known forms first:
+  exact values, enum values, struct literals, closed scalar ranges.
+- [x] If the expression is not a compiler-known structural/value/range pattern,
+  type-check it as a pattern value and require `Pattern[Scrutinee]`.
+- [x] Resolve and normalize its `Bind`.
+- [x] Accept `Bind = void`.
+- [x] Accept `Bind = struct { ... }` and expose fields as arm bindings.
+- [x] Reject other `Bind` shapes for now with a clear diagnostic.
+- [x] Keep opaque user patterns out of exhaustiveness and unreachable proof.
+
+### Phase 3: Match Lowering
+
+- [x] Lower user pattern values to `pattern.apply(scrutinee)`.
+- [x] Branch on the returned builtin optional:
+  `.Some` enters the arm, `.None` falls through.
+- [x] For `Bind = void`, no local bindings are introduced.
+- [x] For `Bind = struct { ... }`, bind each field into the arm scope.
+- [x] Preserve existing optimized compiler-known lowering paths while their
+  generated semantics match the `Pattern` model.
+
+### Phase 4: Tests
+
+- [x] User `Pattern[i32]` with `Bind = void`.
+- [x] User `Pattern[i32]` with `Bind = struct { value: i32 }`.
+- [x] Same-arm alternatives with identical user `Bind` shapes accepted.
+- [x] Same-arm alternatives with different `Bind` shapes rejected.
+- [x] User opaque pattern requires catch-all for non-ADT scrutinees.
+- [x] User pattern works in generic and closure-adjacent contexts.
+- [x] Supertrait/projection cases cannot forge invalid `Pattern.Bind`.
+- [x] Existing exact value, range, and structural exhaustiveness tests still
+  pass.
+
+### Phase 5: Documentation And Cleanup
+
+- [x] Update `docs/design.md` so `Pattern` is real protocol semantics, not just
+  conceptual explanation.
+- [x] Keep style guidance for equality value patterns unless the equality model
+  deliberately changes later.
+- [x] Remove wording that implies range internalization is the final goal.
+
+## Non-Goals For This Cut
+
+- Do not make slice syntax user-overloadable.
+- Do not introduce `Slicer[R]` as a user-implemented slicing protocol.
+- Do not make `for` depend on range syntax.
+- Do not make compiler/tooling depend on library range adapters.
+- Do not expose range values as ordinary user-declared structs.
+- Do not fully delete compiler-known structural pattern analysis; it remains
+  needed for binding syntax, privacy, and exhaustiveness metadata.

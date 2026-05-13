@@ -197,7 +197,7 @@ let mut raw_counter = 1usize;
 let value = @atomicLoad[usize](raw_counter.&, SEQ_CST);
 ```
 
-ordering 是编译期常量。教程代码里不建议直接散写数字，优先使用 `base.sync` 的命名常量。
+ordering 是编译期常量。普通代码优先使用 `base.sync` 的 wrapper；`base.sync.MemOrder` 是 `extern enum: u8`，所以它的值可以直接进入底层 intrinsic 的 ordering 操作数。
 
 常见 intrinsic 形状：
 

@@ -301,7 +301,7 @@ silently preserve a pointer into a temporary receiver value:
 ```kern
 impl[N: usize] &[N]u8 {
     pub fn reader() io.SliceReader {
-        return .{ data: self.*.&[0 .. N] };
+        return .{ data: self.*.&[0...N] };
     }
 }
 ```

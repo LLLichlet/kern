@@ -218,9 +218,9 @@ let mut raw_counter = 1usize;
 let value = @atomicLoad[usize](raw_counter.&, SEQ_CST);
 ```
 
-Ordering is a compile-time constant. Prefer the named constants from
-`base.sync` instead of scattering raw numbers through tutorial or application
-code.
+Ordering is a compile-time constant. Prefer the typed `base.sync` wrappers for
+ordinary code. `base.sync.MemOrder` is an `extern enum: u8`, so its values can
+cross directly into raw intrinsic ordering operands.
 
 Common intrinsic shapes:
 

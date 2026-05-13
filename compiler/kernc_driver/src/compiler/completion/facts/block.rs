@@ -25,7 +25,9 @@ fn collect_decl_block_completion_facts(
                 block_facts_by_span,
             );
         }
-        ast::DeclKind::Var { value, .. } => {
+        ast::DeclKind::Var {
+            value: Some(value), ..
+        } => {
             collect_expr_block_completion_facts(
                 value,
                 expr_binding_items_by_span,
@@ -115,8 +117,16 @@ fn collect_expr_block_completion_facts(
                 }
             }
         }
-        ast::ExprKind::Static { init, .. }
-        | ast::ExprKind::FieldAccess { lhs: init, .. }
+        ast::ExprKind::Static {
+            init: Some(init), ..
+        } => {
+            collect_expr_block_completion_facts(
+                init,
+                expr_binding_items_by_span,
+                block_facts_by_span,
+            );
+        }
+        ast::ExprKind::FieldAccess { lhs: init, .. }
         | ast::ExprKind::Unary { operand: init, .. }
         | ast::ExprKind::As { lhs: init, .. }
         | ast::ExprKind::GenericInstantiation { target: init, .. }

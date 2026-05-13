@@ -390,7 +390,7 @@ fn rejects_non_constant_simd_lane_index() {
     let output = compile_source(
         r#"
 fn main() i32 {
-    let i = usize.{1};
+    let i = 1usize;
     let v = f32x4.{ 1.0, 2.0, 3.0, 4.0 };
     let _ = v.[i];
     return 0;

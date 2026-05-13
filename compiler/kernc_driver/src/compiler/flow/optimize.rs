@@ -295,7 +295,9 @@ fn owner_expr_map<'a>(
             }
         }
         Def::Global(global) => {
-            collect_owner_exprs(&global.value, &mut exprs);
+            if let Some(value) = global.value.as_ref() {
+                collect_owner_exprs(value, &mut exprs);
+            }
         }
         _ => {}
     }
@@ -316,7 +318,9 @@ fn owner_simple_binding_let_expr_ids(
             }
         }
         Def::Global(global) => {
-            collect_simple_binding_let_expr_ids(&global.value, &mut expr_ids);
+            if let Some(value) = global.value.as_ref() {
+                collect_simple_binding_let_expr_ids(value, &mut expr_ids);
+            }
         }
         _ => {}
     }
@@ -332,6 +336,7 @@ fn collect_owner_exprs<'a>(
 
     match &expr.kind {
         ast::ExprKind::Error => {}
+        ast::ExprKind::Static { init: None, .. } => {}
         ast::ExprKind::Let {
             init, else_clause, ..
         } => {
@@ -347,7 +352,9 @@ fn collect_owner_exprs<'a>(
                 }
             }
         }
-        ast::ExprKind::Static { init, .. } => collect_owner_exprs(init, exprs),
+        ast::ExprKind::Static {
+            init: Some(init), ..
+        } => collect_owner_exprs(init, exprs),
         ast::ExprKind::AnchoredPath { .. } => {}
         ast::ExprKind::Grouped { expr: inner } => collect_owner_exprs(inner, exprs),
         ast::ExprKind::Binary { lhs, rhs, .. } => {
@@ -447,8 +454,8 @@ fn collect_owner_exprs<'a>(
             }
             collect_owner_exprs(body, exprs);
         }
-        ast::ExprKind::Integer(_)
-        | ast::ExprKind::Float(_)
+        ast::ExprKind::Integer { .. }
+        | ast::ExprKind::Float { .. }
         | ast::ExprKind::Bool(_)
         | ast::ExprKind::Char(_)
         | ast::ExprKind::ByteChar(_)
@@ -481,6 +488,7 @@ fn collect_simple_binding_let_expr_ids(
 
     match &expr.kind {
         ast::ExprKind::Error => {}
+        ast::ExprKind::Static { init: None, .. } => {}
         ast::ExprKind::Let {
             init, else_clause, ..
         } => {
@@ -498,7 +506,9 @@ fn collect_simple_binding_let_expr_ids(
                 }
             }
         }
-        ast::ExprKind::Static { init, .. } => collect_simple_binding_let_expr_ids(init, expr_ids),
+        ast::ExprKind::Static {
+            init: Some(init), ..
+        } => collect_simple_binding_let_expr_ids(init, expr_ids),
         ast::ExprKind::Grouped { expr: inner } => {
             collect_simple_binding_let_expr_ids(inner, expr_ids);
         }
@@ -609,8 +619,8 @@ fn collect_simple_binding_let_expr_ids(
             }
             collect_simple_binding_let_expr_ids(body, expr_ids);
         }
-        ast::ExprKind::Integer(_)
-        | ast::ExprKind::Float(_)
+        ast::ExprKind::Integer { .. }
+        | ast::ExprKind::Float { .. }
         | ast::ExprKind::Bool(_)
         | ast::ExprKind::Char(_)
         | ast::ExprKind::ByteChar(_)
@@ -645,8 +655,8 @@ fn removable_assignment_is_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool
 
 fn expr_is_strictly_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
     match &expr.kind {
-        ast::ExprKind::Integer(_)
-        | ast::ExprKind::Float(_)
+        ast::ExprKind::Integer { .. }
+        | ast::ExprKind::Float { .. }
         | ast::ExprKind::Bool(_)
         | ast::ExprKind::Char(_)
         | ast::ExprKind::ByteChar(_)

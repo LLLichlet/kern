@@ -20,6 +20,7 @@ roots = ["tests/smoke.rn"]
     fs::write(
         root.join("tests/smoke.rn"),
         r#"
+#[test]
 fn main() i32 {
 return 0;
 }
@@ -73,6 +74,7 @@ roots = ["tests/alpha.rn", "tests/beta.rn", "tests/gamma.rn"]
     fs::write(
         root.join("tests/alpha.rn"),
         r#"
+#[test]
 fn main() i32 {
 return 1;
 }
@@ -82,6 +84,7 @@ return 1;
     fs::write(
         root.join("tests/beta.rn"),
         r#"
+#[test]
 fn main() i32 {
 return 0;
 }
@@ -91,6 +94,7 @@ return 0;
     fs::write(
         root.join("tests/gamma.rn"),
         r#"
+#[test]
 fn main() i32 {
 return 3;
 }
@@ -138,6 +142,88 @@ return 3;
 }
 
 #[test]
+fn executes_all_cases_inside_one_test_target() {
+    let root = temp_dir("craft-exec-test-cases");
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[test]
+roots = ["tests/smoke.rn"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("tests/smoke.rn"),
+        r#"
+#[test]
+fn alpha() i32 {
+return 0;
+}
+
+mod nested {
+#[test]
+fn beta(argc: i32, argv: &&u8) i32 {
+if (argc != 1) {
+    return 2;
+}
+if (argv.*.* != b'o') {
+    return 3;
+}
+return 0;
+}
+}
+
+#[test]
+fn gamma() i32 {
+return 7;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Test,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Test).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let test_units = build_plan.packages[0]
+        .units
+        .iter()
+        .filter(|unit| unit.target_kind == crate::plan::TargetKind::Test)
+        .collect::<Vec<_>>();
+
+    let args = vec!["ok".to_string()];
+    let build = build(&build_plan, &action_plan).unwrap();
+    let summary =
+        super::super::runtime::test_built(&build_plan, &action_plan, &test_units, build, &args)
+            .unwrap();
+
+    assert_eq!(summary.executed, 3);
+    assert_eq!(summary.failures.len(), 1);
+    assert!(
+        summary.failures[0].label.contains("case `gamma`"),
+        "unexpected failure label: {}",
+        summary.failures[0].label
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn builds_and_executes_release_thinlto_test_units() {
     let root = temp_dir("craft-exec-test-release-thin");
     fs::create_dir_all(root.join("tests")).unwrap();
@@ -161,6 +247,7 @@ roots = ["tests/smoke.rn"]
     fs::write(
         root.join("tests/smoke.rn"),
         r#"
+#[test]
 fn main() i32 {
 return 0;
 }
@@ -231,6 +318,7 @@ return 42;
         r#"
 use demo.answer;
 
+#[test]
 fn main() i32 {
 if (answer() == 42) {
     return 0;
@@ -291,6 +379,7 @@ roots = ["tests/smoke.rn"]
     fs::write(
         root.join("tests/smoke.rn"),
         r#"
+#[test]
 fn main() i32 {
 return 0;
 }
@@ -359,11 +448,12 @@ use std.fs;
 use base.mem.alloc.{Allocator, gpa};
 use std.mem.Page;
 
+#[test]
 fn main() i32 {
 let mut page = Page.{};
-let mut gpa = gpa().on(&mut Allocator.{ page..& });
+let mut gpa = gpa().on((page..& as &mut Allocator));
 defer gpa..&.deinit();
-let alloc = &mut Allocator.{ gpa..& };
+let alloc = (gpa..& as &mut Allocator);
 
 let found = match ("fixtures/ok.txt".path().exists(alloc)) {
     .{ Ok: value } => value,
@@ -442,11 +532,12 @@ use std.env;
 use base.mem.alloc.{Allocator, gpa};
 use std.mem.Page;
 
+#[test]
 fn main() i32 {
 let mut page = Page.{};
-let mut gpa = gpa().on(&mut Allocator.{ page..& });
+let mut gpa = gpa().on((page..& as &mut Allocator));
 defer gpa..&.deinit();
-let alloc = &mut Allocator.{ gpa..& };
+let alloc = (gpa..& as &mut Allocator);
 
 let mut workspace_root = match ("CRAFT_WORKSPACE_ROOT".env().get(alloc)) {
     .{ Ok: .{ Some: value } } => value,
@@ -529,11 +620,12 @@ use std.fs;
 use base.mem.alloc.{Allocator, gpa};
 use std.mem.Page;
 
+#[test]
 fn main() i32 {
 let mut page = Page.{};
-let mut gpa = gpa().on(&mut Allocator.{ page..& });
+let mut gpa = gpa().on((page..& as &mut Allocator));
 defer gpa..&.deinit();
-let alloc = &mut Allocator.{ gpa..& };
+let alloc = (gpa..& as &mut Allocator);
 
 let mut name = match ("CRAFT_TEST_NAME".env().get(alloc)) {
     .{ Ok: .{ Some: value } } => value,

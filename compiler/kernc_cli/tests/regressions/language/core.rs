@@ -1,6 +1,196 @@
 use super::*;
 
 #[test]
+fn numeric_literal_suffixes_provide_explicit_builtin_types() {
+    let output = build_and_run_source(
+        r#"
+fn take_i32(value: i32) i32 {
+    return value;
+}
+
+fn take_usize(value: usize) usize {
+    return value;
+}
+
+fn main() i32 {
+    let x = 10i32;
+    let y = 2usize;
+    let z = 1.5f32;
+    if (take_i32(x) != 10) {
+        return 1;
+    }
+    if (take_usize(y) != 2usize) {
+        return 2;
+    }
+    if (z < 1.0f32) {
+        return 3;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_uncontextualized_bare_numeric_literals() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let _ = 10;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted uncontextualized numeric literal:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot infer type for an inferred numeric literal")
+            || stderr.contains("cannot infer type for an inferred integer literal"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn contextual_bare_numeric_literals_still_infer_from_receiver() {
+    let output = build_and_run_source(
+        r#"
+fn take(value: u8) u8 {
+    return value;
+}
+
+fn main() i32 {
+    return take(10) as i32 - 10;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn type_annotations_contextualize_undef_and_bare_numeric_literals() {
+    let output = build_and_run_source(
+        r#"
+type Mode = u8;
+
+const DEFAULT_MODE: Mode = 1;
+
+fn main() i32 {
+    let a: i32 = 41;
+    let b: i32 = undef;
+    _ = b;
+    return a + (DEFAULT_MODE as i32) - 42;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn typed_data_initializer_undef_is_rejected() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let value = i32.{undef};
+    _ = value;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted typed undef initializer:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("`undef` is not a data initializer"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("let value: Type = undef"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn extern_statics_can_omit_initializers_when_annotated() {
+    let output = compile_source(
+        r#"
+extern {
+    static errno: i32;
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "extern static declaration failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn non_extern_static_declarations_still_require_initializers() {
+    let output = compile_source(
+        r#"
+static value: i32;
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted non-extern static declaration without initializer:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("declarations without an initializer must be `extern`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn underscore_assignment_explicitly_discards_values() {
     let output = build_and_run_source(
         r#"
@@ -12,7 +202,7 @@ fn bump(value: &mut i32) i32 {
 fn main() i32 {
     let mut count = 0;
     _ = bump(count..&);
-    _ = 123;
+    _ = 123i32;
     return count - 1;
 }
 "#,
@@ -210,7 +400,7 @@ pub fn args() i32 {
             (
                 "proc/args.rn",
                 r#"
-pub const VALUE = 1;
+pub const VALUE = 1i32;
 "#,
             ),
         ],
@@ -311,12 +501,12 @@ const VALUE = Option[i32].{ Some: 7 };
 
 fn main() i32 {
     let mode = match (DEFAULT_MODE) {
-        .Off => i32.{0},
-        .On => i32.{10},
+        .Off => 0i32,
+        .On => 10i32,
     };
 
     let picked = match (VALUE) {
-        .None => i32.{0},
+        .None => 0i32,
         .{ Some: v } => v,
     };
 
@@ -645,7 +835,7 @@ fn bump(ptr: &mut i32) void {
 fn main() i32 {
     let mut array = [3]i32.{ 10, 20, 30 };
     let view = array..&[0 .. 3];
-    let i = i32.{0};
+    let i = 0i32;
     bump(view.[i + 1]..&);
     return view.[1] - 21;
 }
@@ -728,7 +918,7 @@ fn infers_usize_for_while_counter_from_array_length_comparison() {
         r#"
 fn main() i32 {
     let data = [4]u8.{ 3, 5, 7, 11 };
-    let mut sum = i32.{0};
+    let mut sum = 0i32;
 
     let mut i = 0;
     while (i < #data) {
@@ -854,7 +1044,7 @@ fn runs_check_intrinsic_value_and_source_capture() {
         r#"
 use base;
 
-const GLOBAL = @check(1 + 2);
+const GLOBAL = @check(1i32 + 2i32);
 
 fn source_len[N: usize](source: [N]u8) usize {
     return #source;
@@ -868,27 +1058,27 @@ fn main() i32 {
     if (GLOBAL.value != 3) {
         return 10;
     }
-    if (GLOBAL.source != "1 + 2") {
+    if (GLOBAL.source != "1i32 + 2i32") {
         return 11;
     }
 
-    let x = 2;
-    let math = @check(x + 3);
+    let x = 2i32;
+    let math = @check(x + 3i32);
     if (math.value != 5) {
         return 12;
     }
-    if (math.source != "x + 3") {
+    if (math.source != "x + 3i32") {
         return 13;
     }
     if (source_len(math.source) != #math.source) {
         return 14;
     }
 
-    let comparison = @check(x == 2);
+    let comparison = @check(x == 2i32);
     if (!comparison.value) {
         return 15;
     }
-    if (comparison.source != "x == 2") {
+    if (comparison.source != "x == 2i32") {
         return 16;
     }
     if (!take(comparison)) {
@@ -926,12 +1116,12 @@ const EMPTY = Option[i32].None;
 
 const fn score(kind: DocumentKind, value: Option[i32]) i32 {
     let kind_score = match (kind) {
-        .KeyValue => i32.{11},
-        .Table => i32.{17},
+        .KeyValue => 11i32,
+        .Table => 17i32,
     };
 
     let value_score = match (value) {
-        .None => i32.{5},
+        .None => 5i32,
         .{ Some: inner } => inner,
     };
 
@@ -950,11 +1140,11 @@ fn main() i32 {
 
     let base = score(DEFAULT_KIND, EMPTY);
     let contextual_score = match (contextual) {
-        .None => i32.{3},
-        .{ Some: _ } => i32.{100},
+        .None => 3i32,
+        .{ Some: _ } => 100i32,
     };
     let some_score = match (some) {
-        .None => i32.{100},
+        .None => 100i32,
         .{ Some: inner } => inner,
     };
 
@@ -984,9 +1174,9 @@ fn validate(count: u8) i32 {
 }
 
 fn main() i32 {
-    let valid = validate(u8.{8});
-    let zero = validate(u8.{0});
-    let large = validate(u8.{65});
+    let valid = validate(8u8);
+    let zero = validate(0u8);
+    let large = validate(65u8);
     return valid + (zero * 10) + (large * 100);
 }
 "#,
@@ -1006,7 +1196,7 @@ fn rejects_direct_raw_pointer_literals_and_null_raw_pointer_casts() {
     let rejected = compile_source(
         r#"
 fn main() i32 {
-    let ptr = &mut i32.{0};
+    let ptr = (&mut i32).{ 0usize };
     return if ((ptr as usize) == 0) 0 else 1;
 }
 "#,
@@ -1020,7 +1210,7 @@ fn main() i32 {
     );
     assert!(
         String::from_utf8_lossy(&rejected.stderr)
-            .contains("raw pointers cannot be initialized with `.{...}`"),
+            .contains("pointer types cannot be initialized with `.{...}`"),
         "unexpected stderr:\n{}",
         String::from_utf8_lossy(&rejected.stderr)
     );
@@ -1028,7 +1218,7 @@ fn main() i32 {
     let null_cast = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{0} as &mut i32;
+    let ptr = 0usize as &mut i32;
     return if ((ptr as usize) == 0) 0 else 1;
 }
 "#,
@@ -1045,7 +1235,7 @@ fn main() i32 {
     let direct_non_zero = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{1} as &mut i32;
+    let ptr = 1usize as &mut i32;
     return if ((ptr as usize) == 1) 0 else 1;
 }
 "#,
@@ -1066,12 +1256,12 @@ fn main() i32 {
     let one = 1 as ?&mut i32;
 
     let zero_score = match (zero) {
-        .None => i32.{0},
-        .{ Some: _ } => i32.{10},
+        .None => 0i32,
+        .{ Some: _ } => 10i32,
     };
     let one_score = match (one) {
-        .None => i32.{20},
-        .{ Some: ptr } => if ((ptr as usize) == 1) i32.{3} else i32.{30},
+        .None => 20i32,
+        .{ Some: ptr } => if ((ptr as usize) == 1) 3i32 else 30i32,
     };
 
     return zero_score + one_score;
@@ -1125,7 +1315,7 @@ fn accepts_optional_volatile_pointer_types() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = ?^mut i32.{ Some: usize.{1} as ^mut i32 };
+    let ptr = ?^mut i32.{ Some: 1usize as ^mut i32 };
     return match (ptr) {
         .None => 1,
         .{ Some: raw } => if ((raw as usize) == 1) 0 else 2,
@@ -1149,15 +1339,15 @@ fn keeps_optional_pointer_values_as_plain_builtin_enums() {
         r#"
 fn main() i32 {
     let none = (?&mut i32).None;
-    let some = (?&mut i32).{ Some: usize.{1} as &mut i32 };
+    let some = (?&mut i32).{ Some: 1usize as &mut i32 };
 
     let none_score = match (none) {
-        .None => i32.{0},
-        .{ Some: _ } => i32.{10},
+        .None => 0i32,
+        .{ Some: _ } => 10i32,
     };
     let some_score = match (some) {
-        .None => i32.{20},
-        .{ Some: ptr } => if ((ptr as usize) == 1) i32.{3} else i32.{30},
+        .None => 20i32,
+        .{ Some: ptr } => if ((ptr as usize) == 1) 3i32 else 30i32,
     };
 
     return none_score + some_score;
@@ -1179,8 +1369,8 @@ fn rejects_unsupported_object_pointer_addition_forms_in_builtin_pointer_arithmet
     let output = compile_source(
         r#"
 fn main() i32 {
-    let lhs = usize.{1} as &mut i32;
-    let rhs = usize.{2} as &mut i32;
+    let lhs = 1usize as &mut i32;
+    let rhs = 2usize as &mut i32;
     let _ = lhs + rhs;
     return 0;
 }
@@ -1205,9 +1395,9 @@ fn keeps_object_pointer_offset_arithmetic_available_as_a_builtin_primitive() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{100} as &mut i32;
-    let next = ptr + usize.{7};
-    let prev = next - usize.{3};
+    let ptr = 100usize as &mut i32;
+    let next = ptr + 7usize;
+    let prev = next - 3usize;
     return (prev as usize) as i32;
 }
 "#,
@@ -1223,14 +1413,14 @@ fn main() i32 {
 }
 
 #[test]
-fn infers_bare_integer_literals_for_object_pointer_offsets() {
+fn keeps_explicit_integer_suffixes_for_object_pointer_offsets() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{100} as &mut i32;
-    let step = 7;
+    let ptr = 100usize as &mut i32;
+    let step = 7usize;
     let next = ptr + step;
-    let prev = 3 + next - 2;
+    let prev = 3usize + next - 2usize;
     return (prev as usize) as i32;
 }
 "#,
@@ -1239,7 +1429,7 @@ fn main() i32 {
     assert_eq!(
         output.status.code(),
         Some(132),
-        "object-pointer offset inference regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        "object-pointer explicit offset regression binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -1250,9 +1440,9 @@ fn keeps_zero_sized_object_pointer_offsets_stable_as_a_builtin_primitive() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{77} as &mut void;
-    let next = ptr + usize.{9};
-    let prev = next - usize.{4};
+    let ptr = 77usize as &mut void;
+    let next = ptr + 9usize;
+    let prev = next - 4usize;
     return if ((prev as usize) == 77) 0 else 1;
 }
 "#,
@@ -1272,9 +1462,9 @@ fn keeps_builtin_address_pointer_arithmetic_for_volatile_pointers() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{9} as ^mut i32;
-    let next = ptr + usize.{5};
-    let prev = next - usize.{2};
+    let ptr = 9usize as ^mut i32;
+    let next = ptr + 5usize;
+    let prev = next - 2usize;
     return (prev as usize) as i32;
 }
 "#,
@@ -1290,14 +1480,14 @@ fn main() i32 {
 }
 
 #[test]
-fn infers_bare_integer_literals_for_volatile_pointer_offsets() {
+fn keeps_explicit_integer_suffixes_for_volatile_pointer_offsets() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{9} as ^mut i32;
-    let step = 5;
+    let ptr = 9usize as ^mut i32;
+    let step = 5usize;
     let next = ptr + step;
-    let prev = next - 2;
+    let prev = next - 2usize;
     return (prev as usize) as i32;
 }
 "#,
@@ -1306,7 +1496,7 @@ fn main() i32 {
     assert_eq!(
         output.status.code(),
         Some(12),
-        "address-pointer offset inference regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        "address-pointer explicit offset regression binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -1317,10 +1507,10 @@ fn keeps_pointer_offset_literals_polymorphic_until_later_exact_context() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{100} as &mut i32;
-    let step = 7;
+    let ptr = 100usize as &mut i32;
+    let step = 7usize;
     let next = ptr + step;
-    let amount = usize.{step};
+    let amount = step;
     return ((next as usize) + amount) as i32;
 }
 "#,
@@ -1340,10 +1530,10 @@ fn pointer_offset_literal_conflicts_report_human_facing_types_instead_of_typevar
     let output = compile_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{0} as &mut i32;
+    let ptr = 0usize as &mut i32;
     let step = 1;
     let _next = ptr + step;
-    let narrowed = u8.{step};
+    let narrowed = (step as u8);
     return 0;
 }
 "#,
@@ -1375,7 +1565,7 @@ fn bitwise_literal_constraints_reject_later_float_reinterpretation() {
 fn main() i32 {
     let mask = 1;
     let _bits = mask << 2;
-    let wrong = f64.{mask};
+    let wrong = (mask as f64);
     return 0;
 }
 "#,
@@ -1394,7 +1584,7 @@ fn main() i32 {
         stderr
     );
     assert!(
-        stderr.contains("inferred integer literal"),
+        stderr.contains("pointer offset integer"),
         "expected integer-literal diagnostic wording:\n{}",
         stderr
     );
@@ -1419,7 +1609,7 @@ fn fail() usize!SourceError {
 }
 
 fn main() i32 {
-    let index = usize.{41};
+    let index = 41usize;
     let result = fail().map_err([index](_: SourceError) TargetError {
         return .{ At: index + 1 };
     });
@@ -1440,7 +1630,7 @@ fn struct_field_default_can_reference_same_module_const() {
         r#"
 type Mode = u8;
 
-const DEFAULT_MODE = Mode.{1};
+const DEFAULT_MODE: Mode = 1;
 
 struct Settings {
     mode: Mode = DEFAULT_MODE,
@@ -1466,7 +1656,7 @@ fn imported_struct_field_default_uses_definition_scope() {
                 r#"
 pub type Mode = u8;
 
-pub const DEFAULT_MODE = Mode.{1};
+pub const DEFAULT_MODE: Mode = 1;
 
 pub struct Settings {
     pub mode: Mode = DEFAULT_MODE,
@@ -1510,7 +1700,7 @@ fn fail() usize!SourceError {
 }
 
 fn main() i32 {
-    let mut index = 41;
+    let mut index = 41usize;
     let _result = fail().map_err([](_: SourceError) TargetError {
         return .{ At: index + 1 };
     });
@@ -1561,7 +1751,7 @@ fn bitwise_literal_constraints_still_allow_later_integer_specialization() {
 fn main() i32 {
     let mask = 1;
     let widened = mask << 3;
-    let narrowed = u8.{mask};
+    let narrowed = (mask as u8);
     return (widened as i32) + (narrowed as i32) - 9;
 }
 "#,
@@ -1582,7 +1772,7 @@ fn unary_bitwise_literal_constraints_reject_later_float_reinterpretation() {
 fn main() i32 {
     let mask = 1;
     let _bits = ~mask;
-    let wrong = f64.{mask};
+    let wrong = (mask as f64);
     return 0;
 }
 "#,
@@ -1601,7 +1791,7 @@ fn main() i32 {
         stderr
     );
     assert!(
-        stderr.contains("inferred integer literal"),
+        stderr.contains("pointer offset integer"),
         "expected integer-literal diagnostic wording:\n{}",
         stderr
     );
@@ -1614,7 +1804,7 @@ fn unary_bitwise_literal_constraints_still_allow_later_integer_specialization() 
 fn main() i32 {
     let mask = 1;
     let flipped = ~mask;
-    let narrowed = u8.{mask};
+    let narrowed = (mask as u8);
     return (flipped as i32) + (narrowed as i32) + 1;
 }
 "#,
@@ -1636,7 +1826,7 @@ fn infers_bare_integer_literals_for_integer_to_pointer_casts() {
 fn main() i32 {
     let raw = 1;
     let ptr = raw as &mut i32;
-    let widened = usize.{raw};
+    let widened = (raw as usize);
     return ((ptr as usize) + widened) as i32 - 2;
 }
 "#,
@@ -1658,7 +1848,7 @@ fn integer_to_pointer_cast_literals_conflict_cleanly_with_non_pointer_sized_inte
 fn main() i32 {
     let raw = 1;
     let _ptr = raw as &mut i32;
-    let narrowed = u8.{raw};
+    let narrowed = (raw as u8);
     return 0;
 }
 "#,
@@ -1688,7 +1878,7 @@ fn permits_direct_volatile_to_object_pointer_casts() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let raw = usize.{1} as ^mut i32;
+    let raw = 1usize as ^mut i32;
     let ptr = raw as &mut i32;
     return if ((ptr as usize) == 1) 0 else 1;
 }
@@ -1748,14 +1938,14 @@ fn match_value_patterns_accept_type_qualified_scalar_literals() {
         r#"
 fn classify(byte: u8) i32 {
     return match (byte) {
-        u8.{4} => 40,
-        u8.{21} => 21,
+        4u8 => 40,
+        21u8 => 21,
         _ => 0,
     };
 }
 
 fn main() i32 {
-    return classify(u8.{4}) + classify(u8.{21}) + classify(u8.{9});
+    return classify(4u8) + classify(21u8) + classify(9u8);
 }
 "#,
     );
@@ -1774,7 +1964,7 @@ fn allows_same_block_shadowing_to_create_a_mutable_working_copy() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let value = i32.{5};
+    let value = 5i32;
     let mut value = value;
     value = 9;
     return value;
@@ -1796,7 +1986,7 @@ fn preserves_outer_binding_in_shadowing_initializer() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let value = i32.{5};
+    let value = 5i32;
     let value = value + 7;
     return value;
 }
@@ -1936,11 +2126,11 @@ fn contextual_void() Result[void, i32] {
 
 fn main() i32 {
     let first = match (explicit_void()) {
-        .{ Ok: _ } => i32.{0},
+        .{ Ok: _ } => 0i32,
         .{ Err: code } => code,
     };
     let second = match (contextual_void()) {
-        .{ Ok: _ } => i32.{0},
+        .{ Ok: _ } => 0i32,
         .{ Err: code } => code,
     };
     return first + second;

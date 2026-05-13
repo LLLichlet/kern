@@ -720,7 +720,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             && let Some(def_id) = info.def_id
         {
             let global_expr_ptr = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                Some(std::ptr::from_ref(&g.value))
+                g.value.as_ref().map(std::ptr::from_ref)
             } else {
                 None
             };
@@ -866,12 +866,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         &mut self,
         node_id: NodeId,
         pattern: &ast::LetPattern,
+        type_node: Option<&ast::TypeNode>,
         init: &Expr,
         else_clause: Option<&ast::LetElseClause>,
         expected_ty: Option<TypeId>,
         span: Span,
     ) -> TypeId {
-        let init_ty = self.check_expr(init, expected_ty);
+        let annotated_ty = type_node.map(|ty| self.evaluate_dynamic_typeof(ty));
+        let init_expected = annotated_ty.or(expected_ty);
+        let init_ty = self.check_expr(init, init_expected);
+        if let Some(expected) = annotated_ty {
+            self.check_coercion(init, expected, init_ty);
+        }
+        let init_ty = annotated_ty.unwrap_or(init_ty);
         let norm_init = self.resolve_tv(init_ty);
         if matches!(
             self.ctx.type_registry.get(norm_init),
@@ -1014,11 +1021,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         &mut self,
         node_id: NodeId,
         pattern: &ast::BindingPattern,
-        init: &Expr,
+        type_node: Option<&ast::TypeNode>,
+        init: Option<&Expr>,
         expected_ty: Option<TypeId>,
         span: Span,
     ) -> TypeId {
-        let init_ty = self.check_expr(init, expected_ty);
+        let annotated_ty = type_node.map(|ty| self.evaluate_dynamic_typeof(ty));
+        let Some(init) = init else {
+            self.ctx
+                .struct_error(span, "local `static` declarations require an initializer")
+                .with_hint("only extern module-level static declarations may omit the initializer")
+                .emit();
+            return TypeId::ERROR;
+        };
+        let init_expected = annotated_ty.or(expected_ty);
+        let init_ty = self.check_expr(init, init_expected);
+        if let Some(expected) = annotated_ty {
+            self.check_coercion(init, expected, init_ty);
+        }
+        let init_ty = annotated_ty.unwrap_or(init_ty);
         let norm_init = self.resolve_tv(init_ty);
         if matches!(
             self.ctx.type_registry.get(norm_init),
@@ -1316,7 +1337,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     if let Some(def_id) = target_def_id {
                         let global_expr_ptr =
                             if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                                Some(std::ptr::from_ref(&g.value))
+                                g.value.as_ref().map(std::ptr::from_ref)
                             } else {
                                 None
                             };

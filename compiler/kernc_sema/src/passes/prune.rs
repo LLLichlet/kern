@@ -121,7 +121,11 @@ impl<'a> Pruner<'a> {
                     }
                 }
             }
-            ExprKind::Static { init, .. } => self.prune_expr(init),
+            ExprKind::Static { init, .. } => {
+                if let Some(init) = init {
+                    self.prune_expr(init);
+                }
+            }
             ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
                 self.prune_expr(lhs);
                 self.prune_expr(rhs);

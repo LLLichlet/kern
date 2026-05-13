@@ -27,6 +27,12 @@ pub struct TestFailure {
     pub status: ExitStatus,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TestCase {
+    index: usize,
+    name: String,
+}
+
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn run(
     build_plan: &BuildPlan,
@@ -96,25 +102,31 @@ pub fn test_built(
         let action = find_link_action(action_plan, unit)?;
         let executable_path = resolve_invocation_path(&action.artifact_path)?;
         let test_name = unit.target_name.as_deref().unwrap_or(&unit.artifact_name);
-        let tmp_dir = create_test_tmp_dir(unit, test_name)?;
-        let status = test_runtime_command(
-            &executable_path,
-            action,
-            &build_plan.workspace_root,
-            test_name,
-            &tmp_dir,
-            args,
-        )
-        .status()
-        .map_err(Error::from_io_plain)?;
-        let _ = fs::remove_dir_all(&tmp_dir);
-        if !status.success() {
-            failures.push(TestFailure {
-                label: test_unit_label(unit, action),
-                status,
-            });
+        let compile_action = find_compile_action(action_plan, unit)?;
+        let cases = read_test_cases(compile_action.test_metadata_path.as_deref())?;
+
+        for case in cases {
+            let tmp_dir = create_test_tmp_dir(unit, &case.name)?;
+            let status = test_runtime_command(
+                &executable_path,
+                action,
+                &build_plan.workspace_root,
+                test_name,
+                &case,
+                &tmp_dir,
+                args,
+            )
+            .status()
+            .map_err(Error::from_io_plain)?;
+            let _ = fs::remove_dir_all(&tmp_dir);
+            if !status.success() {
+                failures.push(TestFailure {
+                    label: test_case_label(unit, action, &case),
+                    status,
+                });
+            }
+            executed += 1;
         }
-        executed += 1;
     }
 
     Ok(TestSummary {
@@ -124,13 +136,14 @@ pub fn test_built(
     })
 }
 
-fn test_unit_label(unit: &BuildUnit, action: &LinkAction) -> String {
+fn test_case_label(unit: &BuildUnit, action: &LinkAction, case: &TestCase) -> String {
     let name = unit.target_name.as_deref().unwrap_or(&unit.artifact_name);
     format!(
-        "{} {} `{}` ({})",
+        "{} {} `{}` case `{}` ({})",
         unit.package_id.name,
         unit.target_kind.as_str(),
         name,
+        case.name,
         action.artifact_path.display()
     )
 }
@@ -155,13 +168,69 @@ fn test_runtime_command(
     action: &LinkAction,
     workspace_root: &Path,
     test_name: &str,
+    case: &TestCase,
     tmp_dir: &Path,
     args: &[String],
 ) -> Command {
-    let mut command = runtime_command(executable_path, action, workspace_root, args);
+    let mut runtime_args = Vec::with_capacity(args.len() + 3);
+    runtime_args.push("--kern-test-case".to_string());
+    runtime_args.push(case.index.to_string());
+    runtime_args.extend(args.iter().cloned());
+    let mut command = runtime_command(executable_path, action, workspace_root, &runtime_args);
     command.env("CRAFT_TEST_NAME", test_name);
+    command.env("CRAFT_TEST_CASE", &case.name);
     command.env("CRAFT_TEST_TMPDIR", tmp_dir);
     command
+}
+
+fn read_test_cases(path: Option<&Path>) -> Result<Vec<TestCase>> {
+    let Some(path) = path else {
+        return Err(Error::Execution(
+            "missing test case metadata path for test target".to_string(),
+        ));
+    };
+    let contents = fs::read_to_string(path).map_err(|err| Error::from_io(path, err))?;
+    let mut cases = Vec::new();
+    for (line_no, line) in contents.lines().enumerate() {
+        if line == "version=1" || line.is_empty() {
+            continue;
+        }
+        let Some(rest) = line.strip_prefix("case=") else {
+            return Err(Error::Execution(format!(
+                "test case metadata `{}` contains unsupported line {}: `{}`",
+                path.display(),
+                line_no + 1,
+                line
+            )));
+        };
+        let Some((index, name)) = rest.split_once('\t') else {
+            return Err(Error::Execution(format!(
+                "test case metadata `{}` contains malformed case line {}",
+                path.display(),
+                line_no + 1
+            )));
+        };
+        let index = index.parse::<usize>().map_err(|_| {
+            Error::Execution(format!(
+                "test case metadata `{}` contains invalid case index `{}` on line {}",
+                path.display(),
+                index,
+                line_no + 1
+            ))
+        })?;
+        if name.is_empty() {
+            return Err(Error::Execution(format!(
+                "test case metadata `{}` contains empty case name on line {}",
+                path.display(),
+                line_no + 1
+            )));
+        }
+        cases.push(TestCase {
+            index,
+            name: name.to_string(),
+        });
+    }
+    Ok(cases)
 }
 
 fn create_test_tmp_dir(unit: &BuildUnit, test_name: &str) -> Result<PathBuf> {
@@ -232,6 +301,27 @@ fn find_link_action<'a>(action_plan: &'a ActionPlan, unit: &BuildUnit) -> Result
         .ok_or_else(|| {
             Error::Execution(format!(
                 "missing link action for `{}` target `{}`",
+                unit.package_id.name, unit.artifact_name
+            ))
+        })
+}
+
+fn find_compile_action<'a>(
+    action_plan: &'a ActionPlan,
+    unit: &BuildUnit,
+) -> Result<&'a crate::build_plan::CompileAction> {
+    action_plan
+        .compile_actions
+        .iter()
+        .find(|action| {
+            action.domain == unit.domain
+                && action.package_id == unit.package_id
+                && action.target_kind == unit.target_kind
+                && action.target_name == unit.target_name
+        })
+        .ok_or_else(|| {
+            Error::Execution(format!(
+                "missing compile action for `{}` target `{}`",
                 unit.package_id.name, unit.artifact_name
             ))
         })

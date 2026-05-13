@@ -31,7 +31,7 @@ impl &X: Base[4] {
 
 fn main() i32 {
     let x = X.{};
-    let leaf = &Leaf[4].{ x.& };
-    _ = &Base[4, Out = i32].{ leaf };
+    let leaf = (x.& as &Leaf[4]);
+    _ = (leaf as &Base[4, Out = i32]);
     return 0;
 }

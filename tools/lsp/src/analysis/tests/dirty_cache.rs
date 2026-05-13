@@ -328,7 +328,7 @@ fn dirty_complex_signature_help_uses_clean_analysis() {
         "    return first + second;\n",
         "}\n",
         "fn main() i32 {\n",
-        "    let value = i32.{2};\n",
+        "    let value = 2i32;\n",
         "    return helper(1, value);\n",
         "}\n",
     );
@@ -337,7 +337,7 @@ fn dirty_complex_signature_help_uses_clean_analysis() {
         "    return first + second;\n",
         "}\n",
         "fn main() i32 {\n",
-        "    let value = i32.{2}\n",
+        "    let value = 2i32\n",
         "    return helper(1, value);\n",
         "}\n",
     );
@@ -843,7 +843,7 @@ fn reverting_dirty_document_reuses_clean_caches() {
 fn body_only_dirty_diagnostics_reuse_clean_structure_cache() {
     let uri = temp_file_uri(
         "analysis_dirty_body_reuse",
-        "fn main() i32 { return i32.{1}; }\n",
+        "fn main() i32 { return 1i32; }\n",
     );
     let mut analysis = AnalysisEngine::default();
 
@@ -852,14 +852,14 @@ fn body_only_dirty_diagnostics_reuse_clean_structure_cache() {
             uri: uri.clone(),
             _language_id: "kern".to_string(),
             version: 1,
-            text: "fn main() i32 { return i32.{1}; }\n".to_string(),
+            text: "fn main() i32 { return 1i32; }\n".to_string(),
         },
     });
 
     let _ = analysis
         .hover(
             &uri,
-            position_of_nth("fn main() i32 { return i32.{1}; }\n", "main", 0, 1),
+            position_of_nth("fn main() i32 { return 1i32; }\n", "main", 0, 1),
         )
         .unwrap();
     let resolved = analysis.resolve_analysis(&uri).unwrap();
@@ -872,7 +872,7 @@ fn body_only_dirty_diagnostics_reuse_clean_structure_cache() {
         .unwrap();
 
     analysis.parse_cache.borrow_mut().clear();
-    let dirty_text = "fn main() i32 {\n    let value = i32.{41};\n    return value + i32.{1};\n}\n";
+    let dirty_text = "fn main() i32 {\n    let value = 41i32;\n    return value + 1i32;\n}\n";
     let doc = analysis.documents.get_mut(&uri).unwrap();
     doc.text = dirty_text.to_string();
     doc.version = 2;
@@ -908,7 +908,7 @@ fn body_only_dirty_diagnostics_reuse_clean_structure_cache() {
 fn structural_dirty_edit_falls_back_to_dirty_structure_analysis() {
     let uri = temp_file_uri(
         "analysis_dirty_structure_fallback",
-        "fn main() i32 { return i32.{1}; }\n",
+        "fn main() i32 { return 1i32; }\n",
     );
     let mut analysis = AnalysisEngine::default();
 
@@ -917,7 +917,7 @@ fn structural_dirty_edit_falls_back_to_dirty_structure_analysis() {
             uri: uri.clone(),
             _language_id: "kern".to_string(),
             version: 1,
-            text: "fn main() i32 { return i32.{1}; }\n".to_string(),
+            text: "fn main() i32 { return 1i32; }\n".to_string(),
         },
     });
 
@@ -928,8 +928,7 @@ fn structural_dirty_edit_falls_back_to_dirty_structure_analysis() {
         },
         content_changes: vec![TextDocumentContentChangeEvent {
             range: None,
-            text: "fn main() i32 { return i32.{1}; }\nfn helper() i32 { return i32.{2}; }\n"
-                .to_string(),
+            text: "fn main() i32 { return 1i32; }\nfn helper() i32 { return 2i32; }\n".to_string(),
         }],
     });
 
@@ -958,7 +957,7 @@ fn structural_dirty_edit_falls_back_to_dirty_structure_analysis() {
 fn function_body_fast_path_preserves_clean_sibling_diagnostics() {
     let root = unique_temp_dir("analysis_fast_path_preserve_sibling");
     fs::write(root.join("init.rn"), "mod good;\nmod bad;\n").unwrap();
-    fs::write(root.join("good.rn"), "fn main() i32 { return i32.{1}; }\n").unwrap();
+    fs::write(root.join("good.rn"), "fn main() i32 { return 1i32; }\n").unwrap();
     fs::write(root.join("bad.rn"), "fn broken() i32 { return missing; }\n").unwrap();
 
     let mut analysis = AnalysisEngine::default();
@@ -990,7 +989,7 @@ fn function_body_fast_path_preserves_clean_sibling_diagnostics() {
     let _ = analysis
         .hover(
             &good_uri,
-            position_of_nth("fn main() i32 { return i32.{1}; }\n", "main", 0, 1),
+            position_of_nth("fn main() i32 { return 1i32; }\n", "main", 0, 1),
         )
         .unwrap();
 
@@ -1001,7 +1000,7 @@ fn function_body_fast_path_preserves_clean_sibling_diagnostics() {
         },
         content_changes: vec![TextDocumentContentChangeEvent {
             range: None,
-            text: "fn main() i32 {\n    let value = i32.{41};\n    return value + i32.{1};\n}\n"
+            text: "fn main() i32 {\n    let value = 41i32;\n    return value + 1i32;\n}\n"
                 .to_string(),
         }],
     });
@@ -1029,11 +1028,11 @@ fn function_body_fast_path_preserves_clean_sibling_diagnostics() {
 
 #[test]
 fn function_body_fast_path_preserves_clean_target_diagnostics_outside_changed_owner() {
-    let original = "fn main() i32 { return i32.{1}; }\nfn helper() i32 { return missing; }\n";
+    let original = "fn main() i32 { return 1i32; }\nfn helper() i32 { return missing; }\n";
     let dirty = concat!(
         "fn main() i32 {\n",
-        "    let value = i32.{41};\n",
-        "    return value + i32.{1};\n",
+        "    let value = 41i32;\n",
+        "    return value + 1i32;\n",
         "}\n",
         "fn helper() i32 { return missing; }\n",
     );
@@ -1088,8 +1087,8 @@ fn function_body_fast_path_replaces_overlapping_clean_target_diagnostics() {
     let original = "fn main() i32 { return missing; }\n";
     let dirty = concat!(
         "fn main() i32 {\n",
-        "    let value = i32.{41};\n",
-        "    return value + i32.{1};\n",
+        "    let value = 41i32;\n",
+        "    return value + 1i32;\n",
         "}\n",
     );
     let uri = temp_file_uri("analysis_fast_path_drop_target_overlap", original);

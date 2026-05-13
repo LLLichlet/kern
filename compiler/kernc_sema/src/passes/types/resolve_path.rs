@@ -98,7 +98,13 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             if current_ty.is_none() {
                 let (target_symbol, skipped_hidden_assoc) = if index == 0 {
                     if segments.len() == 1 {
-                        let name_str = self.ctx.resolve(segment.name).to_string();
+                        let name_str = self
+                            .ctx
+                            .sess
+                            .source_manager
+                            .slice_source(segment.name_span)
+                            .trim()
+                            .to_string();
                         if let Some(prim_id) = self.resolve_builtin_primitive(&name_str) {
                             if !segment.args.is_empty() {
                                 self.ctx.emit_error(
@@ -129,7 +135,6 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                         false,
                     )
                 };
-
                 let Some(sym) = target_symbol else {
                     let name = self.ctx.resolve(segment.name).to_string();
                     if index == 0 && skipped_hidden_assoc {
@@ -445,7 +450,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 }
 
                 let target_ty = if let Def::TypeAlias(t_def) = &self.ctx.defs[def_id.0 as usize] {
-                    self.ctx.node_type_or_error(t_def.target.id)
+                    final_sym
+                        .type_id
+                        .ne(&TypeId::ERROR)
+                        .then_some(final_sym.type_id)
+                        .or_else(|| self.ctx.node_type(t_def.target.id))
+                        .unwrap_or(TypeId::ERROR)
                 } else {
                     TypeId::ERROR
                 };

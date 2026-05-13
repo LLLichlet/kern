@@ -23,7 +23,7 @@ fn use_base(value: &Base[4]) i32 {
 
 fn take(cb: &Fn(&Derived[4]) i32) i32 {
     let x = X.{};
-    let derived = &Derived[4].{ x.& };
+    let derived = (x.& as &Derived[4]);
     return cb(derived);
 }
 

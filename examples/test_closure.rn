@@ -26,24 +26,24 @@ fn main() i32 {
     }, 10, 20);
     (sum == 30).should().sum(@loc(), t);
 
-    let base = i32.{100};
+    let base = 100i32;
     let result = process_with_context([base](x: i32) i32 {
         return base + x;
     }, 50);
     (result == 150).should().sum(@loc(), t);
 
-    let mut counter = i32.{0};
+    let mut counter = 0i32;
     repeat_twice([ptr = counter..&]() void {
         ptr.* += 1;
     });
     (counter == 2).should().sum(@loc(), t);
 
-    let left = i32.{10};
-    let right = i32.{20};
+    let left = 10i32;
+    let right = 20i32;
     let my_closure = [left, right](x: i32) i32 {
         return (left + right) * x;
     };
-    (process_with_context(&Fn(i32) i32.{ my_closure.& }, 2) == 60).should().sum(@loc(), t);
+    (process_with_context((my_closure.& as &Fn(i32) i32), 2) == 60).should().sum(@loc(), t);
 
     "closures: sum={}, captured={}, counter={}".fmt(.{sum, result, counter}).println();
     return 0;

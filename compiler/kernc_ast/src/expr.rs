@@ -32,19 +32,27 @@ pub enum ExprKind {
     /// `let mut x = v` or `let x = v`
     Let {
         pattern: LetPattern,
+        type_node: Option<Box<TypeNode>>,
         init: Box<Expr>,
         else_clause: Option<LetElseClause>,
     },
 
-    /// `static x = v`
+    /// `static x = v` or `static x: T`
     Static {
         pattern: BindingPattern,
-        init: Box<Expr>,
+        type_node: Option<Box<TypeNode>>,
+        init: Option<Box<Expr>>,
     },
 
     // --- Literals ---
-    Integer(u128),
-    Float(f64),
+    Integer {
+        value: u128,
+        suffix: Option<NumericLiteralSuffix>,
+    },
+    Float {
+        value: f64,
+        suffix: Option<NumericLiteralSuffix>,
+    },
     Bool(bool),
     Char(char),
     ByteChar(u8),
@@ -185,6 +193,24 @@ pub enum ExprKind {
         /// Always a block expression.
         body: Box<Expr>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NumericLiteralSuffix {
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    ISize,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    USize,
+    F32,
+    F64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

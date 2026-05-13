@@ -2,7 +2,7 @@
 // source: regression for object emission of large aggregate undef initializers
 
 fn main() i32 {
-    let mut out = [65536]u8.{undef};
+    let mut out: [65536]u8 = undef;
     out.[0] = 1;
     return out.[0] as i32;
 }

@@ -408,7 +408,7 @@ debug = false
 
 Manifest rules:
 
-- targets are explicit
+- targets are explicit, except that package tests default to direct `tests/*.rn` roots when `[test].roots` is absent
 - `[package].kern` must match the current installed Kern toolchain version exactly
 - `[package].name` is always package-local; workspace inheritance never names a member package
 - a root `Craft.toml` cannot be both a package and a workspace
@@ -420,7 +420,10 @@ Manifest rules:
 - `[runtime].bundle` is alias wiring, not a scope prelude; ordinary `use` still applies
 - without an explicit `[runtime]` override, `craft` keeps runnable targets on the pure-first default (`entry = "rt"`, `libc = false`, `bundle = "std"`)
 - `rt` implementation choice belongs to normal package/module wiring, not a manifest runtime-selection field
-- test targets are listed under `[test].roots`, and each test name is derived from its file stem
+- test targets are listed under `[test].roots`, and each target name is derived from its file stem
+- if `[test].roots` is absent, `craft` discovers direct `tests/*.rn` files in that package; an explicit `[test].roots` list, including `roots = []`, overrides this default
+- `[test].roots` supports direct `*.rn` globs such as `"tests/*.rn"` or `"integration/*.rn"`; recursive globs are intentionally not test roots because nested files are usually modules owned by a root
+- inside a test target, each `#[test]` function is one test case; case names are the Kern module path plus function name
 - example targets are listed under `[example].roots`, and each example name is derived from its file stem
 - external dependencies must be explicit `path` or `git` entries; plain version strings are not a source model
 - `build-dependencies` belong to the host build domain rather than the final target domain
@@ -1152,7 +1155,11 @@ Command behavior:
 - `install` auto-synchronizes `Craft.lock`, builds selected package `bin` targets, and copies them into the active install root's `bin/` directory
 - `uninstall` auto-synchronizes `Craft.lock` and removes installed package `bin` targets from that same install root
 - `run` auto-synchronizes `Craft.lock`, then builds and runs the selected runnable binary from its owning package root
-- `test` auto-synchronizes `Craft.lock`, then builds and runs test targets from their owning package roots
+- `test` auto-synchronizes `Craft.lock`, then builds selected test targets and runs each discovered `#[test]` case from its owning package root
+
+`craft test` treats a test root as a compiled test target and `#[test]` functions inside that root as individual cases. Without `[test].roots`, each package automatically uses direct `tests/*.rn` files as roots. In a workspace, that rule is applied independently to each member package; the workspace root does not become a test package by itself. A target is built once; `craft` then launches the test binary once per case using the compiler-owned case-selection protocol. Extra arguments after the command are forwarded to every case, so a test function declared as `fn case(argc: i32, argv: &&u8) i32` sees only those user arguments.
+
+For each case, return `0` to pass and a non-zero value to fail. `craft` reports failures with both the target name and the case name. It also sets `CRAFT_TEST_NAME`, `CRAFT_TEST_CASE`, and `CRAFT_TEST_TMPDIR` for case processes.
 
 When `craft` launches a runtime target for `run` or `test`, it also injects:
 

@@ -315,6 +315,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.bind_generics(&t.generics, alias_scope);
         self.resolve_where_clauses(&t.where_clauses, alias_scope);
         let target_ty = self.resolve_type(&t.target, alias_scope);
+        self.ctx.set_node_type(t.target.id, target_ty);
 
         self.ctx.scopes.exit_scope();
         self.ctx.scopes.set_current_scope(parent_scope);

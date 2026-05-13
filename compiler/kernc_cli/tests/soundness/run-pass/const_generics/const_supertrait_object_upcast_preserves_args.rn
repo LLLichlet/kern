@@ -20,7 +20,7 @@ impl &X: Base[4] {
 
 fn main() i32 {
     let x = X.{};
-    let derived = &Derived[4].{ x.& };
-    let base = &Base[4].{ derived };
+    let derived = (x.& as &Derived[4]);
+    let base = (derived as &Base[4]);
     return base.value() - 7;
 }

@@ -20,6 +20,6 @@ impl[N: usize] &X: Base[N] {
 
 fn main() i32 {
     let x = X.{};
-    let derived = &Derived[4].{ x.& };
+    let derived = (x.& as &Derived[4]);
     return derived.value() - 4;
 }

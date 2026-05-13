@@ -159,15 +159,15 @@ impl[T] &List[T] : Formatable
 
 ```kern
 let mut sink = io.stderr();
-let writer = &mut Write.{ sink..& };
+let writer = sink..& as &mut Write;
 ```
 
-`&mut Write` 是一个 fat pointer。它携带“指向具体对象的指针”和“指向 `Write` vtable 的指针”。构造时必须传入具体对象的指针，所以写成 `Write.{ sink..& }`。
+`&mut Write` 是一个 fat pointer。它携带“指向具体对象的指针”和“指向 `Write` vtable 的指针”。显式打包使用 `as` 从兼容指针转换；在调用和赋值边界，如果上下文期望 `&mut Write`，也可以自然完成同样的打包。
 
 这和“为某个类型实现 trait”不是一回事：
 
 - `impl &mut File : Write`：说明 `&mut File` 这个具体类型满足接口。
-- `&mut Write.{ file..& }`：把一个具体对象包装成动态接口值。
+- `file..& as &mut Write`：把一个具体对象包装成动态接口值。
 
 Kern 要求 trait object 从指针构造，避免把未知大小的动态对象当成普通栈值。
 
@@ -194,8 +194,8 @@ trait BufReader: Read {
 supertrait 不是 OOP 的对象继承。它表达的是接口契约之间的依赖。动态接口值也可以沿 supertrait 做 upcast：
 
 ```kern
-let reader = &BufReader.{ file.& };
-let base = &Read.{ reader };
+let reader = file.& as &BufReader;
+let base = reader as &Read;
 ```
 
 如果函数需要 `&Read`，传入 `&BufReader` 时也可以发生边界自然转换。这个转换只改写 fat pointer 的 vtable metadata，不移动底层对象。

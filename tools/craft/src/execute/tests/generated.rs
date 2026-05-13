@@ -1133,7 +1133,7 @@ use base.io.Write;
 
 fn main() i32 {
 let mut out = io.stdout();
-let writer = &mut Write.{ out..& };
+let writer = (out..& as &mut Write);
 let _ = writer.write("fn main() i32 { return 0; }\n");
 return 0;
 }
@@ -1248,7 +1248,7 @@ use base.io.Write;
 
 fn main() i32 {
 let mut out = io.stdout();
-let writer = &mut Write.{ out..& };
+let writer = (out..& as &mut Write);
 helper.emit(writer);
 return 0;
 }
@@ -1392,7 +1392,7 @@ use base.io.Write;
 
 fn main() i32 {
 let mut out = io.stdout();
-let writer = &mut Write.{ out..& };
+let writer = (out..& as &mut Write);
 let _ = writer.write("fn main() i32 { return 0; }\n");
 return 0;
 }
@@ -1552,7 +1552,7 @@ use base.io.Write;
 
 fn main() i32 {
 let mut out = io.stdout();
-let writer = &mut Write.{ out..& };
+let writer = (out..& as &mut Write);
 let _ = writer.write("fn main() i32 { return 0; }\n");
 return 0;
 }
@@ -1661,7 +1661,7 @@ use base.io.Write;
 
 fn main() i32 {
 let mut out = io.stdout();
-let writer = &mut Write.{ out..& };
+let writer = (out..& as &mut Write);
 let _ = writer.write("built by tool\n");
 return 0;
 }
@@ -1917,11 +1917,11 @@ use base.io.Write;
 
 fn main() i32 {
 let mut out = io.stdout();
-let out_writer = &mut Write.{ out..& };
+let out_writer = (out..& as &mut Write);
 let _ = out_writer.write("partial stdout\n");
 
 let mut err = io.stderr();
-let err_writer = &mut Write.{ err..& };
+let err_writer = (err..& as &mut Write);
 let _ = err_writer.write("tool failed loudly\n");
 return 7;
 }

@@ -53,7 +53,8 @@ struct FunctionCollectOwnedSpec {
 struct GlobalCollectOwnedSpec {
     header: OwnedDeclHeader,
     is_extern: bool,
-    value: ast::Expr,
+    type_node: Option<Box<ast::TypeNode>>,
+    value: Option<ast::Expr>,
     is_static: bool,
     is_mut: bool,
 }
@@ -331,6 +332,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 )
             }
             DeclKind::Var {
+                type_node,
                 value,
                 is_static,
                 is_extern,
@@ -339,7 +341,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 decl,
                 vis,
                 force_extern || *is_extern,
-                value,
+                type_node.as_ref(),
+                value.as_ref(),
                 *is_static,
                 *is_mut,
             ),
@@ -489,6 +492,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 })
             }
             DeclKind::Var {
+                type_node,
                 value,
                 is_static,
                 is_extern,
@@ -496,6 +500,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             } => self.collect_global_owned(GlobalCollectOwnedSpec {
                 header,
                 is_extern: force_extern || is_extern,
+                type_node,
                 value,
                 is_static,
                 is_mut,
@@ -775,7 +780,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         decl: &Decl,
         vis: Visibility,
         is_extern: bool,
-        value: &ast::Expr,
+        type_node: Option<&Box<ast::TypeNode>>,
+        value: Option<&ast::Expr>,
         is_static: bool,
         is_mut: bool,
     ) -> Option<DefId> {
@@ -786,7 +792,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 vis,
                 parent: self.current_module,
                 is_imported: self.current_module_imported,
-                value: value.clone(),
+                type_node: type_node.cloned(),
+                value: value.cloned(),
                 is_static,
                 is_extern,
                 is_mut,
@@ -829,6 +836,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     vis,
                 },
             is_extern,
+            type_node,
             value,
             is_static,
             is_mut,
@@ -840,6 +848,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 vis,
                 parent: self.current_module,
                 is_imported: self.current_module_imported,
+                type_node,
                 value,
                 is_static,
                 is_extern,

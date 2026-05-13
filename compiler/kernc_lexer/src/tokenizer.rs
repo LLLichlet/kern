@@ -189,16 +189,19 @@ impl<'a> Tokenizer<'a> {
                 b'x' | b'X' => {
                     self.advance(); // Consume `x`.
                     self.consume_digits(16);
+                    self.consume_numeric_suffix();
                     return self.make_token(TokenType::IntLiteral);
                 }
                 b'b' | b'B' => {
                     self.advance(); // Consume `b`.
                     self.consume_digits(2);
+                    self.consume_numeric_suffix();
                     return self.make_token(TokenType::IntLiteral);
                 }
                 b'o' | b'O' => {
                     self.advance(); // Consume `o`.
                     self.consume_digits(8);
+                    self.consume_numeric_suffix();
                     return self.make_token(TokenType::IntLiteral);
                 }
                 _ => {
@@ -217,15 +220,18 @@ impl<'a> Tokenizer<'a> {
 
             // Floats may still carry an exponent suffix such as `1.2e10`.
             self.try_scan_exponent();
+            self.consume_numeric_suffix();
             return self.make_token(TokenType::FloatLiteral);
         }
 
         // 4. Parse exponent-only floats such as `1e10`.
         if self.try_scan_exponent() {
+            self.consume_numeric_suffix();
             return self.make_token(TokenType::FloatLiteral);
         }
 
         // Otherwise this is a plain integer literal.
+        self.consume_numeric_suffix();
         self.make_token(TokenType::IntLiteral)
     }
 
@@ -266,6 +272,15 @@ impl<'a> Tokenizer<'a> {
                 self.advance();
             } else {
                 break;
+            }
+        }
+    }
+
+    fn consume_numeric_suffix(&mut self) {
+        if is_alpha(self.peek()) {
+            self.advance();
+            while is_alpha_numeric(self.peek()) {
+                self.advance();
             }
         }
     }

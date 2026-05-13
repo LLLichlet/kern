@@ -18,6 +18,6 @@ impl &usize: Render {
 }
 
 fn main() i32 {
-    let value = usize.{7};
+    let value = 7usize;
     return value.&.write_default() - 7;
 }

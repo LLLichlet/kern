@@ -268,7 +268,7 @@ fn completion_request_does_not_offer_keywords_after_member_access() {
     let source = concat!(
         "struct Console { len: i32 }\n",
         "fn main() i32 {\n",
-        "    let console = Console.{ len: i32.{1} };\n",
+        "    let console = Console.{ len: 1i32 };\n",
         "    return console.le;\n",
         "}\n",
     );

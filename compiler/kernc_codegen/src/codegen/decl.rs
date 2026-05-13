@@ -561,9 +561,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             link_section = Some(s.clone());
                         }
                     } else if name_str == "align"
-                        && let ast::ExprKind::Integer(val) = &expr.kind
+                        && let ast::ExprKind::Integer { value, .. } = &expr.kind
                     {
-                        align_bytes = Some(*val as u32);
+                        align_bytes = Some(*value as u32);
                     }
                 }
             }

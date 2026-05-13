@@ -11,14 +11,14 @@ fn process_erased_ptr(t: &mut test.Report[io.File], ptr: &mut void) void {
 fn main() i32 {
     let t = test.report(io.stderr())..&;
 
-    (@sizeOf[void]() == usize.{0}).should().sum(@loc(), t);
-    (@sizeOf[[100]void]() == usize.{0}).should().sum(@loc(), t);
+    (@sizeOf[void]() == 0usize).should().sum(@loc(), t);
+    (@sizeOf[[100]void]() == 0usize).should().sum(@loc(), t);
 
-    let mut real_data = i32.{0xDEADBEEF};
+    let mut real_data = 0xDEADBEEFi32;
     process_erased_ptr(t, real_data..&);
 
-    let null_ptr = usize.{0} as &mut void;
-    (null_ptr == (usize.{0} as &mut void)).should().sum(@loc(), t);
+    let null_ptr = 0usize as &mut void;
+    (null_ptr == (0usize as &mut void)).should().sum(@loc(), t);
 
     "void: size={}, array size={}".fmt(.{@sizeOf[void](), @sizeOf[[100]void]()}).println();
     return 0;

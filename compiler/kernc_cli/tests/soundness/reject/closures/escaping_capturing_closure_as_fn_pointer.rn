@@ -4,7 +4,7 @@
 // stderr: closure environment would escape the current stack frame
 
 fn make() &Fn(i32) i32 {
-    let base = i32.{7};
+    let base = 7i32;
     return [base](x: i32) i32 {
         return x + base;
     };

@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn did_open_publishes_related_information_and_hints() {
     let mut state = initialized_state();
-    let source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+    let source = "fn main() i32 {\n    let value = 1i32\n    return value;\n}\n";
     let uri = temp_file_uri("server_related_diagnostics", source);
 
     let messages = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
@@ -25,7 +25,7 @@ fn did_open_publishes_related_information_and_hints() {
 fn verbose_trace_reports_diagnostics_lane_analysis() {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;
-    let source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+    let source = "fn main() i32 {\n    let value = 1i32\n    return value;\n}\n";
     let uri = temp_file_uri("server_diagnostics_lane_trace", source);
 
     let messages = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
@@ -178,7 +178,7 @@ fn verbose_trace_marks_exceeded_diagnostics_budget() {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;
     state.request_budget_policy.diagnostics_ms = 0;
-    let source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+    let source = "fn main() i32 {\n    let value = 1i32\n    return value;\n}\n";
     let uri = temp_file_uri("server_diagnostics_budget_trace", source);
 
     let messages = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
@@ -190,8 +190,8 @@ fn verbose_trace_marks_exceeded_diagnostics_budget() {
 #[test]
 fn did_change_republishes_empty_diagnostics_after_fix() {
     let mut state = initialized_state();
-    let invalid_source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
-    let valid_source = "fn main() i32 {\n    let value = i32.{1};\n    return value;\n}\n";
+    let invalid_source = "fn main() i32 {\n    let value = 1i32\n    return value;\n}\n";
+    let valid_source = "fn main() i32 {\n    let value = 1i32;\n    return value;\n}\n";
     let uri = temp_file_uri("server_diagnostic_clear", invalid_source);
 
     let open_messages = dispatch_messages(&mut state, did_open_message(&uri, invalid_source, 1));
@@ -266,9 +266,9 @@ fn did_save_publishes_unnecessary_tags_for_flow_warnings() {
 #[test]
 fn multiple_did_change_notifications_coalesce_until_save() {
     let mut state = initialized_state();
-    let invalid_source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
-    let still_invalid = "fn main() i32 {\n    let value = i32.{2}\n    return value;\n}\n";
-    let valid_source = "fn main() i32 {\n    let value = i32.{2};\n    return value;\n}\n";
+    let invalid_source = "fn main() i32 {\n    let value = 1i32\n    return value;\n}\n";
+    let still_invalid = "fn main() i32 {\n    let value = 2i32\n    return value;\n}\n";
+    let valid_source = "fn main() i32 {\n    let value = 2i32;\n    return value;\n}\n";
     let uri = temp_file_uri("server_diagnostic_coalesce", invalid_source);
 
     let _ = dispatch_messages(&mut state, did_open_message(&uri, invalid_source, 1));
@@ -293,8 +293,8 @@ fn multiple_did_change_notifications_coalesce_until_save() {
 #[test]
 fn did_change_under_budget_stays_deferred() {
     let mut state = initialized_state();
-    let source = "fn main() i32 {\n    let value = i32.{1};\n    return value;\n}\n";
-    let changed = "fn main() i32 {\n    let value = i32.{2};\n    return value;\n}\n";
+    let source = "fn main() i32 {\n    let value = 1i32;\n    return value;\n}\n";
+    let changed = "fn main() i32 {\n    let value = 2i32;\n    return value;\n}\n";
     let uri = temp_file_uri("server_diagnostic_budget_single", source);
 
     let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
@@ -307,9 +307,9 @@ fn did_change_under_budget_stays_deferred() {
 #[test]
 fn did_change_reaching_target_budget_triggers_auto_drain() {
     let mut state = initialized_state();
-    let source = "fn main() i32 {\n    let value = i32.{1};\n    return value;\n}\n";
-    let changed_a = "fn main() i32 {\n    let value = i32.{2};\n    return value;\n}\n";
-    let changed_b = "fn main() i32 {\n    let value = i32.{3};\n    return value;\n}\n";
+    let source = "fn main() i32 {\n    let value = 1i32;\n    return value;\n}\n";
+    let changed_a = "fn main() i32 {\n    let value = 2i32;\n    return value;\n}\n";
+    let changed_b = "fn main() i32 {\n    let value = 3i32;\n    return value;\n}\n";
     let uri_a = temp_file_uri("server_diagnostic_budget_a", source);
     let uri_b = temp_file_uri("server_diagnostic_budget_b", source);
 

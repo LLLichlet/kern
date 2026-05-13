@@ -18,6 +18,7 @@ pub struct Manifest {
     pub lib: Option<LibTarget>,
     pub bin: Vec<NamedTarget>,
     pub test: Vec<NamedTarget>,
+    pub test_roots_explicit: bool,
     pub example: Vec<NamedTarget>,
     pub dependencies: BTreeMap<String, DependencySpec>,
     pub dev_dependencies: BTreeMap<String, DependencySpec>,

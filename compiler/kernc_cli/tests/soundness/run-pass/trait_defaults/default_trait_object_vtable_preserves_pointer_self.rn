@@ -18,7 +18,7 @@ impl &usize: Render {
 }
 
 fn main() i32 {
-    let value = usize.{7};
-    let render = &Render.{ value.& };
+    let value = 7usize;
+    let render = (value.& as &Render);
     return render.fallback() - 7;
 }

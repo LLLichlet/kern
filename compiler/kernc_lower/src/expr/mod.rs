@@ -56,8 +56,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mast_kind = match &expr.kind {
             ExprKind::Error => MastExprKind::Trap,
-            ExprKind::Integer(val) => MastExprKind::Integer(*val),
-            ExprKind::Float(val) => MastExprKind::Float(*val),
+            ExprKind::Integer { value, .. } => MastExprKind::Integer(*value),
+            ExprKind::Float { value, .. } => MastExprKind::Float(*value),
             ExprKind::Bool(val) => MastExprKind::Bool(*val),
             ExprKind::Char(c) => MastExprKind::Integer(*c as u32 as u128),
             ExprKind::ByteChar(b) => MastExprKind::Integer(*b as u128),
@@ -109,6 +109,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 pattern,
                 init,
                 else_clause,
+                ..
             } => {
                 return self.measure_phase("        lower_expr_binding", |this| {
                     MastExpr::new(
@@ -128,8 +129,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     )
                 });
             }
-            ExprKind::Static { pattern, init } => {
+            ExprKind::Static { pattern, init, .. } => {
                 self.measure_phase("        lower_expr_binding", |this| {
+                    let Some(init) = init.as_ref() else {
+                        this.ctx.emit_ice(
+                            expr.span,
+                            "Kern ICE (Lowering): local static declaration missing initializer.",
+                        );
+                        return MastExprKind::Block(MastBlock {
+                            stmts: vec![],
+                            result: None,
+                            defers: vec![],
+                        });
+                    };
                     let raw_static_ty = this.resolve_expr_type(init);
                     let static_ty = this.substitute_type_with_map(raw_static_ty, subst_map);
                     this.lower_static_decl(pattern.name, init, subst_map, static_ty, pattern.is_mut)
@@ -345,7 +357,10 @@ mod tests {
         let expr = Expr {
             id: NodeId(0),
             span: Span::default(),
-            kind: ExprKind::Integer(7),
+            kind: ExprKind::Integer {
+                value: 7,
+                suffix: None,
+            },
         };
         ctx.set_node_type(expr.id, TypeId::ERROR);
 
@@ -520,7 +535,10 @@ mod tests {
         let arg = Expr {
             id: NodeId(0),
             span: Span::default(),
-            kind: ExprKind::Integer(99),
+            kind: ExprKind::Integer {
+                value: 99,
+                suffix: None,
+            },
         };
 
         let ordering = Lowerer::new(&mut ctx).atomic_ordering_arg(&arg, &HashMap::new());

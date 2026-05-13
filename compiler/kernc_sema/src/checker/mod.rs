@@ -6,6 +6,7 @@ pub(crate) use expr::ExprChecker;
 
 use crate::context::{EscapeSummary, SemaContext};
 use crate::def::{Def, DefId, FunctionDef, GlobalDef, ImplDef};
+use crate::passes::TypeResolver;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind, SymbolNamespace};
 use crate::semantic::SemanticSymbolKind;
 use crate::ty::{ConstGeneric, GenericArg, TypeId, TypeKind};
@@ -250,10 +251,30 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
                 // Try to infer the initializer type.
                 self.ctx.scopes.set_current_scope(scope_id);
-                let mut checker = ExprChecker::new(self.ctx, None);
-                let init_ty = {
-                    let init_ty = checker.check_expr(unsafe { &(*g).value }, None);
-                    checker.finalize_numeric_inference(init_ty)
+                let annotated_ty = if let Some(type_node) = unsafe { &(*g).type_node } {
+                    let mut resolver = TypeResolver::new(self.ctx);
+                    Some(resolver.resolve_type(type_node, scope_id))
+                } else {
+                    None
+                };
+                let init_ty = if let Some(value) = unsafe { &(*g).value } {
+                    let mut checker = ExprChecker::new(self.ctx, None);
+                    let init_ty = checker.check_expr(value, annotated_ty);
+                    let init_ty = checker.finalize_numeric_inference(init_ty);
+                    if let Some(expected) = annotated_ty {
+                        checker.check_coercion(value, expected, init_ty);
+                        expected
+                    } else {
+                        init_ty
+                    }
+                } else if unsafe { (*g).is_extern } {
+                    annotated_ty.unwrap_or(TypeId::ERROR)
+                } else {
+                    self.ctx.emit_error(
+                        unsafe { (*g).span },
+                        "static declarations without an initializer must be `extern`",
+                    );
+                    TypeId::ERROR
                 };
                 self.ctx.scopes.set_current_scope(scope_id);
 
@@ -280,16 +301,11 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         continue;
                     }
 
-                    if !unsafe { (*g).is_extern } {
-                        if let ast::ExprKind::Undef = unsafe { &(*g).value.kind } {
-                            self.ctx.emit_error(unsafe { (*g).span }, "Global variables cannot be initialized with bare `undef`. Must provide a typed constant value (e.g., `.{undef}`).");
-                        } else {
-                            let mut evaluator = ConstEvaluator::new(self.ctx);
-                            let _ = evaluator.eval_inner(unsafe { &(*g).value }, 0);
-                        }
-                    } else if !matches!(unsafe { &(*g).value.kind }, ast::ExprKind::DataInit { literal: ast::DataLiteralKind::Scalar(inner), .. } if matches!(inner.kind, ast::ExprKind::Undef))
+                    if !unsafe { (*g).is_extern }
+                        && let Some(value) = unsafe { &(*g).value }
                     {
-                        self.ctx.emit_error(unsafe { (*g).span }, "Extern statics must be initialized with `undef`, e.g., `static X = i32.{undef};`");
+                        let mut evaluator = ConstEvaluator::new(self.ctx);
+                        let _ = evaluator.eval_inner(value, 0);
                     }
                 } else {
                     // Inference failed; roll back and retry on the next pass.
@@ -311,8 +327,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
                     let old_err_cnt = self.ctx.sess.error_count;
                     self.ctx.scopes.set_current_scope(scope_id);
-                    let mut checker = ExprChecker::new(self.ctx, None);
-                    checker.check_expr(unsafe { &(*g).value }, None); // Let the real diagnostics reach the user.
+                    if let Some(value) = unsafe { &(*g).value } {
+                        let mut checker = ExprChecker::new(self.ctx, None);
+                        checker.check_expr(value, None); // Let the real diagnostics reach the user.
+                    }
 
                     if self.ctx.sess.error_count > old_err_cnt {
                         continue;
@@ -386,16 +404,11 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         continue;
                     }
 
-                    if !unsafe { (*global).is_extern } {
-                        if let ast::ExprKind::Undef = unsafe { &(*global).value.kind } {
-                            self.ctx.emit_error(unsafe { (*global).span }, "Global variables cannot be initialized with bare `undef`. Must provide a typed constant value (e.g., `.{undef}`).");
-                        } else {
-                            let mut evaluator = ConstEvaluator::new(self.ctx);
-                            let _ = evaluator.eval_inner(unsafe { &(*global).value }, 0);
-                        }
-                    } else if !matches!(unsafe { &(*global).value.kind }, ast::ExprKind::DataInit { literal: ast::DataLiteralKind::Scalar(inner), .. } if matches!(inner.kind, ast::ExprKind::Undef))
+                    if !unsafe { (*global).is_extern }
+                        && let Some(value) = unsafe { &(*global).value }
                     {
-                        self.ctx.emit_error(unsafe { (*global).span }, "Extern statics must be initialized with `undef`, e.g., `static X = i32.{undef};`");
+                        let mut evaluator = ConstEvaluator::new(self.ctx);
+                        let _ = evaluator.eval_inner(value, 0);
                     }
                 } else {
                     self.ctx.sess.error_count = old_err_cnt;
@@ -452,12 +465,33 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
     fn check_global_initializer(&mut self, scope_id: ScopeId, global: &GlobalDef) -> TypeId {
         self.ctx.scopes.set_current_scope(scope_id);
+        let annotated_ty = if let Some(type_node) = &global.type_node {
+            let mut resolver = TypeResolver::new(self.ctx);
+            Some(resolver.resolve_type(type_node, scope_id))
+        } else {
+            None
+        };
+        let Some(value) = &global.value else {
+            return if global.is_extern {
+                annotated_ty.unwrap_or(TypeId::ERROR)
+            } else {
+                self.ctx.emit_error(
+                    global.span,
+                    "static declarations without an initializer must be `extern`",
+                );
+                TypeId::ERROR
+            };
+        };
         let mut checker = ExprChecker::new(self.ctx, None);
-        checker.reject_temporary_address_escape(&global.value, "static storage");
+        checker.reject_temporary_address_escape(value, "static storage");
         let init_ty = {
-            let init_ty = checker.check_expr(&global.value, None);
+            let init_ty = checker.check_expr(value, annotated_ty);
             checker.finalize_numeric_inference(init_ty)
         };
+        if let Some(expected) = annotated_ty {
+            checker.check_coercion(value, expected, init_ty);
+            return expected;
+        }
         self.ctx.scopes.set_current_scope(scope_id);
         init_ty
     }

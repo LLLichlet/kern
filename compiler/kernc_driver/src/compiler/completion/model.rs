@@ -108,7 +108,9 @@ impl CompletionModel {
                 true
             }
             ast::DeclKind::Var { value, .. } => {
-                self.collect_in_expr(value, visible, offset);
+                if let Some(value) = value {
+                    self.collect_in_expr(value, visible, offset);
+                }
                 true
             }
             ast::DeclKind::ExternBlock { decls, .. } | ast::DeclKind::Impl { decls, .. } => {
@@ -168,6 +170,7 @@ impl CompletionModel {
                 pattern: _,
                 init,
                 else_clause,
+                ..
             } => {
                 if self.collect_in_expr(init, visible, offset) {
                     return true;
@@ -205,7 +208,9 @@ impl CompletionModel {
                 }
                 true
             }
-            ast::ExprKind::Static { init, .. } => self.collect_in_expr(init, visible, offset),
+            ast::ExprKind::Static { init, .. } => init
+                .as_ref()
+                .is_some_and(|init| self.collect_in_expr(init, visible, offset)),
             ast::ExprKind::Binary { lhs, rhs, .. } => {
                 self.collect_in_expr(lhs, visible, offset)
                     || self.collect_in_expr(rhs, visible, offset)

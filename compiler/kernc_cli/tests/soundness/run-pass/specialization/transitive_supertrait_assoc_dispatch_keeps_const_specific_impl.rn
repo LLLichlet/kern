@@ -35,7 +35,7 @@ fn expect_i64(value: i64) i32 {
 
 fn main() i32 {
     let x = X.{};
-    let leaf = &Leaf[4].{ x.& };
-    let base = &Base[4, Out = i64].{ leaf };
+    let leaf = (x.& as &Leaf[4]);
+    let base = (leaf as &Base[4, Out = i64]);
     return expect_i64(base.make());
 }

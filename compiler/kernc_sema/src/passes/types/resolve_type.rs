@@ -2,12 +2,6 @@ use super::*;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     pub fn resolve_type(&mut self, ty_node: &ast::TypeNode, env_scope: ScopeId) -> TypeId {
-        if let Some(cached_ty) = self.ctx.node_type(ty_node.id)
-            && cached_ty != TypeId::ERROR
-        {
-            return cached_ty;
-        }
-
         let ty_id = match &ty_node.kind {
             ast::TypeKind::Error => TypeId::ERROR,
             ast::TypeKind::Path { anchor, segments } => {

@@ -63,6 +63,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let target_ty = self.substitute_type_with_map(raw_target_ty, subst_map);
         let l = self.lower_expr(lhs, subst_map, None);
 
+        if let Some(packed) = self.lower_explicit_fat_pointer_cast(l.clone(), target_ty, span) {
+            return packed;
+        }
+
         let cast_kind = self.determine_cast_kind(l.ty, target_ty);
 
         MastExpr::new(
@@ -73,6 +77,32 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             },
             span,
         )
+    }
+
+    fn lower_explicit_fat_pointer_cast(
+        &mut self,
+        source: MastExpr,
+        target_ty: TypeId,
+        span: Span,
+    ) -> Option<MastExpr> {
+        let target_norm = self.ctx.type_registry.normalize(target_ty);
+        let target_elem = match self.ctx.type_registry.get(target_norm).clone() {
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => elem,
+            _ => return None,
+        };
+        let target_elem_norm = self.ctx.type_registry.normalize(target_elem);
+
+        match self.ctx.type_registry.get(target_elem_norm).clone() {
+            TypeKind::TraitObject(..) => Some(MastExpr::new(
+                target_ty,
+                self.lower_trait_object_init_from_mast(source, target_ty, target_elem_norm, span),
+                span,
+            )),
+            TypeKind::ClosureInterface { .. } => {
+                Some(self.lower_closure_object_cast_from_pointer(source, target_ty, span))
+            }
+            _ => None,
+        }
     }
 
     pub(crate) fn apply_implicit_cast(

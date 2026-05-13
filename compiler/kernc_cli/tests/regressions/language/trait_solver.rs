@@ -1096,7 +1096,7 @@ impl &X: Factory[4] {
 
 fn main() i32 {
     let x = X.{};
-    let _ = &Factory[4, Out = i32].{ x.& };
+    let _ = (x.& as &Factory[4, Out = i32]);
     return 0;
 }
 "#,
@@ -1138,7 +1138,7 @@ fn requires_marker[T](value: T) void where T: Marker {
 }
 
 fn main() i32 {
-    requires_marker(i32.{123});
+    requires_marker(123i32);
     return 0;
 }
 "#,
@@ -1550,7 +1550,7 @@ fn requires_marker[T](value: T) void where T: Marker {
 }
 
 fn main() i32 {
-    requires_marker(i32.{123});
+    requires_marker(123i32);
     return 0;
 }
 "#,
@@ -1835,7 +1835,7 @@ fn requires_marker[T](value: T) i32 where T: Marker {
 }
 
 fn main() i32 {
-    return requires_marker(i32.{123});
+    return requires_marker(123i32);
 }
 "#,
     );

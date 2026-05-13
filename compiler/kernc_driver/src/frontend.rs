@@ -528,7 +528,16 @@ impl CachedAstRebinder<'_> {
                     self.rebind_expr(body);
                 }
             }
-            ast::DeclKind::Var { value, .. } => self.rebind_expr(value),
+            ast::DeclKind::Var {
+                type_node, value, ..
+            } => {
+                if let Some(type_node) = type_node {
+                    self.rebind_type_node(type_node);
+                }
+                if let Some(value) = value {
+                    self.rebind_expr(value);
+                }
+            }
             ast::DeclKind::TypeAlias {
                 generics,
                 where_clauses,
@@ -738,10 +747,15 @@ impl CachedAstRebinder<'_> {
         match &mut expr.kind {
             ast::ExprKind::Let {
                 pattern,
+                type_node,
                 init,
                 else_clause,
+                ..
             } => {
                 self.rebind_let_pattern(pattern);
+                if let Some(type_node) = type_node {
+                    self.rebind_type_node(type_node);
+                }
                 self.rebind_expr(init);
                 if let Some(else_clause) = else_clause {
                     match else_clause {
@@ -756,13 +770,23 @@ impl CachedAstRebinder<'_> {
                     }
                 }
             }
-            ast::ExprKind::Static { pattern, init } => {
+            ast::ExprKind::Static {
+                pattern,
+                type_node,
+                init,
+                ..
+            } => {
                 self.rebind_binding_pattern(pattern);
-                self.rebind_expr(init);
+                if let Some(type_node) = type_node {
+                    self.rebind_type_node(type_node);
+                }
+                if let Some(init) = init {
+                    self.rebind_expr(init);
+                }
             }
             ast::ExprKind::Error
-            | ast::ExprKind::Integer(..)
-            | ast::ExprKind::Float(..)
+            | ast::ExprKind::Integer { .. }
+            | ast::ExprKind::Float { .. }
             | ast::ExprKind::Bool(..)
             | ast::ExprKind::Char(..)
             | ast::ExprKind::ByteChar(..)
@@ -1440,8 +1464,14 @@ mod tests {
             ast::ExprKind::Identifier(symbol) => visit(*symbol),
             ast::ExprKind::AnchoredPath { name, .. } => visit(*name),
             ast::ExprKind::Let {
-                init, else_clause, ..
+                type_node,
+                init,
+                else_clause,
+                ..
             } => {
+                if let Some(type_node) = type_node {
+                    collect_type_identifier_symbols(type_node, visit);
+                }
                 collect_identifier_symbols(init, visit);
                 if let Some(else_clause) = else_clause {
                     match else_clause {
@@ -1456,7 +1486,16 @@ mod tests {
                     }
                 }
             }
-            ast::ExprKind::Static { init, .. } => collect_identifier_symbols(init, visit),
+            ast::ExprKind::Static {
+                type_node, init, ..
+            } => {
+                if let Some(type_node) = type_node {
+                    collect_type_identifier_symbols(type_node, visit);
+                }
+                if let Some(init) = init {
+                    collect_identifier_symbols(init, visit);
+                }
+            }
             ast::ExprKind::Binary { lhs, rhs, .. } | ast::ExprKind::Assign { lhs, rhs, .. } => {
                 collect_identifier_symbols(lhs, visit);
                 collect_identifier_symbols(rhs, visit);
@@ -1565,8 +1604,8 @@ mod tests {
             }
             ast::ExprKind::Error
             | ast::ExprKind::EnumLiteral { .. }
-            | ast::ExprKind::Integer(..)
-            | ast::ExprKind::Float(..)
+            | ast::ExprKind::Integer { .. }
+            | ast::ExprKind::Float { .. }
             | ast::ExprKind::Bool(..)
             | ast::ExprKind::Char(..)
             | ast::ExprKind::ByteChar(..)

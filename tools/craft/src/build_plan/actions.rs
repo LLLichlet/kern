@@ -2,6 +2,7 @@ use super::{
     ActionPlan, ArtifactKind, BuildPlan, BuildUnit, CompileAction, CompileSourceInput, LinkAction,
     SourceRootBinding, StagedAction, artifact_path, artifact_root_path, generated_root_path,
     metadata_path, object_path, resolve_compile_source_input, resolve_staged_action,
+    test_metadata_path,
 };
 use crate::graph::{BuildDomain, PackageId};
 use crate::plan::TargetKind;
@@ -252,6 +253,15 @@ impl BuildPlan {
                             unit.domain,
                             &unit.package_id,
                             &unit.profile.name,
+                        )
+                    }),
+                    test_metadata_path: (unit.target_kind == TargetKind::Test).then(|| {
+                        test_metadata_path(
+                            &self.workspace_root,
+                            unit.domain,
+                            &unit.package_id,
+                            &unit.profile.name,
+                            &unit.artifact_name,
                         )
                     }),
                     object_path: object_path(

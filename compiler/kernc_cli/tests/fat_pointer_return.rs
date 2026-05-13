@@ -27,10 +27,10 @@ fn make_ref(alloc: &mut Allocator, value: &mut i32) Ref!i32 {
 fn main() i32 {
 
     let mut page = Page.{}..&;
-    let mut arena = arena().on(&mut Allocator.{ page });
-    let mut value = i32.{42};
+    let mut arena = arena().on((page as &mut Allocator));
+    let mut value = 42i32;
 
-    let r = match (make_ref(&mut Allocator.{ arena..& }, value..&)) {
+    let r = match (make_ref((arena..& as &mut Allocator), value..&)) {
         .{ Ok: r } => r,
         .{ Err: _ } => return 1,
     };
@@ -68,10 +68,10 @@ fn make_ref(alloc: &mut Allocator, value: &mut i32) ?Ref {
 fn main() i32 {
 
     let mut page = Page.{}..&;
-    let mut arena = arena().on(&mut Allocator.{ page });
-    let mut value = i32.{42};
+    let mut arena = arena().on((page as &mut Allocator));
+    let mut value = 42i32;
 
-    let r = match (make_ref(&mut Allocator.{ arena..& }, value..&)) {
+    let r = match (make_ref((arena..& as &mut Allocator), value..&)) {
         .{ Some: r } => r,
         .None => return 1,
     };
@@ -103,7 +103,7 @@ struct Ref {
 };
 
 struct Holder {
-    slot: &mut i32 = usize.{1} as &mut i32,
+    slot: &mut i32 = 1usize as &mut i32,
 };
 
 impl &mut Holder {
@@ -116,11 +116,11 @@ impl &mut Holder {
 fn main() i32 {
 
     let mut page = Page.{}..&;
-    let mut arena = arena().on(&mut Allocator.{ page });
-    let mut value = i32.{42};
+    let mut arena = arena().on((page as &mut Allocator));
+    let mut value = 42i32;
     let mut holder = Holder.{};
 
-    let r = match (holder..&.ensure_ref(&mut Allocator.{ arena..& }, value..&)) {
+    let r = match (holder..&.ensure_ref((arena..& as &mut Allocator), value..&)) {
         .{ Ok: r } => r,
         .{ Err: _ } => return 1,
     };

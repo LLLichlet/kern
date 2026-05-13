@@ -283,108 +283,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         span: Span,
     ) -> MastExprKind {
         let norm = self.ctx.type_registry.get(concrete_ty).clone();
-
-        if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } = norm {
-            let inner_norm = self.ctx.type_registry.normalize(elem);
-            if matches!(
-                self.ctx.type_registry.get(inner_norm),
-                TypeKind::TraitObject(..)
-            ) {
-                let raw_expr_opt = match literal {
-                    ast::DataLiteralKind::Scalar(inner) => Some(inner.as_ref()),
-                    ast::DataLiteralKind::Struct(fields) if fields.len() == 1 => {
-                        Some(&fields[0].value)
-                    }
-                    _ => None,
-                };
-
-                if let Some(raw_expr) = raw_expr_opt {
-                    return self.lower_trait_object_init(
-                        raw_expr,
-                        subst_map,
-                        concrete_ty,
-                        inner_norm,
-                        span,
-                    );
-                }
-            }
-            if matches!(
-                self.ctx.type_registry.get(inner_norm),
-                TypeKind::ClosureInterface { .. }
-            ) {
-                let raw_expr_opt = match literal {
-                    ast::DataLiteralKind::Scalar(inner) => Some(inner.as_ref()),
-                    ast::DataLiteralKind::Struct(fields) if fields.len() == 1 => {
-                        Some(&fields[0].value)
-                    }
-                    _ => None,
-                };
-
-                // Only lower through this path after successful extraction.
-                if let Some(raw_expr) = raw_expr_opt {
-                    let raw_mast = self.lower_expr(raw_expr, subst_map, None);
-
-                    // Recover the underlying `AnonymousState` and its `NodeId` from the raw MAST type.
-                    let raw_norm = self.ctx.type_registry.normalize(raw_mast.ty);
-                    if let TypeKind::Pointer { elem: raw_elem, .. }
-                    | TypeKind::VolatilePtr { elem: raw_elem, .. } =
-                        self.ctx.type_registry.get(raw_norm).clone()
-                    {
-                        let raw_inner_norm = self.ctx.type_registry.normalize(raw_elem);
-
-                        if let TypeKind::AnonymousState {
-                            closure_node_id, ..
-                        } = self.ctx.type_registry.get(raw_inner_norm)
-                        {
-                            // Look up the corresponding function `MonoId`.
-                            let func_mono_id = self.get_closure_func_mono_id(*closure_node_id);
-
-                            // Assemble the fat pointer payload.
-                            let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
-                                is_mut: false,
-                                elem: TypeId::VOID,
-                            });
-
-                            let data_ptr_cast = MastExpr::new(
-                                void_ptr_ty,
-                                MastExprKind::Cast {
-                                    kind: MastCastKind::Bitcast,
-                                    operand: Box::new(raw_mast),
-                                },
-                                span,
-                            );
-
-                            let func_ref = MastExpr::new(
-                                TypeId::VOID,
-                                MastExprKind::FuncRef(func_mono_id),
-                                span,
-                            );
-                            let code_ptr_cast = MastExpr::new(
-                                TypeId::USIZE,
-                                MastExprKind::Cast {
-                                    kind: MastCastKind::PtrToInt,
-                                    operand: Box::new(func_ref),
-                                },
-                                span,
-                            );
-
-                            return MastExprKind::ConstructFatPointer {
-                                data_ptr: Box::new(data_ptr_cast),
-                                meta: Box::new(code_ptr_cast),
-                            };
-                        }
-                    }
-                }
-
-                // If extraction fails, rethrow the original error.
-                self.ctx.struct_error(span, "invalid closure fat pointer construction")
-                .with_hint("expected syntax: `*mut Fn(...).{ raw_pointer }`")
-                .with_hint("the raw pointer must explicitly be a pointer to the closure's anonymous state")
-                .emit();
-                return MastExprKind::Undef;
-            }
-        }
-
         match literal {
             ast::DataLiteralKind::Struct(fields) => {
                 if self.data_literal_target_is_structural(concrete_ty) {
@@ -897,7 +795,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         inner: &Expr,
         subst_map: &HashMap<SymbolId, GenericArg>,
         concrete_ty: TypeId,
-        span: Span,
+        _span: Span,
     ) -> MastExprKind {
         let norm = self.ctx.type_registry.get(concrete_ty).clone();
 
@@ -906,21 +804,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 self.lower_data_scalar_init(inner, def_id, &gen_args)
             }
             TypeKind::AnonymousEnum(..) => self.lower_anon_enum_scalar_init(inner, concrete_ty),
-            // Intercept fat-pointer decay.
-            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
-                let elem_norm = self.ctx.type_registry.normalize(elem);
-                if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(elem_norm) {
-                    return self.lower_trait_object_init(
-                        inner,
-                        subst_map,
-                        concrete_ty,
-                        elem_norm,
-                        span,
-                    );
-                }
-                // Non-trait targets behave like ordinary scalar values.
-                self.lower_expr(inner, subst_map, Some(concrete_ty)).kind
-            }
             _ => self.lower_expr(inner, subst_map, Some(concrete_ty)).kind,
         }
     }
@@ -1008,15 +891,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     /// Helper: build a trait-object fat pointer.
-    pub(crate) fn lower_trait_object_init(
+    pub(crate) fn lower_trait_object_init_from_mast(
         &mut self,
-        inner: &Expr,
-        subst_map: &HashMap<SymbolId, GenericArg>,
+        l: MastExpr,
         target_ptr_ty: TypeId,
         trait_norm: TypeId,
         span: Span,
     ) -> MastExprKind {
-        let l = self.lower_expr(inner, subst_map, None);
         let l_norm = self.ctx.type_registry.normalize(l.ty);
         let l_is_fat_pointer_value = match self.ctx.type_registry.get(l_norm).clone() {
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => matches!(
@@ -1127,6 +1008,67 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             data_ptr: Box::new(data_ptr_expr),
             meta: Box::new(meta_expr),
         }
+    }
+
+    pub(crate) fn lower_closure_object_cast_from_pointer(
+        &mut self,
+        raw_mast: MastExpr,
+        target_ptr_ty: TypeId,
+        span: Span,
+    ) -> MastExpr {
+        let raw_norm = self.ctx.type_registry.normalize(raw_mast.ty);
+        let raw_elem = match self.ctx.type_registry.get(raw_norm).clone() {
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => elem,
+            _ => {
+                self.ctx
+                    .struct_error(span, "closure object cast requires a pointer source")
+                    .emit();
+                return MastExpr::new(target_ptr_ty, MastExprKind::Trap, span);
+            }
+        };
+
+        let raw_inner_norm = self.ctx.type_registry.normalize(raw_elem);
+        let TypeKind::AnonymousState {
+            closure_node_id, ..
+        } = self.ctx.type_registry.get(raw_inner_norm)
+        else {
+            self.ctx
+                .struct_error(span, "closure object cast requires a closure-state pointer")
+                .emit();
+            return MastExpr::new(target_ptr_ty, MastExprKind::Trap, span);
+        };
+
+        let func_mono_id = self.get_closure_func_mono_id(*closure_node_id);
+        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::VOID,
+        });
+        let data_ptr_cast = MastExpr::new(
+            void_ptr_ty,
+            MastExprKind::Cast {
+                kind: MastCastKind::Bitcast,
+                operand: Box::new(raw_mast),
+            },
+            span,
+        );
+        let func_ref = MastExpr::new(TypeId::VOID, MastExprKind::FuncRef(func_mono_id), span);
+        let code_ptr_cast = MastExpr::new(
+            TypeId::USIZE,
+            MastExprKind::Cast {
+                kind: MastCastKind::PtrToInt,
+                operand: Box::new(func_ref),
+            },
+            span,
+        );
+
+        MastExpr::new(
+            target_ptr_ty,
+            MastExprKind::ConstructFatPointer {
+                data_ptr: Box::new(data_ptr_cast),
+                meta: Box::new(code_ptr_cast),
+            },
+            span,
+        )
     }
 
     pub(crate) fn lower_enum_literal(

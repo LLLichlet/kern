@@ -210,7 +210,7 @@ fn document_symbols_use_collected_outline_names_for_impl_blocks() {
 #[test]
 fn goto_definition_resolves_local_identifier_references() {
     let mut analysis = AnalysisEngine::default();
-    let source = "fn helper() i32 {\n    let value = i32.{1};\n    return value;\n}\n";
+    let source = "fn helper() i32 {\n    let value = 1i32;\n    return value;\n}\n";
     let uri = temp_file_uri("goto_definition_local", source);
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
@@ -272,7 +272,7 @@ fn goto_definition_resolves_impl_method_references() {
         "    fn get() i32 { return self.value; }\n",
         "}\n",
         "fn main() i32 {\n",
-        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let counter = Counter.{ value: 1i32 };\n",
         "    return counter.get();\n",
         "}\n",
     );
@@ -302,7 +302,7 @@ fn goto_definition_resolves_struct_field_references() {
     let source = concat!(
         "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
-        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let counter = Counter.{ value: 1i32 };\n",
         "    return counter.value;\n",
         "}\n",
     );
@@ -335,7 +335,7 @@ fn goto_definition_resolves_enum_variant_references() {
     let source = concat!(
         "enum Result { Ok: i32, Err }\n",
         "fn main() i32 {\n",
-        "    let value = Result.{ Ok: i32.{1} };\n",
+        "    let value = Result.{ Ok: 1i32 };\n",
         "    return 0;\n",
         "}\n",
     );
@@ -703,7 +703,7 @@ fn hover_resolves_impl_method_signature_from_reference() {
         "    fn get() i32 { return self.value; }\n",
         "}\n",
         "fn main() i32 {\n",
-        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let counter = Counter.{ value: 1i32 };\n",
         "    return counter.get();\n",
         "}\n",
     );
@@ -739,7 +739,7 @@ fn hover_renders_doc_comments_for_impl_method_reference() {
         "    fn get() i32 { return self.value; }\n",
         "}\n",
         "fn main() i32 {\n",
-        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let counter = Counter.{ value: 1i32 };\n",
         "    return counter.get();\n",
         "}\n",
     );
@@ -781,7 +781,7 @@ fn hover_resolves_struct_field_from_reference() {
     let source = concat!(
         "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
-        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let counter = Counter.{ value: 1i32 };\n",
         "    return counter.value;\n",
         "}\n",
     );
@@ -810,7 +810,7 @@ fn hover_resolves_struct_field_from_literal_initializer() {
     let source = concat!(
         "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
-        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let counter = Counter.{ value: 1i32 };\n",
         "    return counter.value;\n",
         "}\n",
     );
@@ -877,7 +877,7 @@ fn definition_resolves_struct_field_from_literal_initializer() {
     let source = concat!(
         "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
-        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let counter = Counter.{ value: 1i32 };\n",
         "    return counter.value;\n",
         "}\n",
     );
@@ -970,7 +970,7 @@ fn hover_resolves_enum_variant_from_reference() {
     let source = concat!(
         "enum Result { Ok: i32, Err }\n",
         "fn main() i32 {\n",
-        "    let value = Result.{ Ok: i32.{1} };\n",
+        "    let value = Result.{ Ok: 1i32 };\n",
         "    let _ = value;\n",
         "    return 0;\n",
         "}\n",
@@ -1032,7 +1032,7 @@ fn hover_resolves_typed_match_variant_path_from_reference() {
     let source = concat!(
         "enum Result { Ok: i32, Err }\n",
         "fn main() i32 {\n",
-        "    let value = Result.{ Ok: i32.{1} };\n",
+        "    let value = Result.{ Ok: 1i32 };\n",
         "    return match (value) {\n",
         "        Result.{ Ok: payload } => payload,\n",
         "        .Err => 0,\n",
@@ -1066,7 +1066,7 @@ fn signature_help_resolves_function_parameters_and_active_argument() {
         "    return first + second;\n",
         "}\n",
         "fn main() i32 {\n",
-        "    let value = i32.{2};\n",
+        "    let value = 2i32;\n",
         "    return helper(1, value);\n",
         "}\n",
     );
@@ -1200,7 +1200,7 @@ fn semantic_position_queries_skip_comments_and_literals() {
 #[test]
 fn hover_resolves_local_definition_without_references() {
     let mut analysis = AnalysisEngine::default();
-    let source = "fn main() i32 {\n    let value = i32.{1};\n    return 0;\n}\n";
+    let source = "fn main() i32 {\n    let value = 1i32;\n    return 0;\n}\n";
     let uri = temp_file_uri("hover_local_definition", source);
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
@@ -1369,7 +1369,7 @@ fn hover_on_destructure_pun_prefers_local_binding() {
     let source = concat!(
         "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
-        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let counter = Counter.{ value: 1i32 };\n",
         "    let Counter.{ value } = counter;\n",
         "    return value;\n",
         "}\n",
@@ -1461,7 +1461,7 @@ fn goto_definition_on_destructure_pun_definition_prefers_local_binding() {
     let source = concat!(
         "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
-        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let counter = Counter.{ value: 1i32 };\n",
         "    let Counter.{ value } = counter;\n",
         "    return value;\n",
         "}\n",
@@ -1495,7 +1495,7 @@ fn references_from_destructure_pun_definition_follow_local_binding() {
     let source = concat!(
         "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
-        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let counter = Counter.{ value: 1i32 };\n",
         "    let Counter.{ value } = counter;\n",
         "    return value;\n",
         "}\n",
@@ -1532,7 +1532,7 @@ fn document_highlights_on_destructure_pun_definition_follow_local_binding() {
     let source = concat!(
         "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
-        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let counter = Counter.{ value: 1i32 };\n",
         "    let Counter.{ value } = counter;\n",
         "    return value;\n",
         "}\n",
@@ -1633,8 +1633,8 @@ fn goto_definition_resolves_trait_object_method_references_to_trait_method() {
         "trait Base { fn foo() i32; }\n",
         "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
         "fn main() i32 {\n",
-        "    let value = i32.{3};\n",
-        "    let base = &Base.{ value.& };\n",
+        "    let value = 3i32;\n",
+        "    let base = (value.& as &Base);\n",
         "    return base.foo();\n",
         "}\n",
     );
@@ -1665,8 +1665,8 @@ fn hover_resolves_trait_object_method_references_to_trait_method() {
         "trait Base { fn foo() i32; }\n",
         "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
         "fn main() i32 {\n",
-        "    let value = i32.{3};\n",
-        "    let base = &Base.{ value.& };\n",
+        "    let value = 3i32;\n",
+        "    let base = (value.& as &Base);\n",
         "    return base.foo();\n",
         "}\n",
     );
@@ -1696,8 +1696,8 @@ fn references_for_trait_method_include_impl_definition_and_call_sites() {
         "trait Base { fn foo() i32; }\n",
         "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
         "fn main() i32 {\n",
-        "    let value = i32.{3};\n",
-        "    let base = &Base.{ value.& };\n",
+        "    let value = 3i32;\n",
+        "    let base = (value.& as &Base);\n",
         "    return base.foo();\n",
         "}\n",
     );
@@ -1738,8 +1738,8 @@ fn document_highlights_for_trait_impl_method_include_trait_and_call_sites() {
         "trait Base { fn foo() i32; }\n",
         "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
         "fn main() i32 {\n",
-        "    let value = i32.{3};\n",
-        "    let base = &Base.{ value.& };\n",
+        "    let value = 3i32;\n",
+        "    let base = (value.& as &Base);\n",
         "    return base.foo();\n",
         "}\n",
     );
@@ -1836,7 +1836,7 @@ fn rename_updates_definition_and_references() {
 #[test]
 fn rename_updates_local_binding_definition_and_references() {
     let mut analysis = AnalysisEngine::default();
-    let source = "fn main() i32 {\n    let value = i32.{1};\n    return value + value;\n}\n";
+    let source = "fn main() i32 {\n    let value = 1i32;\n    return value + value;\n}\n";
     let uri = temp_file_uri("rename_local_binding", source);
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
@@ -1866,7 +1866,7 @@ fn rename_destructure_pun_expands_pattern_and_updates_uses() {
     let source = concat!(
         "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
-        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let counter = Counter.{ value: 1i32 };\n",
         "    let Counter.{ value } = counter;\n",
         "    return value;\n",
         "}\n",
@@ -1901,8 +1901,8 @@ fn rename_trait_method_reference_updates_trait_impl_and_call_sites() {
         "trait Base { fn foo() i32; }\n",
         "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
         "fn main() i32 {\n",
-        "    let value = i32.{3};\n",
-        "    let base = &Base.{ value.& };\n",
+        "    let value = 3i32;\n",
+        "    let base = (value.& as &Base);\n",
         "    return base.foo();\n",
         "}\n",
     );
@@ -1936,8 +1936,8 @@ fn rename_trait_impl_method_updates_trait_and_call_sites() {
         "trait Base { fn foo() i32; }\n",
         "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
         "fn main() i32 {\n",
-        "    let value = i32.{3};\n",
-        "    let base = &Base.{ value.& };\n",
+        "    let value = 3i32;\n",
+        "    let base = (value.& as &Base);\n",
         "    return base.foo();\n",
         "}\n",
     );

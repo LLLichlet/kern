@@ -42,7 +42,7 @@ Closure syntax is:
 Capture names are explicit:
 
 ```kern
-let base = i32.{100};
+let base = 100i32;
 
 let add_base = [base](value: i32) i32 {
     return base + value;
@@ -52,7 +52,7 @@ let add_base = [base](value: i32) i32 {
 To capture a pointer, name that binding in the capture list:
 
 ```kern
-let mut counter = i32.{0};
+let mut counter = 0i32;
 
 let bump = [ptr = counter..&]() void {
     ptr.* += 1;
@@ -67,7 +67,7 @@ capture sub-language. It can be address-of, field access, a function call, or
 even a block expression:
 
 ```kern
-let mut counter = i32.{0};
+let mut counter = 0i32;
 
 let bump = [ptr = {
     let p = counter..&;
@@ -90,7 +90,7 @@ fn process_with_context(cb: &Fn(i32) i32, value: i32) i32 {
     return cb(value);
 }
 
-let base = i32.{100};
+let base = 100i32;
 let result = process_with_context([base](value: i32) i32 {
     return base + value;
 }, 23);
@@ -105,7 +105,7 @@ fn repeat_twice(cb: &mut Fn() void) void {
     cb();
 }
 
-let mut counter = i32.{0};
+let mut counter = 0i32;
 repeat_twice([ptr = counter..&]() void {
     ptr.* += 1;
 });
@@ -119,8 +119,8 @@ naturally package stack closure state into a fat pointer at that boundary.
 Writing a closure expression produces a concrete anonymous state value:
 
 ```kern
-let left = i32.{10};
-let right = i32.{20};
+let left = 10i32;
+let right = 20i32;
 
 let closure = [left, right](x: i32) i32 {
     return (left + right) * x;
@@ -131,16 +131,16 @@ You cannot write this anonymous type's name directly, but you can query it with
 `@typeOf(closure)`. By default, it lives like an ordinary local value in the
 current scope.
 
-If no context performs natural conversion, construct a closure fat pointer
+If no context performs natural conversion, cast the closure-state pointer
 explicitly:
 
 ```kern
-let cb = &Fn(i32) i32.{ closure.& };
+let cb = closure.& as &Fn(i32) i32;
 let out = cb(2);
 ```
 
-The constructor receives a pointer to closure state. The fat pointer is not the
-state itself; it is the dynamic interface: state pointer plus call entry.
+The cast receives a pointer to closure state. The fat pointer is not the state
+itself; it is the dynamic interface: state pointer plus call entry.
 
 ## Escaping Closures Need Explicit Allocation
 
@@ -169,7 +169,7 @@ fn create_heap_closure(alloc: &mut Allocator, factor: i32) StoredClosure {
 
     raw.* = stack_closure;
     return .{
-        callback: &Fn(i32) i32.{ raw },
+        callback: raw as &Fn(i32) i32,
         layout,
     };
 }

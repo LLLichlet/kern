@@ -3,8 +3,8 @@
 // exit: 0
 
 mod left {
-    const SHARED = i32.{11};
-    static VALUE = i32.{31};
+    const SHARED = 11i32;
+    static VALUE = 31i32;
 
     pub fn read() i32 {
         return SHARED + VALUE;
@@ -12,8 +12,8 @@ mod left {
 }
 
 mod right {
-    const SHARED = i32.{7};
-    static VALUE = i32.{13};
+    const SHARED = 7i32;
+    static VALUE = 13i32;
 
     pub fn read() i32 {
         return SHARED + VALUE;

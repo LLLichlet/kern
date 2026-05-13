@@ -195,12 +195,12 @@ fn bytes_eq(lhs: &[u8], rhs: &[u8]) bool {
         return false;
     }
 
-    let mut i = usize.{0};
+    let mut i = 0usize;
     while (i < #lhs) {
         if (lhs.[i] != rhs.[i]) {
             return false;
         }
-        i += usize.{1};
+        i += 1usize;
     }
     return true;
 }
@@ -428,7 +428,7 @@ fn main(argc: i32, argv: &&u8) i32 {
     if (third != "beta gamma") {
         return 4;
     }
-    let mut seen = usize.{0};
+    let mut seen = 0usize;
     let mut saw_alpha = false;
     let mut saw_spaced = false;
     for (arg: args.iter()) {

@@ -288,7 +288,16 @@ fn normalize_decl_for_reuse_comparison(decl: &mut ast::Decl) {
                 normalize_expr_for_body_only_comparison(body);
             }
         }
-        ast::DeclKind::Var { value, .. } => normalize_expr_for_body_only_comparison(value),
+        ast::DeclKind::Var {
+            type_node, value, ..
+        } => {
+            if let Some(type_node) = type_node {
+                normalize_type_for_body_only_comparison(type_node);
+            }
+            if let Some(value) = value {
+                normalize_expr_for_body_only_comparison(value);
+            }
+        }
         ast::DeclKind::TypeAlias {
             generics,
             where_clauses,
@@ -579,8 +588,13 @@ fn normalize_decl_for_body_only_comparison(decl: &mut ast::Decl) {
             normalize_type_for_body_only_comparison(ret_type);
             *body = None;
         }
-        ast::DeclKind::Var { value, .. } => {
-            *value = placeholder_expr();
+        ast::DeclKind::Var {
+            type_node, value, ..
+        } => {
+            if let Some(type_node) = type_node {
+                normalize_type_for_body_only_comparison(type_node);
+            }
+            *value = value.as_ref().map(|_| placeholder_expr());
         }
         ast::DeclKind::TypeAlias {
             generics,
@@ -902,10 +916,15 @@ fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {
     match &mut expr.kind {
         ast::ExprKind::Let {
             pattern,
+            type_node,
             init,
             else_clause,
+            ..
         } => {
             normalize_let_pattern_for_body_only_comparison(pattern);
+            if let Some(type_node) = type_node {
+                normalize_type_for_body_only_comparison(type_node);
+            }
             normalize_expr_for_body_only_comparison(init);
             if let Some(else_clause) = else_clause {
                 match else_clause {
@@ -922,13 +941,23 @@ fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {
                 }
             }
         }
-        ast::ExprKind::Static { pattern, init } => {
+        ast::ExprKind::Static {
+            pattern,
+            type_node,
+            init,
+            ..
+        } => {
             normalize_binding_pattern_for_body_only_comparison(pattern);
-            normalize_expr_for_body_only_comparison(init);
+            if let Some(type_node) = type_node {
+                normalize_type_for_body_only_comparison(type_node);
+            }
+            if let Some(init) = init {
+                normalize_expr_for_body_only_comparison(init);
+            }
         }
         ast::ExprKind::Error
-        | ast::ExprKind::Integer(_)
-        | ast::ExprKind::Float(_)
+        | ast::ExprKind::Integer { .. }
+        | ast::ExprKind::Float { .. }
         | ast::ExprKind::Bool(_)
         | ast::ExprKind::Char(_)
         | ast::ExprKind::ByteChar(_)

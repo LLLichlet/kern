@@ -354,7 +354,13 @@ fn run_check(
             "lib {}, bin {}, test {}, example {}, normalized {}",
             format_yes_no(loaded.manifest.lib.is_some()),
             loaded.manifest.bin.len(),
-            loaded.manifest.test.len(),
+            loaded
+                .elaboration
+                .packages
+                .iter()
+                .flat_map(|package| &package.plan.targets)
+                .filter(|target| target.kind == TargetKind::Test)
+                .count(),
             loaded.manifest.example.len(),
             loaded.elaboration.package_target_count()
         ),

@@ -21,6 +21,6 @@ impl &X: Boxed[i32] {
 
 fn main() i32 {
     let x = X.{};
-    let boxed = &Boxed[i32].{ x.& };
+    let boxed = (x.& as &Boxed[i32]);
     return boxed.value() - 7;
 }

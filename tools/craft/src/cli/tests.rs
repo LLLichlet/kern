@@ -236,7 +236,39 @@ fn assert_command_resyncs_missing_and_damaged_lockfile(
     let _ = fs::remove_dir_all(root);
 }
 
-fn arg_check_source(first: &str, second: &str) -> String {
+fn arg_check_source(first: &str, second: &str, test_mode: bool) -> String {
+    let test_attr = if test_mode { "#[test]\n" } else { "" };
+    format!(
+        r#"
+use std.proc;
+
+{test_attr}
+fn main(argc: i32, argv: &&u8) i32 {{
+    let args = proc.args(argc, argv);
+    if (args.len() != 2) {{
+        return 1;
+    }}
+    let first = match (args.get(0)) {{
+        .{{ Some: arg }} => arg,
+        .None => return 2,
+    }};
+    if (first != "{first}") {{
+        return 3;
+    }}
+    let second = match (args.get(1)) {{
+        .{{ Some: arg }} => arg,
+        .None => return 4,
+    }};
+    if (second != "{second}") {{
+        return 5;
+    }}
+    return 0;
+}}
+"#
+    )
+}
+
+fn bin_arg_check_source(first: &str, second: &str) -> String {
     format!(
         r#"
 use std.proc;
@@ -282,7 +314,11 @@ root = "src/main.rn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), arg_check_source(first, second)).unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        bin_arg_check_source(first, second),
+    )
+    .unwrap();
 }
 
 fn write_arg_check_test_package(root: &std::path::Path, first: &str, second: &str) {
@@ -300,7 +336,11 @@ roots = ["tests/smoke.rn"]
 "#,
     )
     .unwrap();
-    fs::write(root.join("tests/smoke.rn"), arg_check_source(first, second)).unwrap();
+    fs::write(
+        root.join("tests/smoke.rn"),
+        arg_check_source(first, second, true),
+    )
+    .unwrap();
 }
 
 fn write_multi_test_package(root: &std::path::Path) {
@@ -318,8 +358,16 @@ roots = ["tests/alpha.rn", "tests/beta.rn"]
 "#,
     )
     .unwrap();
-    fs::write(root.join("tests/alpha.rn"), "fn main() i32 { return 1; }\n").unwrap();
-    fs::write(root.join("tests/beta.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("tests/alpha.rn"),
+        "#[test]\nfn main() i32 { return 1; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("tests/beta.rn"),
+        "#[test]\nfn main() i32 { return 0; }\n",
+    )
+    .unwrap();
 }
 
 fn write_bin_and_test_package(root: &std::path::Path) {
@@ -343,7 +391,11 @@ roots = ["tests/smoke.rn"]
     )
     .unwrap();
     fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
-    fs::write(root.join("tests/smoke.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("tests/smoke.rn"),
+        "#[test]\nfn main() i32 { return 0; }\n",
+    )
+    .unwrap();
 }
 
 fn write_bin_and_example_package(root: &std::path::Path) {
@@ -421,7 +473,7 @@ roots = ["tests/smoke.rn"]
     .unwrap();
     fs::write(
         member.join("tests/smoke.rn"),
-        "fn main() i32 { return 0; }\n",
+        "#[test]\nfn main() i32 { return 0; }\n",
     )
     .unwrap();
     member.join("Craft.toml")

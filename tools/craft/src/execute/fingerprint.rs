@@ -49,6 +49,7 @@ pub(super) fn compile_action_fingerprint(
         format!("runtime_entry={}", options.runtime_entry.as_str()),
         format!("runtime_libc={}", options.runtime_libc),
         format!("library_bundle={}", options.library_bundle.as_str()),
+        format!("test_mode={}", options.test_mode),
         format!("split_sections_for_gc={}", options.split_sections_for_gc),
         format!(
             "emit_multi_linker_input_dir={}",
@@ -57,6 +58,9 @@ pub(super) fn compile_action_fingerprint(
     ];
     if let Some(metadata_output) = options.metadata_output.as_deref() {
         lines.push(format!("metadata={metadata_output}"));
+    }
+    if let Some(test_metadata_output) = options.test_metadata_output.as_deref() {
+        lines.push(format!("test_metadata={test_metadata_output}"));
     }
     lines.extend(map_fingerprint_lines("define", &options.custom_defines));
     lines.extend(map_fingerprint_lines(
@@ -133,6 +137,9 @@ pub(super) fn write_compile_action_state(
     }
     if let Some(metadata_path) = &action.metadata_path {
         outputs.push(metadata_path.clone());
+    }
+    if let Some(test_metadata_path) = &action.test_metadata_path {
+        outputs.push(test_metadata_path.clone());
     }
 
     build_state::record_action_state(&action.object_path, fingerprint, &inputs, &outputs)
@@ -279,6 +286,7 @@ mod tests {
             generated_root_path: PathBuf::from("build/gen/demo"),
             source_input: CompileSourceInput::AbsolutePath(PathBuf::from("src/lib.rn")),
             metadata_path: None,
+            test_metadata_path: None,
             object_path: PathBuf::from("build/demo.o"),
             artifact_path: PathBuf::from("build/libdemo.a"),
             profile: profile(),

@@ -171,6 +171,7 @@ impl<'a> FlowCfgBuilder<'a> {
                 pattern,
                 init,
                 else_clause,
+                ..
             } => {
                 let init_out = self.lower_expr(init, incoming, loop_ctx);
                 if let Some(else_clause) = else_clause {
@@ -226,7 +227,11 @@ impl<'a> FlowCfgBuilder<'a> {
                     self.fallthrough(node)
                 }
             }
-            ast::ExprKind::Static { pattern, init } => {
+            ast::ExprKind::Static {
+                pattern,
+                init: Some(init),
+                ..
+            } => {
                 let init_out = self.lower_expr(init, incoming, loop_ctx);
                 let node = self.lower_eval(expr, init_out);
                 if let Some(binding_id) =
@@ -242,6 +247,7 @@ impl<'a> FlowCfgBuilder<'a> {
                 }
                 self.fallthrough(node)
             }
+            ast::ExprKind::Static { init: None, .. } => incoming,
             ast::ExprKind::Binary { lhs, rhs, .. } => {
                 let lhs_out = self.lower_expr(lhs, incoming, loop_ctx);
                 let rhs_out = self.lower_expr(rhs, lhs_out, loop_ctx);
@@ -513,8 +519,8 @@ impl<'a> FlowCfgBuilder<'a> {
                 self.fallthrough(node)
             }
             ast::ExprKind::Error
-            | ast::ExprKind::Integer(_)
-            | ast::ExprKind::Float(_)
+            | ast::ExprKind::Integer { .. }
+            | ast::ExprKind::Float { .. }
             | ast::ExprKind::Bool(_)
             | ast::ExprKind::Char(_)
             | ast::ExprKind::ByteChar(_)
@@ -655,7 +661,9 @@ fn collect_local_binding_uses_in_expr(
                 }
             }
         }
-        ast::ExprKind::Static { init, .. } => {
+        ast::ExprKind::Static {
+            init: Some(init), ..
+        } => {
             collect_local_binding_uses_in_expr(init, reference_to_binding, uses);
         }
         ast::ExprKind::Grouped { expr: inner } => {
@@ -774,8 +782,8 @@ fn collect_local_binding_uses_in_expr(
             collect_local_binding_uses_in_expr(body, reference_to_binding, uses);
         }
         ast::ExprKind::Error
-        | ast::ExprKind::Integer(_)
-        | ast::ExprKind::Float(_)
+        | ast::ExprKind::Integer { .. }
+        | ast::ExprKind::Float { .. }
         | ast::ExprKind::Bool(_)
         | ast::ExprKind::Char(_)
         | ast::ExprKind::ByteChar(_)
@@ -785,6 +793,7 @@ fn collect_local_binding_uses_in_expr(
         | ast::ExprKind::SelfValue
         | ast::ExprKind::Undef
         | ast::ExprKind::Infer
+        | ast::ExprKind::Static { init: None, .. }
         | ast::ExprKind::Break
         | ast::ExprKind::Continue
         | ast::ExprKind::Identifier(_) => {}
@@ -811,8 +820,8 @@ fn classify_expr_effects(node_id: AnalysisFlowNodeId, expr: &ast::Expr) -> Analy
 fn accumulate_expr_effects(expr: &ast::Expr, effects: &mut AnalysisFlowNodeEffects) {
     match &expr.kind {
         ast::ExprKind::Error
-        | ast::ExprKind::Integer(_)
-        | ast::ExprKind::Float(_)
+        | ast::ExprKind::Integer { .. }
+        | ast::ExprKind::Float { .. }
         | ast::ExprKind::Bool(_)
         | ast::ExprKind::Char(_)
         | ast::ExprKind::ByteChar(_)
@@ -911,7 +920,9 @@ fn accumulate_expr_effects(expr: &ast::Expr, effects: &mut AnalysisFlowNodeEffec
                 }
             }
         }
-        ast::ExprKind::Static { init, .. } => {
+        ast::ExprKind::Static {
+            init: Some(init), ..
+        } => {
             effects.has_memory_write = true;
             accumulate_expr_effects(init, effects);
         }
@@ -966,6 +977,7 @@ fn accumulate_expr_effects(expr: &ast::Expr, effects: &mut AnalysisFlowNodeEffec
         ast::ExprKind::Break | ast::ExprKind::Continue => {
             effects.has_control_flow = true;
         }
+        ast::ExprKind::Static { init: None, .. } => {}
         ast::ExprKind::Assign { lhs, rhs, .. } => {
             effects.has_memory_write = true;
             accumulate_expr_effects(lhs, effects);

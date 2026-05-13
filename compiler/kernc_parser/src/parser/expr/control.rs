@@ -231,6 +231,7 @@ impl<'a> Parser<'a> {
                         }),
                     },
                 },
+                type_node: None,
                 init: Box::new(iter),
                 else_clause: None,
             },
@@ -287,6 +288,7 @@ impl<'a> Parser<'a> {
                     span: item_pattern.span,
                     pattern: item_pattern,
                 },
+                type_node: None,
                 init: Box::new(next_call),
                 else_clause: Some(LetElseClause::Expr(Box::new(Expr {
                     id: self.new_id(),
@@ -943,22 +945,6 @@ impl<'a> Parser<'a> {
         let tag = start_token.tag;
         let static_pattern = if tag == TokenType::Static {
             let pattern = self.parse_binding_pattern()?;
-
-            if self.match_token(&[TokenType::Colon]) {
-                let err_span = self.stream.prev_span();
-                let _ = self.parse_type();
-
-                self.session
-                    .struct_error(
-                        err_span,
-                        "type annotations on the left side of declarations are strictly forbidden in Kern",
-                    )
-                    .with_hint("Kern uses explicit constructor syntax on the right side")
-                    .with_hint("try rewriting this as: `let [mut] name = Type.{ ... };`")
-                    .emit();
-                self.panic_mode = true;
-            }
-
             Some(pattern)
         } else {
             None
@@ -967,6 +953,12 @@ impl<'a> Parser<'a> {
             None
         } else {
             Some(self.parse_let_pattern()?)
+        };
+
+        let type_node = if self.match_token(&[TokenType::Colon]) {
+            Some(Box::new(self.parse_type()?))
+        } else {
+            None
         };
 
         self.expect(TokenType::Assign)?;
@@ -990,7 +982,8 @@ impl<'a> Parser<'a> {
                 span,
                 kind: ExprKind::Static {
                     pattern: static_pattern.unwrap(),
-                    init: Box::new(init),
+                    type_node,
+                    init: Some(Box::new(init)),
                 },
             }),
             TokenType::Let | TokenType::Const => Ok(Expr {
@@ -998,6 +991,7 @@ impl<'a> Parser<'a> {
                 span,
                 kind: ExprKind::Let {
                     pattern: let_pattern.unwrap(),
+                    type_node,
                     init: Box::new(init),
                     else_clause,
                 },

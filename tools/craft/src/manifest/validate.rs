@@ -181,7 +181,20 @@ fn validate_named_targets(
 }
 
 fn validate_test_targets(path: &Path, targets: &[super::NamedTarget]) -> Result<()> {
-    validate_root_targets(path, "[test].roots", targets)
+    let mut names = BTreeSet::new();
+    for target in targets {
+        validate_non_empty(path, "[test].roots[]", &target.root)?;
+        if contains_glob_pattern(&target.root) {
+            continue;
+        }
+        if !names.insert(target.name.as_str()) {
+            return Err(Error::Validation {
+                path: path.to_path_buf(),
+                message: format!("duplicate file stem `{}` in [test].roots", target.name),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn validate_root_targets(path: &Path, section: &str, targets: &[super::NamedTarget]) -> Result<()> {
@@ -196,6 +209,10 @@ fn validate_root_targets(path: &Path, section: &str, targets: &[super::NamedTarg
         }
     }
     Ok(())
+}
+
+fn contains_glob_pattern(path: &str) -> bool {
+    path.contains('*') || path.contains('?') || path.contains('[')
 }
 
 fn validate_dependencies(

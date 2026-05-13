@@ -183,6 +183,11 @@ pub(super) fn compile_action_options(
             .metadata_path
             .as_ref()
             .map(|path| path.to_string_lossy().to_string()),
+        test_mode: action.target_kind == crate::plan::TargetKind::Test,
+        test_metadata_output: action
+            .test_metadata_path
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string()),
         metadata_package_name: Some(action.package_id.name.clone()),
         metadata_package_version: (action.target_kind == crate::plan::TargetKind::Lib)
             .then(|| action.package_id.version.clone()),
@@ -370,6 +375,7 @@ mod tests {
             generated_root_path: root.join("gen"),
             source_input: CompileSourceInput::AbsolutePath(source_path),
             metadata_path: Some(root.join("meta")),
+            test_metadata_path: None,
             object_path: root.join(format!("{package_name}.o")),
             artifact_path: root.join(format!("lib{package_name}.a")),
             profile: ScriptProfile {
@@ -477,6 +483,7 @@ mod tests {
             generated_root_path: root.join("gen"),
             source_input: CompileSourceInput::AbsolutePath(source_path.clone()),
             metadata_path: None,
+            test_metadata_path: None,
             object_path: root.join("demo.o"),
             artifact_path: root.join("demo"),
             profile: ScriptProfile {

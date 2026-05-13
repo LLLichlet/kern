@@ -111,7 +111,11 @@ impl FlowModel {
                         def_id: global.id,
                         definition_span,
                         owner_span: global.span,
-                        body_span: global.value.span,
+                        body_span: global
+                            .value
+                            .as_ref()
+                            .map(|value| value.span)
+                            .unwrap_or(global.span),
                         kind: if global.is_static {
                             AnalysisFlowOwnerKind::Static
                         } else {
@@ -332,9 +336,12 @@ impl FlowModel {
                     }
                 }
                 Def::Global(global) => {
+                    let Some(value) = global.value.as_ref() else {
+                        continue;
+                    };
                     let started = Instant::now();
                     let cfg_build = FlowCfgBuilder::build(
-                        &global.value,
+                        value,
                         global.span,
                         &binding_ids_by_span,
                         &reference_to_binding,
@@ -391,7 +398,7 @@ impl FlowModel {
                     owner.computed_liveness = Some(computed_liveness.clone());
                     if include_analysis_details {
                         let started = Instant::now();
-                        let (control_regions, summary) = collect_control_facts(&global.value);
+                        let (control_regions, summary) = collect_control_facts(value);
                         record(&mut phase_totals, "  flow_control", started);
                         owner.node_effects = cfg_build.node_effects;
                         owner.node_transfers = node_transfers;

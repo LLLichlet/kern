@@ -73,6 +73,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             pattern,
             init,
             else_clause,
+            ..
         } = &expr.kind
         {
             let mut stmts = self.measure_phase("      lower_stmt_let", |this| {

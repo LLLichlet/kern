@@ -32,7 +32,7 @@ the compiler uses the default expression at that construction site.
 ```kern
 struct Limits {
     max_open: usize = {
-        static fallback = usize.{256};
+        static fallback = 256usize;
         fallback
     },
 };
@@ -76,8 +76,8 @@ struct Pair {
     y: i32,
 };
 
-let x = i32.{4};
-let y = i32.{5};
+let x = 4i32;
+let y = 5i32;
 
 let pair = Pair.{ x, y };
 ```
@@ -104,7 +104,7 @@ struct Packet {
 
 let packet = Packet.{
     len: 0,
-    data: [1500]u8.{undef},
+    data: undef,
 };
 ```
 

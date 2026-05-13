@@ -30,12 +30,12 @@ fn const_binary_op(op: BinaryOperator) -> Option<ConstBinaryOp> {
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     fn integer_literal_magnitude(expr: &Expr) -> Option<(bool, u128)> {
         match &expr.kind {
-            ExprKind::Integer(value) => Some((false, *value)),
+            ExprKind::Integer { value, .. } => Some((false, *value)),
             ExprKind::Unary {
                 op: UnaryOperator::Negate,
                 operand,
             } => match &operand.kind {
-                ExprKind::Integer(value) => Some((true, *value)),
+                ExprKind::Integer { value, .. } => Some((true, *value)),
                 _ => None,
             },
             ExprKind::DataInit {
@@ -302,8 +302,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         let eval_result = match &expr.kind {
             // === 1. Basic literals ===
-            ExprKind::Integer(val) => Ok(ConstValue::Int(*val as i128)),
-            ExprKind::Float(val) => Ok(ConstValue::Float(*val)),
+            ExprKind::Integer { value, .. } => Ok(ConstValue::Int(*value as i128)),
+            ExprKind::Float { value, .. } => Ok(ConstValue::Float(*value)),
             ExprKind::Bool(b) => Ok(ConstValue::Bool(*b)),
             ExprKind::Char(c) => Ok(ConstValue::Int(*c as u32 as i128)),
             ExprKind::ByteChar(c) => Ok(ConstValue::Int(*c as i128)),
@@ -316,10 +316,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::Unary { op, operand } => {
                 // Fold `-123` directly so it is treated as a signed literal.
                 if *op == UnaryOperator::Negate {
-                    if let ExprKind::Integer(val) = &operand.kind {
-                        Ok(ConstValue::Int((*val as i128).wrapping_neg()))
-                    } else if let ExprKind::Float(val) = &operand.kind {
-                        Ok(ConstValue::Float(-*val))
+                    if let ExprKind::Integer { value, .. } = &operand.kind {
+                        Ok(ConstValue::Int((*value as i128).wrapping_neg()))
+                    } else if let ExprKind::Float { value, .. } = &operand.kind {
+                        Ok(ConstValue::Float(-*value))
                     } else {
                         self.eval_unary(*op, operand, depth, expr.span)
                     }
@@ -376,6 +376,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 pattern,
                 init,
                 else_clause,
+                ..
             } => {
                 let value = self.eval_inner(init, depth + 1)?;
                 let init_ty = self.expr_type(init);

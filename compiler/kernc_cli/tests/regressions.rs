@@ -4,8 +4,9 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 
 use kernc_cli::test_support::{
-    assert_success, build_and_run, compile_source_tree_with_args, compile_source_with_args,
-    emit_llvm_ir_stage_with_args, emit_llvm_ir_with_args, repo_root, run_kernc, unique_temp_path,
+    assert_success, build_and_run, build_temp_program_with_outputs, compile_source_tree_with_args,
+    compile_source_with_args, emit_llvm_ir_stage_with_args, emit_llvm_ir_with_args, repo_root,
+    run_kernc, run_program_with_args, unique_temp_path,
 };
 
 #[path = "regressions/early.rs"]

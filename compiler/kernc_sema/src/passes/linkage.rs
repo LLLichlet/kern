@@ -47,7 +47,16 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                 }
                 Def::Global(g) => {
                     self.check_attribute_surface(&g.attributes);
-                    let sig_ty = self.ctx.node_type_or_error(g.value.id);
+                    let sig_ty = g
+                        .value
+                        .as_ref()
+                        .map(|value| self.ctx.node_type_or_error(value.id))
+                        .or_else(|| {
+                            g.type_node
+                                .as_ref()
+                                .map(|type_node| self.ctx.node_type_or_error(type_node.id))
+                        })
+                        .unwrap_or(TypeId::ERROR);
                     (!g.is_extern, g.is_extern, sig_ty, g.span)
                 }
                 _ => continue,

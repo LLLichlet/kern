@@ -1,4 +1,4 @@
-const BASE = usize.{3};
+const BASE = 3usize;
 
 pub const fn bump[N: usize]() usize {
     return N + BASE;

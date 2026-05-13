@@ -30,7 +30,7 @@ fn push_shell_arg(
     if (out.try_push_char(alloc, b'\'').is_ok().not()) {
         return false;
     }
-    let mut i = usize.{0};
+    let mut i = 0usize;
     while (i < #arg) {
         if (arg.[i] == b'\'') {
             if (out.try_push_str(alloc, "'\"'\"'").is_ok().not()) {

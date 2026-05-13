@@ -186,7 +186,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         span: Span,
     ) -> Option<MastExpr> {
         let const_expr = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-            g.value.clone()
+            g.value.clone()?
         } else {
             return None;
         };
@@ -1569,12 +1569,28 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         };
 
-        let ty = self.ctx.node_type(g.value.id).unwrap_or(TypeId::ERROR);
+        let ty = g
+            .value
+            .as_ref()
+            .and_then(|value| self.ctx.node_type(value.id))
+            .or_else(|| {
+                g.type_node
+                    .as_ref()
+                    .and_then(|type_node| self.ctx.node_type(type_node.id))
+            })
+            .unwrap_or(TypeId::ERROR);
         self.track_pure_enum_repr_in_type(ty);
         let is_mut = g.is_mut;
 
         // Perform constant folding.
         let init = if !g.is_extern {
+            let Some(value) = g.value.as_ref() else {
+                self.ctx.emit_ice(
+                    g.span,
+                    "Kern ICE (Lowering): non-extern global missing initializer.",
+                );
+                return;
+            };
             let prev_scope = self.ctx.scopes.current_scope_id();
             let saved_owner = self.current_owner_def_id.replace(g.id);
             if let Some(owner_scope) = self.global_owner_scope(g.id) {
@@ -1583,11 +1599,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             let folded = {
                 let mut ce = ConstEvaluator::new(self.ctx);
-                if let Ok(val) = ce.eval_inner(&g.value, 0) {
+                if let Ok(val) = ce.eval_inner(value, 0) {
                     self.lower_const_value_expr(&val, ty, g.span)
-                        .or_else(|| Some(self.lower_expr(&g.value, &HashMap::new(), Some(ty))))
+                        .or_else(|| Some(self.lower_expr(value, &HashMap::new(), Some(ty))))
                 } else {
-                    Some(self.lower_expr(&g.value, &HashMap::new(), Some(ty)))
+                    Some(self.lower_expr(value, &HashMap::new(), Some(ty)))
                 }
             };
 

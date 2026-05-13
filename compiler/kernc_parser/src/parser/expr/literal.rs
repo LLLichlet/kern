@@ -10,7 +10,10 @@ impl<'a> Parser<'a> {
         match token.tag {
             TokenType::IntLiteral => {
                 let text = self.source_slice(span).to_string();
-                let text_clean = text.replace("_", "");
+                let (text_clean, suffix) = split_integer_literal_suffix(&text).map_err(|msg| {
+                    self.add_error(span, msg);
+                    ParseError
+                })?;
                 let (radix, num_str) = if let Some(stripped) = text_clean.strip_prefix("0x") {
                     (16, stripped)
                 } else if let Some(stripped) = text_clean.strip_prefix("0b") {
@@ -28,19 +31,24 @@ impl<'a> Parser<'a> {
                 Ok(Expr {
                     id: self.new_id(),
                     span,
-                    kind: ExprKind::Integer(val),
+                    kind: ExprKind::Integer { value: val, suffix },
                 })
             }
             TokenType::FloatLiteral => {
-                let text = self.source_slice(span).replace("_", "");
-                let val = text.parse::<f64>().map_err(|_| {
-                    self.add_error(span, format!("Invalid float literal: {}", text));
+                let text = self.source_slice(span).to_string();
+                let (digits, suffix) = split_float_literal_suffix(&text).map_err(|msg| {
+                    self.add_error(span, msg);
+                    ParseError
+                })?;
+                let text_clean = digits.replace("_", "");
+                let val = text_clean.parse::<f64>().map_err(|_| {
+                    self.add_error(span, format!("Invalid float literal: {}", text_clean));
                     ParseError
                 })?;
                 Ok(Expr {
                     id: self.new_id(),
                     span,
-                    kind: ExprKind::Float(val),
+                    kind: ExprKind::Float { value: val, suffix },
                 })
             }
             TokenType::StringLiteral => {
@@ -357,4 +365,98 @@ impl<'a> Parser<'a> {
         }
         Ok(result)
     }
+}
+
+fn split_integer_literal_suffix(
+    text: &str,
+) -> Result<(String, Option<NumericLiteralSuffix>), String> {
+    for suffix_text in NUMERIC_SUFFIXES {
+        if let Some(digits) = text.strip_suffix(suffix_text) {
+            if digits.is_empty() {
+                continue;
+            }
+            let digits_clean = digits.replace("_", "");
+            if parse_integer_digits(&digits_clean).is_ok() {
+                return Ok((
+                    digits_clean,
+                    parse_numeric_literal_suffix(Some(suffix_text))?,
+                ));
+            }
+        }
+    }
+    let text_clean = text.replace("_", "");
+    if parse_integer_digits(&text_clean).is_ok() {
+        Ok((text_clean, None))
+    } else if text.bytes().any(|byte| byte.is_ascii_alphabetic()) {
+        Err(format!("unsupported numeric literal suffix in `{}`", text))
+    } else {
+        Ok((text_clean, None))
+    }
+}
+
+fn split_float_literal_suffix(text: &str) -> Result<(&str, Option<NumericLiteralSuffix>), String> {
+    for suffix_text in NUMERIC_SUFFIXES {
+        if let Some(digits) = text.strip_suffix(suffix_text) {
+            if digits.is_empty() {
+                continue;
+            }
+            return Ok((digits, parse_numeric_literal_suffix(Some(suffix_text))?));
+        }
+    }
+    if text.bytes().any(|byte| byte.is_ascii_alphabetic()) {
+        let without_exponent = text
+            .trim_start_matches(|ch: char| ch.is_ascii_digit() || ch == '_' || ch == '.')
+            .trim_start_matches(['e', 'E', '+', '-']);
+        if without_exponent
+            .bytes()
+            .any(|byte| byte.is_ascii_alphabetic())
+        {
+            return Err(format!("unsupported numeric literal suffix in `{}`", text));
+        }
+    }
+    Ok((text, None))
+}
+
+fn parse_integer_digits(text_clean: &str) -> Result<u128, std::num::ParseIntError> {
+    let (radix, num_str) = if let Some(stripped) = text_clean.strip_prefix("0x") {
+        (16, stripped)
+    } else if let Some(stripped) = text_clean.strip_prefix("0b") {
+        (2, stripped)
+    } else if let Some(stripped) = text_clean.strip_prefix("0o") {
+        (8, stripped)
+    } else {
+        (10, text_clean)
+    };
+    u128::from_str_radix(num_str, radix)
+}
+
+const NUMERIC_SUFFIXES: &[&str] = &[
+    "isize", "usize", "i128", "u128", "i64", "u64", "i32", "u32", "i16", "u16", "f32", "f64", "i8",
+    "u8",
+];
+
+fn parse_numeric_literal_suffix(
+    suffix: Option<&str>,
+) -> Result<Option<NumericLiteralSuffix>, String> {
+    let Some(suffix) = suffix else {
+        return Ok(None);
+    };
+    let suffix = match suffix {
+        "i8" => NumericLiteralSuffix::I8,
+        "i16" => NumericLiteralSuffix::I16,
+        "i32" => NumericLiteralSuffix::I32,
+        "i64" => NumericLiteralSuffix::I64,
+        "i128" => NumericLiteralSuffix::I128,
+        "isize" => NumericLiteralSuffix::ISize,
+        "u8" => NumericLiteralSuffix::U8,
+        "u16" => NumericLiteralSuffix::U16,
+        "u32" => NumericLiteralSuffix::U32,
+        "u64" => NumericLiteralSuffix::U64,
+        "u128" => NumericLiteralSuffix::U128,
+        "usize" => NumericLiteralSuffix::USize,
+        "f32" => NumericLiteralSuffix::F32,
+        "f64" => NumericLiteralSuffix::F64,
+        other => return Err(format!("unsupported numeric literal suffix `{}`", other)),
+    };
+    Ok(Some(suffix))
 }

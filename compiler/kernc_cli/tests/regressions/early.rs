@@ -5,8 +5,8 @@ fn runs_i128_division_and_remainder_without_external_runtime_helpers() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let wide = (u128.{1} << u128.{100}) + u128.{12345};
-    let divisor = u128.{97};
+    let wide = (1u128 << 100u128) + 12345u128;
+    let divisor = 97u128;
     let quotient = wide / divisor;
     let remainder = wide % divisor;
     if (quotient * divisor + remainder != wide) {
@@ -16,14 +16,14 @@ fn main() i32 {
         return 2;
     }
 
-    let signed_wide = (i128.{0} - (i128.{1} << i128.{100})) + i128.{12345};
-    let signed_divisor = i128.{97};
+    let signed_wide = (0i128 - (1i128 << 100i128)) + 12345i128;
+    let signed_divisor = 97i128;
     let signed_quotient = signed_wide / signed_divisor;
     let signed_remainder = signed_wide % signed_divisor;
     if (signed_quotient * signed_divisor + signed_remainder != signed_wide) {
         return 3;
     }
-    if (signed_remainder >= i128.{0}) {
+    if (signed_remainder >= 0i128) {
         return 4;
     }
     return 0;
@@ -44,29 +44,29 @@ fn runs_i128_compound_division_without_external_runtime_helpers() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let mut wide = (u128.{1} << u128.{100}) + u128.{12345};
-    let divisor = u128.{97};
+    let mut wide = (1u128 << 100u128) + 12345u128;
+    let divisor = 97u128;
     let expected_remainder = wide % divisor;
     wide /= divisor;
-    if (wide * divisor + expected_remainder != (u128.{1} << u128.{100}) + u128.{12345}) {
+    if (wide * divisor + expected_remainder != (1u128 << 100u128) + 12345u128) {
         return 1;
     }
 
-    let mut rem = (u128.{1} << u128.{100}) + u128.{12345};
+    let mut rem = (1u128 << 100u128) + 12345u128;
     rem %= divisor;
     if (rem != expected_remainder) {
         return 2;
     }
 
-    let mut signed = (i128.{0} - (i128.{1} << i128.{100})) + i128.{12345};
-    let signed_divisor = i128.{97};
+    let mut signed = (0i128 - (1i128 << 100i128)) + 12345i128;
+    let signed_divisor = 97i128;
     let expected_signed_remainder = signed % signed_divisor;
     signed /= signed_divisor;
-    if (signed * signed_divisor + expected_signed_remainder != (i128.{0} - (i128.{1} << i128.{100})) + i128.{12345}) {
+    if (signed * signed_divisor + expected_signed_remainder != (0i128 - (1i128 << 100i128)) + 12345i128) {
         return 3;
     }
 
-    let mut signed_rem = (i128.{0} - (i128.{1} << i128.{100})) + i128.{12345};
+    let mut signed_rem = (0i128 - (1i128 << 100i128)) + 12345i128;
     signed_rem %= signed_divisor;
     if (signed_rem != expected_signed_remainder) {
         return 4;
@@ -118,7 +118,7 @@ fn main() i32 {
 #[test]
 fn successful_compile_prints_unused_private_constant_warning_and_prunes_ir() {
     let source = r#"
-const helper = 1;
+const helper = 1i32;
 
 fn main() i32 {
     return 0;
@@ -146,7 +146,7 @@ fn main() i32 {
 #[test]
 fn successful_compile_prints_unused_private_static_warning_and_prunes_ir() {
     let source = r#"
-static helper = 1;
+static helper = 1i32;
 
 fn main() i32 {
     return 0;
@@ -175,7 +175,7 @@ fn main() i32 {
 fn retain_private_static_suppresses_unused_warning_and_keeps_internal_ir() {
     let source = r#"
 #[retain]
-static helper = 1;
+static helper = 1i32;
 
 fn main() i32 {
     return 0;
@@ -800,8 +800,8 @@ fn main() i32 {
 fn defaults_emit_llvm_to_raw_stage() {
     let source = r#"
 fn main() i32 {
-    let mut value = i32.{1};
-    value = value + i32.{2};
+    let mut value = 1i32;
+    value = value + 2i32;
     return value;
 }
 "#;
@@ -1010,8 +1010,8 @@ fn main() i32 {
 fn emits_optimized_llvm_ir_stage_after_running_pass_pipeline() {
     let source = r#"
 extern fn main() i32 {
-    let mut value = i32.{1};
-    value = value + i32.{2};
+    let mut value = 1i32;
+    value = value + 2i32;
     return value;
 }
 "#;
@@ -1205,7 +1205,7 @@ enum HandshakeError {
 
 fn compute(ok: bool) usize!HandshakeError {
     if (ok) {
-        return .{ Ok: usize.{7} };
+        return .{ Ok: 7usize };
     }
     return .{ Err: .{ Parse: ParseError.BadToken } };
 }
@@ -1328,7 +1328,7 @@ fn main() i32 {
             (
                 "left.rn",
                 r#"
-const SHARED = 10;
+const SHARED = 10i32;
 
 pub fn value() i32 {
     return SHARED as i32;
@@ -1338,7 +1338,7 @@ pub fn value() i32 {
             (
                 "right.rn",
                 r#"
-const SHARED = 32;
+const SHARED = 32i32;
 
 pub fn value() i32 {
     return SHARED as i32;

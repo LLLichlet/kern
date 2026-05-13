@@ -3,7 +3,7 @@
 // stderr: module has no visible member `SECRET`
 
 mod api {
-    static SECRET = i32.{1};
+    static SECRET = 1i32;
 }
 
 fn main() i32 {

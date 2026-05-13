@@ -33,6 +33,6 @@ fn take[N: usize, T](value: &Base[N, Out = T]) T {
 
 fn main() i32 {
     let x = X.{};
-    let value = &Derived[4].{ x.& };
+    let value = (x.& as &Derived[4]);
     return (take(value) as i32) - 7;
 }

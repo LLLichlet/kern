@@ -184,17 +184,18 @@ trait object:
 
 ```kern
 let mut sink = io.stderr();
-let writer = &mut Write.{ sink..& };
+let writer = sink..& as &mut Write;
 ```
 
 `&mut Write` is a fat pointer containing a pointer to the concrete object and a
-pointer to the `Write` vtable. Construction must receive a pointer to the
-concrete object, so it is written `Write.{ sink..& }`.
+pointer to the `Write` vtable. Explicit packaging uses `as` from a compatible
+pointer. At call and assignment boundaries, an expected `&mut Write` type can
+also perform the same packaging naturally.
 
 This is distinct from implementing a trait:
 
 - `impl &mut File : Write`: proves the concrete type `&mut File` satisfies the interface.
-- `&mut Write.{ file..& }`: packages a concrete object as a dynamic interface value.
+- `file..& as &mut Write`: packages a concrete object as a dynamic interface value.
 
 Kern requires trait objects to be built from pointers, avoiding any suggestion
 that an unknown-size dynamic object is an ordinary stack value.
@@ -225,8 +226,8 @@ interface-contract dependency, not object inheritance.
 Dynamic interface values can upcast along supertraits:
 
 ```kern
-let reader = &BufReader.{ file.& };
-let base = &Read.{ reader };
+let reader = file.& as &BufReader;
+let base = reader as &Read;
 ```
 
 If a function needs `&Read`, passing `&BufReader` can also use boundary natural

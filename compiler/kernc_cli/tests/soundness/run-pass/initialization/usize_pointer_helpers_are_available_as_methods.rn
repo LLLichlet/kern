@@ -1,7 +1,7 @@
 // exit: 0
 
 fn main() i32 {
-    let raw = usize.{32};
+    let raw = 32usize;
     let ptr = raw.as_ptr[u8]();
     let mut_ptr = raw.as_mut_ptr[u8]();
     let addr_ptr = raw.as_addr_ptr[u8]();

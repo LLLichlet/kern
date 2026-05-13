@@ -310,6 +310,8 @@ pub struct CompileOptions {
     pub input_file: Option<String>,
     pub output_file: String,
     pub metadata_output: Option<String>,
+    pub test_mode: bool,
+    pub test_metadata_output: Option<String>,
     pub metadata_package_name: Option<String>,
     pub metadata_package_version: Option<String>,
     pub root_module_name: Option<String>,
@@ -358,6 +360,8 @@ impl Default for CompileOptions {
             input_file: None,
             output_file: "a.out".to_string(),
             metadata_output: None,
+            test_mode: false,
+            test_metadata_output: None,
             metadata_package_name: None,
             metadata_package_version: None,
             root_module_name: None,
@@ -612,6 +616,9 @@ pub fn validate_compile_options(options: &CompileOptions) -> Result<(), String> 
 }
 
 pub fn inject_driver_condition_defines(options: &mut CompileOptions) {
+    options
+        .custom_defines
+        .insert("test".to_string(), options.test_mode.to_string());
     options.custom_defines.insert(
         "runtime_entry".to_string(),
         options.runtime_entry.as_str().to_string(),

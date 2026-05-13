@@ -637,7 +637,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                             .any(|arm| self.expr_references_const_param(&arm.body, env_scope)),
                     })
             }
-            ast::ExprKind::Static { init, .. } => self.expr_references_const_param(init, env_scope),
+            ast::ExprKind::Static { init, .. } => init
+                .as_deref()
+                .is_some_and(|init| self.expr_references_const_param(init, env_scope)),
             ast::ExprKind::GenericInstantiation { target, args } => {
                 self.expr_references_const_param(target, env_scope)
                     || args.iter().any(|arg| match arg {
@@ -656,8 +658,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::ExprKind::Error
             | ast::ExprKind::AnchoredPath { .. }
             | ast::ExprKind::TypeNode(_)
-            | ast::ExprKind::Integer(_)
-            | ast::ExprKind::Float(_)
+            | ast::ExprKind::Integer { .. }
+            | ast::ExprKind::Float { .. }
             | ast::ExprKind::Bool(_)
             | ast::ExprKind::Char(_)
             | ast::ExprKind::ByteChar(_)

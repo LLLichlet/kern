@@ -21,5 +21,5 @@ fn take(value: X.HasOut[4].Out) i32 {
 }
 
 fn main() i32 {
-    return take(i64.{7});
+    return take(7i64);
 }

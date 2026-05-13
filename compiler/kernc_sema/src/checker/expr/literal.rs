@@ -178,7 +178,46 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected
     }
 
-    pub(crate) fn check_integer(&mut self, _expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
+    fn numeric_literal_suffix_type(&self, suffix: ast::NumericLiteralSuffix) -> TypeId {
+        match suffix {
+            ast::NumericLiteralSuffix::I8 => TypeId::I8,
+            ast::NumericLiteralSuffix::I16 => TypeId::I16,
+            ast::NumericLiteralSuffix::I32 => TypeId::I32,
+            ast::NumericLiteralSuffix::I64 => TypeId::I64,
+            ast::NumericLiteralSuffix::I128 => TypeId::I128,
+            ast::NumericLiteralSuffix::ISize => TypeId::ISIZE,
+            ast::NumericLiteralSuffix::U8 => TypeId::U8,
+            ast::NumericLiteralSuffix::U16 => TypeId::U16,
+            ast::NumericLiteralSuffix::U32 => TypeId::U32,
+            ast::NumericLiteralSuffix::U64 => TypeId::U64,
+            ast::NumericLiteralSuffix::U128 => TypeId::U128,
+            ast::NumericLiteralSuffix::USize => TypeId::USIZE,
+            ast::NumericLiteralSuffix::F32 => TypeId::F32,
+            ast::NumericLiteralSuffix::F64 => TypeId::F64,
+        }
+    }
+
+    pub(crate) fn check_integer(
+        &mut self,
+        _expr: &Expr,
+        suffix: Option<ast::NumericLiteralSuffix>,
+        expected_ty: Option<TypeId>,
+    ) -> TypeId {
+        if let Some(suffix) = suffix {
+            let ty = self.numeric_literal_suffix_type(suffix);
+            if !self.ctx.type_registry.is_integer(ty) {
+                self.ctx
+                    .struct_error(
+                        _expr.span,
+                        "integer literal cannot use a floating-point suffix",
+                    )
+                    .with_hint("use an integer suffix such as `i32`, `u64`, or `usize`")
+                    .emit();
+                return TypeId::ERROR;
+            }
+            return ty;
+        }
+
         if let Some(exp) = expected_ty {
             let norm = self.resolve_tv(exp);
 
@@ -200,7 +239,27 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.fresh_numeric_type_var(NumericInferenceKind::IntLiteral)
     }
 
-    pub(crate) fn check_float(&mut self, _expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
+    pub(crate) fn check_float(
+        &mut self,
+        _expr: &Expr,
+        suffix: Option<ast::NumericLiteralSuffix>,
+        expected_ty: Option<TypeId>,
+    ) -> TypeId {
+        if let Some(suffix) = suffix {
+            let ty = self.numeric_literal_suffix_type(suffix);
+            if !self.ctx.type_registry.is_float(ty) {
+                self.ctx
+                    .struct_error(
+                        _expr.span,
+                        "floating-point literal cannot use an integer suffix",
+                    )
+                    .with_hint("use a floating-point suffix such as `f32` or `f64`")
+                    .emit();
+                return TypeId::ERROR;
+            }
+            return ty;
+        }
+
         if let Some(exp) = expected_ty {
             let norm = self.resolve_tv(exp);
             // Reuse the expected float type when available.
@@ -249,63 +308,27 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected: TypeId,
         span: Span,
     ) -> TypeId {
+        if matches!(kind, ast::DataLiteralKind::Scalar(inner) if matches!(inner.kind, ExprKind::Undef))
+        {
+            self.ctx
+                .struct_error(span, "`undef` is not a data initializer")
+                .with_hint("write `let value: Type = undef` or use `field: undef` where an expected type is available")
+                .emit();
+            return TypeId::ERROR;
+        }
+
         let exp_norm = self.resolve_tv(expected);
         let kind_enum = self.ctx.type_registry.get(exp_norm).clone();
 
-        // Intercept pointer construction before aggregate routing.
-        if let TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } =
-            kind_enum
-        {
-            let elem_norm = self.resolve_tv(elem);
-            let target_inner_kind = self.ctx.type_registry.get(elem_norm).clone();
-            // Extract the single payload argument.
-            let inner_expr_opt: Option<&Expr> = match kind {
-                ast::DataLiteralKind::Scalar(inner) => Some(inner.as_ref()),
-                ast::DataLiteralKind::Struct(fields) if fields.len() == 1 => Some(&fields[0].value),
-                _ => None,
-            };
-
-            match target_inner_kind {
-                TypeKind::TraitObject(..) => {
-                    if let Some(inner) = inner_expr_opt {
-                        return self
-                            .check_trait_object_init(inner, expected, elem_norm, is_mut, span);
-                    } else {
-                        self.ctx
-                            .struct_error(
-                                span,
-                                "trait objects must be initialized with a single pointer",
-                            )
-                            .with_hint("example: `&mut Reader.{ file_ptr }`")
-                            .emit();
-                        return TypeId::ERROR;
-                    }
-                }
-                TypeKind::ClosureInterface { .. } => {
-                    if let Some(inner) = inner_expr_opt {
-                        return self
-                            .check_closure_object_init(inner, expected, elem_norm, is_mut, span);
-                    } else {
-                        self.ctx.struct_error(span, "invalid closure fat pointer construction")
-                            .with_hint("expected syntax: `&mut Fn(...).{ raw_pointer }` or `&Fn(...).{ raw_pointer }`")
-                            .with_hint("the raw pointer must explicitly be a pointer to the closure's anonymous state")
-                            .emit();
-                        return TypeId::ERROR;
-                    }
-                }
-                _ => {
-                    self.ctx
-                            .struct_error(
-                                span,
-                                "raw pointers cannot be initialized with `.{...}`",
-                            )
-                            .with_hint(
-                                "use a real pointer-producing operation, or cast an integer address explicitly with `as &T` / `as &mut T`",
-                        )
-                            .emit();
-                    return TypeId::ERROR;
-                }
-            }
+        if let TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } = kind_enum {
+            self.ctx
+                .struct_error(span, "pointer types cannot be initialized with `.{...}`")
+                .with_hint(
+                    "use `.&` or `..&` to take an address, or use `as` for an explicit pointer conversion",
+                )
+                .with_hint("use an expected type context for natural trait-object or closure-object packaging")
+                .emit();
+            return TypeId::ERROR;
         }
 
         // Handle `void.{}` specially.
@@ -1032,7 +1055,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     let name_str = self.ctx.resolve(def_f.name).to_string();
                     self.ctx.struct_error(span, format!("field `{}` is missing and has no default value", name_str))
                         .with_hint("Kern structs do not zero-initialize implicitly.")
-                        .with_hint(format!("use `{}: type.{{undef}}` if you intentionally want to leave memory uninitialized", name_str))
+                        .with_hint(format!("write `{name_str}: undef` with an expected field type if you intentionally want to leave memory uninitialized"))
                         .emit();
                 }
             }
@@ -1043,6 +1066,26 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     /// Helper 4: validate scalar construction forms like `.{ 10 }`.
     fn check_scalar_literal(&mut self, inner: &Expr, expected: TypeId) -> TypeId {
+        let expected_norm = self.resolve_tv(expected);
+        if (self.ctx.type_registry.is_integer(expected_norm)
+            || self.ctx.type_registry.is_float(expected_norm))
+            && !matches!(inner.kind, ExprKind::Undef)
+        {
+            let expected_str = self.ctx.ty_to_string(expected_norm);
+            self.ctx
+                .struct_error(
+                    inner.span,
+                    format!(
+                        "numeric scalar value does not match `{}` syntax",
+                        expected_str
+                    ),
+                )
+                .with_hint("write a numeric literal suffix such as `10i32`, `10usize`, or `1.0f32`")
+                .with_hint("or provide a type annotation and use a plain numeric literal")
+                .emit();
+            return TypeId::ERROR;
+        }
+
         let inner_ty = self.check_expr(inner, Some(expected));
         self.check_coercion(inner, expected, inner_ty);
         expected
@@ -1054,277 +1097,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             None => {
                 self.ctx
                     .struct_error(span, "`undef` must have a known expected type context")
-                    .emit();
-                TypeId::ERROR
-            }
-        }
-    }
-
-    fn check_trait_object_init(
-        &mut self,
-        inner: &Expr,
-        expected_ptr_ty: TypeId,
-        trait_norm: TypeId,
-        is_mut_expected: bool,
-        span: Span,
-    ) -> TypeId {
-        let inner_ty = self.check_expr(inner, None);
-        if inner_ty == TypeId::ERROR {
-            return TypeId::ERROR;
-        }
-
-        let inner_ty_id = self.resolve_tv(inner_ty);
-
-        // 1. Trait-object construction requires a pointer input.
-        let (is_inner_ptr_mut, inner_elem_ty) = match self.ctx.type_registry.get(inner_ty_id) {
-            TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } => {
-                (*is_mut, *elem)
-            }
-            _ => {
-                self.ctx
-                    .struct_error(
-                        inner.span,
-                        "trait objects can only be constructed from pointers",
-                    )
-                    .emit();
-                return TypeId::ERROR;
-            }
-        };
-
-        // 2. Immutable pointers cannot populate mutable fat pointers.
-        if is_mut_expected && !is_inner_ptr_mut {
-            self.ctx
-                .struct_error(
-                    inner.span,
-                    "cannot create a mutable trait object from an immutable pointer",
-                )
-                .with_hint(
-                    "expected a mutable pointer (like `val..&`), but found an immutable pointer",
-                )
-                .emit();
-            return TypeId::ERROR;
-        }
-
-        let inner_elem_norm = self.resolve_tv(inner_elem_ty);
-        let proof_receiver_ty = if !is_mut_expected && is_inner_ptr_mut {
-            match self.ctx.type_registry.get(inner_ty_id).clone() {
-                TypeKind::Pointer { elem, .. } => {
-                    self.ctx.type_registry.intern(TypeKind::Pointer {
-                        is_mut: false,
-                        elem,
-                    })
-                }
-                TypeKind::VolatilePtr { elem, .. } => {
-                    self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                        is_mut: false,
-                        elem,
-                    })
-                }
-                _ => inner_ty_id,
-            }
-        } else {
-            inner_ty_id
-        };
-
-        // 3. Support trait-object upcasts.
-        if matches!(
-            self.ctx.type_registry.get(inner_elem_norm),
-            TypeKind::TraitObject(..)
-        ) && self.is_trait_object_upcast(inner_elem_norm, trait_norm)
-        {
-            let expected_ptr_ty = match self.ctx.type_registry.get(expected_ptr_ty).clone() {
-                TypeKind::Pointer { is_mut, elem } => {
-                    let elem = match self.ctx.type_registry.get(inner_elem_norm).clone() {
-                        TypeKind::TraitObject(_, _, assoc_bindings) => {
-                            let assoc_binding_map = assoc_bindings
-                                .into_iter()
-                                .collect::<kernc_utils::FastHashMap<_, _>>();
-                            let elem = crate::query::augment_trait_object_assoc_bindings_from_map(
-                                self.ctx,
-                                elem,
-                                &assoc_binding_map,
-                            );
-                            let elem = crate::query::retain_declared_trait_object_assoc_bindings(
-                                self.ctx, elem,
-                            );
-                            self.ctx.normalize_concrete_type(elem)
-                        }
-                        _ => crate::query::enrich_trait_object_assoc_bindings(
-                            self.ctx,
-                            inner_ty_id,
-                            elem,
-                        ),
-                    };
-                    self.ctx
-                        .type_registry
-                        .intern(TypeKind::Pointer { is_mut, elem })
-                }
-                TypeKind::VolatilePtr { is_mut, elem } => {
-                    let elem = match self.ctx.type_registry.get(inner_elem_norm).clone() {
-                        TypeKind::TraitObject(_, _, assoc_bindings) => {
-                            let assoc_binding_map = assoc_bindings
-                                .into_iter()
-                                .collect::<kernc_utils::FastHashMap<_, _>>();
-                            let elem = crate::query::augment_trait_object_assoc_bindings_from_map(
-                                self.ctx,
-                                elem,
-                                &assoc_binding_map,
-                            );
-                            let elem = crate::query::retain_declared_trait_object_assoc_bindings(
-                                self.ctx, elem,
-                            );
-                            self.ctx.normalize_concrete_type(elem)
-                        }
-                        _ => crate::query::enrich_trait_object_assoc_bindings(
-                            self.ctx,
-                            inner_ty_id,
-                            elem,
-                        ),
-                    };
-                    self.ctx
-                        .type_registry
-                        .intern(TypeKind::VolatilePtr { is_mut, elem })
-                }
-                _ => expected_ptr_ty,
-            };
-            return expected_ptr_ty;
-        }
-
-        // 4. Verify method obligations on the target trait.
-        if !self.check_trait_impl(proof_receiver_ty, trait_norm) {
-            self.ctx
-                .struct_error(
-                    span,
-                    "the provided pointer type does not implement the target trait",
-                )
-                .emit();
-            return TypeId::ERROR;
-        }
-
-        // 5. Return the constructed fat-pointer type.
-        match self.ctx.type_registry.get(expected_ptr_ty).clone() {
-            TypeKind::Pointer { is_mut, elem } => {
-                let elem = crate::query::enrich_trait_object_assoc_bindings(
-                    self.ctx,
-                    proof_receiver_ty,
-                    elem,
-                );
-                self.ctx
-                    .type_registry
-                    .intern(TypeKind::Pointer { is_mut, elem })
-            }
-            TypeKind::VolatilePtr { is_mut, elem } => {
-                let elem = crate::query::enrich_trait_object_assoc_bindings(
-                    self.ctx,
-                    proof_receiver_ty,
-                    elem,
-                );
-                self.ctx
-                    .type_registry
-                    .intern(TypeKind::VolatilePtr { is_mut, elem })
-            }
-            _ => expected_ptr_ty,
-        }
-    }
-
-    pub(crate) fn check_closure_object_init(
-        &mut self,
-        inner: &Expr,
-        expected_ptr_ty: TypeId,
-        closure_interface_norm: TypeId,
-        is_mut_expected: bool,
-        span: Span,
-    ) -> TypeId {
-        let inner_ty = self.check_expr(inner, None);
-        if inner_ty == TypeId::ERROR {
-            return TypeId::ERROR;
-        }
-
-        let inner_ty_id = self.resolve_tv(inner_ty);
-
-        let is_inner_ptr_mut = match self.ctx.type_registry.get(inner_ty_id) {
-            TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => *is_mut,
-            _ => {
-                self.ctx
-                    .struct_error(
-                        inner.span,
-                        "closure objects can only be constructed from pointers",
-                    )
-                    .emit();
-                return TypeId::ERROR;
-            }
-        };
-
-        if is_mut_expected && !is_inner_ptr_mut {
-            self.ctx
-                .struct_error(
-                    inner.span,
-                    "cannot create a mutable closure object from an immutable pointer",
-                )
-                .emit();
-            return TypeId::ERROR;
-        }
-
-        let interface_kind = self.ctx.type_registry.get(closure_interface_norm).clone();
-        let (interface_params, interface_ret) = match interface_kind {
-            TypeKind::ClosureInterface { params, ret } => (params, ret),
-            _ => {
-                self.ctx.emit_ice(
-                    span,
-                    format!(
-                        "Compiler ICE: closure object init expected `ClosureInterface`, found `{}`.",
-                        self.ctx.ty_to_string(closure_interface_norm)
-                    ),
-                );
-                return TypeId::ERROR;
-            }
-        };
-
-        let inner_elem_ty = self
-            .ctx
-            .type_registry
-            .get_elem_type(inner_ty_id)
-            .unwrap_or(TypeId::ERROR);
-        let inner_elem_ty_id = self.resolve_tv(inner_elem_ty);
-        let inner_elem_norm = self.ctx.type_registry.normalize(inner_elem_ty_id);
-        let inner_kind = self.ctx.type_registry.get(inner_elem_norm).clone();
-
-        match inner_kind {
-            TypeKind::AnonymousState {
-                params: state_params,
-                ret: state_ret,
-                ..
-            } => {
-                if interface_params.len() != state_params.len() {
-                    self.ctx
-                        .struct_error(
-                            span,
-                            "closure signature mismatch: incorrect number of parameters",
-                        )
-                        .emit();
-                    return TypeId::ERROR;
-                }
-                for (exp_p, act_p) in interface_params.iter().zip(state_params.iter()) {
-                    if self.resolve_tv(*exp_p) != self.resolve_tv(*act_p) {
-                        self.ctx
-                            .struct_error(span, "closure parameter mismatch")
-                            .emit();
-                        return TypeId::ERROR;
-                    }
-                }
-                if self.resolve_tv(interface_ret) != self.resolve_tv(state_ret) {
-                    self.ctx
-                        .struct_error(span, "closure return type mismatch")
-                        .emit();
-                    return TypeId::ERROR;
-                }
-                expected_ptr_ty
-            }
-            _ => {
-                let actual_ty_str = self.ctx.ty_to_string(inner_elem_norm);
-                self.ctx
-                    .struct_error(inner.span, "expected a closure anonymous state pointer")
-                    .with_hint(format!("found pointer to `{}`", actual_ty_str))
                     .emit();
                 TypeId::ERROR
             }

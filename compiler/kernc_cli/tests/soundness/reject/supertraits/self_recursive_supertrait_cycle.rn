@@ -22,6 +22,6 @@ impl &X: A[i32] {
 
 fn main() i32 {
     let x = X.{};
-    let a = &A[i32].{ x.& };
+    let a = (x.& as &A[i32]);
     return a.value();
 }

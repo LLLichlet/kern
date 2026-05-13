@@ -79,13 +79,13 @@ fn test_eq_failure_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_eq_fail",
         r#"
-use base.test;
+use base.test.{report};
 use std.io;
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
-    (usize.{4} == usize.{5}).should().sum(@loc(), t);
+    (4usize == 5usize).should().sum(@loc(), t);
     return 0;
 }
 "#,
@@ -116,13 +116,13 @@ fn test_eq_failure_reports_expected_and_actual_values_when_formattable() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_eq_fail_formattable",
         r#"
-use base.test;
+use base.test.{report};
 use std.io;
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
-    (?usize.{ Some: 4 }).should_some().eq(usize.{5}).sum(@loc(), t);
+    (?usize.{ Some: 4 }).should_some().eq(5usize).sum(@loc(), t);
     return 0;
 }
 "#,
@@ -151,11 +151,11 @@ fn test_message_assertion_failure_uses_custom_format() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_msg_fail",
         r#"
-use base.test;
+use base.test.{report};
 use std.io;
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
     let _ = usize!i32.{ Err: 7 }.should_ok().sum(@loc(), t);
     return 0;
@@ -188,11 +188,11 @@ fn test_message_assertion_failure_can_report_source_location() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_loc_fail",
         r#"
-use base.test;
+use base.test.{report};
 use std.io;
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
     false.should().sum(@loc(), t);
     return 0;
@@ -225,11 +225,11 @@ fn test_expect_some_failure_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_expect_some_fail",
         r#"
-use base.test;
+use base.test.{report};
 use std.io;
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
     let _ = (?usize.None).should_some().sum(@loc(), t);
     return 0;
@@ -358,11 +358,11 @@ fn test_expect_err_failure_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_expect_err_fail",
         r#"
-use base.test;
+use base.test.{report};
 use std.io;
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
     let _ = usize!i32.{ Ok: 3 }.should_err().sum(@loc(), t);
     return 0;

@@ -779,4 +779,83 @@ pub fn craft(p: &mut plan.Plan) void {
 
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn workspace_members_discover_default_test_roots_independently() {
+        let root = temp_dir("craft-elaborate-workspace-default-tests");
+        let app_dir = root.join("app");
+        let driver_dir = root.join("driver");
+        fs::create_dir_all(app_dir.join("tests")).unwrap();
+        fs::create_dir_all(driver_dir.join("tests")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[workspace]
+name = "demo"
+members = ["app", "driver"]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.5"
+"#,
+        )
+        .unwrap();
+        fs::write(app_dir.join("tests/smoke.rn"), "").unwrap();
+        fs::write(
+            driver_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "driver"
+version = "0.1.0"
+kern = "0.7.5"
+"#,
+        )
+        .unwrap();
+        fs::write(driver_dir.join("tests/pci.rn"), "").unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let members = load_members(&manifest_path, &manifest).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Test,
+            &super::FeatureSelection::default(),
+        )
+        .unwrap();
+
+        let test_roots = elaboration
+            .packages
+            .iter()
+            .map(|package| {
+                (
+                    package.package_id.name.as_str(),
+                    package
+                        .plan
+                        .targets
+                        .iter()
+                        .filter(|target| target.kind == crate::plan::TargetKind::Test)
+                        .map(|target| target.root.as_str())
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            test_roots,
+            vec![
+                ("app", vec!["tests/smoke.rn"]),
+                ("driver", vec!["tests/pci.rn"])
+            ]
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
 }

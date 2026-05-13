@@ -19,6 +19,6 @@ impl &X: Score {
 
 fn main() i32 {
     let x = X.{};
-    let score = &Score.{ x.& };
+    let score = (x.& as &Score);
     return score.value() - 9;
 }

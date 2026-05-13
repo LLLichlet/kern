@@ -13,12 +13,12 @@ fn main() i32 {
     let t = test.report(io.stderr())..&;
 
     let mut counter = atomic[usize](0);
-    (counter..&.fetch_add[SEQ_CST](2) == usize.{0}).should().sum(@loc(), t);
-    (counter.&.load[SEQ_CST]() == usize.{2}).should().sum(@loc(), t);
+    (counter..&.fetch_add[SEQ_CST](2) == 0usize).should().sum(@loc(), t);
+    (counter.&.load[SEQ_CST]() == 2usize).should().sum(@loc(), t);
 
     let cas = counter..&.compare_exchange[ACQUIRE, RELAXED](2, 5);
     cas.success.should().sum(@loc(), t);
-    (counter.&.load[SEQ_CST]() == usize.{5}).should().sum(@loc(), t);
+    (counter.&.load[SEQ_CST]() == 5usize).should().sum(@loc(), t);
 
     let mut locked = spin_lock[i32](10);
     let next = locked..&.with_lock([](value: &mut i32) i32 {
@@ -28,14 +28,14 @@ fn main() i32 {
     (next == 11).should().sum(@loc(), t);
 
     let mut gate = once();
-    let mut calls = usize.{0};
+    let mut calls = 0usize;
     gate..&.call_once([calls = calls..&]() void {
         calls.* += 1;
     });
     gate..&.call_once([calls = calls..&]() void {
         calls.* += 1;
     });
-    (calls == usize.{1}).should().sum(@loc(), t);
+    (calls == 1usize).should().sum(@loc(), t);
 
     "sync: counter={}, locked={}, once calls={}".fmt(.{
         counter.&.load[SEQ_CST](),

@@ -590,6 +590,10 @@ impl<'a> SemaContext<'a> {
         !matches!(self.sess.runtime_entry, RuntimeEntry::None)
     }
 
+    pub fn test_mode_enabled(&self) -> bool {
+        self.sess.test_mode
+    }
+
     pub fn main_argv_ptr_ty(&mut self) -> TypeId {
         let ptr_u8 = self.type_registry.intern(crate::ty::TypeKind::Pointer {
             is_mut: false,

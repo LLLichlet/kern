@@ -1,4 +1,4 @@
-const BASE = usize.{40};
+const BASE = 40usize;
 
 pub const fn answer() usize {
     return BASE + 2;

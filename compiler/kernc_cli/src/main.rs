@@ -306,6 +306,12 @@ fn parse_args() -> CliAction {
             continue;
         }
         if let Some(value) =
+            consume_long_option_value(&arg, "--test-metadata-output", &mut args, "file")
+        {
+            options.test_metadata_output = Some(value);
+            continue;
+        }
+        if let Some(value) =
             consume_long_option_value(&arg, "--module-root-name", &mut args, "module name")
         {
             options.root_module_name = Some(value);
@@ -431,6 +437,7 @@ fn parse_args() -> CliAction {
             "-g" => options.debug_info = true,
             "-g0" => options.debug_info = false,
             "--emit-llvm" => set_driver_mode(&mut options, DriverMode::EmitLlvmIr, "--emit-llvm"),
+            "--test-mode" => options.test_mode = true,
             "--timings" => options.report_timings = true,
             "--print-link-command" => options.print_link_command = true,
             _ => {

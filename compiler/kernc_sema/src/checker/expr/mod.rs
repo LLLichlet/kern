@@ -49,6 +49,7 @@ pub(crate) struct ExprChecker<'a, 'ctx> {
     pub(crate) current_module_cache: Option<(ScopeId, Option<DefId>)>,
     pub(crate) allow_uninstantiated_generic_function_items: bool,
     pub(crate) touched_expr_nodes: Vec<NodeId>,
+    pub(crate) numeric_literal_exprs: Vec<(NodeId, Span)>,
     pub(crate) touched_bindings: Vec<(ScopeId, SymbolId)>,
     pub(crate) pointer_origin_bindings:
         FastHashMap<(ScopeId, SymbolId), FastHashSet<PointerOrigin>>,
@@ -110,6 +111,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             current_module_cache: None,
             allow_uninstantiated_generic_function_items: false,
             touched_expr_nodes: Vec::new(),
+            numeric_literal_exprs: Vec::new(),
             touched_bindings: Vec::new(),
             pointer_origin_bindings: FastHashMap::default(),
             pointer_origin_exprs: FastHashMap::default(),
@@ -190,8 +192,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     self.collect_pointer_origins(value, out);
                 }
             }
-            ExprKind::Let { init, .. } | ExprKind::Static { init, .. } => {
+            ExprKind::Let { init, .. } => {
                 self.collect_pointer_origins(init, out);
+            }
+            ExprKind::Static { init, .. } => {
+                if let Some(init) = init {
+                    self.collect_pointer_origins(init, out);
+                }
             }
             ExprKind::Closure { captures, .. } => {
                 for capture in captures {
@@ -200,8 +207,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             ExprKind::Identifier(_)
             | ExprKind::Error
-            | ExprKind::Integer(_)
-            | ExprKind::Float(_)
+            | ExprKind::Integer { .. }
+            | ExprKind::Float { .. }
             | ExprKind::Bool(_)
             | ExprKind::Char(_)
             | ExprKind::ByteChar(_)
@@ -467,6 +474,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(crate) fn finalize_numeric_inference(&mut self, ty: TypeId) -> TypeId {
+        self.emit_unresolved_numeric_literal_diagnostics();
         let final_ty = self.materialize_numeric_defaults_in_type(ty);
 
         let touched_expr_nodes = self.touched_expr_nodes.clone();
@@ -570,26 +578,31 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.type_is_integer_like(ty) || self.type_is_float_like(ty)
     }
 
-    fn numeric_default_type(&self, candidates: u16) -> TypeId {
-        [
-            TypeId::I32,
-            TypeId::F64,
-            TypeId::ISIZE,
-            TypeId::USIZE,
-            TypeId::I64,
-            TypeId::U32,
-            TypeId::F32,
-            TypeId::I128,
-            TypeId::U64,
-            TypeId::I16,
-            TypeId::U128,
-            TypeId::U16,
-            TypeId::I8,
-            TypeId::U8,
-        ]
-        .into_iter()
-        .find(|ty| Self::numeric_candidates_for_type(*ty) & candidates != 0)
-        .unwrap_or(TypeId::ERROR)
+    fn emit_unresolved_numeric_literal_diagnostics(&mut self) {
+        let numeric_literal_exprs = self.numeric_literal_exprs.clone();
+        for (node_id, span) in numeric_literal_exprs {
+            let Some(existing_ty) = self.ctx.node_type(node_id) else {
+                continue;
+            };
+            let resolved = self.resolve_tv(existing_ty);
+            let Some(candidates) = self.type_numeric_candidates(resolved) else {
+                continue;
+            };
+            let label = self.format_type_for_diagnostic(resolved);
+            let suffix_hint = if Self::numeric_candidates_have_floats(candidates)
+                && !Self::numeric_candidates_have_integers(candidates)
+            {
+                "write a suffix such as `1.0f32` or add an explicit type context"
+            } else if candidates == Self::NUMERIC_CAND_POINTER_OFFSETS {
+                "write a suffix such as `0usize` or add an explicit pointer-offset context"
+            } else {
+                "write a suffix such as `10i32`, `10u64`, or add an explicit type context"
+            };
+            self.ctx
+                .struct_error(span, format!("cannot infer type for {label}"))
+                .with_hint(suffix_hint)
+                .emit();
+        }
     }
 
     fn materialize_numeric_defaults_in_generic_arg(&mut self, arg: GenericArg) -> GenericArg {
@@ -611,7 +624,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             | TypeKind::Param(_) => resolved,
             TypeKind::TypeVar(vid) => self
                 .numeric_inference_state(vid)
-                .map(|state| self.numeric_default_type(state.candidates))
+                .map(|_| TypeId::ERROR)
                 .unwrap_or(resolved),
             TypeKind::Pointer { is_mut, elem } => {
                 let elem = self.materialize_numeric_defaults_in_type(elem);
@@ -1498,8 +1511,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::Error => TypeId::ERROR,
 
             // === 1. Primitive literals ===
-            ExprKind::Integer(_) => self.check_integer(expr, expected_ty),
-            ExprKind::Float(_) => self.check_float(expr, expected_ty),
+            ExprKind::Integer { suffix, .. } => self.check_integer(expr, *suffix, expected_ty),
+            ExprKind::Float { suffix, .. } => self.check_float(expr, *suffix, expected_ty),
             ExprKind::Bool(_) => TypeId::BOOL,
             ExprKind::Char(_) => TypeId::U32,
             ExprKind::ByteChar(_) => TypeId::U8,
@@ -1531,6 +1544,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             // === 3. Declarations and bindings ===
             ExprKind::Let {
                 pattern,
+                type_node,
                 init,
                 else_clause,
             } => {
@@ -1538,6 +1552,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let ty = self.check_let(
                     expr.id,
                     pattern,
+                    type_node.as_deref(),
                     init,
                     else_clause.as_ref(),
                     expected_ty,
@@ -1546,9 +1561,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.record_expr_timing(started, |stats, elapsed| stats.bindings += elapsed);
                 ty
             }
-            ExprKind::Static { pattern, init, .. } => {
+            ExprKind::Static {
+                pattern,
+                type_node,
+                init,
+                ..
+            } => {
                 let started = self.timing_start();
-                let ty = self.check_static(expr.id, pattern, init, expected_ty, expr.span);
+                let ty = self.check_static(
+                    expr.id,
+                    pattern,
+                    type_node.as_deref(),
+                    init.as_deref(),
+                    expected_ty,
+                    expr.span,
+                );
                 self.record_expr_timing(started, |stats, elapsed| stats.bindings += elapsed);
                 ty
             }
@@ -1804,6 +1831,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let ty = self.maybe_constrain_by_expected_type(ty, expected_ty);
         self.ctx.set_node_type(expr.id, ty);
         self.touched_expr_nodes.push(expr.id);
+        if matches!(
+            expr.kind,
+            ExprKind::Integer { suffix: None, .. } | ExprKind::Float { suffix: None, .. }
+        ) {
+            self.numeric_literal_exprs.push((expr.id, expr.span));
+        }
         ty
     }
 

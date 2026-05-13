@@ -384,11 +384,11 @@ enum Option[T] {
 };
 
 fn main() i32 {
-    let value = i32.{5};
+    let value = 5i32;
 
     {
         let .{ Some: value } = Option[i32].{ Some: 9 } else return 1;
-        if (value != i32.{9}) {
+        if (value != 9i32) {
             return 2;
         }
     }
@@ -417,7 +417,7 @@ enum Result[T, E] {
 };
 
 fn validate(count: u8) Result[u8, i32] {
-    if (count == u8.{0} or count > u8.{64}) {
+    if (count == 0u8 or count > 64u8) {
         return .{ Err: 99 };
     }
     return .{ Ok: count };
@@ -431,7 +431,7 @@ fn keep_valid(count: u8) i32 {
 }
 
 fn main() i32 {
-    return keep_valid(u8.{8});
+    return keep_valid(8u8);
 }
 "#,
     );

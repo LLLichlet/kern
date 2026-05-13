@@ -22,6 +22,6 @@ impl &Id: Derived {
 
 fn main() i32 {
     let id = Id.{};
-    let derived = &Derived.{ id.& };
+    let derived = (id.& as &Derived);
     return derived.make() - 7;
 }

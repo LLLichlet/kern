@@ -162,7 +162,7 @@ good style.
 But when bit width is part of the logic, keep the type visible:
 
 ```kern
-if (byte < u8.{0x20}) { ... }
+if (byte < 0x20u8) { ... }
 ```
 
 This especially applies to byte parsers, masks, shifts, pointer-adjacent code,

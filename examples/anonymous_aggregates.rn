@@ -39,9 +39,9 @@ fn main() i32 {
 
     // Native structs may reorder fields for compact layout; extern structs keep
     // C-compatible layout.
-    (@sizeOf[CLayout]() == usize.{24}).should().sum(@loc(), t);
-    (@sizeOf[NativeLayout]() == usize.{16}).should().sum(@loc(), t);
-    (@sizeOf[struct { tag: u8, value: u64, flag: u16 }]() == usize.{16}).should().sum(@loc(), t);
+    (@sizeOf[CLayout]() == 24usize).should().sum(@loc(), t);
+    (@sizeOf[NativeLayout]() == 16usize).should().sum(@loc(), t);
+    (@sizeOf[struct { tag: u8, value: u64, flag: u16 }]() == 16usize).should().sum(@loc(), t);
 
     let pair = Pair.{ x: 4, y: 5 };
     let word = union { bytes: [4]u8, int: i32 }.{ int: 11 };

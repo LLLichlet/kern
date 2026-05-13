@@ -41,8 +41,12 @@ fn collect_control_facts_expr(
                 }
             }
         }
-        ast::ExprKind::Static { init, .. } => collect_control_facts_expr(init, regions, summary),
-        ast::ExprKind::Error | ast::ExprKind::AnchoredPath { .. } => {}
+        ast::ExprKind::Static {
+            init: Some(init), ..
+        } => collect_control_facts_expr(init, regions, summary),
+        ast::ExprKind::Error
+        | ast::ExprKind::AnchoredPath { .. }
+        | ast::ExprKind::Static { init: None, .. } => {}
         ast::ExprKind::Binary { lhs, rhs, .. } => {
             collect_control_facts_expr(lhs, regions, summary);
             collect_control_facts_expr(rhs, regions, summary);
@@ -209,8 +213,8 @@ fn collect_control_facts_expr(
                 collect_control_facts_expr(&capture.value, regions, summary);
             }
         }
-        ast::ExprKind::Integer(_)
-        | ast::ExprKind::Float(_)
+        ast::ExprKind::Integer { .. }
+        | ast::ExprKind::Float { .. }
         | ast::ExprKind::Bool(_)
         | ast::ExprKind::Char(_)
         | ast::ExprKind::ByteChar(_)

@@ -22,7 +22,7 @@ impl &Id: Derived {
 
 fn main() i32 {
     let id = Id.{};
-    let derived = &Derived.{ id.& };
-    let base = &Base[i32].{ derived };
+    let derived = (id.& as &Derived);
+    let base = (derived as &Base[i32]);
     return base.value() - 7;
 }

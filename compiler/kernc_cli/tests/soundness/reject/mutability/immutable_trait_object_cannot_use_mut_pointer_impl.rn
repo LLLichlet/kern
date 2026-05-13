@@ -24,7 +24,7 @@ impl &mut Cell : Base {
 
 fn main() i32 {
     let mut cell = Cell.{ value: 1 };
-    let obj = &Base.{ cell..& };
+    let obj = (cell..& as &Base);
     obj.set(42);
     return cell.value;
 }

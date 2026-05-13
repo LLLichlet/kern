@@ -1492,7 +1492,7 @@ use base.io.Write;
 
 fn main() i32 {
 let mut out = io.stdout();
-let writer = &mut Write.{ out..& };
+let writer = (out..& as &mut Write);
 let _ = writer.write("built by tool\n");
 return 0;
 }

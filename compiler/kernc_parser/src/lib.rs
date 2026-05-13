@@ -1394,7 +1394,13 @@ type Good = i32;
             panic!("expected subtraction after cast");
         };
         assert_eq!(*op, ast::BinaryOperator::Subtract);
-        assert!(matches!(rhs.kind, ast::ExprKind::Integer(1)));
+        assert!(matches!(
+            rhs.kind,
+            ast::ExprKind::Integer {
+                value: 1,
+                suffix: None
+            }
+        ));
 
         let ast::ExprKind::As { lhs: cast_lhs, .. } = &lhs.kind else {
             panic!("expected cast on the unary prefix result");

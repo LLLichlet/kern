@@ -126,6 +126,19 @@ pub(super) fn metadata_path(
         .join(package_dir_name(package_id))
 }
 
+pub(super) fn test_metadata_path(
+    workspace_root: &Path,
+    domain: BuildDomain,
+    package_id: &PackageId,
+    profile: &str,
+    artifact_name: &str,
+) -> PathBuf {
+    workspace_build_root(workspace_root, profile, domain)
+        .join("test")
+        .join(package_dir_name(package_id))
+        .join(format!("{artifact_name}.cases"))
+}
+
 fn package_dir_name(package_id: &PackageId) -> String {
     format!("{}-{}", package_id.name, package_id.version)
 }

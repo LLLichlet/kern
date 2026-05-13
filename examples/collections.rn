@@ -32,7 +32,7 @@ fn main() i32 {
     let found = list.position([](value: i32) bool {
         return value == 2;
     }).should_some().sum(@loc(), t);
-    (found == usize.{1}).should().sum(@loc(), t);
+    (found == 1usize).should().sum(@loc(), t);
 
     "collections: len={}, middle index={}".fmt(.{list.len(), found}).println();
     return 0;

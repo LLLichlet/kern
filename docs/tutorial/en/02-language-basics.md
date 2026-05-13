@@ -47,17 +47,17 @@ y += 1;
 One important Kern pattern is "type provider plus initializer body":
 
 ```kern
-let mut value = i32.{10};
+let mut value = 10i32;
 value = 11;
 ```
 
-`i32.{10}` means: construct the value `10` with `i32` as the explicit type
+`10i32` means: construct the value `10` with `i32` as the explicit type
 source. It is not a suffix, and it is not an implicit conversion from an
 untyped value. It shares the same initialization syntax as other Kern values:
 
 ```kern
-let byte = u8.{0xff};
-let size = usize.{1024};
+let byte = 0xffu8;
+let size = 1024usize;
 
 struct Point {
     x: i32,
@@ -81,8 +81,8 @@ When width, ABI, bit pattern, or pointer-adjacent logic matters, keep the type
 provider:
 
 ```kern
-let mask = u8.{0xff};
-let null = usize.{0};
+let mask = 0xffu8;
+let null = 0usize;
 ```
 
 `mut` applies to the storage location, not to the type itself. `let mut value`
@@ -90,7 +90,7 @@ means this local storage can be reassigned or modified in place. It does not
 upgrade every pointer or slice derived from that storage into writable access.
 
 ```kern
-let mut value = i32.{10};
+let mut value = 10i32;
 
 let ptr = value..&;
 ptr.* = 12;
@@ -116,8 +116,8 @@ the use site determine the type. When the type is part of the meaning, keep the
 type provider:
 
 ```kern
-let byte = u8.{0xff};
-let max = usize.{1024};
+let byte = 0xffu8;
+let max = 1024usize;
 ```
 
 ## Strings And Bytes

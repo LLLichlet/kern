@@ -14,7 +14,7 @@ impl[N: usize] &X: Base[N] {
 }
 
 fn use_it[N: usize](x: &X) i32 {
-    let view = &Base[N].{ x };
+    let view = (x as &Base[N]);
     return view.value();
 }
 

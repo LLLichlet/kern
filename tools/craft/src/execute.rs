@@ -404,6 +404,9 @@ fn build_compile_action_if_needed(
     if let Some(metadata_path) = &action.metadata_path {
         ensure_parent_dir(&metadata_path.join(KMETA_MANIFEST_FILE))?;
     }
+    if let Some(test_metadata_path) = &action.test_metadata_path {
+        ensure_parent_dir(test_metadata_path)?;
+    }
 
     let emit_multi_linker_input_dir = options.emit_multi_linker_input_dir;
     let emits_linker_input = options.driver_mode.emits_linker_input();

@@ -28,10 +28,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::ExprKind::Error => {}
             ast::ExprKind::Let {
                 pattern,
+                type_node,
                 init,
                 else_clause,
             } => {
                 self.resolve_pattern(&pattern.pattern, scope);
+                if let Some(type_node) = type_node {
+                    self.resolve_type(type_node, scope);
+                }
                 self.resolve_expr(init, scope);
                 if let Some(else_clause) = else_clause {
                     match else_clause {
@@ -45,8 +49,15 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     }
                 }
             }
-            ast::ExprKind::Static { init, .. } => {
-                self.resolve_expr(init, scope);
+            ast::ExprKind::Static {
+                type_node, init, ..
+            } => {
+                if let Some(type_node) = type_node {
+                    self.resolve_type(type_node, scope);
+                }
+                if let Some(init) = init {
+                    self.resolve_expr(init, scope);
+                }
             }
             ast::ExprKind::Grouped { expr: inner } => {
                 self.resolve_expr(inner, scope);

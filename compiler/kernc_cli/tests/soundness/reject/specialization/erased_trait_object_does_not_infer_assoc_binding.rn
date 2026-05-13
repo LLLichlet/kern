@@ -25,5 +25,5 @@ fn take[T](value: &Base[4, Out = T]) T {
 
 fn main() i32 {
     let x = X.{};
-    return (take(erase(&Base[4].{ x.& })) as i32) - 7;
+    return (take(erase((x.& as &Base[4]))) as i32) - 7;
 }

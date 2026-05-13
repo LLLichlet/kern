@@ -17,6 +17,6 @@ impl &X: Derived {}
 
 fn main() i32 {
     let x = X.{};
-    let derived = &Derived.{ x.& };
+    let derived = (x.& as &Derived);
     return derived.value() - 7;
 }

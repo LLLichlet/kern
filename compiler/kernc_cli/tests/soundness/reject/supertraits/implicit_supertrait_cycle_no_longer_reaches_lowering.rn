@@ -16,8 +16,8 @@ impl &X: A {}
 
 fn main() i32 {
     let x = X.{};
-    let a = &A.{ x.& };
-    let b = &B.{ a };
+    let a = (x.& as &A);
+    let b = (a as &B);
     _ = b;
     return 0;
 }

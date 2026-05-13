@@ -33,9 +33,9 @@ fn takes_base(x: &Base[Wrap[i32]]) i32 {
 }
 
 fn main() i32 {
-    let value = i32.{5};
-    let derived = &Derived[i32].{ value.& };
-    let base = &Base[Wrap[i32]].{ derived };
+    let value = 5i32;
+    let derived = (value.& as &Derived[i32]);
+    let base = (derived as &Base[Wrap[i32]]);
     if (base.get().inner + takes_base(derived) + derived.bonus(4) == 19) {
         return 0;
     }
@@ -75,8 +75,8 @@ impl &X: Base[4] {
 
 fn main() i32 {
     let x = X.{};
-    let derived = &Derived[4].{ x.& };
-    let base = &Base[4].{ derived };
+    let derived = (x.& as &Derived[4]);
+    let base = (derived as &Base[4]);
     return base.value() - 7;
 }
 "#,
@@ -112,7 +112,7 @@ impl[N: usize] &X: Base[N] {
 
 fn main() i32 {
     let x = X.{};
-    let derived = &Derived[4].{ x.& };
+    let derived = (x.& as &Derived[4]);
     return derived.value() - 4;
 }
 "#,
@@ -231,7 +231,7 @@ impl[N: usize] &Data: RichCheck[N]
 }
 
 fn via_object(value: &Data) i32 {
-    let rich = &RichCheck[4].{ value };
+    let rich = (value as &RichCheck[4]);
     return rich.prove() + rich.width();
 }
 
@@ -272,7 +272,7 @@ impl &X: A[i32] {
 
 fn main() i32 {
     let x = X.{};
-    let a = &A[i32].{ x.& };
+    let a = (x.& as &A[i32]);
     return a.value();
 }
 "#,
@@ -335,7 +335,7 @@ impl &X: B[Wrap[i32]] {
 
 fn main() i32 {
     let x = X.{};
-    let a = &A[i32].{ x.& };
+    let a = (x.& as &A[i32]);
     return a.a();
 }
 "#,

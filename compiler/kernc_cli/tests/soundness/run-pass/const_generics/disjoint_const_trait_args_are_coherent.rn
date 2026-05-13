@@ -22,6 +22,6 @@ impl &X: Marker[2] {
 
 fn main() i32 {
     let x = X.{};
-    let marker = &Marker[2].{ x.& };
+    let marker = (x.& as &Marker[2]);
     return marker.value() - 2;
 }

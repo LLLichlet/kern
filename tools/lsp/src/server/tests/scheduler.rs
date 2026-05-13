@@ -358,7 +358,7 @@ fn did_save_is_an_explicit_scheduler_drain_boundary() {
 #[test]
 fn interactive_requests_do_not_auto_drain_deferred_diagnostics() {
     let mut state = initialized_state();
-    let invalid_source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+    let invalid_source = "fn main() i32 {\n    let value = 1i32\n    return value;\n}\n";
     let uri = temp_file_uri("server_deferred_diagnostics_interactive", invalid_source);
 
     let _ = dispatch_messages(&mut state, did_open_message(&uri, invalid_source, 1));
@@ -366,7 +366,7 @@ fn interactive_requests_do_not_auto_drain_deferred_diagnostics() {
         &mut state,
         did_change_message(
             &uri,
-            "fn main() i32 {\n    let value = i32.{2}\n    return value;\n}\n",
+            "fn main() i32 {\n    let value = 2i32\n    return value;\n}\n",
             2,
         ),
     );

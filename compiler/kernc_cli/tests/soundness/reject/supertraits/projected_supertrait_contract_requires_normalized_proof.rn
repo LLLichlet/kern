@@ -19,6 +19,6 @@ impl &X: Derived[&X] {}
 
 fn main() i32 {
     let x = X.{};
-    _ = &Derived[&X].{ x.& };
+    _ = (x.& as &Derived[&X]);
     return 0;
 }

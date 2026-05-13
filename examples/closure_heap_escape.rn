@@ -23,7 +23,7 @@ fn create_heap_closure(alloc: &mut Allocator, factor: i32) StoredClosure {
 
     heap_raw.* = stack_closure;
     return .{
-        callback: &Fn(i32) i32.{ heap_raw },
+        callback: (heap_raw as &Fn(i32) i32),
         layout: layout,
     };
 }

@@ -16,6 +16,6 @@ impl[N: usize] &X: Score[N] {
 
 fn main() i32 {
     let x = X.{};
-    let score = &Score[4].{ x.& };
+    let score = (x.& as &Score[4]);
     return score.value() - 4;
 }

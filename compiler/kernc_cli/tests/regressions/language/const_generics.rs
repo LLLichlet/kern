@@ -393,7 +393,7 @@ fn take(value: X.HasOut[4].Out) i32 {
 }
 
 fn main() i32 {
-    return take(i64.{7});
+    return take(7i64);
 }
 "#,
     );
@@ -435,9 +435,9 @@ impl &X: Factory[4] {
 
 fn main() i32 {
     let x = X.{};
-    let factory = &Factory[4, Out = i64].{ x.& };
+    let factory = (x.& as &Factory[4, Out = i64]);
     let value = factory.make();
-    if (value != i64.{9}) {
+    if (value != 9i64) {
         return 1;
     }
     return 0;

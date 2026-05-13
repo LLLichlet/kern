@@ -18,7 +18,7 @@ impl &X: Base[4] {
 }
 
 fn make(ptr: &X) &Derived[4] {
-    return &Derived[4].{ ptr };
+    return (ptr as &Derived[4]);
 }
 
 fn take(cb: &Fn(&X) &Base[4]) i32 {

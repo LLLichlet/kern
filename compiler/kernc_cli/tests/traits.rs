@@ -23,7 +23,7 @@ fn use_it[T](x: &T) i32
 }
 
 fn main() i32 {
-    let v = i32.{1};
+    let v = 1i32;
     return use_it(v.&);
 }
 "#,
@@ -48,8 +48,8 @@ impl &i32 : Base { pub fn foo() i32 { return self.*; } }
 impl &i32 : Derived { pub fn bar() i32 { return self.* + 1; } }
 
 fn main() i32 {
-    let v = i32.{3};
-    let d = &Derived.{ v.& };
+    let v = 3i32;
+    let d = (v.& as &Derived);
     return d.foo() + d.bar();
 }
 "#,
@@ -64,7 +64,7 @@ fn main() i32 {
 }
 
 #[test]
-fn compiles_trait_object_from_concrete_pointer_via_constructor_and_bnc() {
+fn compiles_trait_object_from_concrete_pointer_via_as_and_bnc() {
     let output = compile_source(
         r#"
 trait Base { fn foo() i32; };
@@ -78,8 +78,8 @@ fn takes_base(x: &Base) i32 {
 }
 
 fn main() i32 {
-    let v = i32.{3};
-    let explicit = &Base.{ v.& };
+    let v = 3i32;
+    let explicit = (v.& as &Base);
     return explicit.foo() + takes_base(v.&);
 }
 "#,
@@ -94,7 +94,7 @@ fn main() i32 {
 }
 
 #[test]
-fn compiles_trait_object_upcast_via_explicit_constructor_and_bnc() {
+fn compiles_trait_object_upcast_via_as_and_bnc() {
     let output = compile_source(
         r#"
 trait Base { fn foo() i32; };
@@ -108,9 +108,9 @@ fn takes_base(x: &Base) i32 {
 }
 
 fn main() i32 {
-    let v = i32.{3};
-    let d = &Derived.{ v.& };
-    let b = &Base.{ d };
+    let v = 3i32;
+    let d = (v.& as &Derived);
+    let b = (d as &Base);
     return b.foo() + takes_base(d) + d.bar();
 }
 "#,
@@ -145,10 +145,10 @@ fn takes_b(x: &B) i32 {
 }
 
 fn main() i32 {
-    let v = i32.{3};
-    let c = &C.{ v.& };
-    let a = &A.{ c };
-    let b = &B.{ c };
+    let v = 3i32;
+    let c = (v.& as &C);
+    let a = (c as &A);
+    let b = (c as &B);
     return a.a() + b.b() + c.c() + takes_a(c) + takes_b(c);
 }
 "#,
@@ -182,9 +182,9 @@ fn takes_base(x: &Base[i32]) i32 {
 }
 
 fn main() i32 {
-    let v = i32.{3};
-    let d = &Derived[i32].{ v.& };
-    let b = &Base[i32].{ d };
+    let v = 3i32;
+    let d = (v.& as &Derived[i32]);
+    let b = (d as &Base[i32]);
     return b.get() + takes_base(d) + d.add(5);
 }
 "#,
@@ -211,8 +211,8 @@ impl &i32 : B { pub fn foo() i32 { return self.* + 10; } }
 impl &i32 : C {}
 
 fn main() i32 {
-    let v = i32.{3};
-    let c = &C.{ v.& };
+    let v = 3i32;
+    let c = (v.& as &C);
     return c.foo();
 }
 "#,
@@ -249,8 +249,8 @@ impl &i32 : Right {}
 impl &i32 : Both {}
 
 fn main() i32 {
-    let v = i32.{3};
-    let both = &Both.{ v.& };
+    let v = 3i32;
+    let both = (v.& as &Both);
     return both.get();
 }
 "#,
@@ -374,7 +374,7 @@ fn use_it[T](x: &T) i32
 }
 
 fn main() i32 {
-    let v = i32.{3};
+    let v = 3i32;
     return use_it(v.&);
 }
 "#,
@@ -419,8 +419,8 @@ fn classify[T](lhs: T, rhs: T) i32
 }
 
 fn main() i32 {
-    let a = i32.{3};
-    let b = i32.{7};
+    let a = 3i32;
+    let b = 7i32;
     let c = bool.{true};
     let d = bool.{false};
     return classify(a, b) + classify(c, d);
@@ -762,7 +762,7 @@ fn pointer_tag[T](x: &T) i32
 }
 
 fn main() i32 {
-    let value = i32.{7};
+    let value = 7i32;
     let _ = value_tag(value);
     let _ = pointer_tag(value.&);
     return 0;
@@ -1076,12 +1076,12 @@ fn runs_eq_methods_inside_test_assertion_chains() {
         r#"
 use base.coll.{list, string};
 use base.mem.alloc.gpa;
-use base.test;
+use base.test.{report};
 use std.io;
 use std.mem.page;
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
     let page = page()..&;
     let gpa = gpa().on(page)..&;
 
@@ -1606,8 +1606,8 @@ fn count_bits[T](value: T) T
 }
 
 fn main() i32 {
-    let count = count_bits(u32.{240});
-    if (count != u32.{4}) {
+    let count = count_bits(240u32);
+    if (count != 4u32) {
         return 1;
     }
     return 0;
@@ -1764,10 +1764,10 @@ fn unsigned_id[T](value: T) T
 }
 
 fn main() i32 {
-    if (signed_id(i32.{7}) != i32.{7}) {
+    if (signed_id(7i32) != 7i32) {
         return 1;
     }
-    if (unsigned_id(u32.{9}) != u32.{9}) {
+    if (unsigned_id(9u32) != 9u32) {
         return 2;
     }
     return 0;
@@ -1795,7 +1795,7 @@ fn signed_id[T](value: T) T
 }
 
 fn main() i32 {
-    let _ = signed_id(u32.{1});
+    let _ = signed_id(1u32);
     return 0;
 }
 "#,
@@ -1858,7 +1858,7 @@ fn mark(counter: &mut i32, value: bool) bool {
 }
 
 fn main() i32 {
-    let mut calls = i32.{0};
+    let mut calls = 0i32;
 
     if (false and mark(calls..&, true)) {
         return 1;
@@ -1999,7 +1999,7 @@ impl Vec2 : Bump[i32] {
 fn plus_one[T](value: T) T.Bump[i32].Out
     where T: Bump[i32],
 {
-    return value.bump(i32.{1});
+    return value.bump(1i32);
 }
 
 fn main() i32 {

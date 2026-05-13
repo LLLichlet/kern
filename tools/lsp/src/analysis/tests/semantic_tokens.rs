@@ -225,8 +225,8 @@ fn lexical_semantic_tokens_classify_full_impl_target_name() {
 fn semantic_tokens_prefer_symbol_kinds_and_modifiers_for_references() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "const LIMIT = i32.{5};\n",
-        "static mut TOTAL = i32.{0};\n",
+        "const LIMIT = 5i32;\n",
+        "static mut TOTAL = 0i32;\n",
         "struct Counter { value: i32 }\n",
         "impl Counter {\n",
         "    fn get() i32 {\n",
@@ -284,7 +284,7 @@ fn semantic_tokens_classify_enum_variant_references() {
     let source = concat!(
         "enum Result { Ok: i32, Err }\n",
         "fn main() i32 {\n",
-        "    let value = Result.{ Ok: i32.{1} };\n",
+        "    let value = Result.{ Ok: 1i32 };\n",
         "    let other = Result.Err;\n",
         "    let _ = value;\n",
         "    let _ = other;\n",

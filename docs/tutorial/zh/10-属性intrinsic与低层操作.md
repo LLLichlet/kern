@@ -154,7 +154,7 @@ Kern 把 MMIO / 固定地址访问建模为一类显式指针：
 它们仍然是普通值，可以保存、传递、比较、显式转换成整数地址，也可以从整数地址显式转换回来。特殊之处在于：对 `^T` / `^mut T` 的 `.*` 解引用会生成 volatile load / store。
 
 ```kern
-const UART_DR = usize.{0x1000_0000};
+const UART_DR = 0x1000_0000usize;
 
 fn read_data() u32 {
     let reg = UART_DR as ^u32;
@@ -193,7 +193,7 @@ let current = counter.&.load[ACQUIRE]();
 底层 intrinsic 要求显式 memory ordering：
 
 ```kern
-let mut raw_counter = usize.{1};
+let mut raw_counter = 1usize;
 let value = @atomicLoad[usize](raw_counter.&, SEQ_CST);
 ```
 
@@ -274,7 +274,7 @@ fn first_non_space(chunk: &u8) usize {
 
     let non_spaces = @simdBitmask(!spaces);
     if (non_spaces == 0) {
-        return usize.{16};
+        return 16usize;
     }
     return @ctz(non_spaces);
 }
@@ -332,7 +332,7 @@ fn outb(port: u16, value: u8) void {
 
 ```kern
 fn syscall1_raw(sys_num: usize, arg1: usize) isize {
-    let mut ret = isize.{undef};
+    let mut ret: isize = undef;
 
     @asm(.{
         asm: "syscall",

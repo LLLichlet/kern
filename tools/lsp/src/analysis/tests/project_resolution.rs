@@ -639,7 +639,7 @@ pub fn build(b: &mut builder.Builder) void {
     let main = b.stage_copy_package_file(\"src/main.rn\", \"src/main.rn\");
     let _ = b.stage_generated(
         \"src/build_info.rn\",
-        \"pub const MAGIC_NUMBER = i32.{42};\\n\"
+        \"pub const MAGIC_NUMBER = 42i32;\\n\"
     );
     b.set_source_root_from(main);
     b.cfg_bool(\"generated\", true);

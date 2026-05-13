@@ -2,6 +2,7 @@ use crate::error::{Error, Result};
 use crate::graph::{DependencyKind, PackageId};
 use crate::manifest::{DependencySpec, DetailedDependency, Manifest, ResourceSpec};
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,11 +69,11 @@ impl PackagePlan {
                 root: target.root.clone(),
             });
         }
-        for target in &manifest.test {
+        for target in resolve_test_targets(manifest_path, manifest)? {
             targets.push(TargetPlan {
                 kind: TargetKind::Test,
-                name: Some(target.name.clone()),
-                root: target.root.clone(),
+                name: Some(target.name),
+                root: target.root,
             });
         }
         for target in &manifest.example {
@@ -350,6 +351,125 @@ fn test_target_name(root: &str) -> Result<String> {
     normalize_non_empty(name.to_string(), "test target name")
 }
 
+fn resolve_test_targets(
+    manifest_path: &Path,
+    manifest: &Manifest,
+) -> Result<Vec<crate::manifest::NamedTarget>> {
+    let package_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let roots = if manifest.test_roots_explicit {
+        manifest
+            .test
+            .iter()
+            .map(|target| target.root.as_str())
+            .collect()
+    } else {
+        vec!["tests/*.rn"]
+    };
+
+    let mut targets = Vec::new();
+    for root in roots {
+        if contains_glob_pattern(root) {
+            targets.extend(expand_test_root_glob(manifest_path, package_root, root)?);
+        } else if manifest.test_roots_explicit || package_root.join(root).is_file() {
+            targets.push(named_test_target(root)?);
+        }
+    }
+
+    validate_unique_test_targets(manifest_path, &targets)?;
+    Ok(targets)
+}
+
+fn named_test_target(root: &str) -> Result<crate::manifest::NamedTarget> {
+    Ok(crate::manifest::NamedTarget {
+        name: test_target_name(root)?,
+        root: root.to_string(),
+    })
+}
+
+fn expand_test_root_glob(
+    manifest_path: &Path,
+    package_root: &Path,
+    pattern: &str,
+) -> Result<Vec<crate::manifest::NamedTarget>> {
+    let Some(prefix) = pattern.strip_suffix("*.rn") else {
+        return Err(Error::Validation {
+            path: manifest_path.to_path_buf(),
+            message: format!("[test].roots supports only direct `*.rn` globs, found `{pattern}`"),
+        });
+    };
+    if contains_glob_pattern(prefix) {
+        return Err(Error::Validation {
+            path: manifest_path.to_path_buf(),
+            message: format!(
+                "[test].roots supports only one direct `*.rn` glob segment, found `{pattern}`"
+            ),
+        });
+    }
+
+    let dir = prefix.strip_suffix('/').unwrap_or(prefix);
+    let dir_path = if dir.is_empty() {
+        package_root.to_path_buf()
+    } else {
+        package_root.join(dir)
+    };
+    if !dir_path.exists() {
+        return Ok(Vec::new());
+    }
+    if !dir_path.is_dir() {
+        return Err(Error::Validation {
+            path: manifest_path.to_path_buf(),
+            message: format!("[test].roots glob prefix `{dir}` is not a directory"),
+        });
+    }
+
+    let mut roots = Vec::new();
+    for entry in fs::read_dir(&dir_path).map_err(|err| Error::from_io(&dir_path, err))? {
+        let entry = entry.map_err(Error::from_io_plain)?;
+        let file_type = entry.file_type().map_err(Error::from_io_plain)?;
+        if !file_type.is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rn") {
+            continue;
+        }
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            return Err(Error::Validation {
+                path: manifest_path.to_path_buf(),
+                message: format!("[test].roots glob `{pattern}` matched a non-UTF-8 file name"),
+            });
+        };
+        let root = if dir.is_empty() {
+            file_name.to_string()
+        } else {
+            format!("{dir}/{file_name}")
+        };
+        roots.push(named_test_target(&root)?);
+    }
+    roots.sort_by(|lhs, rhs| lhs.root.cmp(&rhs.root));
+    Ok(roots)
+}
+
+fn validate_unique_test_targets(
+    manifest_path: &Path,
+    targets: &[crate::manifest::NamedTarget],
+) -> Result<()> {
+    let mut names = std::collections::BTreeSet::new();
+    for target in targets {
+        if !names.insert(target.name.as_str()) {
+            return Err(Error::Validation {
+                path: manifest_path.to_path_buf(),
+                message: format!("duplicate file stem `{}` in [test].roots", target.name),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn contains_glob_pattern(path: &str) -> bool {
+    path.contains('*') || path.contains('?') || path.contains('[')
+}
+
 fn promote_dependency_spec(spec: &mut DependencySpec) -> &mut DetailedDependency {
     if let DependencySpec::Version(version) = spec.clone() {
         *spec = DependencySpec::Detailed(DetailedDependency {
@@ -369,7 +489,9 @@ mod tests {
     use super::{PackagePlan, PlanValue, TargetKind};
     use crate::graph::{DependencyKind, PackageId, SourceId};
     use crate::manifest::{DependencySpec, Manifest};
+    use std::fs;
     use std::path::Path;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn package_id() -> PackageId {
         PackageId {
@@ -377,6 +499,16 @@ mod tests {
             version: "0.1.0".to_string(),
             source: SourceId::Root,
         }
+    }
+
+    fn temp_dir(prefix: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
     }
 
     #[test]
@@ -487,6 +619,189 @@ kern = "0.7.5"
         assert!(plan.remove_target(TargetKind::Bin, Some("demo")));
         assert_eq!(plan.target_count(), 1);
         assert!(!plan.remove_target(TargetKind::Bin, Some("demo")));
+    }
+
+    #[test]
+    fn defaults_test_targets_from_direct_tests_directory_files() {
+        let root = temp_dir("craft-plan-default-tests");
+        fs::create_dir_all(root.join("tests/parser")).unwrap();
+        fs::write(root.join("Craft.toml"), "").unwrap();
+        fs::write(root.join("tests/alpha.rn"), "").unwrap();
+        fs::write(root.join("tests/beta.rn"), "").unwrap();
+        fs::write(root.join("tests/helper.txt"), "").unwrap();
+        fs::write(root.join("tests/parser/detail.rn"), "").unwrap();
+
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+"#,
+            &root.join("Craft.toml"),
+        )
+        .unwrap();
+        let plan =
+            PackagePlan::from_manifest(&root.join("Craft.toml"), &package_id(), &manifest).unwrap();
+
+        let tests = plan
+            .targets
+            .iter()
+            .filter(|target| target.kind == TargetKind::Test)
+            .map(|target| (target.name.as_deref(), target.root.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            tests,
+            vec![
+                (Some("alpha"), "tests/alpha.rn"),
+                (Some("beta"), "tests/beta.rn"),
+            ]
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn explicit_empty_test_roots_disable_default_discovery() {
+        let root = temp_dir("craft-plan-empty-tests");
+        fs::create_dir_all(root.join("tests")).unwrap();
+        fs::write(root.join("Craft.toml"), "").unwrap();
+        fs::write(root.join("tests/smoke.rn"), "").unwrap();
+
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[test]
+roots = []
+"#,
+            &root.join("Craft.toml"),
+        )
+        .unwrap();
+        let plan =
+            PackagePlan::from_manifest(&root.join("Craft.toml"), &package_id(), &manifest).unwrap();
+
+        assert!(
+            plan.targets
+                .iter()
+                .all(|target| target.kind != TargetKind::Test)
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn explicit_test_root_globs_expand_direct_rn_files() {
+        let root = temp_dir("craft-plan-glob-tests");
+        fs::create_dir_all(root.join("integration")).unwrap();
+        fs::write(root.join("Craft.toml"), "").unwrap();
+        fs::write(root.join("integration/boot.rn"), "").unwrap();
+        fs::write(root.join("integration/pci.rn"), "").unwrap();
+
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[test]
+roots = ["integration/*.rn"]
+"#,
+            &root.join("Craft.toml"),
+        )
+        .unwrap();
+        let plan =
+            PackagePlan::from_manifest(&root.join("Craft.toml"), &package_id(), &manifest).unwrap();
+
+        let tests = plan
+            .targets
+            .iter()
+            .filter(|target| target.kind == TargetKind::Test)
+            .map(|target| (target.name.as_deref(), target.root.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            tests,
+            vec![
+                (Some("boot"), "integration/boot.rn"),
+                (Some("pci"), "integration/pci.rn"),
+            ]
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn explicit_multiple_test_root_globs_expand_together() {
+        let root = temp_dir("craft-plan-multiple-glob-tests");
+        fs::create_dir_all(root.join("tests")).unwrap();
+        fs::create_dir_all(root.join("integration")).unwrap();
+        fs::write(root.join("Craft.toml"), "").unwrap();
+        fs::write(root.join("tests/parser.rn"), "").unwrap();
+        fs::write(root.join("integration/boot.rn"), "").unwrap();
+
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[test]
+roots = ["tests/*.rn", "integration/*.rn"]
+"#,
+            &root.join("Craft.toml"),
+        )
+        .unwrap();
+        let plan =
+            PackagePlan::from_manifest(&root.join("Craft.toml"), &package_id(), &manifest).unwrap();
+
+        let tests = plan
+            .targets
+            .iter()
+            .filter(|target| target.kind == TargetKind::Test)
+            .map(|target| (target.name.as_deref(), target.root.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            tests,
+            vec![
+                (Some("parser"), "tests/parser.rn"),
+                (Some("boot"), "integration/boot.rn"),
+            ]
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_recursive_test_root_globs() {
+        let root = temp_dir("craft-plan-recursive-glob-tests");
+        fs::write(root.join("Craft.toml"), "").unwrap();
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[test]
+roots = ["tests/**/*.rn"]
+"#,
+            &root.join("Craft.toml"),
+        )
+        .unwrap();
+
+        let err = PackagePlan::from_manifest(&root.join("Craft.toml"), &package_id(), &manifest)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("[test].roots supports only"),
+            "unexpected error: {err}"
+        );
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

@@ -63,9 +63,10 @@ pub enum DeclKind {
         is_variadic: bool,
     },
 
-    /// `const x = ...` or `static x = ...`
+    /// `const x = ...`, `const x: T = ...`, `static x = ...`, or `extern static x: T;`
     Var {
-        value: Expr,
+        type_node: Option<Box<TypeNode>>,
+        value: Option<Expr>,
         is_static: bool,
         is_extern: bool,
         is_mut: bool,

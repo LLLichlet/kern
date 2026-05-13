@@ -814,7 +814,7 @@ fn use_it[T](value: &T) i32
 }
 
 fn main() i32 {
-    let value = i32.{5};
+    let value = 5i32;
     return use_it(value.&);
 }
 "#,

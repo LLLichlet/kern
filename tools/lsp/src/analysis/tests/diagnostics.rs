@@ -352,7 +352,7 @@ fn diagnostics_expose_structured_code_for_nonexhaustive_match() {
 fn diagnostics_warn_for_unreachable_private_item_chain() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "const leaf = i32.{1};\n",
+        "const leaf = 1i32;\n",
         "fn helper() i32 { return leaf; }\n",
         "fn main() i32 { return 0; }\n",
     );

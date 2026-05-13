@@ -4,7 +4,7 @@ fn rejects_returning_capturing_closure_as_fn_pointer() {
     let output = compile_source(
         r#"
 fn make() &Fn(i32) i32 {
-    let base = i32.{7};
+    let base = 7i32;
     return [base](x: i32) i32 {
         return x + base;
     };
@@ -47,7 +47,7 @@ fn rejects_trailing_capturing_closure_tail_as_fn_pointer() {
     let output = compile_source(
         r#"
 fn make() &Fn(i32) i32 {
-    let base = i32.{7};
+    let base = 7i32;
     [base](x: i32) i32 {
         return x + base;
     }
@@ -147,7 +147,7 @@ fn use_mut_closure(cb: &mut Fn() void) void {
 }
 
 fn main() i32 {
-    let mut calls = i32.{0};
+    let mut calls = 0i32;
     let value = use_closure([ptr = calls..&]() i32 {
         ptr.* += 1;
         return 77;
@@ -159,7 +159,7 @@ fn main() i32 {
         return 2;
     }
 
-    let mut counter = i32.{0};
+    let mut counter = 0i32;
     let mut closure = [ptr = counter..&]() void {
         ptr.* += 1;
     };
@@ -205,7 +205,7 @@ impl &Buf[4]: Score {
 
 fn main() i32 {
     let buf = Buf[4].{};
-    let score = &Score.{ buf.& };
+    let score = (buf.& as &Score);
     return score.value() - 2;
 }
 "#,
@@ -243,7 +243,7 @@ impl &X: Score[4] {
 
 fn main() i32 {
     let x = X.{};
-    let score = &Score[4].{ x.& };
+    let score = (x.& as &Score[4]);
     return score.value() - 2;
 }
 "#,
@@ -318,7 +318,7 @@ impl[N: usize] &X: Score[N] {
 
 fn main() i32 {
     let x = X.{};
-    let score = &Score[4].{ x.& };
+    let score = (x.& as &Score[4]);
     return score.value() - 4;
 }
 "#,
@@ -495,7 +495,7 @@ fn compiles_single_element_array_literals_without_trailing_comma() {
 static STATIC_ONE = [1]u8.{ 7 };
 
 fn take(values: [1]u8) i32 {
-    if (values.[0] != u8.{ 9 }) {
+    if (values.[0] != 9u8) {
         return 1;
     }
     return 0;
@@ -503,10 +503,10 @@ fn take(values: [1]u8) i32 {
 
 fn main() i32 {
     let typed = [1]u8.{ 8 };
-    if (STATIC_ONE.[0] != u8.{ 7 }) {
+    if (STATIC_ONE.[0] != 7u8) {
         return 2;
     }
-    if (typed.[0] != u8.{ 8 }) {
+    if (typed.[0] != 8u8) {
         return 3;
     }
     return take(.{ 9 });
@@ -530,7 +530,7 @@ struct Write {
     serial: bool,
 };
 
-static mut SELECTED = 0 as &mut Write;
+static mut SELECTED = 0usize as &mut Write;
 
 fn init() void {
     static mut main_writer = Write.{ serial: false };
@@ -575,7 +575,7 @@ impl &mut Guard {
 }
 
 fn read_before_defer() i32 {
-    let mut state = i32.{1};
+    let mut state = 1i32;
     let mut guard = Guard.{ ptr: state..& };
     defer guard..&.deinit();
     return state;
@@ -614,7 +614,7 @@ impl &mut Guard {
 
 fn read_block_before_defer() i32 {
     return {
-        let mut state = i32.{1};
+        let mut state = 1i32;
         let mut guard = Guard.{ ptr: state..& };
         defer guard..&.deinit();
         state
@@ -654,16 +654,16 @@ impl &mut Push {
 }
 
 fn main() i32 {
-    let mut state = i32.{0};
+    let mut state = 0i32;
     let value = {
         let mut first = Push.{ ptr: state..&, digit: 1 };
         let mut second = Push.{ ptr: state..&, digit: 2 };
         defer first..&.deinit();
         defer second..&.deinit();
-        7
+        7i32
     };
 
-    if (value != 7) {
+    if (value != 7i32) {
         return 1;
     }
     if (state != 21) {
@@ -699,7 +699,7 @@ fn main() i32 {
     let _ = match (fail()) {
         .{ Ok: v } => v,
         .{ Err: _err } => {
-            let _ = i32.{0};
+            let _ = 0i32;
             return 0;
         },
     };
@@ -748,8 +748,8 @@ fn expect_ok[T, E](value: Result[T, E]) T {
     match (value) {
         .{ Ok: payload } => return payload,
         .{ Err: _ } => {
-            return match (0) {
-                0 => @trap(),
+            return match (0i32) {
+                0i32 => @trap(),
                 _ => @trap(),
             };
         },
@@ -921,7 +921,7 @@ fn store(ptr: &mut usize) void {
 }
 
 fn main() i32 {
-    let mut value = usize.{0};
+    let mut value = 0usize;
     store(value..&);
     return 0;
 }
@@ -937,15 +937,15 @@ fn runs_while_loop_after_explicit_init_and_post_statements() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let mut phase = i32.{0};
+    let mut phase = 0i32;
 
-    phase += i32.{2};
-    while (phase < i32.{3}) {
-        phase += i32.{1};
-        phase += i32.{10};
+    phase += 2i32;
+    while (phase < 3i32) {
+        phase += 1i32;
+        phase += 10i32;
     }
 
-    return phase - i32.{13};
+    return phase - 13i32;
 }
 "#,
     );
@@ -963,21 +963,21 @@ fn runs_while_with_break_and_continue() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let mut i = i32.{0};
-    let mut sum = i32.{0};
+    let mut i = 0i32;
+    let mut sum = 0i32;
 
-    while (i < i32.{8}) {
-        i += i32.{1};
-        if (i == i32.{3}) {
+    while (i < 8i32) {
+        i += 1i32;
+        if (i == 3i32) {
             continue;
         }
-        if (i == i32.{7}) {
+        if (i == 7i32) {
             break;
         }
         sum += i;
     }
 
-    return sum - i32.{18};
+    return sum - 18i32;
 }
 "#,
     );
@@ -998,13 +998,13 @@ use base.coll.Iterator;
 
 fn main() i32 {
     let values = [4]i32.{ 2, 4, 6, 8 };
-    let mut sum = i32.{0};
+    let mut sum = 0i32;
 
     for (item: values.&[0 .. 4].iter()) {
         sum += item;
     }
 
-    return sum - i32.{20};
+    return sum - 20i32;
 }
 "#,
     );
@@ -1088,7 +1088,7 @@ fn lowers_const_inline_asm_volatile_flag_for_output_asm() {
 const VOL = true;
 
 fn main() i32 {
-    let mut out = usize.{0};
+    let mut out = 0usize;
     @asm(.{
         asm: "mov {}, 7",
         outputs: .{ rax: out..& },
@@ -1116,7 +1116,7 @@ fn rejects_non_constant_inline_asm_volatile_flag() {
         r#"
 fn main() i32 {
     let vol = true;
-    let mut out = usize.{0};
+    let mut out = 0usize;
     @asm(.{
         asm: "mov {}, 7",
         outputs: .{ rax: out..& },
@@ -1239,5 +1239,152 @@ fn main() i32 {
         stderr.contains("expected `,` between fields in data initializer"),
         "unexpected stderr:\n{}",
         stderr
+    );
+}
+
+#[test]
+fn test_mode_collects_cases_and_invokes_each_case_by_private_protocol() {
+    let metadata_path = unique_temp_path("kernc_test_mode_cases", "cases");
+    let metadata_arg = metadata_path.to_string_lossy().into_owned();
+    let args = vec![
+        "--test-mode".to_string(),
+        "--test-metadata-output".to_string(),
+        metadata_arg,
+        "--runtime-entry".to_string(),
+        "rt".to_string(),
+        "--module-path".to_string(),
+        format!("base={}", repo_root().join("library/base").display()),
+    ];
+    let (source_path, executable_path) = build_temp_program_with_outputs(
+        "kernc_test_mode_cases",
+        r#"
+#[if(test)]
+fn enabled_only_in_test_mode() i32 {
+    return 0;
+}
+
+#[test]
+fn alpha() i32 {
+    return enabled_only_in_test_mode();
+}
+
+mod nested {
+    #[test]
+    fn beta(argc: i32, argv: &&u8) i32 {
+        if (argc != 2) {
+            return 2;
+        }
+        if (argv.*.* != b'f') {
+            return 3;
+        }
+        if ((argv + 1usize).*.* != b's') {
+            return 4;
+        }
+        return 0;
+    }
+}
+"#,
+        &args,
+    );
+
+    let manifest = std::fs::read_to_string(&metadata_path).unwrap();
+    assert_eq!(manifest, "version=1\ncase=0\talpha\ncase=1\tnested::beta\n");
+
+    let alpha = run_program_with_args(&executable_path, &["--kern-test-case", "0"]);
+    assert_eq!(
+        alpha.status.code(),
+        Some(0),
+        "alpha test case failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&alpha.stdout),
+        String::from_utf8_lossy(&alpha.stderr)
+    );
+
+    let beta = run_program_with_args(
+        &executable_path,
+        &["--kern-test-case", "1", "first", "second"],
+    );
+    assert_eq!(
+        beta.status.code(),
+        Some(0),
+        "beta test case failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&beta.stdout),
+        String::from_utf8_lossy(&beta.stderr)
+    );
+
+    let _ = std::fs::remove_file(source_path);
+    let _ = std::fs::remove_file(executable_path);
+    let _ = std::fs::remove_file(metadata_path);
+}
+
+#[test]
+fn test_mode_rejects_non_i32_test_return_type() {
+    let metadata_path = unique_temp_path("kernc_bad_test_signature", "cases");
+    let metadata_arg = metadata_path.to_string_lossy().into_owned();
+    let output = compile_source_with_args(
+        "kernc_bad_test_signature",
+        r#"
+#[test]
+fn bad() void {}
+"#,
+        &[
+            "--test-mode",
+            "--test-metadata-output",
+            &metadata_arg,
+            "--runtime-entry",
+            "rt",
+            "--module-path",
+            "base=library/base",
+        ],
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted invalid test signature:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("`#[test]` function must return `i32`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains(
+            "legal test forms are `fn name() i32` and `fn name(argc: i32, argv: &&u8) i32`"
+        ),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let _ = std::fs::remove_file(metadata_path);
+}
+
+#[test]
+fn test_condition_is_false_outside_test_mode() {
+    let output = compile_source(
+        r#"
+#[if(test)]
+fn test_only() i32 {
+    return 0;
+}
+
+fn main() i32 {
+    return test_only();
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly enabled #[if(test)] outside test mode:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("use of undeclared identifier `test_only`"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }

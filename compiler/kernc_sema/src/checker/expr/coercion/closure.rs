@@ -108,7 +108,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.signatures_compatible(expected_params, expected_ret, &actual_params, actual_ret)
     }
 
-    fn signatures_compatible(
+    pub(crate) fn signatures_compatible(
         &mut self,
         expected_params: &[TypeId],
         expected_ret: TypeId,
@@ -149,7 +149,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn instantiate_fn_def_signature(
+    pub(crate) fn instantiate_fn_def_signature(
         &mut self,
         def_id: DefId,
         args: &[GenericArg],

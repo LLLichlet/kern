@@ -59,8 +59,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             // Materialized rvalues become mutable stack temporaries by default.
             ExprKind::DataInit { .. }
-            | ExprKind::Integer(_)
-            | ExprKind::Float(_)
+            | ExprKind::Integer { .. }
+            | ExprKind::Float { .. }
             | ExprKind::Bool(_)
             | ExprKind::Char(_)
             | ExprKind::ByteChar(_)

@@ -95,7 +95,7 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
 
     fn eval_const_discriminant(&self, expr: &Expr) -> Option<i128> {
         match &expr.kind {
-            ExprKind::Integer(value) => Some(*value as i128),
+            ExprKind::Integer { value, .. } => Some(*value as i128),
             ExprKind::Unary {
                 op: UnaryOperator::Negate,
                 operand,

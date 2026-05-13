@@ -48,13 +48,15 @@ impl CompilerDriver {
                 member_env.truncate(previous_env_len);
             }
             ast::DeclKind::Var { value, .. } => {
-                self.collect_member_completion_items_in_expr(
-                    member_query,
-                    module_id,
-                    value,
-                    member_env,
-                    member_items_by_span,
-                );
+                if let Some(value) = value {
+                    self.collect_member_completion_items_in_expr(
+                        member_query,
+                        module_id,
+                        value,
+                        member_env,
+                        member_items_by_span,
+                    );
+                }
             }
             ast::DeclKind::ExternBlock { decls, .. } => {
                 for child in decls {
@@ -182,9 +184,18 @@ impl CompilerDriver {
                     }
                 }
             }
-            ast::ExprKind::Static { init, .. }
-            | ast::ExprKind::Unary { operand: init, .. }
-            | ast::ExprKind::Defer { expr: init } => {
+            ast::ExprKind::Static {
+                init: Some(init), ..
+            } => {
+                self.collect_member_completion_items_in_expr(
+                    member_query,
+                    module_id,
+                    init,
+                    member_env,
+                    member_items_by_span,
+                );
+            }
+            ast::ExprKind::Unary { operand: init, .. } | ast::ExprKind::Defer { expr: init } => {
                 self.collect_member_completion_items_in_expr(
                     member_query,
                     module_id,

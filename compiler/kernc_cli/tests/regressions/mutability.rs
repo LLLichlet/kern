@@ -5,25 +5,25 @@ fn compiles_const_fn_loops_with_assignment_break_and_continue() {
     let output = compile_source(
         r#"
 const fn sum_skip(limit: i32) i32 {
-    let mut acc = i32.{0};
+    let mut acc = 0i32;
 
-    let mut i = i32.{0};
+    let mut i = 0i32;
     while (i < limit) {
-        if (i == i32.{2}) {
-            i += i32.{1};
+        if (i == 2i32) {
+            i += 1i32;
             continue;
         }
-        if (i == i32.{5}) {
+        if (i == 5i32) {
             break;
         }
         acc += i;
-        i += i32.{1};
+        i += 1i32;
     }
 
     return acc;
 }
 
-const TOTAL = sum_skip(i32.{7});
+const TOTAL = sum_skip(7i32);
 
 fn main() i32 {
     return TOTAL;
@@ -85,7 +85,7 @@ const fn bump(ptr: &mut i32) void {
 }
 
 const fn run() i32 {
-    let mut value = i32.{1};
+    let mut value = 1i32;
     bump(value..&);
     return value;
 }
@@ -231,11 +231,11 @@ fn make(flag: bool) i32 {
 
 fn main() i32 {
     let a = bump((if (true) 1 else 2)..&);
-    let b = bump((match (1) {
-        1 => 3,
+    let b = bump((match (1i32) {
+        1i32 => 3,
         _ => 4,
     })..&);
-    let c = bump(({ let value = i32.{5}; value })..&);
+    let c = bump(({ let value = 5i32; value })..&);
     let d = bump(make(true)..&);
     return a + b + c + d;
 }
@@ -397,7 +397,7 @@ fn takes_mut(cb: &mut Fn() i32) i32 {
 }
 
 fn main() i32 {
-    let closure = [base = i32.{7}]() i32 {
+    let closure = [base = 7i32]() i32 {
         return base;
     };
     return takes_mut(closure);
@@ -431,7 +431,7 @@ fn main() i32 {
         return 7;
     };
     let ptr = closure.&;
-    let _ = &mut Fn() i32.{ ptr };
+    let _ = (ptr as &mut Fn() i32);
     return 0;
 }
 "#,
@@ -446,7 +446,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("cannot create a mutable closure object from an immutable pointer"),
+        stderr.contains("cannot cast an immutable pointer to a mutable closure object"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -467,9 +467,9 @@ impl &i32 : Ops {
 }
 
 fn main() i32 {
-    let value = i32.{7};
+    let value = 7i32;
     let ptr = value.&;
-    let _ = &mut Ops.{ ptr };
+    let _ = (ptr as &mut Ops);
     return 0;
 }
 "#,
@@ -484,7 +484,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("cannot create a mutable trait object from an immutable pointer"),
+        stderr.contains("cannot cast an immutable pointer to a mutable trait object"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -515,7 +515,7 @@ impl &mut Cell : Base {
 
 fn main() i32 {
     let mut cell = Cell.{ value: 1 };
-    let obj = &Base.{ cell..& };
+    let obj = (cell..& as &Base);
     obj.set(42);
     return cell.value;
 }
@@ -531,7 +531,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("the provided pointer type does not implement the target trait"),
+        stderr.contains("cannot cast this pointer to a trait object"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -557,7 +557,7 @@ impl &Cell : Base {
 
 fn main() i32 {
     let mut cell = Cell.{ value: 7 };
-    let obj = &Base.{ cell..& };
+    let obj = (cell..& as &Base);
     return obj.get() - 7;
 }
 "#,
@@ -596,7 +596,7 @@ impl &mut Cell : Base {
 
 fn main() i32 {
     let mut cell = Cell.{ value: 1 };
-    let obj = &mut Base.{ cell..& };
+    let obj = (cell..& as &mut Base);
     obj.set(42);
     return cell.value - obj.get();
 }
@@ -718,8 +718,8 @@ fn takes_mut(value: &mut Ops) void {
 }
 
 fn main() i32 {
-    let number = i32.{7};
-    let mut ops = &Ops.{ number.& };
+    let number = 7i32;
+    let mut ops = (number.& as &Ops);
     takes_mut(ops);
     return 0;
 }

@@ -14,7 +14,7 @@ impl &X: Derived {}
 
 fn main() i32 {
     let x = X.{};
-    let d = &Derived.{ x.& };
-    let b = &Base.{ d };
+    let d = (x.& as &Derived);
+    let b = (d as &Base);
     return b.foo();
 }

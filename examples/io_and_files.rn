@@ -17,7 +17,7 @@ fn main() i32 {
         .write_all_atomic(gpa, "kern examples\n")
         .should_ok()
         .sum(@loc(), t);
-    (written == usize.{14}).should().sum(@loc(), t);
+    (written == 14usize).should().sum(@loc(), t);
 
     let mut text = path
         .read_to_string(gpa)

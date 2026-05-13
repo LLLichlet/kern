@@ -8,7 +8,7 @@ fn main() i32 {
     let mut values = [5]i32.{ 1, 2, 3, 4, 5 };
 
     let middle = values.&[1 .. 4];
-    let mut sum = i32.{0};
+    let mut sum = 0i32;
     for (item: middle.iter()) {
         sum += item;
     }
@@ -18,7 +18,7 @@ fn main() i32 {
     head.reverse();
     (values == [5]i32.{ 3, 2, 1, 4, 5 }).should().sum(@loc(), t);
 
-    let mut squares = i32.{0};
+    let mut squares = 0i32;
     for (i: range(1, 4)) {
         squares += i * i;
     }
@@ -31,7 +31,7 @@ fn main() i32 {
     (descending_sum == 12).should().sum(@loc(), t);
 
     let mut nth = range(10, 20);
-    (nth..&.nth(usize.{4}).should_some().sum(@loc(), t) == 14).should().sum(@loc(), t);
+    (nth..&.nth(4usize).should_some().sum(@loc(), t) == 14).should().sum(@loc(), t);
 
     "slices: sum={}, squares={}, descending={}".fmt(.{sum, squares, descending_sum}).println();
     return 0;

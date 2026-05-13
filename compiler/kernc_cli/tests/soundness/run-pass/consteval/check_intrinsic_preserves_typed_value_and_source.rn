@@ -2,7 +2,7 @@
 // source: @check must preserve the typed value while exposing expression source text
 // exit: 0
 
-const GLOBAL = @check(usize.{40} + usize.{2});
+const GLOBAL = @check(40usize + 2usize);
 
 fn id[T](value: T) T {
     return value;
@@ -13,18 +13,18 @@ fn len[N: usize](source: [N]u8) usize {
 }
 
 fn main() i32 {
-    if (GLOBAL.value != usize.{42}) {
+    if (GLOBAL.value != 42usize) {
         return 1;
     }
-    if (GLOBAL.source != "usize.{40} + usize.{2}") {
+    if (GLOBAL.source != "40usize + 2usize") {
         return 2;
     }
 
-    let captured = @check(id[usize](usize.{7}));
-    if (captured.value != usize.{7}) {
+    let captured = @check(id[usize](7usize));
+    if (captured.value != 7usize) {
         return 3;
     }
-    if (captured.source != "id[usize](usize.{7})") {
+    if (captured.source != "id[usize](7usize)") {
         return 4;
     }
     if (len(captured.source) != #captured.source) {
@@ -32,7 +32,7 @@ fn main() i32 {
     }
 
     let explicit = @check[u64](7);
-    if (explicit.value != u64.{7}) {
+    if (explicit.value != 7u64) {
         return 6;
     }
     if (explicit.source != "7") {

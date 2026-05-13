@@ -17,7 +17,9 @@ fn collect_decl_if_completion_facts(
         ast::DeclKind::Function {
             body: Some(body), ..
         } => collect_expr_if_completion_facts(body, if_facts_by_span),
-        ast::DeclKind::Var { value, .. } => {
+        ast::DeclKind::Var {
+            value: Some(value), ..
+        } => {
             collect_expr_if_completion_facts(value, if_facts_by_span);
         }
         ast::DeclKind::ExternBlock { decls, .. } | ast::DeclKind::Impl { decls, .. } => {
@@ -59,8 +61,12 @@ fn collect_expr_if_completion_facts(
                 }
             }
         }
-        ast::ExprKind::Static { init, .. }
-        | ast::ExprKind::FieldAccess { lhs: init, .. }
+        ast::ExprKind::Static {
+            init: Some(init), ..
+        } => {
+            collect_expr_if_completion_facts(init, if_facts_by_span);
+        }
+        ast::ExprKind::FieldAccess { lhs: init, .. }
         | ast::ExprKind::Unary { operand: init, .. }
         | ast::ExprKind::As { lhs: init, .. }
         | ast::ExprKind::GenericInstantiation { target: init, .. }

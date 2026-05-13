@@ -469,7 +469,16 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
             }
             Def::Global(def) if !def.is_imported => {
                 let kind = if def.is_static { "static" } else { "const" };
-                let signature = if let Some(ty) = ctx.node_type(def.value.id) {
+                let signature_ty = def
+                    .value
+                    .as_ref()
+                    .and_then(|value| ctx.node_type(value.id))
+                    .or_else(|| {
+                        def.type_node
+                            .as_ref()
+                            .and_then(|type_node| ctx.node_type(type_node.id))
+                    });
+                let signature = if let Some(ty) = signature_ty {
                     Some(format!(
                         "{} {}: {}",
                         kind,

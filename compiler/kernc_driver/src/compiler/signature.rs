@@ -107,7 +107,9 @@ fn collect_call_sites_in_decl(
             collect_call_sites_in_expr(ctx, file_id, body, call_sites);
         }
         ast::DeclKind::Function { body: None, .. } => {}
-        ast::DeclKind::Var { value, .. } => {
+        ast::DeclKind::Var {
+            value: Some(value), ..
+        } => {
             collect_call_sites_in_expr(ctx, file_id, value, call_sites);
         }
         ast::DeclKind::ExternBlock { decls, .. } | ast::DeclKind::Impl { decls, .. } => {
@@ -143,9 +145,12 @@ fn collect_call_sites_in_expr(
                 }
             }
         }
-        ast::ExprKind::Static { init, .. }
-        | ast::ExprKind::Unary { operand: init, .. }
-        | ast::ExprKind::Defer { expr: init } => {
+        ast::ExprKind::Static {
+            init: Some(init), ..
+        } => {
+            collect_call_sites_in_expr(ctx, file_id, init, call_sites);
+        }
+        ast::ExprKind::Unary { operand: init, .. } | ast::ExprKind::Defer { expr: init } => {
             collect_call_sites_in_expr(ctx, file_id, init, call_sites);
         }
         ast::ExprKind::Binary { lhs, rhs, .. }

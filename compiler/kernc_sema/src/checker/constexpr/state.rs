@@ -369,11 +369,15 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         let Some(global) = self.global_def(def_id) else {
             return Err(ConstEvalError);
         };
-        let const_expr = global.value;
+        let Some(const_expr) = global.value.as_ref() else {
+            self.ctx
+                .emit_error(global.span, "constant evaluation requires an initializer");
+            return Err(ConstEvalError);
+        };
 
         let scope_frame = self.enter_def_scope(def_id);
 
-        let result = self.eval_inner(&const_expr, depth + 1);
+        let result = self.eval_inner(const_expr, depth + 1);
         self.leave_def_scope(scope_frame);
 
         result

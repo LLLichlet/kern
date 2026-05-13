@@ -40,8 +40,8 @@ use std.io;
 use base.coll.range;
 
 fn main() i32 {
-    for (value: range(0, 3)) {
-        if (value == 2) {
+    for (value: range(0usize, 3usize)) {
+        if (value == 2usize) {
             "external kernlib".println();
         }
     }
@@ -98,11 +98,11 @@ fn base_bundle_exposes_freestanding_io_helpers() {
 use base.io.Write;
 
 fn main() i32 {
-    let mut storage = [32]u8.{undef};
+    let mut storage: [32]u8 = undef;
     let mut fixed = (storage..&[0 .. 32]).writer();
-    let writer = &mut Write.{ fixed..& };
+    let writer = (fixed..& as &mut Write);
 
-    "base {} {}".fmt(.{ "io", usize.{7}, }).write_to(writer);
+    "base {} {}".fmt(.{ "io", 7usize, }).write_to(writer);
     if (fixed..&.as_slice() != "base io 7") {
         return 1;
     }
@@ -125,18 +125,18 @@ fn base_bundle_exposes_freestanding_test_helpers() {
     let output = compile_source_with_args(
         "kernc_base_test_helpers",
         r#"
-use base.test;
+use base.test.{report};
 use base.io.discard;
 
 fn main() i32 {
-    let t = test.report(discard())..&;
+    let t = report(discard())..&;
 
     true.should().sum(@loc(), t);
-    (usize.{3} == usize.{3}).should().sum(@loc(), t);
-    (usize.{3} != usize.{4}).should().sum(@loc(), t);
-    (?usize.{ Some: 7 }).should_some().eq(usize.{7}).sum(@loc(), t);
+    (3usize == 3usize).should().sum(@loc(), t);
+    (3usize != 4usize).should().sum(@loc(), t);
+    (?usize.{ Some: 7 }).should_some().eq(7usize).sum(@loc(), t);
     (?usize.None).should_none().sum(@loc(), t);
-    usize!i32.{ Ok: 9 }.should_ok().eq(usize.{9}).sum(@loc(), t);
+    usize!i32.{ Ok: 9 }.should_ok().eq(9usize).sum(@loc(), t);
     return 0;
 }
 "#,

@@ -8,7 +8,7 @@ fn take_bool_capture(capture: struct { value: bool, source: &[u8] }) bool {
 }
 
 fn main() i32 {
-    let captured = @check(usize.{1});
+    let captured = @check(1usize);
     if (take_bool_capture(captured)) {
         return 1;
     }

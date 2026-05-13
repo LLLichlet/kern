@@ -45,7 +45,7 @@ fn document_highlight_request_returns_same_file_spans() {
 #[test]
 fn code_action_request_returns_quick_fix_edits() {
     let mut state = initialized_state();
-    let source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+    let source = "fn main() i32 {\n    let value = 1i32\n    return value;\n}\n";
     let uri = temp_file_uri("server_code_action", source);
 
     let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
@@ -84,7 +84,7 @@ fn code_action_request_returns_quick_fix_edits() {
 #[test]
 fn code_action_request_skips_analysis_for_non_quickfix_filters() {
     let mut state = initialized_state();
-    let source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+    let source = "fn main() i32 {\n    let value = 1i32\n    return value;\n}\n";
     let uri = temp_file_uri("server_code_action_filter", source);
 
     let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
@@ -295,7 +295,7 @@ fn signature_help_request_returns_active_parameter_information() {
         "    return first + second;\n",
         "}\n",
         "fn main() i32 {\n",
-        "    let value = i32.{2};\n",
+        "    let value = 2i32;\n",
         "    return helper(1, value);\n",
         "}\n",
     );
@@ -452,8 +452,8 @@ fn verbose_trace_reports_dirty_semantic_tokens_as_lexical() {
 fn verbose_trace_reports_dirty_code_actions_as_parse_only() {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;
-    let clean = "fn main() i32 {\n    let value = i32.{1};\n    return value;\n}\n";
-    let dirty = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+    let clean = "fn main() i32 {\n    let value = 1i32;\n    return value;\n}\n";
+    let dirty = "fn main() i32 {\n    let value = 1i32\n    return value;\n}\n";
     let uri = temp_file_uri("server_dirty_code_action_trace", clean);
 
     let _ = dispatch_messages(&mut state, did_open_message(&uri, clean, 1));
@@ -497,7 +497,7 @@ fn verbose_trace_reports_dirty_signature_help_as_clean_semantic() {
         "    return first + second;\n",
         "}\n",
         "fn main() i32 {\n",
-        "    let value = i32.{2};\n",
+        "    let value = 2i32;\n",
         "    return helper(1, value);\n",
         "}\n",
     );
@@ -506,7 +506,7 @@ fn verbose_trace_reports_dirty_signature_help_as_clean_semantic() {
         "    return first + second;\n",
         "}\n",
         "fn main() i32 {\n",
-        "    let value = i32.{2}\n",
+        "    let value = 2i32\n",
         "    return helper(1, value);\n",
         "}\n",
     );
@@ -588,14 +588,14 @@ fn dirty_navigation_trace_messages(
     let clean = concat!(
         "fn helper() i32 { return 1; }\n",
         "fn main() i32 {\n",
-        "    let value = i32.{1};\n",
+        "    let value = 1i32;\n",
         "    return helper() + helper();\n",
         "}\n",
     );
     let dirty = concat!(
         "fn helper() i32 { return 1; }\n",
         "fn main() i32 {\n",
-        "    let value = i32.{1}\n",
+        "    let value = 1i32\n",
         "    return helper() + helper();\n",
         "}\n",
     );

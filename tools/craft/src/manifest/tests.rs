@@ -776,8 +776,8 @@ roots = ["tests/smoke.rn", "alt/smoke.rn"]
 }
 
 #[test]
-fn rejects_glob_patterns_in_test_roots() {
-    let err = Manifest::parse(
+fn parses_glob_patterns_in_test_roots() {
+    let manifest = Manifest::parse(
         r#"
 [package]
 name = "demo"
@@ -786,6 +786,50 @@ kern = "0.7.5"
 
 [test]
 roots = ["tests/*"]
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    assert!(manifest.test_roots_explicit);
+    assert_eq!(manifest.test.len(), 1);
+    assert_eq!(manifest.test[0].name, "*");
+    assert_eq!(manifest.test[0].root, "tests/*");
+}
+
+#[test]
+fn accepts_multiple_glob_patterns_in_test_roots() {
+    let manifest = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[test]
+roots = ["tests/*.rn", "integration/*.rn"]
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    manifest
+        .validate(std::path::Path::new("Craft.toml"))
+        .unwrap();
+    assert_eq!(manifest.test.len(), 2);
+}
+
+#[test]
+fn rejects_glob_patterns_in_example_roots() {
+    let err = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[example]
+roots = ["examples/*.rn"]
 "#,
         std::path::Path::new("Craft.toml"),
     )

@@ -20,7 +20,7 @@ values.[0] = 9;
 
 `[5]i32.{ ... }` is the same "type provider plus initializer body" syntax from
 earlier chapters. The outer `[5]i32` already provides the element type, so the
-elements usually do not need to be written as `i32.{1}`, `i32.{2}`, and so on.
+elements usually do not need to be written as `1i32`, `2i32`, and so on.
 
 Repeated initialization:
 
@@ -202,7 +202,7 @@ Most ordinary code uses `&T` and `&mut T`. Address-of syntax separates
 read-only and writable access:
 
 ```kern
-let mut value = i32.{10};
+let mut value = 10i32;
 
 let read_ptr = value.&;
 let write_ptr = value..&;
@@ -299,8 +299,8 @@ use std.fs;
 use std.io;
 use std.mem.page;
 
-const SUCCESS = i32.{0};
-const FAILURE = i32.{1};
+const SUCCESS = 0i32;
+const FAILURE = 1i32;
 
 fn main() i32 {
     let page = page()..&;
@@ -336,8 +336,8 @@ read-only formatting.
 or linker symbol:
 
 ```kern
-const SUCCESS = i32.{0};
-const PAGE_SIZE = usize.{4096};
+const SUCCESS = 0i32;
+const PAGE_SIZE = 4096usize;
 ```
 
 Use it for exit codes, flags, array lengths, and platform constants.
@@ -347,7 +347,7 @@ storage:
 
 ```kern
 static VERSION = [4]u8.{ b'k', b'e', b'r', b'n' };
-static mut BOOT_COUNT = usize.{0};
+static mut BOOT_COUNT = 0usize;
 ```
 
 `static` can also appear inside a block, in a position similar to `let`, while

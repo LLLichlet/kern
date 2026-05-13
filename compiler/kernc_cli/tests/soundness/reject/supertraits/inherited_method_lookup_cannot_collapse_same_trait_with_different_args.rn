@@ -28,7 +28,7 @@ impl &i32 : Right {}
 impl &i32 : Both {}
 
 fn main() i32 {
-    let value = i32.{3};
-    let both = &Both.{ value.& };
+    let value = 3i32;
+    let both = (value.& as &Both);
     return both.get();
 }

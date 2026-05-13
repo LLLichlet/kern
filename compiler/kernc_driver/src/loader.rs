@@ -250,9 +250,12 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     Self::collect_expr_alias_references(body, alias_names, referenced);
                 }
             }
-            ast::DeclKind::Var { value, .. } => {
+            ast::DeclKind::Var {
+                value: Some(value), ..
+            } => {
                 Self::collect_expr_alias_references(value, alias_names, referenced);
             }
+            ast::DeclKind::Var { value: None, .. } => {}
             ast::DeclKind::TypeAlias {
                 where_clauses,
                 target,
@@ -611,6 +614,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 pattern,
                 init,
                 else_clause,
+                ..
             } => {
                 Self::collect_let_pattern_alias_references(pattern, alias_names, referenced);
                 Self::collect_expr_alias_references(init, alias_names, referenced);
@@ -636,7 +640,9 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     }
                 }
             }
-            ast::ExprKind::Static { init, .. } => {
+            ast::ExprKind::Static {
+                init: Some(init), ..
+            } => {
                 Self::collect_expr_alias_references(init, alias_names, referenced);
             }
             ast::ExprKind::Identifier(name) => {
@@ -782,8 +788,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 Self::collect_type_alias_references(ret_type, alias_names, referenced);
                 Self::collect_expr_alias_references(body, alias_names, referenced);
             }
-            ast::ExprKind::Integer(_)
-            | ast::ExprKind::Float(_)
+            ast::ExprKind::Integer { .. }
+            | ast::ExprKind::Float { .. }
             | ast::ExprKind::Bool(_)
             | ast::ExprKind::Char(_)
             | ast::ExprKind::ByteChar(_)
@@ -793,7 +799,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             | ast::ExprKind::Continue
             | ast::ExprKind::Undef
             | ast::ExprKind::Infer
-            | ast::ExprKind::SelfValue => {}
+            | ast::ExprKind::SelfValue
+            | ast::ExprKind::Static { init: None, .. } => {}
         }
     }
 

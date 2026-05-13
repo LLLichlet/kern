@@ -109,7 +109,7 @@ fn main() i32 {
 fn rejects_constant_overshift_without_panicking() {
     let output = compile_source(
         r#"
-const BAD = 1 << 999;
+const BAD = 1i32 << 999i32;
 
 fn main() i32 {
     return 0;
@@ -383,15 +383,15 @@ struct FramebufferRequest {
 };
 
 static REQUEST = FramebufferRequest.{
-    response: 0 as &FramebufferResponse,
-    mmio: 0x1000 as &u8,
+    response: 0usize as &FramebufferResponse,
+    mmio: 0x1000usize as &u8,
 };
 
 fn main() i32 {
-    if (REQUEST.response != (0 as &FramebufferResponse)) {
+    if (REQUEST.response != (0usize as &FramebufferResponse)) {
         return 1;
     }
-    if (REQUEST.mmio != (0x1000 as &u8)) {
+    if (REQUEST.mmio != (0x1000usize as &u8)) {
         return 2;
     }
     return 0;
@@ -669,7 +669,7 @@ fn main() i32 {
 }
 
 #[test]
-fn thin_pointer_to_trait_object_cast_hint_uses_real_constructor_shape() {
+fn rejects_incompatible_pointer_to_trait_object_cast_without_constructor_hint() {
     let output = compile_source(
         r#"
 trait Allocator {
@@ -677,12 +677,6 @@ trait Allocator {
 };
 
 struct Arena {};
-
-impl &mut Arena : Allocator {
-    fn alloc() usize {
-        return 0;
-    }
-}
 
 fn main() i32 {
     let arena = Arena.{};
@@ -700,18 +694,18 @@ fn main() i32 {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("cannot cast a thin pointer to a fat pointer using `as`"),
+        stderr.contains("cannot cast this pointer to a trait object"),
         "unexpected stderr:\n{}",
         stderr
     );
     assert!(
-        stderr
-            .contains("use explicit constructor syntax, for example `&mut Allocator.{ pointer }`"),
+        stderr.contains("the source pointer type must implement the target trait"),
         "unexpected stderr:\n{}",
         stderr
     );
     assert!(
-        !stderr.contains("TargetType.{ pointer }"),
+        !stderr.contains("explicit constructor syntax")
+            && !stderr.contains("TargetType.{ pointer }"),
         "unexpected stale constructor hint:\n{}",
         stderr
     );
@@ -1122,14 +1116,14 @@ fn main() i32 {
 fn accepts_large_u128_constant_literals() {
     let output = build_and_run_source(
         r#"
-const MID = u128.{170141183460469231731687303715884105728};
-const MAX = u128.{340282366920938463463374607431768211455};
+const MID = 170141183460469231731687303715884105728u128;
+const MAX = 340282366920938463463374607431768211455u128;
 
 fn main() i32 {
     if (!(MAX > MID)) {
         return 1;
     }
-    if (!(MID > u128.{1})) {
+    if (!(MID > 1u128)) {
         return 2;
     }
     return 0;
@@ -1150,8 +1144,8 @@ fn main() i32 {
 fn folds_large_u128_constant_comparisons_correctly() {
     let output = build_and_run_source(
         r#"
-const MID = u128.{170141183460469231731687303715884105728};
-const OK = MID > u128.{1};
+const MID = 170141183460469231731687303715884105728u128;
+const OK = MID > 1u128;
 
 fn main() i32 {
     return if (OK) 0 else 1;

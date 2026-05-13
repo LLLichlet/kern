@@ -336,8 +336,8 @@ fn classify(value: Box[Mode]) i32 {
 
 fn bucket(value: u8) i32 {
     return match (value) {
-        (u8.{0}) .. (u8.{2}) => 10,
-        (u8.{2}) ..= (u8.{3}) => 20,
+        (0u8) .. (2u8) => 10,
+        (2u8) ..= (3u8) => 20,
         _ => 30,
     };
 }
@@ -346,11 +346,11 @@ fn main() i32 {
     return classify(Box[Mode].Empty)
         + classify(Box[Mode].{ Full: Mode.Off })
         + classify(Box[Mode].{ Full: Mode.On })
-        + bucket(u8.{0})
-        + bucket(u8.{1})
-        + bucket(u8.{2})
-        + bucket(u8.{3})
-        + bucket(u8.{4})
+        + bucket(0u8)
+        + bucket(1u8)
+        + bucket(2u8)
+        + bucket(3u8)
+        + bucket(4u8)
         - 96;
 }
 "#,
@@ -556,7 +556,7 @@ fn classify(value: u8) i32 {
 }
 
 fn main() i32 {
-    if (classify(u8.{0}) + classify(u8.{200}) == 3) {
+    if (classify(0u8) + classify(200u8) == 3) {
         return 0;
     }
 
@@ -578,7 +578,7 @@ fn rejects_non_exhaustive_integer_range_match_without_catch_all() {
     let output = compile_source(
         r#"
 fn main() i32 {
-    return match (u8.{7}) {
+    return match (7u8) {
         1..=255 => 1,
     };
 }
@@ -606,7 +606,7 @@ fn warns_when_integer_subrange_is_fully_shadowed() {
     let output = compile_source(
         r#"
 fn main() i32 {
-    return match (u8.{7}) {
+    return match (7u8) {
         0..=10 => 1,
         3..=5 => 2,
         _ => 3,
@@ -634,9 +634,9 @@ fn main() i32 {
 fn accepts_exhaustive_u128_range_match_without_catch_all() {
     let output = build_and_run_source(
         r#"
-const MID = u128.{170141183460469231731687303715884105727};
-const NEXT = u128.{170141183460469231731687303715884105728};
-const MAX = u128.{340282366920938463463374607431768211455};
+const MID = 170141183460469231731687303715884105727u128;
+const NEXT = 170141183460469231731687303715884105728u128;
+const MAX = 340282366920938463463374607431768211455u128;
 
 fn classify(value: u128) i32 {
     return match (value) {
@@ -646,7 +646,7 @@ fn classify(value: u128) i32 {
 }
 
 fn main() i32 {
-    if (classify(u128.{0}) + classify(MAX) == 3) {
+    if (classify(0u128) + classify(MAX) == 3) {
         return 0;
     }
 
@@ -667,10 +667,10 @@ fn main() i32 {
 fn rejects_non_exhaustive_u128_range_match_missing_zero() {
     let output = compile_source(
         r#"
-const MAX = u128.{340282366920938463463374607431768211455};
+const MAX = 340282366920938463463374607431768211455u128;
 
 fn main() i32 {
-    return match (u128.{7}) {
+    return match (7u128) {
         1..=MAX => 1,
     };
 }
@@ -697,7 +697,7 @@ fn main() i32 {
 fn rejects_non_exhaustive_u128_range_match_missing_max() {
     let output = compile_source(
         r#"
-const MAX = u128.{340282366920938463463374607431768211455};
+const MAX = 340282366920938463463374607431768211455u128;
 
 fn main() i32 {
     return match (MAX) {
@@ -731,10 +731,10 @@ fn main() i32 {
 fn warns_when_u128_subrange_is_fully_shadowed() {
     let output = compile_source(
         r#"
-const MAX = u128.{340282366920938463463374607431768211455};
+const MAX = 340282366920938463463374607431768211455u128;
 
 fn main() i32 {
-    return match (u128.{7}) {
+    return match (7u128) {
         0..=10 => 1,
         3..=5 => 2,
         11..=MAX => 3,

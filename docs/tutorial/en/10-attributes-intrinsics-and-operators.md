@@ -171,7 +171,7 @@ to integer addresses, and converted back. Their special property is that `.*`
 deref emits volatile load/store.
 
 ```kern
-const UART_DR = usize.{0x1000_0000};
+const UART_DR = 0x1000_0000usize;
 
 fn read_data() u32 {
     let reg = UART_DR as ^u32;
@@ -214,7 +214,7 @@ let current = counter.&.load[ACQUIRE]();
 Low-level intrinsics require explicit memory ordering:
 
 ```kern
-let mut raw_counter = usize.{1};
+let mut raw_counter = 1usize;
 let value = @atomicLoad[usize](raw_counter.&, SEQ_CST);
 ```
 
@@ -307,7 +307,7 @@ fn first_non_space(chunk: &u8) usize {
 
     let non_spaces = @simdBitmask(!spaces);
     if (non_spaces == 0) {
-        return usize.{16};
+        return 16usize;
     }
     return @ctz(non_spaces);
 }
@@ -368,7 +368,7 @@ Outputs bind registers to writable pointers:
 
 ```kern
 fn syscall1_raw(sys_num: usize, arg1: usize) isize {
-    let mut ret = isize.{undef};
+    let mut ret: isize = undef;
 
     @asm(.{
         asm: "syscall",

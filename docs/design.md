@@ -83,12 +83,12 @@ The fixed-width SIMD family uses these source forms:
 In Kern, **mutability is a property of storage, not an intrinsic part of the base type.** This means `i32` is the only integer type, but it can be stored in either mutable or immutable memory.
 
   * **Variable Bindings**: Controlled by the `mut` keyword in the binding pattern.
-      * `let x = i32.{10};` (Immutable binding)
-      * `let mut y = i32.{20};` (Mutable binding)
+      * `let x = 10i32;` (Immutable binding)
+      * `let mut y = 20i32;` (Mutable binding)
   * **No Automatic Upgrade Across Handles**: `let mut` does **not** silently upgrade every derived handle into a writable one. Rebinding a value, mutating an aggregate in place, mutating through a pointer, and producing a mutable slice are distinct questions.
       * `let mut arr = [4]u8.{ 1, 2, 3, 4 };` allows both `arr = [4]u8.{ 5, 6, 7, 8 };` and `arr.[0] = 9;` because the binding owns mutable storage for the whole array aggregate.
       * `let arr = [4]u8.{ 1, 2, 3, 4 };` rejects `arr.[0] = 9;` because the access path reaches immutable storage.
-      * `let mut p = &u8.{ ... };` may rebind the pointer value itself, but `p.* = 9;` is still rejected. Write access through a pointer comes from `&mut T`, not from `let mut p`.
+      * `let mut p = &(... as u8);` may rebind the pointer value itself, but `p.* = 9;` is still rejected. Write access through a pointer comes from `&mut T`, not from `let mut p`.
       * `let mut view = &[u8].{ ... };` may rebind the slice value itself, but it does not become `&mut [u8]`. Mutable slice permissions remain part of the slice type because a slice is a view, not a physical aggregate.
   * **Top-Down Bidirectional Flow**: Kern uses contextual typing. Literals like `10` are "type-neutral" and absorb the **Expected Type** flowing down from declarations or function signatures.
 
@@ -235,7 +235,7 @@ BNC guarantees that the developer does not need to write boilerplate fat-pointer
   * **Local Variables**: `let [mut] name = Expr;`
   * **Global Statics**: `static [mut] name = Expr;`
   * **Constants**: `const NAME = Expr;`
-  * **Uninitialized Memory**: `let mut x = Type.{undef};`
+  * **Uninitialized Memory**: `let mut x: Type = undef;`
 
 ## 4\. Const and Compile-Time Evaluation
 
@@ -325,7 +325,7 @@ struct Point {
   * **Zero-Cost Memory Layout**: By default, Kern employs a highly optimized physical layout engine. It aggressively reorders struct fields at compile-time (descending by alignment requirements, then size) to eliminate memory padding (empty holes). 
   * **C-ABI Compatibility (`extern`)**: If a struct must strictly maintain its source-code declaration order to interface with C or hardware, it must be prefixed with `extern` (e.g., `extern struct Header { ... };`). This disables reordering and guarantees standard C-ABI layout.
   * **Field puns in typed initialization**: Explicit field binding remains the canonical form (`x: x`), but typed struct initialization may use field puns when the field name and local binding name match (e.g., `Point.{x, y}`). Untyped `.{ ... }` keeps its existing contextual literal behavior and is not reclassified by syntax alone.
-  * **Initialization and `undef`**: When initializing a struct using `Type.{ ... }`, any field without a default value **must** be explicitly provided; omitting it is a strict compile-time error. If you intentionally want to leave a field uninitialized, you must explicitly use `undef` (e.g., `priority = u8.{undef};`).
+  * **Initialization and `undef`**: When initializing a struct using `Type.{ ... }`, any field without a default value **must** be explicitly provided; omitting it is a strict compile-time error. If you intentionally want to leave a field uninitialized, you must explicitly use `undef` (e.g., `priority: undef`). Standalone `undef` expressions require an expected type such as a field type or `let value: Type = undef;`.
 
 ```kern
 // Immutable 
@@ -334,8 +334,8 @@ let p1 = Point.{x: 10, y: 20};
 // Mutable binding (Type provided on the right, mutability on the left)
 let mut p2 = Point.{x: 10, y: 20}; 
 
-let x = i32.{10};
-let y = i32.{20};
+let x = 10i32;
+let y = 20i32;
 
 // Standard explicit initialization
 // Kern forces explicit binding to guarantee absolute clarity
@@ -419,7 +419,7 @@ Type conversions are explicitly and uniformly handled by the `as` operator.
 
   * **Numeric Conversions**: `as` is used for all safe and unsafe numeric conversions, including bit-width truncation, zero/sign-extension, and integer/floating-point conversions (e.g., `i32 as u8`, `f32 as i32`).
   * **Pointer Reinterpretation**: `as` preserves the physical bit pattern when casting between pointer types or between pointers and `usize`/`isize`.
-  * **Strict Boundaries**: The `as` operator **cannot** be used to implicitly construct Trait Objects, nor can it cast arbitrary integers directly into `data` variants. Fat pointer construction requires Explicit Constructor Syntax (`Trait.{ ptr }`).
+  * **Strict Boundaries**: The `as` operator can explicitly package compatible pointers into trait-object or closure-object fat pointers. It does not synthesize slice lengths from raw pointers, and it cannot cast arbitrary integers directly into `data` variants. Slice fat pointers must come from slice syntax such as `array.&[start .. end]`.
 
 ### 5.5 Anonymous Structs
 
@@ -557,10 +557,10 @@ This boundary is intentional. Kern wants operator overloading where it improves 
 
 ### 6.5 Trait Objects (Fat Pointers)
 
-A Trait Object is a runtime-dynamic fat pointer consisting of a data pointer and a VTable pointer. They are constructed using **Explicit Constructor Syntax**.
+A Trait Object is a runtime-dynamic fat pointer consisting of a data pointer and a VTable pointer. They are created from compatible pointer values.
 
-  * **Construction**: You assemble a trait object by passing a concrete pointer to the Trait's constructor.
-  * **Upcast Construction**: You may also construct a parent trait object from an existing child trait object, as long as the parent is present in the fully instantiated supertrait graph.
+  * **Construction**: You assemble a trait object by casting a concrete pointer with `as`, or by relying on an expected type context at a call or assignment boundary.
+  * **Upcast Construction**: You may also cast a child trait object to a parent trait object, as long as the parent is present in the fully instantiated supertrait graph.
   * **Safety Rule**: To prevent stack-size ambiguity, a Trait Object can only be constructed from a pointer type.
   * **BNC Rule**: The same supertrait upcast is also allowed implicitly across assignment and call boundaries.
   * **Ambiguity Rule**: If multiple inherited parent traits contribute the same method name, an unqualified call is rejected as ambiguous.
@@ -579,7 +579,7 @@ This pointer requirement belongs specifically to trait-object construction. It s
 ```kern
 let mut file = File.{ ... };
 // Assemble a mutable Trait Object from a mutable pointer
-let w = &mut Write.{ file..& };
+let w = file..& as &mut Write;
 w.write("Kern\0");
 ```
 
@@ -587,8 +587,8 @@ w.write("Kern\0");
 trait Read { fn read(buffer: &mut [u8]) usize; };
 trait BufReader: Read { fn fill() void; };
 
-let reader = &BufReader.{ file.& };
-let base1 = &Read.{ reader }; // explicit upcast
+let reader = file.& as &BufReader;
+let base1 = reader as &Read;  // explicit upcast
 use_reader(reader);           // implicit BNC upcast to &Read
 ```
 
@@ -636,7 +636,7 @@ struct Point[T]
 `if` is an expression.
 
 ```kern
-let a = if (b < 10) i32.{10} else i32.{20};
+let a = if (b < 10) 10i32 else 20i32;
 ```
 
 ### 7.2 Match Expressions
@@ -797,6 +797,26 @@ This is intentionally narrow:
 
 The special treatment applies only to `main` under program-entry mode. Other exported ABI symbols still require explicit ABI-facing declarations and attributes.
 
+**First-Class Test Cases:**
+Kern test cases use the same low-level entry shape as `main`, but are selected with `#[test]` instead of a magic name.
+
+The legal forms are:
+
+  * `#[test] fn name() i32`
+  * `#[test] fn name(argc: i32, argv: &&u8) i32`
+
+The return value follows process-style status convention: `0` means pass and any non-zero value means fail. Kern does not assign portable semantic meaning to non-zero values beyond "this case failed"; platform-specific status truncation or encoding remains a property of the host/runtime boundary.
+
+This is intentionally compiler-owned and library-independent:
+
+  * `#[test]` functions must not be `extern`, `const`, generic, variadic, or bodyless
+  * test functions may be private and may live in nested modules
+  * each test case name is its module path plus function name, such as `math::adds`
+  * `#[if(test)]` is enabled only when the driver compiles in test mode
+  * the compiler and tools do not depend on `base`, `std`, `rt`, or `kernlib` to discover or dispatch test cases
+
+Tooling should compile one test binary per test target, then invoke that binary once per discovered case. Each invocation selects one case and returns that case's `i32` status. This preserves the simple entry contract while giving tools process isolation, parallel scheduling, and direct failure attribution.
+
 Startup ownership still belongs to the surrounding runtime/link environment:
 
   * a toolchain-owned runtime path such as `rt` may own startup and call the compiler-synthesized main adapter
@@ -824,7 +844,7 @@ For argument-bearing `main`, Kern uses the explicit low-level ABI `argc: i32, ar
 
 ### 9.2 Importing External Functions and Statics
 
-External C functions can use the `...` syntax to support C-style variadic arguments. External statics must be declared using `T.{undef}`. Items inside an `extern` block can be marked `pub` to expose them through the Kern module system.
+External C functions can use the `...` syntax to support C-style variadic arguments. External statics are declarations and do not need initializers. Items inside an `extern` block can be marked `pub` to expose them through the Kern module system.
 
 Kern intentionally splits the two directions of ABI usage:
 
@@ -837,7 +857,7 @@ Single imported functions or statics must still use an `extern` block; they are 
 extern {
     pub fn malloc(size: usize) &mut u8;
     pub fn printf(format: &u8, ...) i32;
-    pub static MULTIBOOT_MAGIC = u32.{undef};
+    pub static MULTIBOOT_MAGIC: u32;
 }
 ```
 
@@ -1009,8 +1029,8 @@ Closures use the `[captures](args) ReturnType { ... }` syntax.
 Capturing must be explicit and follows **Pure Value Semantics**. You define bindings in the capture list using `=`. If the target binding name matches a local variable in scope, you can use the capture elision shorthand. Unlike struct initialization, which requires strict `field: value` pairs, closure capture lists uniquely permit this safe shorthand.
 
 ```kern
-let a = i32.{120};
-let mut counter = i32.{0};
+let a = 120i32;
+let mut counter = 0i32;
 
 // Explicit binding (`ptr = counter..&`) and elided capture binding (`a` stands for `a = a`)
 let closure = [a, ptr = counter..&](b: i32) i32 {
@@ -1060,8 +1080,8 @@ let size = @sizeOf[@typeOf(closure)]();
 let raw = malloc(size) as &mut @typeOf(closure);
 raw.* = closure;
 
-// 3. Explicitly construct the Closure Fat Pointer
-let heap_cb = &mut Fn(i32) i32.{ raw }; 
+// 3. Explicitly cast the state pointer to a Closure Fat Pointer
+let heap_cb = raw as &mut Fn(i32) i32;
 
 // --- Later, when memory needs to be freed ---
 
@@ -1088,7 +1108,7 @@ assembly, use Kern's multiline string syntax rather than an array of strings.
 
 ```kern
 pub fn outb_and_read(port: u16, data: u8) u8 {
-    let mut status = u8.{undef};
+    let mut status: u8 = undef;
 
     @asm(.{
         asm:

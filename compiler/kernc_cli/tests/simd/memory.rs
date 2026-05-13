@@ -47,10 +47,10 @@ fn main() i32 {
     if (@simdAll(ws_mask)) {
         return 101;
     }
-    if (ws_non_mask != usize.{0x8000}) {
+    if (ws_non_mask != 0x8000usize) {
         return 102;
     }
-    if (@ctz(ws_non_mask) != usize.{15}) {
+    if (@ctz(ws_non_mask) != 15usize) {
         return 103;
     }
 
@@ -62,10 +62,10 @@ fn main() i32 {
     if (@simdAll(digit_mask)) {
         return 104;
     }
-    if (digit_non_mask != usize.{0x8000}) {
+    if (digit_non_mask != 0x8000usize) {
         return 105;
     }
-    if (@ctz(digit_non_mask) != usize.{15}) {
+    if (@ctz(digit_non_mask) != 15usize) {
         return 106;
     }
 
@@ -157,7 +157,7 @@ use base.mem;
 #[target_feature("avx2,fma")]
 fn remix(ptr: &mut f32) f32 {
     let a = @simdLoad[f32x4](ptr, 4);
-    let b = @simdLoad[f32x4](ptr + usize.{4}, 4);
+    let b = @simdLoad[f32x4](ptr + 4usize, 4);
     let mixed = @simdShuffle(a, b, [4]u32.{ 0, 5, 2, 7 });
     @simdStore(ptr, mixed, 4);
     return @simdReduceAdd(mixed);

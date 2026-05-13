@@ -403,6 +403,41 @@ pub fn build_temp_program(prefix: &str, source: &str, base_args: &[&str]) -> (Pa
     (source_path, executable_path)
 }
 
+pub fn build_temp_program_with_outputs(
+    prefix: &str,
+    source: &str,
+    base_args: &[String],
+) -> (PathBuf, PathBuf) {
+    let source_path = unique_temp_path(prefix, "rn");
+    let executable_path = unique_temp_path(prefix, executable_extension());
+
+    fs::write(&source_path, source).unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let exe_arg = executable_path.to_string_lossy().into_owned();
+
+    let mut args = base_args.to_vec();
+    maybe_add_default_runtime_contract(&mut args);
+    args.push(source_arg);
+    args.push("-o".to_string());
+    args.push(exe_arg);
+
+    let output = run_kernc(&args);
+    assert_success(&output, "kernc");
+
+    (source_path, executable_path)
+}
+
+pub fn run_program_with_args(executable_path: &Path, args: &[&str]) -> Output {
+    let mut command = Command::new(executable_path);
+    command.args(args);
+    run_command_with_timeout(
+        command,
+        read_duration_env("KERNC_TEST_RUN_TIMEOUT_MS", DEFAULT_RUN_TIMEOUT),
+        "compiled test binary",
+    )
+}
+
 pub fn build_and_run(prefix: &str, source: &str, compile_args: &[&str]) -> Output {
     let source_path = unique_temp_path(prefix, "rn");
     let executable_path = unique_temp_path(prefix, executable_extension());

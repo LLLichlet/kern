@@ -37,6 +37,6 @@ fn take(value: &Base[4]) i32 {
 
 fn main() i32 {
     let x = X.{};
-    let leaf = &Leaf[4].{ x.& };
+    let leaf = (x.& as &Leaf[4]);
     return take(leaf);
 }

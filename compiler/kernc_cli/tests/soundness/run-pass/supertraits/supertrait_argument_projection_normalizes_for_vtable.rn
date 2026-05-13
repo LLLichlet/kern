@@ -35,12 +35,12 @@ fn via_inherited_method(d: &Derived[&X]) i32 {
 }
 
 fn via_explicit_upcast(d: &Derived[&X]) i32 {
-    let base = &Base[i32].{ d };
+    let base = (d as &Base[i32]);
     return base.get();
 }
 
 fn main() i32 {
     let x = X.{};
-    let d = &Derived[&X].{ x.& };
+    let d = (x.& as &Derived[&X]);
     return via_inherited_method(d) + via_explicit_upcast(d) + d.tag() - 17;
 }

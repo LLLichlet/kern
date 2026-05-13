@@ -353,7 +353,10 @@ fn assign_test_targets(
     raw_value: &str,
 ) -> std::result::Result<(), String> {
     match key {
-        "roots" => manifest.test = parse_target_roots("[test].roots", raw_value)?,
+        "roots" => {
+            manifest.test_roots_explicit = true;
+            manifest.test = parse_target_roots("[test].roots", raw_value, true)?;
+        }
         _ => return Err(format!("unsupported [test] key `{key}`")),
     }
     Ok(())
@@ -365,7 +368,7 @@ fn assign_example_targets(
     raw_value: &str,
 ) -> std::result::Result<(), String> {
     match key {
-        "roots" => manifest.example = parse_target_roots("[example].roots", raw_value)?,
+        "roots" => manifest.example = parse_target_roots("[example].roots", raw_value, false)?,
         _ => return Err(format!("unsupported [example] key `{key}`")),
     }
     Ok(())
@@ -761,11 +764,12 @@ fn split_top_level(input: &str, separator: char) -> Vec<&str> {
 fn parse_target_roots(
     section: &str,
     raw_value: &str,
+    allow_globs: bool,
 ) -> std::result::Result<Vec<NamedTarget>, String> {
     let roots = parse_string_array(raw_value)?;
     let mut targets = Vec::new();
     for root in roots {
-        if contains_glob_pattern(&root) {
+        if !allow_globs && contains_glob_pattern(&root) {
             return Err(format!(
                 "{section} does not support glob patterns, list files explicitly: `{root}`"
             ));

@@ -442,6 +442,26 @@ In addition to user-provided `--define` values, `kernc` injects a small set of d
 - `libc`: `true` when libc linkage is enabled
 - `crt_startup`: `true` when CRT startup owns initial process entry
 - `rt_role`: toolchain-controlled role selection for `rt`
+- `test`: `true` only when compiling in test mode
+
+### Test Mode
+
+`--test-mode` asks the compiler to build a test adapter instead of the normal root `main` adapter. In this mode, `#[test]` functions are collected as test cases and `#[if(test)]` content is retained.
+
+Legal test functions are:
+
+- `#[test] fn name() i32`
+- `#[test] fn name(argc: i32, argv: &&u8) i32`
+
+`--test-metadata-output <file>` writes the discovered case manifest:
+
+```text
+version=1
+case=0	alpha
+case=1	nested::beta
+```
+
+The adapter is a private compiler/tooling protocol. Tools invoke one case per process and pass user test arguments through to that case's `(argc, argv)` when requested. Case return value `0` means pass; any other value means fail.
 
 ## Linking Model
 
@@ -579,6 +599,8 @@ That separation keeps policy in the package manager and keeps `kernc` determinis
 - `--module-path <name=path>`: map a module name to a physical directory
 - `--module-interface-path <name=path>`: map a module name to an imported metadata root
 - `--metadata-output <dir>`: emit a module metadata snapshot directory
+- `--test-mode`: compile a test target and enable the driver-controlled `test` condition
+- `--test-metadata-output <file>`: emit the discovered test case manifest
 - `--module-root-name <name>`: override the compiled root module name
 - `-O0` to `-O3`: select optimization level
 

@@ -58,7 +58,9 @@ fn collect_decl_binding_completion_facts(
                 let_else_facts_by_span,
             );
         }
-        ast::DeclKind::Var { value, .. } => {
+        ast::DeclKind::Var {
+            value: Some(value), ..
+        } => {
             collect_expr_binding_completion_facts(
                 value,
                 items_by_span,
@@ -122,6 +124,7 @@ fn collect_expr_binding_completion_facts(
             pattern,
             init,
             else_clause,
+            ..
         } => {
             let mut bindings = Vec::new();
             collect_pattern_binding_items(&pattern.pattern, items_by_span, &mut bindings);
@@ -173,7 +176,11 @@ fn collect_expr_binding_completion_facts(
                 }
             }
         }
-        ast::ExprKind::Static { pattern, init, .. } => {
+        ast::ExprKind::Static {
+            pattern,
+            init: Some(init),
+            ..
+        } => {
             let mut bindings = Vec::new();
             push_binding_item_from_span(items_by_span, pattern.span, &mut bindings);
             expr_binding_items_by_span.insert(query_span_for_expr(expr), bindings);
@@ -589,7 +596,9 @@ fn collect_decl_body_regions(decl: &ast::Decl, regions: &mut Vec<kernc_utils::Sp
         ast::DeclKind::Function {
             body: Some(body), ..
         } => regions.push(query_span_for_expr(body)),
-        ast::DeclKind::Var { value, .. } => {
+        ast::DeclKind::Var {
+            value: Some(value), ..
+        } => {
             regions.push(query_span_for_expr(value));
         }
         ast::DeclKind::ExternBlock { decls, .. } | ast::DeclKind::Impl { decls, .. } => {

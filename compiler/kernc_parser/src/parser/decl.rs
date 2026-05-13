@@ -297,9 +297,7 @@ impl<'a> Parser<'a> {
                                     decl.span,
                                     "external statics must be declared inside `extern { ... }` blocks",
                                 )
-                                .with_hint(
-                                    "wrap imported statics in `extern { ... }` and use `= Type.{undef};`",
-                                )
+                                .with_hint("write `extern { static NAME: Type; }` for imported statics")
                                 .emit();
                             return Err(ParseError);
                         }
@@ -618,23 +616,33 @@ impl<'a> Parser<'a> {
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
 
-        if self.match_token(&[TokenType::Colon]) {
-            let err_span = self.stream.prev_span();
-            self.add_error(err_span, "Global variables must express their type through the initializer. Use `static X = Type.{ value };`.".to_string());
-            let _ = self.parse_type();
-        }
-
-        // Init
-        let value = if self.match_token(&[TokenType::Assign]) {
-            self.parse_expression(Precedence::Lowest)?
+        let type_node = if self.match_token(&[TokenType::Colon]) {
+            Some(Box::new(self.parse_type()?))
         } else {
-            // All globals, including extern imports, require an initializer form.
-            self.add_error(
-                start,
-                "Global/extern vars must be initialized (use `= Type.{undef};` for externs)"
-                    .to_string(),
-            );
-            return Err(ParseError);
+            None
+        };
+
+        let value = if self.match_token(&[TokenType::Assign]) {
+            Some(self.parse_expression(Precedence::Lowest)?)
+        } else {
+            if type_node.is_none() {
+                self.add_error(
+                    name.span,
+                    "global declarations without an initializer must include a type annotation"
+                        .to_string(),
+                );
+                return Err(ParseError);
+            }
+
+            if !is_extern {
+                self.add_error(
+                    start,
+                    "`static` declarations without an initializer must be `extern`".to_string(),
+                );
+                return Err(ParseError);
+            }
+
+            None
         };
         self.expect(TokenType::Semicolon)?;
         let end = self.stream.prev_span();
@@ -648,6 +656,7 @@ impl<'a> Parser<'a> {
             docs: None,
             attributes: vec![],
             kind: DeclKind::Var {
+                type_node,
                 value,
                 is_static,
                 is_extern,

@@ -16,7 +16,8 @@ pub use self::derive_support::derive_with_options;
 use self::derive_support::resolve_compile_source_input;
 use self::paths::{
     artifact_kind, artifact_name, artifact_path, artifact_root_path, generated_root_path,
-    metadata_path, object_path, relative_display, resolve_staged_action, workspace_build_root,
+    metadata_path, object_path, relative_display, resolve_staged_action, test_metadata_path,
+    workspace_build_root,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,6 +167,7 @@ pub struct CompileAction {
     pub generated_root_path: PathBuf,
     pub source_input: CompileSourceInput,
     pub metadata_path: Option<PathBuf>,
+    pub test_metadata_path: Option<PathBuf>,
     pub object_path: PathBuf,
     pub artifact_path: PathBuf,
     pub profile: script::ScriptProfile,

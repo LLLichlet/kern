@@ -39,6 +39,6 @@ fn take(value: &Base[4]) i32 {
 
 fn main() i32 {
     let x = X.{};
-    let derived = &Derived[4].{ x.& };
+    let derived = (x.& as &Derived[4]);
     return take(derived);
 }

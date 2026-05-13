@@ -30,6 +30,6 @@ impl[T] &Boxed[T]: Derived
 
 fn main() i32 {
     let boxed = Boxed[Ready].{ inner: Ready.{}, };
-    let derived = &Derived.{ boxed.& };
+    let derived = (boxed.& as &Derived);
     return derived.value() - 7;
 }

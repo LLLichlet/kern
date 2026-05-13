@@ -33,6 +33,6 @@ fn expect_i64(value: i64) i32 {
 
 fn main() i32 {
     let x = X.{};
-    let derived = &Derived[4].{ x.& };
+    let derived = (x.& as &Derived[4]);
     return expect_i64(derived.make());
 }

@@ -71,6 +71,14 @@ fn overview_doc(program_name: &str) -> HelpDoc {
                     "Write module metadata snapshots to <DIR>",
                 )
                 .entry(
+                    "--test-mode",
+                    "Compile a test target, collect #[test] cases, and enable #[if(test)]",
+                )
+                .entry(
+                    "--test-metadata-output <FILE>",
+                    "Write discovered test case metadata to <FILE>",
+                )
+                .entry(
                     "--module-root-name <NAME>",
                     "Override the compiled root module name",
                 ),
@@ -144,6 +152,14 @@ fn all_doc(program_name: &str) -> HelpDoc {
                 .entry(
                     "--metadata-output <DIR>",
                     "Write module metadata snapshots to <DIR>",
+                )
+                .entry(
+                    "--test-mode",
+                    "Compile a test target, collect #[test] cases, and enable #[if(test)]",
+                )
+                .entry(
+                    "--test-metadata-output <FILE>",
+                    "Write discovered test case metadata to <FILE>",
                 )
                 .entry(
                     "--module-root-name <NAME>",

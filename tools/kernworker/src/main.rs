@@ -1,7 +1,10 @@
 use shared_cli::{ColorChoice, ErrorReport, HelpDoc, HelpSection};
 use shared_ops::{
-    OpsError, OpsResult, copy_dir_recursive, load_workspace_version, make_temp_dir,
-    remove_path_if_exists, repo_root, run_command, run_command_capture,
+    OpsError, OpsResult, archive_kind_from_path, copy_dir_recursive, copy_path, detect_host_target,
+    expected_archive_sha256, extract_archive_with_system_tool, format_policy_value,
+    load_workspace_version, make_temp_dir, remove_path_if_exists, repo_root,
+    resolve_ci_toolchain_policy, run_command, run_command_capture, runner_os_for_host,
+    runner_os_for_target, validate_toolchain_root, verify_archive_checksum,
 };
 use std::env;
 use std::ffi::OsString;
@@ -27,6 +30,12 @@ enum Command {
 enum CiCommand {
     KerncTests { mode: TestMode },
     CraftPolicy,
+    ToolchainInfo,
+    ToolchainHealth,
+    ToolchainSpec(ToolchainSpecArgs),
+    VerifyToolchainArchive(ToolchainArchiveArgs),
+    VerifyPackagedToolchain(PackagedToolchainVerifyArgs),
+    InstallPackagedToolchain(PackagedToolchainInstallArgs),
     Help,
 }
 
@@ -35,6 +44,36 @@ enum TestMode {
     Smoke,
     Hosted,
     All,
+}
+
+#[derive(Debug, Default)]
+struct ToolchainSpecArgs {
+    runner_os: Option<String>,
+    mode: String,
+    host_target: Option<String>,
+    format: String,
+}
+
+#[derive(Debug, Default)]
+struct ToolchainArchiveArgs {
+    runner_os: Option<String>,
+    mode: String,
+    host_target: Option<String>,
+    archive_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Default)]
+struct PackagedToolchainVerifyArgs {
+    archive_path: Option<PathBuf>,
+    target: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct PackagedToolchainInstallArgs {
+    archive_path: Option<PathBuf>,
+    dest: Option<PathBuf>,
+    target: Option<String>,
+    format: String,
 }
 
 fn main() {
@@ -51,6 +90,12 @@ fn run() -> OpsResult<()> {
     match parse_args(env::args().skip(1).collect())? {
         Command::Ci(CiCommand::KerncTests { mode }) => run_kernc_tests(mode),
         Command::Ci(CiCommand::CraftPolicy) => run_craft_policy_checks(),
+        Command::Ci(CiCommand::ToolchainInfo) => print_toolchain_info(),
+        Command::Ci(CiCommand::ToolchainHealth) => assert_toolchain_health(),
+        Command::Ci(CiCommand::ToolchainSpec(args)) => print_toolchain_spec(args),
+        Command::Ci(CiCommand::VerifyToolchainArchive(args)) => verify_toolchain_archive(args),
+        Command::Ci(CiCommand::VerifyPackagedToolchain(args)) => verify_packaged_toolchain(args),
+        Command::Ci(CiCommand::InstallPackagedToolchain(args)) => install_packaged_toolchain(args),
         Command::Ci(CiCommand::Help) => {
             print!("{}", ci_help().render(ColorChoice::Auto));
             Ok(())
@@ -84,6 +129,17 @@ fn parse_ci_args(args: &[String]) -> OpsResult<CiCommand> {
     match command {
         "kernc-tests" => parse_kernc_tests_args(&args[1..]),
         "craft-policy" => Ok(CiCommand::CraftPolicy),
+        "toolchain-info" => Ok(CiCommand::ToolchainInfo),
+        "toolchain-health" => Ok(CiCommand::ToolchainHealth),
+        "toolchain-spec" => parse_toolchain_spec_args(&args[1..]).map(CiCommand::ToolchainSpec),
+        "verify-toolchain-archive" => {
+            parse_toolchain_archive_args(&args[1..]).map(CiCommand::VerifyToolchainArchive)
+        }
+        "verify-packaged-toolchain" => {
+            parse_packaged_toolchain_verify_args(&args[1..]).map(CiCommand::VerifyPackagedToolchain)
+        }
+        "install-packaged-toolchain" => parse_packaged_toolchain_install_args(&args[1..])
+            .map(CiCommand::InstallPackagedToolchain),
         "help" | "--help" | "-h" => Ok(CiCommand::Help),
         other => Err(OpsError::new(format!(
             "unknown ci command `{other}`; run `kernworker ci help`"
@@ -125,6 +181,113 @@ fn parse_kernc_tests_args(args: &[String]) -> OpsResult<CiCommand> {
         index += 1;
     }
     Ok(CiCommand::KerncTests { mode })
+}
+
+fn parse_toolchain_spec_args(args: &[String]) -> OpsResult<ToolchainSpecArgs> {
+    let mut parsed = ToolchainSpecArgs {
+        mode: "current".into(),
+        format: "text".into(),
+        ..ToolchainSpecArgs::default()
+    };
+    parse_common_toolchain_args(args, |key, value| {
+        match key {
+            "--runner-os" => parsed.runner_os = Some(value.to_string()),
+            "--mode" => parsed.mode = value.to_string(),
+            "--host-target" => parsed.host_target = Some(value.to_string()),
+            "--format" => parsed.format = value.to_string(),
+            other => {
+                return Err(OpsError::new(format!(
+                    "unexpected toolchain-spec argument `{other}`"
+                )));
+            }
+        }
+        Ok(())
+    })?;
+    Ok(parsed)
+}
+
+fn parse_toolchain_archive_args(args: &[String]) -> OpsResult<ToolchainArchiveArgs> {
+    let mut parsed = ToolchainArchiveArgs {
+        mode: "current".into(),
+        ..ToolchainArchiveArgs::default()
+    };
+    parse_common_toolchain_args(args, |key, value| {
+        match key {
+            "--runner-os" => parsed.runner_os = Some(value.to_string()),
+            "--mode" => parsed.mode = value.to_string(),
+            "--host-target" => parsed.host_target = Some(value.to_string()),
+            "--archive-path" => parsed.archive_path = Some(PathBuf::from(value)),
+            other => {
+                return Err(OpsError::new(format!(
+                    "unexpected verify-toolchain-archive argument `{other}`"
+                )));
+            }
+        }
+        Ok(())
+    })?;
+    Ok(parsed)
+}
+
+fn parse_packaged_toolchain_verify_args(args: &[String]) -> OpsResult<PackagedToolchainVerifyArgs> {
+    let mut parsed = PackagedToolchainVerifyArgs::default();
+    parse_common_toolchain_args(args, |key, value| {
+        match key {
+            "--archive-path" => parsed.archive_path = Some(PathBuf::from(value)),
+            "--target" => parsed.target = Some(value.to_string()),
+            other => {
+                return Err(OpsError::new(format!(
+                    "unexpected verify-packaged-toolchain argument `{other}`"
+                )));
+            }
+        }
+        Ok(())
+    })?;
+    Ok(parsed)
+}
+
+fn parse_packaged_toolchain_install_args(
+    args: &[String],
+) -> OpsResult<PackagedToolchainInstallArgs> {
+    let mut parsed = PackagedToolchainInstallArgs {
+        format: "text".into(),
+        ..PackagedToolchainInstallArgs::default()
+    };
+    parse_common_toolchain_args(args, |key, value| {
+        match key {
+            "--archive-path" => parsed.archive_path = Some(PathBuf::from(value)),
+            "--dest" => parsed.dest = Some(PathBuf::from(value)),
+            "--target" => parsed.target = Some(value.to_string()),
+            "--format" => parsed.format = value.to_string(),
+            other => {
+                return Err(OpsError::new(format!(
+                    "unexpected install-packaged-toolchain argument `{other}`"
+                )));
+            }
+        }
+        Ok(())
+    })?;
+    Ok(parsed)
+}
+
+fn parse_common_toolchain_args(
+    args: &[String],
+    mut set: impl FnMut(&str, &str) -> OpsResult<()>,
+) -> OpsResult<()> {
+    let mut index = 0;
+    while index < args.len() {
+        let key = args[index].as_str();
+        if key == "--help" || key == "-h" {
+            print!("{}", ci_help().render(ColorChoice::Auto));
+            std::process::exit(0);
+        }
+        index += 1;
+        let Some(value) = args.get(index) else {
+            return Err(OpsError::new(format!("`{key}` requires a value")));
+        };
+        set(key, value)?;
+        index += 1;
+    }
+    Ok(())
 }
 
 fn run_kernc_tests(mode: TestMode) -> OpsResult<()> {
@@ -194,6 +357,304 @@ fn run_craft_policy_checks() -> OpsResult<()> {
     })();
     let _ = remove_path_if_exists(&temp_root);
     result
+}
+
+fn ci_toolchains_manifest() -> OpsResult<PathBuf> {
+    Ok(repo_root()?.join("manifest").join("ci-toolchains.json"))
+}
+
+fn resolve_policy_from_args(
+    runner_os: Option<&str>,
+    mode: &str,
+    host_target: Option<&str>,
+) -> OpsResult<shared_ops::CiToolchainPolicy> {
+    let host = detect_host_target()?;
+    let runner = runner_os.unwrap_or_else(|| runner_os_for_host(&host));
+    resolve_ci_toolchain_policy(&ci_toolchains_manifest()?, runner, mode, host_target)
+}
+
+fn print_toolchain_info() -> OpsResult<()> {
+    let host = detect_host_target()?;
+    println!("runner_target: {}", host.archive_target);
+    println!(
+        "KERN_TOOLCHAIN_ROOT: {}",
+        env::var("KERN_TOOLCHAIN_ROOT").unwrap_or_else(|_| "<unset>".into())
+    );
+    println!(
+        "CC: {}",
+        env::var("CC").unwrap_or_else(|_| "<unset>".into())
+    );
+    println!(
+        "CXX: {}",
+        env::var("CXX").unwrap_or_else(|_| "<unset>".into())
+    );
+    for name in [
+        "cc",
+        "clang",
+        "clang++",
+        "ld",
+        "ld.lld",
+        "ld64.lld",
+        "lld-link",
+        "llvm-lib",
+        "llvm-config",
+        "llvm-config-21",
+    ] {
+        let result = run_command_capture(
+            &[
+                OsString::from(if cfg!(windows) { "where" } else { "which" }),
+                OsString::from(name),
+            ],
+            None,
+        );
+        match result {
+            Ok(result) if result.status_code == Some(0) => {
+                let path = result.stdout.lines().next().unwrap_or("").trim();
+                println!("{name}: {path}");
+            }
+            _ => println!("{name}: <missing>"),
+        }
+    }
+    Ok(())
+}
+
+fn print_toolchain_spec(args: ToolchainSpecArgs) -> OpsResult<()> {
+    let policy = resolve_policy_from_args(
+        args.runner_os.as_deref(),
+        if args.mode.is_empty() {
+            "current"
+        } else {
+            &args.mode
+        },
+        args.host_target.as_deref(),
+    )?;
+    if args.format == "github-env" {
+        print!("{}", render_policy_github_env(&policy)?);
+        return Ok(());
+    }
+    println!("toolchain_policy.runner_os: {}", policy.runner_os);
+    println!("toolchain_policy.mode: {}", policy.mode);
+    println!(
+        "toolchain_policy.host_target: {}",
+        policy.host_target.as_deref().unwrap_or("<unset>")
+    );
+    println!("toolchain_policy.provider_kind: {}", policy.provider_kind);
+    println!("toolchain_policy.provider: {}", policy.provider);
+    println!(
+        "toolchain_policy.target_provider_kind: {}",
+        policy.target_provider_kind
+    );
+    println!(
+        "toolchain_policy.target_provider: {}",
+        policy.target_provider
+    );
+    println!("toolchain_policy.llvm_version: {}", policy.llvm_version);
+    println!("toolchain_policy.llvm_major: {}", policy.llvm_major);
+    println!("toolchain_policy.prefix_env: {}", policy.prefix_env);
+    println!(
+        "toolchain_policy.required_tools: {}",
+        policy.required_tools.join(" ")
+    );
+    for key in policy.raw.keys() {
+        if [
+            "llvm_version",
+            "llvm_major",
+            "prefix_env",
+            "provider_kind",
+            "provider",
+            "target_provider_kind",
+            "target_provider",
+            "required_tools",
+        ]
+        .contains(&key.as_str())
+        {
+            continue;
+        }
+        println!("toolchain_policy.{key}: {}", policy.raw[key]);
+    }
+    Ok(())
+}
+
+fn render_policy_github_env(policy: &shared_ops::CiToolchainPolicy) -> OpsResult<String> {
+    let mut lines = vec![
+        format!("KERN_CI_RUNNER_OS={}", policy.runner_os),
+        format!("KERN_CI_MODE={}", policy.mode),
+        format!(
+            "KERN_CI_HOST_TARGET={}",
+            policy.host_target.as_deref().unwrap_or("")
+        ),
+        format!("KERN_CI_LLVM_VERSION={}", policy.llvm_version),
+        format!("KERN_CI_LLVM_MAJOR={}", policy.llvm_major),
+        format!("KERN_CI_LLVM_PREFIX_ENV={}", policy.prefix_env),
+        format!("KERN_CI_PROVIDER_KIND={}", policy.provider_kind),
+        format!("KERN_CI_TOOLCHAIN_PROVIDER={}", policy.provider),
+        format!(
+            "KERN_CI_TARGET_PROVIDER_KIND={}",
+            policy.target_provider_kind
+        ),
+        format!(
+            "KERN_CI_TARGET_TOOLCHAIN_PROVIDER={}",
+            policy.target_provider
+        ),
+        format!("KERN_CI_REQUIRED_TOOLS={}", policy.required_tools.join(" ")),
+    ];
+    for (key, env_name) in [
+        ("archive_url", "KERN_CI_ARCHIVE_URL"),
+        ("archive_sha256", "KERN_CI_ARCHIVE_SHA256"),
+        ("archive_root", "KERN_CI_ARCHIVE_ROOT"),
+        ("install_dir", "KERN_CI_INSTALL_DIR"),
+        ("archive_prefix_subdir", "KERN_CI_ARCHIVE_PREFIX_SUBDIR"),
+        ("apt_packages", "KERN_CI_APT_PACKAGES"),
+        ("primary_formula", "KERN_CI_BREW_PRIMARY_FORMULA"),
+        ("fallback_formula", "KERN_CI_BREW_FALLBACK_FORMULA"),
+        ("vcpkg_package", "KERN_CI_WINDOWS_VCPKG_PACKAGE"),
+        ("vcpkg_cache_key", "KERN_CI_WINDOWS_VCPKG_CACHE_KEY"),
+    ] {
+        if let Some(value) = policy.raw.get(key) {
+            let rendered = if let Some(text) = value.as_str() {
+                format_policy_value(policy, text)
+            } else if let Some(items) = value.as_array() {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else {
+                continue;
+            };
+            lines.push(format!("{env_name}={rendered}"));
+        }
+    }
+    if let Some(items) = policy
+        .raw
+        .get("extra_formulas")
+        .and_then(|value| value.as_array())
+    {
+        lines.push(format!(
+            "KERN_CI_BREW_EXTRA_FORMULAS={}",
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        ));
+    }
+    Ok(lines.join("\n") + "\n")
+}
+
+fn verify_toolchain_archive(args: ToolchainArchiveArgs) -> OpsResult<()> {
+    let archive = args
+        .archive_path
+        .ok_or_else(|| OpsError::new("`--archive-path` is required"))?;
+    let policy = resolve_policy_from_args(
+        args.runner_os.as_deref(),
+        if args.mode.is_empty() {
+            "current"
+        } else {
+            &args.mode
+        },
+        args.host_target.as_deref(),
+    )?;
+    if policy.provider_kind != "archive" {
+        return Err(OpsError::new(format!(
+            "runner OS `{}` does not use an archive-based {} provider",
+            policy.runner_os, policy.mode
+        )));
+    }
+    let expected = expected_archive_sha256(&policy)?;
+    println!(
+        "{}",
+        verify_archive_checksum(&archive, expected.as_deref())?
+    );
+    Ok(())
+}
+
+fn verify_packaged_toolchain(args: PackagedToolchainVerifyArgs) -> OpsResult<()> {
+    let archive = args
+        .archive_path
+        .ok_or_else(|| OpsError::new("`--archive-path` is required"))?;
+    let host = detect_host_target()?;
+    let target = args.target.unwrap_or(host.archive_target);
+    let temp = make_temp_dir("kern-toolchain-verify-")?;
+    let result = (|| -> OpsResult<()> {
+        let root = extract_archive_with_system_tool(
+            &archive,
+            &temp.join("extract"),
+            archive_kind_from_path(&archive)?,
+        )?;
+        validate_toolchain_root(&root, &target)?;
+        println!("packaged toolchain archive verified: {}", archive.display());
+        Ok(())
+    })();
+    let _ = remove_path_if_exists(&temp);
+    result
+}
+
+fn install_packaged_toolchain(args: PackagedToolchainInstallArgs) -> OpsResult<()> {
+    let archive = args
+        .archive_path
+        .ok_or_else(|| OpsError::new("`--archive-path` is required"))?;
+    let dest = args
+        .dest
+        .ok_or_else(|| OpsError::new("`--dest` is required"))?;
+    let host = detect_host_target()?;
+    let target = args.target.unwrap_or(host.archive_target);
+    let temp = make_temp_dir("kern-toolchain-install-")?;
+    let result = (|| -> OpsResult<()> {
+        let root = extract_archive_with_system_tool(
+            &archive,
+            &temp.join("extract"),
+            archive_kind_from_path(&archive)?,
+        )?;
+        validate_toolchain_root(&root, &target)?;
+        remove_path_if_exists(&dest)?;
+        copy_path(&root, &dest)?;
+        let prefix = dest.join("toolchain").join("host");
+        let policy = resolve_ci_toolchain_policy(
+            &ci_toolchains_manifest()?,
+            runner_os_for_target(&target)?,
+            "current",
+            Some(&target),
+        )?;
+        if args.format == "github-env" {
+            println!("KERN_CI_PACKAGED_TOOLCHAIN_ROOT={}", prefix.display());
+            println!("KERN_TOOLCHAIN_ROOT={}", prefix.display());
+            println!("{}={}", policy.prefix_env, prefix.display());
+        } else {
+            println!("packaged_toolchain.install_root: {}", dest.display());
+            println!("packaged_toolchain.prefix: {}", prefix.display());
+        }
+        Ok(())
+    })();
+    let _ = remove_path_if_exists(&temp);
+    result
+}
+
+fn assert_toolchain_health() -> OpsResult<()> {
+    let host = detect_host_target()?;
+    let policy = resolve_ci_toolchain_policy(
+        &ci_toolchains_manifest()?,
+        runner_os_for_host(&host),
+        "current",
+        Some(&host.archive_target),
+    )?;
+    println!("toolchain_health.target: {}", host.archive_target);
+    for tool in &policy.required_tools {
+        let result = run_command_capture(
+            &[
+                OsString::from(if cfg!(windows) { "where" } else { "which" }),
+                OsString::from(tool),
+            ],
+            None,
+        )?;
+        if result.status_code != Some(0) {
+            return Err(OpsError::new(format!("required tool `{tool}` is missing")));
+        }
+        let path = result.stdout.lines().next().unwrap_or("").trim();
+        println!("toolchain_health.{tool}: {path}");
+    }
+    println!("toolchain_health.status: ok");
+    Ok(())
 }
 
 fn prepare_fixture(source: &Path, temp_root: &Path, version: &str) -> OpsResult<PathBuf> {

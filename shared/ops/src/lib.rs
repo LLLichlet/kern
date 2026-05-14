@@ -4,6 +4,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::io;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -77,6 +78,22 @@ pub struct ToolchainManifestSection {
 }
 
 #[derive(Debug, Clone)]
+pub struct CiToolchainPolicy {
+    pub runner_os: String,
+    pub mode: String,
+    pub host_target: Option<String>,
+    pub llvm_version: String,
+    pub llvm_major: u64,
+    pub prefix_env: String,
+    pub provider_kind: String,
+    pub provider: String,
+    pub target_provider_kind: String,
+    pub target_provider: String,
+    pub required_tools: Vec<String>,
+    pub raw: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone)]
 pub struct CommandResult {
     pub status_code: Option<i32>,
     pub stdout: String,
@@ -85,6 +102,20 @@ pub struct CommandResult {
 
 pub fn repo_root() -> OpsResult<PathBuf> {
     Ok(env::current_dir()?)
+}
+
+pub fn read_json_value(path: &Path) -> OpsResult<serde_json::Value> {
+    Ok(serde_json::from_str(&fs::read_to_string(path)?)?)
+}
+
+pub fn write_json_value(path: &Path, value: &serde_json::Value) -> OpsResult<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut out = serde_json::to_string_pretty(value)?;
+    out.push('\n');
+    fs::write(path, out)?;
+    Ok(())
 }
 
 pub fn detect_host_target() -> OpsResult<HostTarget> {
@@ -193,7 +224,130 @@ pub fn validate_sdk_root(sdk_root: &Path, expected_target: &str) -> OpsResult<Sd
         return Err(OpsError::new("SDK toolchain layout is incomplete"));
     }
 
+    validate_sdk_toolchain_manifest(sdk_root)?;
+
     Ok(manifest)
+}
+
+pub fn validate_sdk_toolchain_manifest(sdk_root: &Path) -> OpsResult<()> {
+    let manifest_path = sdk_root.join("manifest").join("sdk.json");
+    let manifest = read_json_value(&manifest_path)?;
+    let Some(toolchain) = manifest
+        .get("toolchain")
+        .and_then(|value| value.as_object())
+    else {
+        return Err(OpsError::new(
+            "SDK manifest is missing the `toolchain` section",
+        ));
+    };
+    let Some(components) = toolchain
+        .get("components")
+        .and_then(|value| value.as_object())
+    else {
+        return Err(OpsError::new(
+            "SDK manifest toolchain components are invalid",
+        ));
+    };
+    if toolchain
+        .get("bundled")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        let host_target = manifest
+            .get("host_target")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        let required = manifest_required_components(
+            toolchain,
+            sdk_runtime_required_components(host_target),
+            "SDK manifest toolchain",
+        )?;
+        for component in &required {
+            if !components.contains_key(component) {
+                return Err(OpsError::new(format!(
+                    "SDK manifest is missing bundled component `{component}`"
+                )));
+            }
+        }
+        for (component, entry) in components {
+            validate_component_record(sdk_root, component, entry, "SDK bundled component")?;
+        }
+        for check in manifest_health_checks(toolchain, &required, "SDK manifest toolchain")? {
+            let entry = components.get(&check.component).ok_or_else(|| {
+                OpsError::new(format!(
+                    "SDK manifest is missing bundled component `{}`",
+                    check.component
+                ))
+            })?;
+            validate_manifest_health_check(sdk_root, &check.component, entry, &check.kind)?;
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_toolchain_root(toolchain_root: &Path, expected_target: &str) -> OpsResult<()> {
+    let manifest_path = toolchain_root.join("manifest").join("toolchain.json");
+    if !manifest_path.is_file() {
+        return Err(OpsError::new(format!(
+            "toolchain manifest `{}` is missing",
+            manifest_path.display()
+        )));
+    }
+    let manifest = read_json_value(&manifest_path)?;
+    if manifest
+        .get("host_target")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        != expected_target
+    {
+        return Err(OpsError::new(format!(
+            "toolchain host target mismatch in `{}`",
+            manifest_path.display()
+        )));
+    }
+    if !toolchain_root.join("toolchain").join("host").is_dir() {
+        return Err(OpsError::new("toolchain host layout is incomplete"));
+    }
+    let Some(manifest_obj) = manifest.as_object() else {
+        return Err(OpsError::new("toolchain manifest is invalid"));
+    };
+    let Some(components) = manifest
+        .get("components")
+        .and_then(|value| value.as_object())
+    else {
+        return Err(OpsError::new("toolchain manifest components are invalid"));
+    };
+    let required = manifest_required_components(
+        manifest_obj,
+        full_toolchain_required_components(expected_target),
+        "toolchain manifest",
+    )?;
+    for component in &required {
+        let Some(entry) = components.get(component) else {
+            return Err(OpsError::new(format!(
+                "toolchain manifest is missing component `{component}`"
+            )));
+        };
+        validate_component_record(toolchain_root, component, entry, "toolchain component")?;
+    }
+    if let Some(resource) = components.get("clang_resource_dir") {
+        validate_component_record(
+            toolchain_root,
+            "clang_resource_dir",
+            resource,
+            "toolchain component",
+        )?;
+    }
+    for check in manifest_health_checks(manifest_obj, &required, "toolchain manifest")? {
+        let entry = components.get(&check.component).ok_or_else(|| {
+            OpsError::new(format!(
+                "toolchain manifest is missing component `{}`",
+                check.component
+            ))
+        })?;
+        validate_manifest_health_check(toolchain_root, &check.component, entry, &check.kind)?;
+    }
+    Ok(())
 }
 
 pub fn copy_sdk_contents(sdk_root: &Path, install_root: &Path) -> OpsResult<()> {
@@ -259,6 +413,108 @@ pub fn verify_installed_tools(install_root: &Path, host: &HostTarget) -> OpsResu
         verify_binary_starts(&binary_path)?;
     }
     Ok(())
+}
+
+pub fn configure_path(install_bin: &Path, host: &HostTarget) -> OpsResult<()> {
+    if host.is_windows {
+        configure_windows_path(install_bin)
+    } else {
+        configure_unix_path(install_bin)
+    }
+}
+
+pub fn download_file(url: &str, dest: &Path) -> OpsResult<()> {
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    if cfg!(windows) {
+        let escaped_url = powershell_quote(url);
+        let escaped_dest = powershell_quote(&dest.display().to_string());
+        let script = format!(
+            "Invoke-WebRequest -Uri {escaped_url} -OutFile {escaped_dest} -UseBasicParsing"
+        );
+        run_command(
+            &[
+                OsString::from("powershell"),
+                OsString::from("-NoProfile"),
+                OsString::from("-ExecutionPolicy"),
+                OsString::from("Bypass"),
+                OsString::from("-Command"),
+                OsString::from(script),
+            ],
+            None,
+        )
+    } else {
+        run_command(
+            &[
+                OsString::from("curl"),
+                OsString::from("-fsSL"),
+                OsString::from(url),
+                OsString::from("-o"),
+                dest.as_os_str().to_owned(),
+            ],
+            None,
+        )
+    }
+}
+
+pub fn fetch_latest_github_release(github_repo: &str) -> OpsResult<Option<String>> {
+    if cfg!(windows) {
+        let script = format!(
+            "(Invoke-RestMethod -Uri {}).tag_name",
+            powershell_quote(&format!(
+                "https://api.github.com/repos/{github_repo}/releases/latest"
+            ))
+        );
+        let result = run_command_capture(
+            &[
+                OsString::from("powershell"),
+                OsString::from("-NoProfile"),
+                OsString::from("-ExecutionPolicy"),
+                OsString::from("Bypass"),
+                OsString::from("-Command"),
+                OsString::from(script),
+            ],
+            None,
+        )?;
+        if result.status_code == Some(0) {
+            let tag = result.stdout.trim();
+            return Ok((!tag.is_empty()).then(|| tag.to_string()));
+        }
+        return Ok(None);
+    }
+
+    let result = run_command_capture(
+        &[
+            OsString::from("curl"),
+            OsString::from("-fsSLI"),
+            OsString::from("-o"),
+            OsString::from("/dev/null"),
+            OsString::from("-w"),
+            OsString::from("%{url_effective}"),
+            OsString::from(format!("https://github.com/{github_repo}/releases/latest")),
+        ],
+        None,
+    )?;
+    if result.status_code != Some(0) {
+        return Ok(None);
+    }
+    let resolved = result.stdout.trim();
+    Ok(resolved
+        .split("/releases/tag/")
+        .nth(1)
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_string))
+}
+
+pub fn infer_release_version_from_archive_name(name: &str, target: &str) -> Option<String> {
+    let prefix = "kern-";
+    let suffixes = [format!("-{target}.tar.gz"), format!("-{target}.zip")];
+    suffixes.iter().find_map(|suffix| {
+        name.strip_prefix(prefix)
+            .and_then(|rest| rest.strip_suffix(suffix))
+            .map(str::to_string)
+    })
 }
 
 pub fn verify_binary_starts(binary_path: &Path) -> OpsResult<CommandResult> {
@@ -387,6 +643,89 @@ pub fn load_workspace_version(root: &Path) -> OpsResult<String> {
     )))
 }
 
+pub fn sha256_file(path: &Path) -> OpsResult<String> {
+    if cfg!(windows) {
+        let script = format!(
+            "(Get-FileHash -Algorithm SHA256 -LiteralPath {}).Hash.ToLowerInvariant()",
+            powershell_quote(&path.display().to_string())
+        );
+        let result = run_command_capture(
+            &[
+                OsString::from("powershell"),
+                OsString::from("-NoProfile"),
+                OsString::from("-ExecutionPolicy"),
+                OsString::from("Bypass"),
+                OsString::from("-Command"),
+                OsString::from(script),
+            ],
+            None,
+        )?;
+        if result.status_code == Some(0) {
+            return Ok(result.stdout.trim().to_ascii_lowercase());
+        }
+    } else {
+        for command in ["sha256sum", "shasum"] {
+            let args = if command == "shasum" {
+                vec![
+                    OsString::from(command),
+                    OsString::from("-a"),
+                    OsString::from("256"),
+                    path.as_os_str().to_owned(),
+                ]
+            } else {
+                vec![OsString::from(command), path.as_os_str().to_owned()]
+            };
+            let Ok(result) = run_command_capture(&args, None) else {
+                continue;
+            };
+            if result.status_code == Some(0)
+                && let Some(hash) = result.stdout.split_whitespace().next()
+            {
+                return Ok(hash.to_ascii_lowercase());
+            }
+        }
+    }
+    Err(OpsError::new(format!(
+        "failed to compute sha256 for `{}`",
+        path.display()
+    )))
+}
+
+pub fn sha256_directory(path: &Path) -> OpsResult<String> {
+    if !path.is_dir() {
+        return Err(OpsError::new(format!(
+            "directory `{}` does not exist",
+            path.display()
+        )));
+    }
+    let mut files = Vec::new();
+    collect_files(path, &mut files)?;
+    files.sort();
+    let mut payload = Vec::new();
+    for file in files {
+        let relative = file
+            .strip_prefix(path)
+            .map_err(|err| OpsError::new(err.to_string()))?
+            .to_string_lossy()
+            .replace('\\', "/");
+        payload.extend_from_slice(relative.as_bytes());
+        payload.push(0);
+        payload.extend_from_slice(sha256_file(&file)?.as_bytes());
+        payload.push(0);
+    }
+    let temp = make_temp_dir("kern-sha256-dir-")?.join("payload");
+    fs::write(&temp, payload)?;
+    let digest = sha256_file(&temp);
+    if let Some(parent) = temp.parent() {
+        let _ = remove_path_if_exists(parent);
+    }
+    digest
+}
+
+pub fn file_size(path: &Path) -> OpsResult<u64> {
+    Ok(path.metadata()?.len())
+}
+
 pub fn extract_archive_with_system_tool(
     archive_path: &Path,
     extract_root: &Path,
@@ -457,6 +796,170 @@ pub fn archive_kind_from_path(path: &Path) -> OpsResult<ArchiveKind> {
     }
 }
 
+pub fn resolve_ci_toolchain_policy(
+    manifest_path: &Path,
+    runner_os: &str,
+    mode: &str,
+    host_target: Option<&str>,
+) -> OpsResult<CiToolchainPolicy> {
+    let manifest = read_json_value(manifest_path)?;
+    if manifest
+        .get("schema_version")
+        .and_then(|value| value.as_u64())
+        != Some(1)
+    {
+        return Err(OpsError::new(format!(
+            "unsupported CI toolchain manifest schema in `{}`",
+            manifest_path.display()
+        )));
+    }
+    let normalized_runner = normalize_runner_os(runner_os)?;
+    let normalized_mode = normalize_policy_mode(mode)?;
+    let toolchains = manifest
+        .get("toolchains")
+        .and_then(|value| value.as_object())
+        .ok_or_else(|| OpsError::new("invalid CI toolchain manifest: missing `toolchains`"))?;
+    let base = toolchains
+        .get(&normalized_runner)
+        .and_then(|value| value.as_object())
+        .ok_or_else(|| {
+            OpsError::new(format!(
+                "missing CI toolchain policy for `{normalized_runner}`"
+            ))
+        })?;
+    let mut effective = base.clone();
+    if let Some(host_target) = host_target.filter(|value| !value.is_empty()) {
+        let host_targets = base
+            .get("host_targets")
+            .and_then(|value| value.as_object())
+            .ok_or_else(|| OpsError::new("missing CI toolchain host target overrides"))?;
+        let override_policy = host_targets
+            .get(host_target)
+            .and_then(|value| value.as_object())
+            .ok_or_else(|| {
+                OpsError::new(format!("missing CI toolchain host_target `{host_target}`"))
+            })?;
+        effective.extend(override_policy.clone());
+    }
+    if normalized_mode != "current" {
+        let prefix = format!("{normalized_mode}_");
+        let overrides = effective
+            .iter()
+            .filter_map(|(key, value)| {
+                key.strip_prefix(&prefix)
+                    .map(|stripped| (stripped.to_string(), value.clone()))
+            })
+            .collect::<Vec<_>>();
+        effective.extend(overrides);
+    }
+
+    Ok(CiToolchainPolicy {
+        runner_os: normalized_runner,
+        mode: normalized_mode,
+        host_target: host_target
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        llvm_version: json_string(&effective, "llvm_version")?,
+        llvm_major: json_u64(&effective, "llvm_major")?,
+        prefix_env: json_string(&effective, "prefix_env")?,
+        provider_kind: json_string(&effective, "provider_kind")?,
+        provider: json_string(&effective, "provider")?,
+        target_provider_kind: json_string(&effective, "target_provider_kind")?,
+        target_provider: json_string(&effective, "target_provider")?,
+        required_tools: json_string_array(&effective, "required_tools")?,
+        raw: effective,
+    })
+}
+
+pub fn runner_os_for_host(host: &HostTarget) -> &'static str {
+    if host.archive_target.ends_with("linux-gnu") {
+        "Linux"
+    } else if host.archive_target.ends_with("apple-darwin") {
+        "macOS"
+    } else {
+        "Windows"
+    }
+}
+
+pub fn runner_os_for_target(target: &str) -> OpsResult<&'static str> {
+    if target.ends_with("linux-gnu") {
+        Ok("Linux")
+    } else if target.ends_with("apple-darwin") {
+        Ok("macOS")
+    } else if target.ends_with("windows-msvc") {
+        Ok("Windows")
+    } else {
+        Err(OpsError::new(format!(
+            "unsupported archive target `{target}`"
+        )))
+    }
+}
+
+pub fn format_policy_value(policy: &CiToolchainPolicy, value: &str) -> String {
+    value
+        .replace("{llvm_version}", &policy.llvm_version)
+        .replace("{host_target}", policy.host_target.as_deref().unwrap_or(""))
+}
+
+pub fn expected_archive_sha256(policy: &CiToolchainPolicy) -> OpsResult<Option<String>> {
+    if let Some(value) = policy
+        .raw
+        .get("archive_sha256")
+        .and_then(|value| value.as_str())
+        && !value.is_empty()
+    {
+        return Ok(Some(value.to_ascii_lowercase()));
+    }
+    let Some(url) = policy
+        .raw
+        .get("archive_sha256_url")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let temp = make_temp_dir("kern-sha256-download-")?;
+    let path = temp.join("archive.sha256");
+    let result = (|| -> OpsResult<Option<String>> {
+        download_file(&format_policy_value(policy, url), &path)?;
+        let source = fs::read_to_string(&path)?;
+        let checksum = source
+            .split_whitespace()
+            .next()
+            .ok_or_else(|| OpsError::new("archive checksum file is empty"))?;
+        if checksum.len() != 64 || !checksum.chars().all(|ch| ch.is_ascii_hexdigit()) {
+            return Err(OpsError::new(
+                "archive checksum file does not start with a sha256 digest",
+            ));
+        }
+        Ok(Some(checksum.to_ascii_lowercase()))
+    })();
+    let _ = remove_path_if_exists(&temp);
+    result
+}
+
+pub fn verify_archive_checksum(path: &Path, expected: Option<&str>) -> OpsResult<String> {
+    let Some(expected) = expected else {
+        return Ok(format!(
+            "toolchain archive verification skipped for `{}`; no archive_sha256 is pinned yet",
+            path.display()
+        ));
+    };
+    let actual = sha256_file(path)?;
+    if actual != expected.to_ascii_lowercase() {
+        return Err(OpsError::new(format!(
+            "archive checksum mismatch for `{}`: expected {}, got {}",
+            path.display(),
+            expected,
+            actual
+        )));
+    }
+    Ok(format!(
+        "toolchain archive checksum verified for `{}`",
+        path.display()
+    ))
+}
+
 pub fn make_temp_dir(prefix: &str) -> OpsResult<PathBuf> {
     let mut root = env::var_os("KERN_OPS_TEMP_ROOT")
         .or_else(|| env::var_os("RUNNER_TEMP"))
@@ -517,6 +1020,343 @@ fn home_dir() -> OpsResult<PathBuf> {
     env::var_os("HOME")
         .map(PathBuf::from)
         .ok_or_else(|| OpsError::new("HOME is not set"))
+}
+
+fn configure_unix_path(install_bin: &Path) -> OpsResult<()> {
+    let rc_file = select_unix_rc_file()?;
+    if let Some(parent) = rc_file.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    if !rc_file.exists() {
+        fs::File::create(&rc_file)?;
+    }
+    let marker = install_bin.to_string_lossy();
+    let contents = fs::read_to_string(&rc_file)?;
+    if contents.contains(marker.as_ref()) {
+        println!("{} is already in your PATH.", install_bin.display());
+        return Ok(());
+    }
+    let mut file = fs::OpenOptions::new().append(true).open(&rc_file)?;
+    writeln!(file)?;
+    writeln!(file, "# Kern Programming Language")?;
+    writeln!(file, "export PATH=\"{}:$PATH\"", install_bin.display())?;
+    println!(
+        "Added {} to your PATH in {}.",
+        install_bin.display(),
+        rc_file.display()
+    );
+    Ok(())
+}
+
+fn configure_windows_path(install_bin: &Path) -> OpsResult<()> {
+    let path = install_bin.display().to_string();
+    let script = format!(
+        "$p=[Environment]::GetEnvironmentVariable('Path','User'); if (!$p) {{ $p='' }}; if (($p -split ';') -notcontains {}) {{ [Environment]::SetEnvironmentVariable('Path', ($(if ($p) {{ \"$p;{}\" }} else {{ {} }})), 'User') }}",
+        powershell_quote(&path),
+        path.replace('`', "``").replace('"', "`\""),
+        powershell_quote(&path)
+    );
+    run_command(
+        &[
+            OsString::from("powershell"),
+            OsString::from("-NoProfile"),
+            OsString::from("-ExecutionPolicy"),
+            OsString::from("Bypass"),
+            OsString::from("-Command"),
+            OsString::from(script),
+        ],
+        None,
+    )?;
+    println!("Added {} to your user PATH.", install_bin.display());
+    Ok(())
+}
+
+fn select_unix_rc_file() -> OpsResult<PathBuf> {
+    let shell = env::var_os("SHELL")
+        .and_then(|value| PathBuf::from(value).file_name().map(|name| name.to_owned()))
+        .and_then(|name| name.into_string().ok())
+        .unwrap_or_default();
+    let home = home_dir()?;
+    Ok(match shell.as_str() {
+        "zsh" => home.join(".zshrc"),
+        "bash" => home.join(".bashrc"),
+        _ => home.join(".profile"),
+    })
+}
+
+fn sdk_runtime_required_components(target: &str) -> Vec<String> {
+    if target.ends_with("windows-msvc") {
+        vec!["clang".into(), "lld".into(), "llvm_lib".into()]
+    } else {
+        vec!["clang".into(), "lld".into()]
+    }
+}
+
+fn full_toolchain_required_components(target: &str) -> Vec<String> {
+    let mut components = vec![
+        "clang".into(),
+        "clangxx".into(),
+        "lld".into(),
+        "llvm_ar".into(),
+        "llvm_config".into(),
+    ];
+    if target.ends_with("windows-msvc") {
+        components.push("llvm_lib".into());
+    }
+    components
+}
+
+#[derive(Debug)]
+struct HealthCheck {
+    component: String,
+    kind: String,
+}
+
+fn manifest_required_components(
+    manifest: &serde_json::Map<String, serde_json::Value>,
+    fallback: Vec<String>,
+    label: &str,
+) -> OpsResult<Vec<String>> {
+    let Some(required) = manifest.get("required_components") else {
+        return Ok(fallback);
+    };
+    let Some(items) = required.as_array() else {
+        return Err(OpsError::new(format!(
+            "`{label}.required_components` is invalid"
+        )));
+    };
+    items
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .ok_or_else(|| OpsError::new(format!("`{label}.required_components` is invalid")))
+        })
+        .collect()
+}
+
+fn manifest_health_checks(
+    manifest: &serde_json::Map<String, serde_json::Value>,
+    fallback_components: &[String],
+    label: &str,
+) -> OpsResult<Vec<HealthCheck>> {
+    let Some(checks) = manifest.get("health_checks") else {
+        return Ok(fallback_components
+            .iter()
+            .map(|component| HealthCheck {
+                component: component.clone(),
+                kind: if component == "llvm_lib" {
+                    "creates-empty-library".into()
+                } else if component.ends_with("_dir") {
+                    "exists".into()
+                } else {
+                    "starts-with-version".into()
+                },
+            })
+            .collect());
+    };
+    let Some(items) = checks.as_array() else {
+        return Err(OpsError::new(format!("`{label}.health_checks` is invalid")));
+    };
+    items
+        .iter()
+        .map(|item| {
+            let Some(obj) = item.as_object() else {
+                return Err(OpsError::new(format!("`{label}.health_checks` is invalid")));
+            };
+            Ok(HealthCheck {
+                component: json_string(obj, "component")?,
+                kind: json_string(obj, "kind")?,
+            })
+        })
+        .collect()
+}
+
+fn validate_component_record(
+    root: &Path,
+    component: &str,
+    entry: &serde_json::Value,
+    label: &str,
+) -> OpsResult<()> {
+    let Some(obj) = entry.as_object() else {
+        return Err(OpsError::new(format!("{label} `{component}` is invalid")));
+    };
+    let relative_path = json_string(obj, "path")?;
+    let kind = obj
+        .get("kind")
+        .and_then(|value| value.as_str())
+        .unwrap_or("file");
+    let target = root.join(&relative_path);
+    if kind == "directory" {
+        if !target.is_dir() {
+            return Err(OpsError::new(format!(
+                "{label} `{component}` is missing at `{}`",
+                target.display()
+            )));
+        }
+        if let Some(expected) = obj.get("sha256").and_then(|value| value.as_str())
+            && !expected.is_empty()
+        {
+            let actual = sha256_directory(&target)?;
+            if actual != expected.to_ascii_lowercase() {
+                return Err(OpsError::new(format!(
+                    "{label} `{component}` checksum mismatch at `{}`",
+                    target.display()
+                )));
+            }
+        }
+        return Ok(());
+    }
+    if !target.is_file() {
+        return Err(OpsError::new(format!(
+            "{label} `{component}` is missing at `{}`",
+            target.display()
+        )));
+    }
+    if let Some(expected) = obj.get("size").and_then(|value| value.as_u64())
+        && file_size(&target)? != expected
+    {
+        return Err(OpsError::new(format!(
+            "{label} `{component}` size mismatch at `{}`",
+            target.display()
+        )));
+    }
+    if let Some(expected) = obj.get("sha256").and_then(|value| value.as_str())
+        && !expected.is_empty()
+    {
+        let actual = sha256_file(&target)?;
+        if actual != expected.to_ascii_lowercase() {
+            return Err(OpsError::new(format!(
+                "{label} `{component}` checksum mismatch at `{}`",
+                target.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_manifest_health_check(
+    root: &Path,
+    component: &str,
+    entry: &serde_json::Value,
+    kind: &str,
+) -> OpsResult<()> {
+    if kind == "exists" {
+        return validate_component_record(root, component, entry, "toolchain component");
+    }
+    let path = entry
+        .as_object()
+        .and_then(|obj| obj.get("path"))
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| OpsError::new(format!("toolchain component `{component}` has no path")))?;
+    let target = root.join(path);
+    if kind == "starts-with-version" {
+        validate_component_record(root, component, entry, "toolchain component")?;
+        let result = run_command_capture(
+            &[target.as_os_str().to_owned(), OsString::from("--version")],
+            None,
+        )?;
+        if result.status_code == Some(0) {
+            return Ok(());
+        }
+        return Err(OpsError::new(format!(
+            "toolchain component `{component}` did not answer `--version`: {}{}",
+            result.stdout, result.stderr
+        )));
+    }
+    if kind == "creates-empty-library" {
+        validate_component_record(root, component, entry, "toolchain component")?;
+        let temp = make_temp_dir("kern-llvm-lib-probe-")?;
+        let probe = temp.join("empty.lib");
+        let result = run_command_capture(
+            &[
+                target.as_os_str().to_owned(),
+                OsString::from("/llvmlibempty"),
+                OsString::from(format!("/out:{}", probe.display())),
+            ],
+            Some(&temp),
+        );
+        let _ = remove_path_if_exists(&temp);
+        let result = result?;
+        if result.status_code == Some(0) {
+            return Ok(());
+        }
+        return Err(OpsError::new(format!(
+            "toolchain component `{component}` failed empty library probe: {}{}",
+            result.stdout, result.stderr
+        )));
+    }
+    Err(OpsError::new(format!(
+        "toolchain manifest component `{component}` has unsupported health check `{kind}`"
+    )))
+}
+
+fn normalize_runner_os(value: &str) -> OpsResult<String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "linux" => Ok("Linux".into()),
+        "macos" | "macosx" | "darwin" => Ok("macOS".into()),
+        "windows" | "win32" => Ok("Windows".into()),
+        other => Err(OpsError::new(format!("unsupported runner OS `{other}`"))),
+    }
+}
+
+fn normalize_policy_mode(value: &str) -> OpsResult<String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "current" | "bootstrap" | "target" => Ok(value.trim().to_ascii_lowercase()),
+        other => Err(OpsError::new(format!(
+            "unsupported CI toolchain mode `{other}`"
+        ))),
+    }
+}
+
+fn json_string(obj: &serde_json::Map<String, serde_json::Value>, key: &str) -> OpsResult<String> {
+    obj.get(key)
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| OpsError::new(format!("missing or invalid `{key}`")))
+}
+
+fn json_u64(obj: &serde_json::Map<String, serde_json::Value>, key: &str) -> OpsResult<u64> {
+    obj.get(key)
+        .and_then(|value| value.as_u64())
+        .ok_or_else(|| OpsError::new(format!("missing or invalid `{key}`")))
+}
+
+fn json_string_array(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> OpsResult<Vec<String>> {
+    let Some(items) = obj.get(key).and_then(|value| value.as_array()) else {
+        return Err(OpsError::new(format!("missing or invalid `{key}`")));
+    };
+    items
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .ok_or_else(|| OpsError::new(format!("missing or invalid `{key}`")))
+        })
+        .collect()
+}
+
+fn collect_files(root: &Path, out: &mut Vec<PathBuf>) -> OpsResult<()> {
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files(&path, out)?;
+        } else {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn powershell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn absolute_path(path: &Path) -> OpsResult<PathBuf> {

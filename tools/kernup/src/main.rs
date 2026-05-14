@@ -1,8 +1,9 @@
 use shared_cli::{ColorChoice, ErrorReport, HelpDoc, HelpSection};
 use shared_ops::{
-    OpsError, OpsResult, archive_kind_from_path, copy_sdk_contents, default_install_root,
-    detect_host_target, extract_archive_with_system_tool, make_temp_dir, remove_path_if_exists,
-    validate_sdk_root, verify_installed_tools,
+    OpsError, OpsResult, archive_kind_from_path, configure_path, copy_sdk_contents,
+    default_install_root, detect_host_target, download_file, extract_archive_with_system_tool,
+    fetch_latest_github_release, infer_release_version_from_archive_name, make_temp_dir,
+    remove_path_if_exists, validate_sdk_root, verify_installed_tools,
 };
 use std::env;
 use std::path::PathBuf;
@@ -17,9 +18,11 @@ enum Command {
 
 #[derive(Debug, Default)]
 struct InstallArgs {
+    version: Option<String>,
     archive: Option<PathBuf>,
     dest: Option<PathBuf>,
     target: Option<String>,
+    github_repo: String,
     no_path: bool,
 }
 
@@ -70,10 +73,20 @@ fn parse_args(args: Vec<String>) -> OpsResult<Command> {
 }
 
 fn parse_install_args(args: &[String]) -> OpsResult<InstallArgs> {
-    let mut parsed = InstallArgs::default();
+    let mut parsed = InstallArgs {
+        github_repo: "kern-project/kern".into(),
+        ..InstallArgs::default()
+    };
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--version" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(OpsError::new("`--version` requires a value"));
+                };
+                parsed.version = Some(value.clone());
+            }
             "--archive" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -94,6 +107,13 @@ fn parse_install_args(args: &[String]) -> OpsResult<InstallArgs> {
                     return Err(OpsError::new("`--target` requires a value"));
                 };
                 parsed.target = Some(value.clone());
+            }
+            "--github-repo" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(OpsError::new("`--github-repo` requires a value"));
+                };
+                parsed.github_repo = value.clone();
             }
             "--no-path" => {
                 parsed.no_path = true;
@@ -142,7 +162,10 @@ fn parse_doctor_args(args: &[String]) -> OpsResult<DoctorArgs> {
 
 fn install(args: InstallArgs) -> OpsResult<()> {
     let host = detect_host_target()?;
-    let target = args.target.unwrap_or_else(|| host.archive_target.clone());
+    let target = args
+        .target
+        .clone()
+        .unwrap_or_else(|| host.archive_target.clone());
     if target != host.archive_target {
         return Err(OpsError::new(format!(
             "target `{target}` does not match the current host `{}`",
@@ -150,20 +173,10 @@ fn install(args: InstallArgs) -> OpsResult<()> {
         )));
     }
 
-    let Some(archive) = args.archive else {
-        return Err(OpsError::new(
-            "`kernup install` currently requires `--archive`; release downloads and source installs are the next migration step",
-        ));
-    };
-    if !archive.is_file() {
-        return Err(OpsError::new(format!(
-            "archive `{}` does not exist",
-            archive.display()
-        )));
-    }
-    let install_root = args.dest.unwrap_or(default_install_root(&host)?);
+    let install_root = args.dest.clone().unwrap_or(default_install_root(&host)?);
     let temp_root = make_temp_dir("kernup-install-")?;
     let result = (|| -> OpsResult<()> {
+        let (archive, version) = resolve_install_archive(&args, &target, &host, &temp_root)?;
         let extract_root = temp_root.join("extract");
         let sdk_root = extract_archive_with_system_tool(
             &archive,
@@ -180,19 +193,63 @@ fn install(args: InstallArgs) -> OpsResult<()> {
                 install_root.join("bin").display()
             );
         } else {
-            println!(
-                "=> PATH configuration is not migrated yet. Add `{}` to PATH if needed.",
-                install_root.join("bin").display()
-            );
+            println!("=> Configuring PATH...");
+            configure_path(&install_root.join("bin"), &host)?;
         }
         println!(
-            "Kern SDK installed successfully into {}",
+            "Kern {version} SDK installed successfully into {}",
             install_root.display()
         );
         Ok(())
     })();
     let _ = remove_path_if_exists(&temp_root);
     result
+}
+
+fn resolve_install_archive(
+    args: &InstallArgs,
+    target: &str,
+    host: &shared_ops::HostTarget,
+    temp_root: &std::path::Path,
+) -> OpsResult<(PathBuf, String)> {
+    if let Some(archive) = &args.archive {
+        if !archive.is_file() {
+            return Err(OpsError::new(format!(
+                "archive `{}` does not exist",
+                archive.display()
+            )));
+        }
+        let version = args
+            .version
+            .clone()
+            .or_else(|| {
+                archive
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .and_then(|name| infer_release_version_from_archive_name(name, target))
+            })
+            .unwrap_or_else(|| "<local>".to_string());
+        return Ok((archive.clone(), version));
+    }
+
+    let version = args
+        .version
+        .clone()
+        .or_else(|| {
+            fetch_latest_github_release(&args.github_repo)
+                .ok()
+                .flatten()
+        })
+        .unwrap_or_else(|| "v0.7.5".to_string());
+    let archive_name = format!("kern-{version}-{target}.{}", host.archive_extension);
+    let archive = temp_root.join(&archive_name);
+    let url = format!(
+        "https://github.com/{}/releases/download/{version}/{archive_name}",
+        args.github_repo
+    );
+    println!("=> Downloading Kern {version}...");
+    download_file(&url, &archive)?;
+    Ok((archive, version))
 }
 
 fn doctor(args: DoctorArgs) -> OpsResult<()> {
@@ -226,10 +283,11 @@ fn help() -> HelpDoc {
 
 fn install_help() -> HelpDoc {
     HelpDoc::new("kernup install")
-        .summary("Install a Kern SDK archive.")
-        .usage("kernup install --archive <path> [--dest <path>] [--target <target>] [--no-path]")
+        .summary("Install a Kern SDK release.")
+        .usage("kernup install [--version <tag>] [--archive <path>] [--dest <path>] [--target <target>] [--no-path]")
         .section(
             HelpSection::new("Options")
+                .entry("--version <tag>", "release tag; defaults to the latest GitHub release")
                 .entry("--archive <path>", "local SDK archive to install")
                 .entry(
                     "--dest <path>",
@@ -239,7 +297,8 @@ fn install_help() -> HelpDoc {
                     "--target <target>",
                     "host target label; defaults to the current host",
                 )
-                .entry("--no-path", "skip PATH guidance"),
+                .entry("--github-repo <repo>", "GitHub repository for release downloads")
+                .entry("--no-path", "skip PATH configuration"),
         )
 }
 

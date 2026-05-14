@@ -183,8 +183,8 @@ defer alloc.free(stored.callback.@statePtr() as &mut u8, stored.layout);
 ```
 
 Member intrinsics such as `.@statePtr()` and `.@len()` are compiler-owned
-projections. They are not ordinary methods, but libraries may provide ordinary
-method wrappers such as `slice.len()` and `callback.state_ptr()`.
+projections. They are not ordinary methods, and representation access should use
+this explicit `.@name()` spelling rather than a plain library method wrapper.
 
 ## Common Uses
 

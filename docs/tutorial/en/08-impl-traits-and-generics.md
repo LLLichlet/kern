@@ -205,8 +205,8 @@ data pointer and length. `&Write` / `&mut Write` is a trait-object fat pointer
 carrying a data pointer and vtable. `&Fn(...) Ret` is a closure fat pointer
 carrying a state pointer and call entry. Use language-defined operations such
 as `slice.@len()` or `callback.@statePtr()` to extract their metadata or state
-when needed. Libraries can layer ordinary method wrappers on top, such as
-`slice.len()`, `writer.data_ptr()`, and `callback.state_ptr()`.
+when needed. These representation projections use the explicit `.@name()`
+spelling; plain methods remain library abstractions.
 
 ## Supertraits
 

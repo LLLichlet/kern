@@ -41,58 +41,10 @@ pub/ trait Write {
     fn write(bytes: &[u8]) usize;
 };
 
-impl &Write {
-    /// Returns the data pointer carried by this trait object.
-    pub fn data_ptr() &void {
-        return self.@dataPtr();
-    }
-
-    /// Returns the vtable pointer carried by this trait object.
-    pub fn vtable_ptr() &void {
-        return self.@vtablePtr();
-    }
-}
-
-impl &mut Write {
-    /// Returns the data pointer carried by this mutable trait object.
-    pub fn data_ptr() &mut void {
-        return self.@dataPtr();
-    }
-
-    /// Returns the vtable pointer carried by this mutable trait object.
-    pub fn vtable_ptr() &void {
-        return self.@vtablePtr();
-    }
-}
-
 /// A byte source used by generic input helpers.
 pub/ trait Read {
     fn read(buffer: &mut [u8]) usize;
 };
-
-impl &Read {
-    /// Returns the data pointer carried by this trait object.
-    pub fn data_ptr() &void {
-        return self.@dataPtr();
-    }
-
-    /// Returns the vtable pointer carried by this trait object.
-    pub fn vtable_ptr() &void {
-        return self.@vtablePtr();
-    }
-}
-
-impl &mut Read {
-    /// Returns the data pointer carried by this mutable trait object.
-    pub fn data_ptr() &mut void {
-        return self.@dataPtr();
-    }
-
-    /// Returns the vtable pointer carried by this mutable trait object.
-    pub fn vtable_ptr() &void {
-        return self.@vtablePtr();
-    }
-}
 
 /// A value that knows how to render itself into a `Write`.
 pub/ trait Formatable {
@@ -108,27 +60,3 @@ pub/ trait Formatable {
         self.write_fmt(FormatSpec.{}, writer);
     }
 };
-
-impl &Formatable {
-    /// Returns the data pointer carried by this trait object.
-    pub fn data_ptr() &void {
-        return self.@dataPtr();
-    }
-
-    /// Returns the vtable pointer carried by this trait object.
-    pub fn vtable_ptr() &void {
-        return self.@vtablePtr();
-    }
-}
-
-impl &mut Formatable {
-    /// Returns the data pointer carried by this mutable trait object.
-    pub fn data_ptr() &mut void {
-        return self.@dataPtr();
-    }
-
-    /// Returns the vtable pointer carried by this mutable trait object.
-    pub fn vtable_ptr() &void {
-        return self.@vtablePtr();
-    }
-}

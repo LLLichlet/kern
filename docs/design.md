@@ -1311,10 +1311,10 @@ plain method names such as `len` or `ptr`.
   * `closure.@statePtr() -> &void` / `&mut void`: returns the captured state pointer.
   * `closure.@entryPtr() -> &void`: returns the closure entry pointer.
 
-Libraries may wrap these primitives with ordinary methods for fluent user code,
-for example `slice.len()`, `slice.ptr()`, `range.start()`, `writer.data_ptr()`,
-and `callback.state_ptr()`. The compiler only owns the `.@name()` primitive
-spelling; plain method names remain normal library API.
+Standard library code should use these primitives directly for representation
+projection. Plain method names remain normal library API and should model real
+domain abstractions such as `List.len()` or `String.len()`, not hidden access to
+compiler-owned fat-pointer or array metadata.
 
 ### 14.2 Hardware & Execution Control
 

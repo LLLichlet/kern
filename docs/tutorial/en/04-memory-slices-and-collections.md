@@ -96,13 +96,13 @@ let editable_view = editable..&[...];
 editable_view.[0] = 9;
 ```
 
-Use `.len()` in ordinary code:
+Use `.@len()` to read slice or array length:
 
 ```kern
 fn sum(items: &[i32]) i32 {
     let mut total = 0;
     let mut i = 0;
-    while (i < items.len()) {
+    while (i < items.@len()) {
         total += items.[i];
         i += 1;
     }
@@ -111,8 +111,9 @@ fn sum(items: &[i32]) i32 {
 ```
 
 The compiler-owned primitive `items.@len()` extracts slice length without
-depending on the standard library. The ordinary `items.len()` form is a normal
-library wrapper over that primitive.
+depending on the standard library. Kern uses this explicit form for
+representation projections; ordinary `.len()` methods are reserved for library
+abstractions such as `List.len()` or `String.len()`.
 
 ## Iterators
 

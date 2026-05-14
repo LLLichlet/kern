@@ -13,16 +13,6 @@ use base.cmp.{
 use base.coll.SliceIter;
 
 impl[T] &[T] {
-    /// Returns the number of elements in the slice.
-    pub fn len() usize {
-        return self.@len();
-    }
-
-    /// Returns a pointer to the first element.
-    pub fn ptr() &T {
-        return self.@ptr();
-    }
-
     /// Returns an iterator over copied slice elements.
     pub fn iter() SliceIter[T] {
         return .{ data: self };
@@ -159,18 +149,6 @@ impl[T] &[T] {
         }
 
         return left;
-    }
-}
-
-impl[T, N: usize] [N]T {
-    /// Returns the number of elements in the array.
-    pub fn len() usize {
-        return self.@len();
-    }
-
-    /// Returns a pointer to the first element.
-    pub fn ptr() &T {
-        return self.@ptr();
     }
 }
 

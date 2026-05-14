@@ -120,33 +120,33 @@ fn main() i32 {
 }
 
 #[test]
-fn base_bundle_exposes_member_intrinsic_wrappers() {
+fn base_bundle_exposes_member_intrinsics() {
     let output = compile_source_with_args(
-        "kernc_base_member_intrinsic_wrappers",
+        "kernc_base_member_intrinsics",
         r##"
 use base.io.Write;
 
 fn closure_parts(cb: &Fn(i32) i32) i32 {
-    if (cb.state_ptr() as usize == 0usize) return 10;
-    if (cb.entry_ptr() as usize == 0usize) return 11;
+    if (cb.@statePtr() as usize == 0usize) return 10;
+    if (cb.@entryPtr() as usize == 0usize) return 11;
     return cb(2) - 7;
 }
 
 fn main() i32 {
     let data = [3]u8.{ 1, 2, 3 };
     let slice = data.&[1...3];
-    if (slice.len() != 2usize) return 1;
-    if (slice.ptr().* != 2u8) return 2;
+    if (slice.@len() != 2usize) return 1;
+    if (slice.@ptr().* != 2u8) return 2;
 
     let range: i32...i32 = 4...9;
-    if (range.start() != 4i32) return 3;
-    if (range.end() != 9i32) return 4;
+    if (range.@start() != 4i32) return 3;
+    if (range.@end() != 9i32) return 4;
 
     let mut storage: [8]u8 = undef;
     let mut fixed = (storage..&[0...8]).writer();
     let writer = (fixed..& as &mut Write);
-    if (writer.data_ptr() as usize == 0usize) return 5;
-    if (writer.vtable_ptr() as usize == 0usize) return 6;
+    if (writer.@dataPtr() as usize == 0usize) return 5;
+    if (writer.@vtablePtr() as usize == 0usize) return 6;
 
     let base = 5i32;
     return closure_parts([base](x: i32) i32 { return base + x; });
@@ -155,6 +155,34 @@ fn main() i32 {
         &["--library-bundle", "base"],
     );
     assert_success(&output, "kernc");
+}
+
+#[test]
+fn base_bundle_does_not_expose_member_intrinsic_wrappers() {
+    let output = compile_source_with_args(
+        "kernc_base_no_member_intrinsic_wrappers",
+        r#"
+fn main() i32 {
+    let data = [3]u8.{ 1, 2, 3 };
+    let slice = data.&[...];
+    return data.len() as i32 + slice.len() as i32;
+}
+"#,
+        &["--library-bundle", "base"],
+    );
+    assert!(
+        !output.status.success(),
+        "expected member intrinsic wrapper methods to be absent:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no field or method named `len`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
 }
 
 #[test]

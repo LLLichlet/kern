@@ -32,7 +32,7 @@ fn check_layout_and_array_eq[W](t: &mut Report[W]) void
     page.free(ptr, array_layout);
 
     let values = [4]i32.{ 1, 2, 3, 4 };
-    values.len().should().eq(4usize).sum(@loc(), t);
+    values.@len().should().eq(4usize).sum(@loc(), t);
     ([4]i32.{ 1, 2, 3, 4 } == [4]i32.{ 1, 2, 3, 4 }).should().sum(@loc(), t);
     ([4]i32.{ 1, 2, 3, 4 } != [4]i32.{ 1, 2, 3, 5 }).should().sum(@loc(), t);
 }

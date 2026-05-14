@@ -2448,6 +2448,29 @@ fn build_command_member_path_uses_workspace_lock_and_output_root() {
 }
 
 #[test]
+fn check_command_from_member_cwd_uses_workspace_lock_and_state_root() {
+    let root = temp_dir("craft-cli-check-member-cwd-workspace-root");
+    let member = write_workspace_member_package(&root, "member");
+    let previous = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&member).unwrap();
+
+    let result = run_command(Command::Check {
+        path: None,
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+    });
+
+    std::env::set_current_dir(previous).unwrap();
+    result.unwrap();
+    assert!(root.join("Craft.lock").is_file());
+    assert!(root.join(".craft").is_dir());
+    assert!(!member.join("Craft.lock").exists());
+    assert!(!member.join(".craft").exists());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn package_graph_commands_resync_missing_and_damaged_lockfiles() {
     assert_command_resyncs_missing_and_damaged_lockfile(
         "craft-cli-check-lock-resync",
@@ -3073,6 +3096,10 @@ root = "src/main.kn"
     .unwrap();
 
     assert!(root.join("Craft.lock").exists());
+    assert!(root.join("Craft.publish").exists());
+    assert!(!member.join("Craft.lock").exists());
+    assert!(!member.join("Craft.publish").exists());
+    assert!(!member.join(".craft").exists());
 
     let _ = fs::remove_dir_all(root);
 }

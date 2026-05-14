@@ -25,6 +25,10 @@ pub fn resolve_project_manifest_path(input: Option<&Path>) -> Result<PathBuf> {
     let manifest_path = fs::canonicalize(&manifest_path)
         .map(normalize_manifest_path)
         .map_err(|err| Error::from_io(&manifest_path, err))?;
+    let entry_manifest = Manifest::load(&manifest_path)?;
+    if entry_manifest.workspace.is_some() {
+        return Ok(manifest_path);
+    }
     let mut current = manifest_path
         .parent()
         .and_then(Path::parent)
@@ -238,6 +242,39 @@ mod tests {
         let resolved = resolve_project_manifest_path(Some(&member)).unwrap();
         let expected = normalize_manifest_path(fs::canonicalize(root.join("Craft.toml")).unwrap());
         assert_eq!(resolved, expected);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stops_at_nested_workspace_roots() {
+        let root = temp_dir("craft-discover-nested-workspace-root");
+        let nested = root.join("nested");
+        let member = nested.join("member");
+        fs::create_dir_all(member.join("src")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            "[workspace]\nname = \"outer\"\nmembers = [\"nested\"]\n",
+        )
+        .unwrap();
+        fs::write(
+            nested.join("Craft.toml"),
+            "[workspace]\nname = \"inner\"\nmembers = [\"member\"]\n",
+        )
+        .unwrap();
+        fs::write(
+            member.join("Craft.toml"),
+            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nkern = \"0.7.6\"\n",
+        )
+        .unwrap();
+
+        let nested_resolved = resolve_project_manifest_path(Some(&nested)).unwrap();
+        let nested_expected =
+            normalize_manifest_path(fs::canonicalize(nested.join("Craft.toml")).unwrap());
+        assert_eq!(nested_resolved, nested_expected);
+
+        let member_resolved = resolve_project_manifest_path(Some(&member)).unwrap();
+        assert_eq!(member_resolved, nested_expected);
 
         let _ = fs::remove_dir_all(root);
     }

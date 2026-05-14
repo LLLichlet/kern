@@ -2822,6 +2822,38 @@ fn publish_rejects_dirty_git_worktree() {
 }
 
 #[test]
+fn publish_allows_only_existing_publish_file_to_be_dirty() {
+    let root = temp_dir("craft-cli-publish-dirty-publish-file");
+    write_publishable_git_bin_package(&root);
+    run_command(Command::Publish {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..Default::default()
+        },
+        ui: UiOptions::default(),
+    })
+    .unwrap();
+    fs::write(root.join("Craft.publish"), "stale publish declaration\n").unwrap();
+
+    run_command(Command::Publish {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..Default::default()
+        },
+        ui: UiOptions::default(),
+    })
+    .unwrap();
+
+    let publish = fs::read_to_string(root.join("Craft.publish")).unwrap();
+    assert!(publish.contains("[[package]]"));
+    assert!(!publish.contains("stale publish declaration"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn publish_rejects_repository_without_matching_remote() {
     let root = temp_dir("craft-cli-publish-remote-mismatch");
     write_publishable_bin_package(&root);

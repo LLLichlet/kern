@@ -521,12 +521,13 @@ fn run_publish(
     crate::test_support::hit(crate::test_support::FAILPOINT_AFTER_WORKSPACE_LOCK);
     let summary = publish_summary(&manifest_path, &manifest, &workspace_members)?;
     validate_publish_metadata(&summary)?;
+    let publish_path = workspace_root.join(publish::PUBLISH_FILE_NAME);
     let preflight_vcs_summary = validate_publish_vcs(
         &manifest_path,
         &manifest,
         &workspace_members,
         &summary,
-        None,
+        Some(publish_path.as_path()),
     )?;
     let security_summary = summarize_source_security(&manifest);
     validate_check_source_policy(&manifest_path, &feature_selection, &security_summary)?;
@@ -563,10 +564,9 @@ fn run_publish(
         &manifest,
         &workspace_members,
         &summary,
-        Some(workspace_root.join(publish::PUBLISH_FILE_NAME).as_path()),
+        Some(publish_path.as_path()),
     )?;
     if publish_write_result != publish::PublishWriteResult::Unchanged {
-        let publish_path = workspace_root.join(publish::PUBLISH_FILE_NAME);
         crate::publish::PublishFile::load(&publish_path)?;
     }
     let format_summaries = fmt::format_workspace_sources(

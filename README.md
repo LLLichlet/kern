@@ -236,7 +236,7 @@ checkout, package and install a local archive instead of copying
 `target/release` by hand. The packaging entry point is:
 
 ```sh
-python -m ops release package --version v0.7.5 --target <host-target>
+cargo run -q -p kernworker -- release package --version v0.7.5 --target <host-target>
 ```
 
 Local SDK archive installation has a Rust entry point:

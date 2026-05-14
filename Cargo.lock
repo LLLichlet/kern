@@ -229,6 +229,7 @@ dependencies = [
 name = "kernworker"
 version = "0.7.5"
 dependencies = [
+ "serde_json",
  "shared_cli",
  "shared_ops",
 ]

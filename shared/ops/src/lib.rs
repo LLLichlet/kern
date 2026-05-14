@@ -100,6 +100,27 @@ pub struct CommandResult {
     pub stderr: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct BundledToolchain {
+    pub source_label: String,
+    pub prefix: PathBuf,
+    pub bindir: PathBuf,
+    pub libdir: PathBuf,
+    pub includedir: PathBuf,
+    pub version: String,
+    pub tools: serde_json::Map<String, serde_json::Value>,
+    pub resource_dir: Option<PathBuf>,
+    pub sysroot_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ArtifactRecord {
+    pub path: String,
+    pub kind: String,
+    pub sha256: Option<String>,
+    pub size: Option<u64>,
+}
+
 pub fn repo_root() -> OpsResult<PathBuf> {
     Ok(env::current_dir()?)
 }
@@ -558,6 +579,14 @@ pub fn verify_binary_starts(binary_path: &Path) -> OpsResult<CommandResult> {
 }
 
 pub fn run_command(cmd: &[OsString], cwd: Option<&Path>) -> OpsResult<()> {
+    run_command_with_env(cmd, cwd, &[])
+}
+
+pub fn run_command_with_env(
+    cmd: &[OsString],
+    cwd: Option<&Path>,
+    envs: &[(&str, &str)],
+) -> OpsResult<()> {
     if cmd.is_empty() {
         return Err(OpsError::new("cannot run an empty command"));
     }
@@ -572,6 +601,9 @@ pub fn run_command(cmd: &[OsString], cwd: Option<&Path>) -> OpsResult<()> {
     command.args(&cmd[1..]);
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
+    }
+    for (key, value) in envs {
+        command.env(key, value);
     }
     let status = command.status().map_err(|err| {
         OpsError::new(format!(
@@ -641,6 +673,272 @@ pub fn load_workspace_version(root: &Path) -> OpsResult<String> {
         "failed to resolve workspace version from `{}`",
         root.join("Cargo.toml").display()
     )))
+}
+
+pub fn resolve_official_library_root(root: &Path) -> OpsResult<PathBuf> {
+    let candidate = env::var_os("KERNLIB_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("library"));
+    let library_root = if candidate.is_absolute() {
+        candidate
+    } else {
+        root.join(candidate)
+    };
+    if library_root.join("Craft.toml").is_file()
+        && OFFICIAL_LIBRARY_LAYERS
+            .iter()
+            .all(|layer| library_root.join(layer).join("init.rn").is_file())
+    {
+        return Ok(library_root);
+    }
+    Err(OpsError::new(format!(
+        "official Kern library workspace is missing or incomplete at `{}`",
+        library_root.display()
+    )))
+}
+
+pub fn resolve_bundled_toolchain(
+    host: &HostTarget,
+    explicit_prefix: Option<&Path>,
+) -> OpsResult<BundledToolchain> {
+    let (source_label, prefix) = if let Some(prefix) = explicit_prefix {
+        (
+            "explicit-toolchain-prefix".to_string(),
+            prefix.to_path_buf(),
+        )
+    } else if let Some(root) = env::var_os("KERN_TOOLCHAIN_ROOT").map(PathBuf::from)
+        && root.is_dir()
+    {
+        ("KERN_TOOLCHAIN_ROOT".to_string(), root)
+    } else if let Some((key, root)) = find_llvm_sys_prefix() {
+        (key, root)
+    } else {
+        let llvm_config = find_program(&["llvm-config-21", "llvm-config"]).ok_or_else(|| {
+            OpsError::new("failed to locate `llvm-config`; cannot bundle host LLVM toolchain")
+        })?;
+        let prefix = tool_output(&[
+            llvm_config.as_os_str().to_owned(),
+            OsString::from("--prefix"),
+        ])?;
+        ("llvm-config".to_string(), PathBuf::from(prefix.trim()))
+    };
+    let prefix = if prefix.exists() {
+        prefix.canonicalize()?
+    } else {
+        prefix
+    };
+    if !prefix.is_dir() {
+        return Err(OpsError::new(format!(
+            "LLVM toolchain prefix `{}` does not exist",
+            prefix.display()
+        )));
+    }
+    let llvm_config = resolve_llvm_tool("llvm-config", "21", &prefix.join("bin"), host, false)
+        .ok_or_else(|| {
+            OpsError::new(format!(
+                "failed to resolve `llvm-config` within LLVM prefix `{}`",
+                prefix.display()
+            ))
+        })?;
+    let version = tool_output(&[
+        llvm_config.as_os_str().to_owned(),
+        OsString::from("--version"),
+    ])?
+    .trim()
+    .to_string();
+    let major = version.split('.').next().unwrap_or("21");
+    let bindir = PathBuf::from(
+        tool_output(&[
+            llvm_config.as_os_str().to_owned(),
+            OsString::from("--bindir"),
+        ])?
+        .trim(),
+    )
+    .canonicalize()?;
+    let libdir = PathBuf::from(
+        tool_output(&[
+            llvm_config.as_os_str().to_owned(),
+            OsString::from("--libdir"),
+        ])?
+        .trim(),
+    )
+    .canonicalize()?;
+    let includedir = PathBuf::from(
+        tool_output(&[
+            llvm_config.as_os_str().to_owned(),
+            OsString::from("--includedir"),
+        ])?
+        .trim(),
+    )
+    .canonicalize()?;
+    let mut tools = serde_json::Map::new();
+    for (key, name, required) in [
+        ("llvm_config", "llvm-config", true),
+        ("clang", "clang", true),
+        ("clangxx", "clang++", true),
+        ("llvm_ar", "llvm-ar", true),
+    ] {
+        if let Some(tool) = resolve_llvm_tool(name, major, &bindir, host, required) {
+            tools.insert(
+                key.into(),
+                serde_json::Value::String(tool.display().to_string()),
+            );
+        }
+    }
+    let lld_name = if host.archive_target.ends_with("windows-msvc") {
+        "lld-link"
+    } else if host.archive_target.ends_with("apple-darwin") {
+        "ld64.lld"
+    } else {
+        "ld.lld"
+    };
+    let lld = resolve_llvm_tool(lld_name, major, &bindir, host, true)
+        .ok_or_else(|| OpsError::new(format!("failed to resolve LLVM tool `{lld_name}`")))?;
+    tools.insert(
+        "lld".into(),
+        serde_json::Value::String(lld.display().to_string()),
+    );
+    if host.archive_target.ends_with("windows-msvc") {
+        let llvm_lib = resolve_llvm_tool("llvm-lib", major, &bindir, host, true)
+            .ok_or_else(|| OpsError::new("failed to resolve LLVM tool `llvm-lib`"))?;
+        tools.insert(
+            "llvm_lib".into(),
+            serde_json::Value::String(llvm_lib.display().to_string()),
+        );
+    }
+    let resource_dir = tools
+        .get("clang")
+        .and_then(|value| value.as_str())
+        .and_then(|clang| {
+            tool_output(&[
+                OsString::from(clang),
+                OsString::from("--print-resource-dir"),
+            ])
+            .ok()
+            .map(|out| PathBuf::from(out.trim()))
+        })
+        .filter(|path| path.exists());
+    let sysroot_dir = if host.archive_target.ends_with("apple-darwin") {
+        env::var_os("SDKROOT")
+            .map(PathBuf::from)
+            .filter(|path| path.exists())
+    } else {
+        None
+    };
+    Ok(BundledToolchain {
+        source_label,
+        prefix,
+        bindir,
+        libdir,
+        includedir,
+        version,
+        tools,
+        resource_dir,
+        sysroot_dir,
+    })
+}
+
+pub fn sdk_manifest_json(
+    version: &str,
+    archive_target: &str,
+    bundled_toolchain: Option<&BundledToolchain>,
+    records: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> serde_json::Value {
+    let mut components = serde_json::Map::new();
+    let mut bundled = false;
+    let mut source = serde_json::Value::Null;
+    let mut provenance = serde_json::Value::Null;
+    let mut required_components = Vec::<String>::new();
+    let mut health_checks = Vec::<serde_json::Value>::new();
+    let layout = serde_json::json!({
+        "root": "toolchain",
+        "host_root": "toolchain/host",
+        "bin_dir": "toolchain/host/bin",
+        "lib_dir": "toolchain/host/lib",
+        "include_dir": "toolchain/host/include",
+        "sysroot_dir": "toolchain/host/sysroot",
+    });
+    let mut notes = vec![
+        "The SDK prefers the bundled host toolchain when present.",
+        "Ambient LLVM/PATH lookup remains a source-build fallback, not the primary install path.",
+    ];
+    let mut strategy = "system-fallback";
+    if let Some(toolchain) = bundled_toolchain {
+        bundled = true;
+        strategy = "bundled-first";
+        source = serde_json::json!({"label": toolchain.source_label, "version": toolchain.version});
+        provenance = toolchain_provenance_json(toolchain, archive_target, "sdk-runtime-subset");
+        if let Some(records) = records {
+            components = records.clone();
+            notes = vec![
+                "The SDK bundles the minimal host LLVM/Clang runtime needed by installed Kern tools.",
+                "The full LLVM development prefix is intentionally not part of the end-user SDK.",
+                "Clone the repository and configure the host environment directly for source builds.",
+            ];
+        }
+        required_components = sdk_runtime_required_components(archive_target);
+        health_checks = toolchain_component_health_checks_json(&required_components);
+    }
+    serde_json::json!({
+        "schema_version": 1,
+        "sdk_version": version,
+        "host_target": archive_target,
+        "layout_version": 1,
+        "binaries": HOST_TOOL_BINARIES,
+        "libraries": OFFICIAL_LIBRARY_LAYERS,
+        "toolchain": {
+            "layout": layout,
+            "bundled": bundled,
+            "strategy": strategy,
+            "resolver_order": [
+                "explicit-toolchain-root",
+                "sdk-relative-toolchain",
+                "environment-overrides",
+                "system-path"
+            ],
+            "source": source,
+            "provenance": provenance,
+            "required_components": required_components,
+            "health_checks": health_checks,
+            "components": components,
+            "notes": notes,
+        }
+    })
+}
+
+pub fn toolchain_manifest_json(
+    version: &str,
+    archive_target: &str,
+    bundled_toolchain: &BundledToolchain,
+    records: &serde_json::Map<String, serde_json::Value>,
+) -> serde_json::Value {
+    let required = full_toolchain_required_components(archive_target);
+    serde_json::json!({
+        "schema_version": 1,
+        "toolchain_version": version,
+        "host_target": archive_target,
+        "layout_version": 1,
+        "provider": "bundled-host-llvm",
+        "layout": toolchain_layout_paths_json(bundled_toolchain),
+        "source": {
+            "label": bundled_toolchain.source_label,
+            "version": bundled_toolchain.version,
+        },
+        "provenance": toolchain_provenance_json(
+            bundled_toolchain,
+            archive_target,
+            "standalone-development-prefix"
+        ),
+        "required_components": required,
+        "health_checks": toolchain_component_health_checks_json(&full_toolchain_required_components(archive_target)),
+        "components": records,
+        "notes": [
+            "This archive contains the controlled host LLVM/Clang toolchain used by Kern packaging.",
+            "It is intended for CI, release engineering, and SDK assembly.",
+            "The archive preserves a relocatable LLVM development prefix for source builds.",
+            "Host OS SDK/libc components may still remain platform responsibilities."
+        ]
+    })
 }
 
 pub fn sha256_file(path: &Path) -> OpsResult<String> {
@@ -1099,6 +1397,8 @@ fn full_toolchain_required_components(target: &str) -> Vec<String> {
         "lld".into(),
         "llvm_ar".into(),
         "llvm_config".into(),
+        "lib_dir".into(),
+        "include_dir".into(),
     ];
     if target.ends_with("windows-msvc") {
         components.push("llvm_lib".into());
@@ -1353,6 +1653,152 @@ fn collect_files(root: &Path, out: &mut Vec<PathBuf>) -> OpsResult<()> {
         }
     }
     Ok(())
+}
+
+fn find_llvm_sys_prefix() -> Option<(String, PathBuf)> {
+    let mut matches = env::vars_os()
+        .filter_map(|(key, value)| {
+            let key_string = key.into_string().ok()?;
+            if key_string.starts_with("LLVM_SYS_")
+                && key_string.ends_with("_PREFIX")
+                && !value.is_empty()
+            {
+                Some((key_string, PathBuf::from(value)))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    matches.sort_by(|a, b| a.0.cmp(&b.0));
+    matches.into_iter().find(|(_, path)| path.is_dir())
+}
+
+fn find_program(names: &[&str]) -> Option<PathBuf> {
+    let path_var = env::var_os("PATH")?;
+    for dir in env::split_paths(&path_var) {
+        for name in names {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+            if cfg!(windows) {
+                let candidate = dir.join(format!("{name}.exe"));
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn tool_output(cmd: &[OsString]) -> OpsResult<String> {
+    let result = run_command_capture(cmd, None)?;
+    if result.status_code != Some(0) {
+        return Err(OpsError::new(format!(
+            "command failed: {}{}",
+            result.stdout, result.stderr
+        )));
+    }
+    let output = result.stdout.trim();
+    if !output.is_empty() {
+        return Ok(output.to_string());
+    }
+    let output = result.stderr.trim();
+    if !output.is_empty() {
+        return Ok(output.to_string());
+    }
+    Err(OpsError::new("command produced no output"))
+}
+
+fn resolve_llvm_tool(
+    name: &str,
+    major: &str,
+    bindir: &Path,
+    host: &HostTarget,
+    required: bool,
+) -> Option<PathBuf> {
+    let suffix = if host.is_windows { ".exe" } else { "" };
+    for candidate in [format!("{name}{suffix}"), format!("{name}-{major}{suffix}")] {
+        let path = bindir.join(candidate);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    if required {
+        find_program(&[name])
+    } else {
+        None
+    }
+}
+
+fn toolchain_component_health_checks_json(components: &[String]) -> Vec<serde_json::Value> {
+    components
+        .iter()
+        .map(|component| {
+            let kind = if component == "llvm_lib" {
+                "creates-empty-library"
+            } else if component.ends_with("_dir") {
+                "exists"
+            } else {
+                "starts-with-version"
+            };
+            serde_json::json!({"component": component, "kind": kind})
+        })
+        .collect()
+}
+
+fn toolchain_provenance_json(
+    bundled_toolchain: &BundledToolchain,
+    archive_target: &str,
+    package_role: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "kind": "resolved-host-llvm",
+        "package_role": package_role,
+        "host_target": archive_target,
+        "source": {
+            "label": bundled_toolchain.source_label,
+            "version": bundled_toolchain.version,
+        }
+    })
+}
+
+fn toolchain_layout_paths_json(bundled_toolchain: &BundledToolchain) -> serde_json::Value {
+    serde_json::json!({
+        "root": "toolchain",
+        "host_root": "toolchain/host",
+        "bin_dir": bundled_component_path(bundled_toolchain, &bundled_toolchain.bindir).unwrap_or_else(|_| "toolchain/host/bin".into()),
+        "lib_dir": bundled_component_path(bundled_toolchain, &bundled_toolchain.libdir).unwrap_or_else(|_| "toolchain/host/lib".into()),
+        "include_dir": bundled_component_path(bundled_toolchain, &bundled_toolchain.includedir).unwrap_or_else(|_| "toolchain/host/include".into()),
+        "sysroot_dir": "toolchain/host/sysroot",
+    })
+}
+
+pub fn bundled_component_path(
+    bundled_toolchain: &BundledToolchain,
+    path: &Path,
+) -> OpsResult<String> {
+    let relative = path.strip_prefix(&bundled_toolchain.prefix).map_err(|_| {
+        OpsError::new(format!(
+            "toolchain path `{}` does not live under prefix `{}`",
+            path.display(),
+            bundled_toolchain.prefix.display()
+        ))
+    })?;
+    Ok(format!(
+        "toolchain/host/{}",
+        relative.to_string_lossy().replace('\\', "/")
+    ))
+}
+
+pub fn artifact_record_json(record: &ArtifactRecord) -> serde_json::Value {
+    serde_json::json!({
+        "path": record.path,
+        "kind": record.kind,
+        "sha256": record.sha256,
+        "size": record.size,
+    })
 }
 
 fn powershell_quote(value: &str) -> String {

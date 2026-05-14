@@ -48,7 +48,7 @@ cargo test -p kernc_cli --test regressions
 For the curated compiler suite layers used by CI:
 
 ```bash
-python3 -m ops ci kernc-tests --mode smoke
+cargo run -q -p kernworker -- ci kernc-tests --mode smoke
 ```
 
 For a Kern package or example directory:

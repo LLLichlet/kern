@@ -173,16 +173,16 @@ This produces binaries under:
 target/x86_64-pc-windows-msvc/release/
 ```
 
-## Official Packaging Script
+## Official Packaging Command
 
-The repository Python operations entry point is the canonical Windows packaging
+The Rust repository worker is the canonical Windows packaging
 entry point:
 
 ```powershell
-py -3 -m ops release package --version v0.7.5 --target x86_64-windows-msvc
+cargo run -q -p kernworker -- release package --version v0.7.5 --target x86_64-windows-msvc
 ```
 
-The script currently enforces the important Windows-specific rules:
+The command currently enforces the important Windows-specific rules:
 
 - it stops on PowerShell errors instead of continuing after a failed copy
 - it translates the archive label `x86_64-windows-msvc` to the actual Cargo
@@ -213,8 +213,8 @@ prefix components such as `clangxx`, `llvm_ar`, `llvm_config`, `lib_dir`, and
 ## Installation Model
 
 The user-facing Windows installer is the repository root [install.ps1](../install.ps1)
-entrypoint. It should perform installation directly instead of delegating to
-repository Python tooling.
+entrypoint. It should perform installation directly instead of depending on
+repository maintenance tooling.
 
 It downloads the prebuilt archive and expands it into:
 
@@ -257,8 +257,8 @@ the version explicitly:
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.7.5 -Archive .\kern.zip
 ```
 
-The Python `ops` entrypoints remain valid for CI and repository engineering,
-but they are not the user-install contract on Windows.
+The Rust `kernworker` and `kernup` entrypoints are the repository engineering
+surface, but they are not the user-install contract on Windows.
 
 ## Common Windows Footguns
 

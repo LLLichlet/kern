@@ -6,5 +6,6 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+serde_json = "1.0"
 shared_cli = { workspace = true }
 shared_ops = { workspace = true }

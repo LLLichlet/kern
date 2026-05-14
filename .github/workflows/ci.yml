@@ -88,21 +88,21 @@ jobs:
 
       - name: Print Bootstrap Toolchain Diagnostics (Unix)
         if: runner.os != 'Windows'
-        run: python3 -m ops ci toolchain-info
+        run: cargo run -q -p kernworker -- ci toolchain-info
 
       - name: Print Bootstrap Toolchain Diagnostics (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: py -3 -m ops ci toolchain-info
+        run: cargo run -q -p kernworker -- ci toolchain-info
 
       - name: Assert Bootstrap Toolchain Health (Unix)
         if: runner.os != 'Windows'
-        run: python3 -m ops ci toolchain-health
+        run: cargo run -q -p kernworker -- ci toolchain-health
 
       - name: Assert Bootstrap Toolchain Health (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: py -3 -m ops ci toolchain-health
+        run: cargo run -q -p kernworker -- ci toolchain-health
 
       - name: Package Controlled Toolchain (Unix)
         if: runner.os != 'Windows'
@@ -111,7 +111,7 @@ jobs:
           cargo build --release -p craft
           cargo build --release -p kern-lsp
           TOOLCHAIN_VERSION=llvm-${KERN_CI_LLVM_VERSION}-ci
-          python3 -m ops release package-toolchain --version "$TOOLCHAIN_VERSION" --target "${{ matrix.target }}"
+          cargo run -q -p kernworker -- release package-toolchain --version "$TOOLCHAIN_VERSION" --target "${{ matrix.target }}"
           echo "TOOLCHAIN_ARTIFACT_FILE=kern-toolchain-${TOOLCHAIN_VERSION}-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> "$GITHUB_ENV"
 
       - name: Package Controlled Toolchain (Windows)
@@ -123,50 +123,50 @@ jobs:
           cargo build --release --target ${{ matrix.rust_target }} -p craft
           cargo build --release --target ${{ matrix.rust_target }} -p kern-lsp
           $TOOLCHAIN_VERSION = "llvm-$env:KERN_CI_LLVM_VERSION-ci"
-          py -3 -m ops release package-toolchain --version $TOOLCHAIN_VERSION --target ${{ matrix.target }}
+          cargo run -q -p kernworker -- release package-toolchain --version $TOOLCHAIN_VERSION --target ${{ matrix.target }}
           echo "TOOLCHAIN_ARTIFACT_FILE=kern-toolchain-$TOOLCHAIN_VERSION-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $env:GITHUB_ENV
 
       - name: Verify Controlled Toolchain Artifact (Unix)
         if: runner.os != 'Windows'
         run: |
-          python3 -m ops ci verify-packaged-toolchain --archive-path "${{ env.TOOLCHAIN_ARTIFACT_FILE }}" --target "${{ matrix.target }}"
+          cargo run -q -p kernworker -- ci verify-packaged-toolchain --archive-path "${{ env.TOOLCHAIN_ARTIFACT_FILE }}" --target "${{ matrix.target }}"
 
       - name: Verify Controlled Toolchain Artifact (Windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          py -3 -m ops ci verify-packaged-toolchain --archive-path $env:TOOLCHAIN_ARTIFACT_FILE --target ${{ matrix.target }}
+          cargo run -q -p kernworker -- ci verify-packaged-toolchain --archive-path $env:TOOLCHAIN_ARTIFACT_FILE --target ${{ matrix.target }}
 
       - name: Install Controlled Toolchain (Unix)
         if: runner.os != 'Windows'
         run: |
-          python3 -m ops ci install-packaged-toolchain --archive-path "${{ env.TOOLCHAIN_ARTIFACT_FILE }}" --dest "${RUNNER_TEMP}/kern-ci-toolchain" --target "${{ matrix.target }}" --format github-env >> "$GITHUB_ENV"
+          cargo run -q -p kernworker -- ci install-packaged-toolchain --archive-path "${{ env.TOOLCHAIN_ARTIFACT_FILE }}" --dest "${RUNNER_TEMP}/kern-ci-toolchain" --target "${{ matrix.target }}" --format github-env >> "$GITHUB_ENV"
           echo "${RUNNER_TEMP}/kern-ci-toolchain/toolchain/host/bin" >> "$GITHUB_PATH"
 
       - name: Install Controlled Toolchain (Windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          py -3 -m ops ci install-packaged-toolchain --archive-path $env:TOOLCHAIN_ARTIFACT_FILE --dest "$env:RUNNER_TEMP\kern-ci-toolchain" --target ${{ matrix.target }} --format github-env >> $env:GITHUB_ENV
+          cargo run -q -p kernworker -- ci install-packaged-toolchain --archive-path $env:TOOLCHAIN_ARTIFACT_FILE --dest "$env:RUNNER_TEMP\kern-ci-toolchain" --target ${{ matrix.target }} --format github-env >> $env:GITHUB_ENV
           echo "$env:RUNNER_TEMP\kern-ci-toolchain\toolchain\host\bin" >> $env:GITHUB_PATH
 
       - name: Print Controlled Toolchain Diagnostics (Unix)
         if: runner.os != 'Windows'
-        run: python3 -m ops ci toolchain-info
+        run: cargo run -q -p kernworker -- ci toolchain-info
 
       - name: Print Controlled Toolchain Diagnostics (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: py -3 -m ops ci toolchain-info
+        run: cargo run -q -p kernworker -- ci toolchain-info
 
       - name: Assert Controlled Toolchain Health (Unix)
         if: runner.os != 'Windows'
-        run: python3 -m ops ci toolchain-health
+        run: cargo run -q -p kernworker -- ci toolchain-health
 
       - name: Assert Controlled Toolchain Health (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: py -3 -m ops ci toolchain-health
+        run: cargo run -q -p kernworker -- ci toolchain-health
 
       - name: Install VS Code Extension Dependencies
         working-directory: editors/vscode
@@ -174,12 +174,12 @@ jobs:
 
       - name: Run kernc Integration Tests (Unix)
         if: runner.os != 'Windows'
-        run: python3 -m ops ci kernc-tests --mode ${{ matrix.test_mode }}
+        run: cargo run -q -p kernworker -- ci kernc-tests --mode ${{ matrix.test_mode }}
 
       - name: Run kernc Integration Tests (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: py -3 -m ops ci kernc-tests --mode ${{ matrix.test_mode }}
+        run: cargo run -q -p kernworker -- ci kernc-tests --mode ${{ matrix.test_mode }}
 
       - name: Test craft (Unix)
         if: runner.os != 'Windows'
@@ -201,12 +201,12 @@ jobs:
 
       - name: Check craft Release Source Policy (Unix)
         if: runner.os != 'Windows'
-        run: python3 -m ops ci craft-policy
+        run: cargo run -q -p kernworker -- ci craft-policy
 
       - name: Check craft Release Source Policy (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: py -3 -m ops ci craft-policy
+        run: cargo run -q -p kernworker -- ci craft-policy
 
       - name: Test kern-lsp (Unix)
         if: runner.os != 'Windows'
@@ -228,30 +228,7 @@ jobs:
         working-directory: editors/vscode
         run: |
           npm run package:vsix -- --target linux-x64
-          python - <<'PY'
-          import json
-          import sys
-          import zipfile
-
-          with open("package.json", "r", encoding="utf-8") as fh:
-              package_version = json.load(fh)["version"]
-          package_path = f"kern-vscode-{package_version}-linux-x64.vsix"
-          with zipfile.ZipFile(package_path) as archive:
-              names = set(archive.namelist())
-              required = {
-                  "extension/extension.js",
-                  "extension/out/extension.js",
-              }
-              missing = sorted(required - names)
-              if missing:
-                  raise SystemExit(f"missing VSIX entries: {missing}")
-              embedded_server = sorted(name for name in names if name.startswith("extension/server/"))
-              if embedded_server:
-                  raise SystemExit(f"unexpected embedded server entries: {embedded_server[:10]}")
-              leaked = sorted(name for name in names if "node_modules/" in name)
-              if leaked:
-                  raise SystemExit(f"unexpected node_modules in VSIX: {leaked[:10]}")
-          PY
+          cargo run -q -p kernworker -- ci verify-vsix
 
   verify-bootstrap-toolchain-assembly:
     name: Verify Bootstrap Toolchain Assembly
@@ -284,17 +261,17 @@ jobs:
           echo "KERN_DEBUG_LTO_LINK=1" >> "$GITHUB_ENV"
 
       - name: Print Bootstrap Toolchain Diagnostics
-        run: python3 -m ops ci toolchain-info
+        run: cargo run -q -p kernworker -- ci toolchain-info
 
       - name: Assert Bootstrap Toolchain Health
-        run: python3 -m ops ci toolchain-health
+        run: cargo run -q -p kernworker -- ci toolchain-health
 
       - name: Package Bootstrap Toolchain Artifact
         run: |
           TOOLCHAIN_VERSION=llvm-${KERN_CI_LLVM_VERSION}-bootstrap-check
-          python3 -m ops release package-toolchain --version "$TOOLCHAIN_VERSION" --target x86_64-linux-gnu
+          cargo run -q -p kernworker -- release package-toolchain --version "$TOOLCHAIN_VERSION" --target x86_64-linux-gnu
           echo "TOOLCHAIN_ARTIFACT_FILE=kern-toolchain-${TOOLCHAIN_VERSION}-x86_64-linux-gnu.tar.gz" >> "$GITHUB_ENV"
 
       - name: Verify Bootstrap Toolchain Artifact
         run: |
-          python3 -m ops ci verify-packaged-toolchain --archive-path "${{ env.TOOLCHAIN_ARTIFACT_FILE }}" --target x86_64-linux-gnu
+          cargo run -q -p kernworker -- ci verify-packaged-toolchain --archive-path "${{ env.TOOLCHAIN_ARTIFACT_FILE }}" --target x86_64-linux-gnu

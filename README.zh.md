@@ -204,7 +204,7 @@ cargo run -p kernworker -- ci kernc-tests --mode smoke
 如果希望本地安装的 SDK 在删除源码目录后仍然可用，应先打包并安装本地归档，而不是手工复制 `target/release`。打包入口：
 
 ```sh
-python -m ops release package --version v0.7.5 --target <host-target>
+cargo run -q -p kernworker -- release package --version v0.7.5 --target <host-target>
 ```
 
 本地 SDK 归档安装已经有 Rust 入口：

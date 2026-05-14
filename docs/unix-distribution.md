@@ -170,31 +170,31 @@ distribution compatibility.
 For release-quality host-native Unix archives:
 
 ```bash
-python3 -m ops release package --version v0.7.5 --target <host-target>
+cargo run -q -p kernworker -- release package --version v0.7.5 --target <host-target>
 ```
 
 Examples:
 
 ```bash
-python3 -m ops release package --version v0.7.5 --target x86_64-linux-gnu
-python3 -m ops release package --version v0.7.5 --target x86_64-apple-darwin
-python3 -m ops release package --version v0.7.5 --target aarch64-apple-darwin
+cargo run -q -p kernworker -- release package --version v0.7.5 --target x86_64-linux-gnu
+cargo run -q -p kernworker -- release package --version v0.7.5 --target x86_64-apple-darwin
+cargo run -q -p kernworker -- release package --version v0.7.5 --target aarch64-apple-darwin
 ```
 
 The important policy point is that `<host-target>` is a host label, not a free
-cross-compilation selector. The current Unix packaging script is intentionally
+cross-compilation selector. The current Unix packaging command is intentionally
 host-native and must reject mismatched labels.
 
-## Official Packaging Script
+## Official Packaging Command
 
-The repository Python operations entry point is the canonical packaging entry
+The Rust repository worker is the canonical packaging entry
 point:
 
 ```bash
-python3 -m ops release package --version v0.7.5 --target <host-target>
+cargo run -q -p kernworker -- release package --version v0.7.5 --target <host-target>
 ```
 
-The script should enforce the important Unix-specific rules:
+The command should enforce the important Unix-specific rules:
 
 - it must run from the repository root
 - it must only package a target label that matches the current host machine
@@ -204,8 +204,8 @@ The script should enforce the important Unix-specific rules:
 ## Installation Model
 
 The user-facing Unix installer is the repository root [install.sh](../install.sh)
-entrypoint. It should perform installation directly instead of trampolining into
-repository Python tooling.
+entrypoint. It should perform installation directly instead of depending on
+repository maintenance tooling.
 
 It downloads the prebuilt archive and expands it into:
 
@@ -230,8 +230,8 @@ run:
 
 before it claims success.
 
-The Python `ops` entrypoints remain valid for CI and repository engineering,
-but they are not the user-install contract on Unix.
+The Rust `kernworker` and `kernup` entrypoints are the repository engineering
+surface, but they are not the user-install contract on Unix.
 
 If startup fails, the installer should stop and print the most likely host-side
 remediation instead of silently leaving the user with a broken installation.

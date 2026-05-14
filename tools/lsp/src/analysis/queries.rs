@@ -380,18 +380,23 @@ impl AnalysisEngine {
             return Ok(tokens.clone());
         }
 
-        let tokens = if !context.dirty_documents.is_clean()
-            || !self
-                .artifact_cache
-                .borrow()
-                .contains_key(&AnalysisCacheKey::clean(&context.resolved))
-        {
+        let tokens = if !context.dirty_documents.is_clean() {
             self.record_analysis_tier(AnalysisTier::Lexical);
             semantic::lexical_semantic_tokens(&file)
         } else {
             self.record_analysis_tier(AnalysisTier::CleanSemantic);
-            let artifact = self.analyze_artifact_for_context(&context);
-            semantic::semantic_tokens(&artifact, &file, &target_path)
+            let artifact = self.analyze_navigation_artifact_for_context(&context);
+            semantic::semantic_tokens(
+                semantic::SemanticArtifactView {
+                    session: &artifact.session,
+                    symbols: &artifact.symbols,
+                    references: &artifact.references,
+                    hovers: &artifact.hovers,
+                    semantic_entries: &artifact.semantic_entries,
+                },
+                &file,
+                &target_path,
+            )
         };
         self.semantic_tokens_cache
             .borrow_mut()

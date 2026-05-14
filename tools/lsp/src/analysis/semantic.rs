@@ -1,7 +1,7 @@
 use crate::protocol::SemanticTokens;
 use kernc_driver::{
-    AnalysisArtifact, AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole,
-    AnalysisSymbol, AnalysisSymbolKind,
+    AnalysisHover, AnalysisReference, AnalysisSemanticEntry, AnalysisSemanticKind,
+    AnalysisSemanticRole, AnalysisSymbol, AnalysisSymbolKind,
 };
 use kernc_lexer::{Token, TokenType, Tokenizer};
 use kernc_utils::FileId;
@@ -53,8 +53,16 @@ impl SemanticModifiers {
     pub(super) const STATIC: u32 = 1 << 2;
 }
 
+pub(super) struct SemanticArtifactView<'a> {
+    pub session: &'a kernc_utils::Session,
+    pub symbols: &'a [AnalysisSymbol],
+    pub references: &'a [AnalysisReference],
+    pub hovers: &'a [AnalysisHover],
+    pub semantic_entries: &'a [AnalysisSemanticEntry],
+}
+
 pub(super) fn semantic_tokens(
-    artifact: &AnalysisArtifact,
+    artifact: SemanticArtifactView<'_>,
     file: &kernc_utils::SourceFile,
     target_path: &Path,
 ) -> SemanticTokens {
@@ -75,11 +83,11 @@ pub(super) fn lexical_semantic_tokens(file: &kernc_utils::SourceFile) -> Semanti
 }
 
 fn build_semantic_span_classes(
-    artifact: &AnalysisArtifact,
+    artifact: SemanticArtifactView<'_>,
     target_path: &Path,
 ) -> BTreeMap<SpanKey, SemanticClass> {
     let mut definition_classes = BTreeMap::new();
-    for entry in &artifact.semantic_entries {
+    for entry in artifact.semantic_entries {
         if entry.role != AnalysisSemanticRole::Definition {
             continue;
         }
@@ -87,10 +95,10 @@ fn build_semantic_span_classes(
             .entry(entry.definition_span)
             .or_insert_with(|| semantic_class_from_entry(entry));
     }
-    for module_symbol in &artifact.symbols {
+    for module_symbol in artifact.symbols {
         collect_semantic_definition_classes(module_symbol, &mut definition_classes);
     }
-    for hover in &artifact.hovers {
+    for hover in artifact.hovers {
         if let Some(class) = semantic_class_from_hover(&hover.contents) {
             definition_classes.entry(hover.span).or_insert(class);
         }
@@ -99,16 +107,16 @@ fn build_semantic_span_classes(
     let mut document_classes = BTreeMap::new();
     for (span, class) in &definition_classes {
         let span = *span;
-        if super::span_in_path(&artifact.session, span, target_path) {
+        if super::span_in_path(artifact.session, span, target_path) {
             document_classes.insert(span_key(span), *class);
         }
     }
 
-    for entry in &artifact.semantic_entries {
+    for entry in artifact.semantic_entries {
         if entry.role != AnalysisSemanticRole::Reference {
             continue;
         }
-        if !super::span_in_path(&artifact.session, entry.span, target_path) {
+        if !super::span_in_path(artifact.session, entry.span, target_path) {
             continue;
         }
         document_classes.insert(
@@ -117,8 +125,8 @@ fn build_semantic_span_classes(
         );
     }
 
-    for reference in &artifact.references {
-        if !super::span_in_path(&artifact.session, reference.reference_span, target_path) {
+    for reference in artifact.references {
+        if !super::span_in_path(artifact.session, reference.reference_span, target_path) {
             continue;
         }
 

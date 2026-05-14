@@ -336,13 +336,53 @@ fn semantic_tokens_cache_reuses_rendered_tokens_for_stable_document() {
 
     let first = analysis.semantic_tokens(&uri).unwrap();
     assert_eq!(analysis.semantic_tokens_cache.borrow().len(), 1);
+    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
 
+    analysis.navigation_cache.borrow_mut().clear();
     analysis.artifact_cache.borrow_mut().clear();
     let second = analysis.semantic_tokens(&uri).unwrap();
 
     assert_eq!(first.data, second.data);
+    assert!(analysis.navigation_cache.borrow().is_empty());
     assert!(analysis.artifact_cache.borrow().is_empty());
     assert_eq!(analysis.semantic_tokens_cache.borrow().len(), 1);
+}
+
+#[test]
+fn semantic_tokens_use_navigation_artifact_without_full_analysis() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "struct Point { x: i32 }\n",
+        "fn helper(point: Point) i32 {\n",
+        "    return point.x;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("semantic_tokens_navigation_artifact", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+    analysis.parse_cache.borrow_mut().clear();
+    analysis.surface_cache.borrow_mut().clear();
+    analysis.structure_cache.borrow_mut().clear();
+    analysis.navigation_cache.borrow_mut().clear();
+    analysis.artifact_cache.borrow_mut().clear();
+
+    let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
+
+    assert!(!decoded.is_empty());
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::CleanSemantic)
+    );
+    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
 }
 
 #[test]

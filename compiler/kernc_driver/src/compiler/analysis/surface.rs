@@ -811,7 +811,7 @@ impl CompilerDriver {
                 name: "extern".to_string(),
                 kind: AnalysisSymbolKind::Namespace,
                 span: decl.span,
-                selection_span: decl.span,
+                selection_span: decl.name_span,
                 detail: None,
                 children: decls
                     .iter()
@@ -827,7 +827,7 @@ impl CompilerDriver {
                 name: self.describe_impl_symbol(ctx, target_type, trait_type.as_ref()),
                 kind: AnalysisSymbolKind::Namespace,
                 span: decl.span,
-                selection_span: decl.span,
+                selection_span: decl.name_span,
                 detail: Some("impl".to_string()),
                 children: decls
                     .iter()
@@ -922,7 +922,7 @@ impl CompilerDriver {
                 name: "extern".to_string(),
                 kind: AnalysisSymbolKind::Namespace,
                 span: decl.span,
-                selection_span: decl.span,
+                selection_span: decl.name_span,
                 detail: None,
                 children: decls
                     .iter()
@@ -933,7 +933,7 @@ impl CompilerDriver {
                 name: "impl".to_string(),
                 kind: AnalysisSymbolKind::Namespace,
                 span: decl.span,
-                selection_span: decl.span,
+                selection_span: decl.name_span,
                 detail: Some("impl".to_string()),
                 children: decls
                     .iter()

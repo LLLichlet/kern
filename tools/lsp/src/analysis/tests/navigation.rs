@@ -27,6 +27,57 @@ fn extracts_document_symbols_from_compiler_artifact() {
 }
 
 #[test]
+fn document_symbol_container_selection_uses_keyword_span() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "struct Counter {}\n",
+        "impl Counter {\n",
+        "    fn get() i32 { return 1; }\n",
+        "}\n",
+        "extern \"C\" {\n",
+        "    fn puts(text: &[u8]) i32;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("document_symbol_container_selection", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let symbols = analysis.document_symbols(&uri).unwrap();
+    let impl_symbol = symbols
+        .iter()
+        .find(|symbol| symbol.name.starts_with("impl Counter"))
+        .unwrap();
+    let extern_symbol = symbols
+        .iter()
+        .find(|symbol| symbol.name == "extern")
+        .unwrap();
+
+    assert_eq!(
+        impl_symbol.selection_range.start,
+        position_of_nth(source, "impl", 0, 0)
+    );
+    assert_eq!(
+        impl_symbol.selection_range.end,
+        position_of_nth(source, "impl", 0, 4)
+    );
+    assert_eq!(
+        extern_symbol.selection_range.start,
+        position_of_nth(source, "extern", 0, 0)
+    );
+    assert_eq!(
+        extern_symbol.selection_range.end,
+        position_of_nth(source, "extern", 0, 6)
+    );
+}
+
+#[test]
 fn document_symbols_use_clean_surface_when_dirty_body_is_incomplete() {
     let mut analysis = AnalysisEngine::default();
     let clean = concat!(

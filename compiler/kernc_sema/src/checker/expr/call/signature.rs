@@ -206,6 +206,42 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     )
             }
             (
+                TypeKind::Range {
+                    start: generic_start,
+                    end: generic_end,
+                    is_inclusive: generic_inclusive,
+                },
+                TypeKind::Range {
+                    start: concrete_start,
+                    end: concrete_end,
+                    is_inclusive: concrete_inclusive,
+                },
+            ) => {
+                generic_inclusive == concrete_inclusive
+                    && match (generic_start, concrete_start) {
+                        (Some(generic_start), Some(concrete_start)) => self
+                            .infer_generic_args_from_types(
+                                generic_start,
+                                concrete_start,
+                                type_map,
+                                const_map,
+                            ),
+                        (None, None) => true,
+                        _ => false,
+                    }
+                    && match (generic_end, concrete_end) {
+                        (Some(generic_end), Some(concrete_end)) => self
+                            .infer_generic_args_from_types(
+                                generic_end,
+                                concrete_end,
+                                type_map,
+                                const_map,
+                            ),
+                        (None, None) => true,
+                        _ => false,
+                    }
+            }
+            (
                 TypeKind::Array {
                     elem: generic_elem,
                     len: generic_len,
@@ -386,6 +422,74 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 type_map,
                 const_map,
             ),
+            (
+                TypeKind::AnonymousStruct(generic_extern, generic_fields),
+                TypeKind::AnonymousStruct(concrete_extern, concrete_fields),
+            )
+            | (
+                TypeKind::AnonymousUnion(generic_extern, generic_fields),
+                TypeKind::AnonymousUnion(concrete_extern, concrete_fields),
+            ) => {
+                generic_extern == concrete_extern
+                    && generic_fields.len() == concrete_fields.len()
+                    && generic_fields
+                        .into_iter()
+                        .zip(concrete_fields)
+                        .all(|(generic, concrete)| {
+                            generic.name == concrete.name
+                                && self.infer_generic_args_from_types(
+                                    generic.ty,
+                                    concrete.ty,
+                                    type_map,
+                                    const_map,
+                                )
+                        })
+            }
+            (TypeKind::AnonymousEnum(generic_enum), TypeKind::AnonymousEnum(concrete_enum)) => {
+                generic_enum.builtin == concrete_enum.builtin
+                    && generic_enum.backing_ty.is_some() == concrete_enum.backing_ty.is_some()
+                    && generic_enum.variants.len() == concrete_enum.variants.len()
+                    && match (generic_enum.backing_ty, concrete_enum.backing_ty) {
+                        (Some(generic_backing), Some(concrete_backing)) => self
+                            .infer_generic_args_from_types(
+                                generic_backing,
+                                concrete_backing,
+                                type_map,
+                                const_map,
+                            ),
+                        (None, None) => true,
+                        _ => false,
+                    }
+                    && generic_enum
+                        .variants
+                        .into_iter()
+                        .zip(concrete_enum.variants)
+                        .all(|(generic, concrete)| {
+                            if generic.name != concrete.name
+                                || generic.explicit_value != concrete.explicit_value
+                                || generic.payload_ty.is_some() != concrete.payload_ty.is_some()
+                            {
+                                return false;
+                            }
+                            match (generic.payload_ty, concrete.payload_ty) {
+                                (Some(generic_payload), Some(concrete_payload)) => self
+                                    .infer_generic_args_from_types(
+                                        generic_payload,
+                                        concrete_payload,
+                                        type_map,
+                                        const_map,
+                                    ),
+                                (None, None) => true,
+                                _ => false,
+                            }
+                        })
+            }
+            (
+                TypeKind::AnonymousEnumPayload(generic_enum),
+                TypeKind::AnonymousEnumPayload(concrete_enum),
+            ) => {
+                self.infer_generic_args_from_types(generic_enum, concrete_enum, type_map, const_map)
+            }
             _ => generic_ty == concrete_ty,
         }
     }

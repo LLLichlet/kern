@@ -2553,6 +2553,36 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_generic_argument_from_closure_optional_return_payload() {
+    let output = build_and_run_source(
+        r#"
+fn find_map[U](call: &Fn(i32) ?U) ?U {
+    return call(4);
+}
+
+fn main() i32 {
+    let value = find_map([](item: i32) ?i32 {
+        if (item == 4) return .{ Some: item + 44 };
+        return .None;
+    });
+
+    match (value) {
+        .{ Some: found } => return found - 48,
+        .None => return 1,
+    }
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "generic closure optional return inference regression failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn defaults_inferred_integer_generic_arguments_before_bound_checking() {
     let output = build_and_run_source(
         r#"

@@ -81,18 +81,14 @@ jobs:
           mode: bootstrap
           host-target: ${{ matrix.target }}
 
-      - name: Export Kern Toolchain Root (Unix)
+      - name: Activate Kern Toolchain (Unix)
         if: runner.os != 'Windows'
-        run: |
-          echo "KERN_TOOLCHAIN_ROOT=${LLVM_SYS_211_PREFIX}" >> "$GITHUB_ENV"
-          echo "KERN_DEBUG_LTO_LINK=1" >> "$GITHUB_ENV"
+        run: cargo run -q -p kernworker -- ci activate-toolchain --format github-env >> "$GITHUB_ENV"
 
-      - name: Export Kern Toolchain Root (Windows)
+      - name: Activate Kern Toolchain (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: |
-          echo "KERN_TOOLCHAIN_ROOT=$env:LLVM_SYS_211_PREFIX" >> $env:GITHUB_ENV
-          echo "KERN_DEBUG_LTO_LINK=1" >> $env:GITHUB_ENV
+        run: cargo run -q -p kernworker -- ci activate-toolchain --format github-env >> $env:GITHUB_ENV
 
       - name: Print CI Toolchain Diagnostics (Unix)
         if: runner.os != 'Windows'
@@ -317,18 +313,14 @@ jobs:
           mode: target
           host-target: ${{ matrix.target }}
 
-      - name: Export Published Toolchain Root (Unix)
+      - name: Activate Published Toolchain (Unix)
         if: runner.os != 'Windows'
-        run: |
-          echo "KERN_TOOLCHAIN_ROOT=${LLVM_SYS_211_PREFIX}" >> "$GITHUB_ENV"
-          echo "KERN_DEBUG_LTO_LINK=1" >> "$GITHUB_ENV"
+        run: cargo run -q -p kernworker -- ci activate-toolchain --format github-env >> "$GITHUB_ENV"
 
-      - name: Export Published Toolchain Root (Windows)
+      - name: Activate Published Toolchain (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: |
-          echo "KERN_TOOLCHAIN_ROOT=$env:LLVM_SYS_211_PREFIX" >> $env:GITHUB_ENV
-          echo "KERN_DEBUG_LTO_LINK=1" >> $env:GITHUB_ENV
+        run: cargo run -q -p kernworker -- ci activate-toolchain --format github-env >> $env:GITHUB_ENV
 
       - name: Print Published Toolchain Diagnostics (Unix)
         if: runner.os != 'Windows'

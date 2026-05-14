@@ -12,6 +12,7 @@ pub enum Command {
 pub enum CiCommand {
     KerncTests { mode: TestMode },
     CraftPolicy,
+    ActivateToolchain(ActivateToolchainArgs),
     ToolchainInfo,
     ToolchainHealth,
     ToolchainSpec(ToolchainSpecArgs),
@@ -42,6 +43,12 @@ pub struct ToolchainSpecArgs {
     pub runner_os: Option<String>,
     pub mode: String,
     pub host_target: Option<String>,
+    pub format: String,
+}
+
+#[derive(Debug, Default)]
+pub struct ActivateToolchainArgs {
+    pub prefix: Option<PathBuf>,
     pub format: String,
 }
 
@@ -118,6 +125,9 @@ fn parse_ci_args(args: &[String]) -> OpsResult<CiCommand> {
     match command {
         "kernc-tests" => parse_kernc_tests_args(&args[1..]),
         "craft-policy" => Ok(CiCommand::CraftPolicy),
+        "activate-toolchain" => {
+            parse_activate_toolchain_args(&args[1..]).map(CiCommand::ActivateToolchain)
+        }
         "toolchain-info" => Ok(CiCommand::ToolchainInfo),
         "toolchain-health" => Ok(CiCommand::ToolchainHealth),
         "toolchain-spec" => parse_toolchain_spec_args(&args[1..]).map(CiCommand::ToolchainSpec),
@@ -357,6 +367,43 @@ fn parse_toolchain_spec_args(args: &[String]) -> OpsResult<ToolchainSpecArgs> {
     Ok(parsed)
 }
 
+fn parse_activate_toolchain_args(args: &[String]) -> OpsResult<ActivateToolchainArgs> {
+    let mut parsed = ActivateToolchainArgs {
+        format: "text".into(),
+        ..ActivateToolchainArgs::default()
+    };
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--prefix" => {
+                index += 1;
+                parsed.prefix =
+                    Some(PathBuf::from(args.get(index).ok_or_else(|| {
+                        OpsError::new("`--prefix` requires a value")
+                    })?));
+            }
+            "--format" => {
+                index += 1;
+                parsed.format = args
+                    .get(index)
+                    .ok_or_else(|| OpsError::new("`--format` requires a value"))?
+                    .to_string();
+            }
+            "--help" | "-h" => {
+                print!("{}", activate_toolchain_help().render(ColorChoice::Auto));
+                std::process::exit(0);
+            }
+            other => {
+                return Err(OpsError::new(format!(
+                    "unexpected activate-toolchain argument `{other}`"
+                )));
+            }
+        }
+        index += 1;
+    }
+    Ok(parsed)
+}
+
 fn parse_toolchain_archive_args(args: &[String]) -> OpsResult<ToolchainArchiveArgs> {
     let mut parsed = ToolchainArchiveArgs {
         mode: "current".into(),
@@ -493,7 +540,7 @@ pub fn help() -> HelpDoc {
             "run craft release policy fixtures",
         )
         .example(
-            "kernworker release package --version v0.7.5",
+            "kernworker release package --version v0.7.6",
             "build a host-native SDK archive",
         )
 }
@@ -506,6 +553,10 @@ pub fn ci_help() -> HelpDoc {
             HelpSection::new("Commands")
                 .entry("kernc-tests", "Run grouped kernc integration tests")
                 .entry("craft-policy", "Run craft release policy fixtures")
+                .entry(
+                    "activate-toolchain",
+                    "Emit environment entries for the active CI toolchain",
+                )
                 .entry("toolchain-info", "Print CI toolchain diagnostics")
                 .entry(
                     "toolchain-health",
@@ -619,6 +670,23 @@ fn kernc_tests_help() -> HelpDoc {
         )
 }
 
+fn activate_toolchain_help() -> HelpDoc {
+    HelpDoc::new("kernworker ci activate-toolchain")
+        .summary("Emit environment entries for the active CI toolchain.")
+        .usage("kernworker ci activate-toolchain [--prefix <path>] [--format text|github-env]")
+        .section(
+            HelpSection::new("Options")
+                .entry(
+                    "--prefix <path>",
+                    "LLVM toolchain prefix; defaults to KERN_TOOLCHAIN_ROOT or LLVM_SYS_*_PREFIX",
+                )
+                .entry(
+                    "--format github-env",
+                    "print GitHub environment file entries",
+                ),
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -654,7 +722,7 @@ mod tests {
             "release".to_string(),
             "package".to_string(),
             "--version".to_string(),
-            "v0.7.5".to_string(),
+            "v0.7.6".to_string(),
             "--target".to_string(),
             "x86_64-linux-gnu".to_string(),
             "--skip-build".to_string(),
@@ -665,13 +733,31 @@ mod tests {
         let Command::Release(ReleaseCommand::Package(args)) = command else {
             panic!("expected release package command");
         };
-        assert_eq!(args.version.as_deref(), Some("v0.7.5"));
+        assert_eq!(args.version.as_deref(), Some("v0.7.6"));
         assert_eq!(args.target.as_deref(), Some("x86_64-linux-gnu"));
         assert!(args.skip_build);
         assert_eq!(
             args.toolchain_prefix.as_deref(),
             Some(Path::new("/opt/llvm"))
         );
+    }
+
+    #[test]
+    fn parses_activate_toolchain_options() {
+        let command = parse_args(vec![
+            "ci".to_string(),
+            "activate-toolchain".to_string(),
+            "--prefix".to_string(),
+            "/opt/llvm".to_string(),
+            "--format".to_string(),
+            "github-env".to_string(),
+        ])
+        .unwrap();
+        let Command::Ci(CiCommand::ActivateToolchain(args)) = command else {
+            panic!("expected activate-toolchain command");
+        };
+        assert_eq!(args.prefix.as_deref(), Some(Path::new("/opt/llvm")));
+        assert_eq!(args.format, "github-env");
     }
 
     #[test]

@@ -590,7 +590,7 @@ pub fn run_command_with_env(
     if cmd.is_empty() {
         return Err(OpsError::new("cannot run an empty command"));
     }
-    println!(
+    eprintln!(
         "=> Running: {}",
         cmd.iter()
             .map(|part| part.to_string_lossy())
@@ -629,7 +629,7 @@ pub fn run_command_capture(cmd: &[OsString], cwd: Option<&Path>) -> OpsResult<Co
     if cmd.is_empty() {
         return Err(OpsError::new("cannot run an empty command"));
     }
-    println!(
+    eprintln!(
         "=> Running: {}",
         cmd.iter()
             .map(|part| part.to_string_lossy())
@@ -733,13 +733,14 @@ pub fn resolve_bundled_toolchain(
             prefix.display()
         )));
     }
-    let llvm_config = resolve_llvm_tool("llvm-config", "21", &prefix.join("bin"), host, false)
-        .ok_or_else(|| {
-            OpsError::new(format!(
-                "failed to resolve `llvm-config` within LLVM prefix `{}`",
-                prefix.display()
-            ))
-        })?;
+    let llvm_config =
+        resolve_llvm_tool("llvm-config", "21", &prefix.join("bin"), host, false, false)?
+            .ok_or_else(|| {
+                OpsError::new(format!(
+                    "failed to resolve `llvm-config` within LLVM prefix `{}`",
+                    prefix.display()
+                ))
+            })?;
     let version = tool_output(&[
         llvm_config.as_os_str().to_owned(),
         OsString::from("--version"),
@@ -778,7 +779,7 @@ pub fn resolve_bundled_toolchain(
         ("clangxx", "clang++", true),
         ("llvm_ar", "llvm-ar", true),
     ] {
-        if let Some(tool) = resolve_llvm_tool(name, major, &bindir, host, required) {
+        if let Some(tool) = resolve_llvm_tool(name, major, &bindir, host, required, false)? {
             tools.insert(
                 key.into(),
                 serde_json::Value::String(tool.display().to_string()),
@@ -792,14 +793,15 @@ pub fn resolve_bundled_toolchain(
     } else {
         "ld.lld"
     };
-    let lld = resolve_llvm_tool(lld_name, major, &bindir, host, true)
+    let allow_lld_path_lookup = host.archive_target.ends_with("apple-darwin");
+    let lld = resolve_llvm_tool(lld_name, major, &bindir, host, true, allow_lld_path_lookup)?
         .ok_or_else(|| OpsError::new(format!("failed to resolve LLVM tool `{lld_name}`")))?;
     tools.insert(
         "lld".into(),
         serde_json::Value::String(lld.display().to_string()),
     );
     if host.archive_target.ends_with("windows-msvc") {
-        let llvm_lib = resolve_llvm_tool("llvm-lib", major, &bindir, host, true)
+        let llvm_lib = resolve_llvm_tool("llvm-lib", major, &bindir, host, true, false)?
             .ok_or_else(|| OpsError::new("failed to resolve LLVM tool `llvm-lib`"))?;
         tools.insert(
             "llvm_lib".into(),
@@ -1044,9 +1046,9 @@ pub fn extract_archive_with_system_tool(
         ArchiveKind::Zip => {
             if cfg!(windows) {
                 let script = format!(
-                    "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
-                    archive_path.display(),
-                    extract_root.display()
+                    "Expand-Archive -LiteralPath {} -DestinationPath {} -Force",
+                    powershell_quote(&archive_path.display().to_string()),
+                    powershell_quote(&extract_root.display().to_string())
                 );
                 run_command(
                     &[
@@ -1717,19 +1719,28 @@ fn resolve_llvm_tool(
     bindir: &Path,
     host: &HostTarget,
     required: bool,
-) -> Option<PathBuf> {
+    allow_path_lookup: bool,
+) -> OpsResult<Option<PathBuf>> {
     let suffix = if host.is_windows { ".exe" } else { "" };
-    for candidate in [format!("{name}{suffix}"), format!("{name}-{major}{suffix}")] {
+    let candidates = [format!("{name}{suffix}"), format!("{name}-{major}{suffix}")];
+    for candidate in &candidates {
         let path = bindir.join(candidate);
         if path.is_file() {
-            return Some(path);
+            return Ok(Some(path));
+        }
+    }
+    if allow_path_lookup {
+        let candidate_refs = candidates.iter().map(String::as_str).collect::<Vec<_>>();
+        if let Some(path) = find_program(&candidate_refs) {
+            return Ok(Some(path));
         }
     }
     if required {
-        find_program(&[name])
-    } else {
-        None
+        return Err(OpsError::new(format!(
+            "failed to resolve LLVM tool `{name}` for the current packaging environment"
+        )));
     }
+    Ok(None)
 }
 
 fn toolchain_component_health_checks_json(components: &[String]) -> Vec<serde_json::Value> {

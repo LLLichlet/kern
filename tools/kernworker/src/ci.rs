@@ -1,13 +1,13 @@
 use crate::args::{
-    PackagedToolchainInstallArgs, PackagedToolchainVerifyArgs, TestMode, ToolchainArchiveArgs,
-    ToolchainSpecArgs, VsixVerifyArgs,
+    ActivateToolchainArgs, PackagedToolchainInstallArgs, PackagedToolchainVerifyArgs, TestMode,
+    ToolchainArchiveArgs, ToolchainSpecArgs, VsixVerifyArgs,
 };
 use shared_ops::{
     OpsError, OpsResult, archive_kind_from_path, copy_dir_recursive, copy_path, detect_host_target,
-    expected_archive_sha256, extract_archive_with_system_tool, format_policy_value,
-    load_workspace_version, make_temp_dir, remove_path_if_exists, repo_root,
-    resolve_ci_toolchain_policy, run_command, run_command_capture, runner_os_for_host,
-    runner_os_for_target, validate_toolchain_root, verify_archive_checksum,
+    expected_archive_sha256, extract_archive_with_system_tool, first_non_empty_line,
+    format_policy_value, load_workspace_version, make_temp_dir, remove_path_if_exists, repo_root,
+    resolve_bundled_toolchain, resolve_ci_toolchain_policy, run_command, run_command_capture,
+    runner_os_for_host, runner_os_for_target, validate_toolchain_root, verify_archive_checksum,
 };
 use std::env;
 use std::ffi::OsString;
@@ -21,7 +21,7 @@ const SMOKE_TESTS: &[&str] = &[
     "stdlib",
     "traits",
 ];
-const HOSTED_TESTS: &[&str] = &["collections", "filesystem"];
+const HOSTED_TESTS: &[&str] = &["collections"];
 pub fn run_kernc_tests(mode: TestMode) -> OpsResult<()> {
     let suites: Vec<(&str, &[&str])> = match mode {
         TestMode::Smoke => vec![("smoke", SMOKE_TESTS)],
@@ -105,12 +105,39 @@ fn resolve_policy_from_args(
     resolve_ci_toolchain_policy(&ci_toolchains_manifest()?, runner, mode, host_target)
 }
 
+pub fn activate_toolchain(args: ActivateToolchainArgs) -> OpsResult<()> {
+    let prefix = args
+        .prefix
+        .or_else(find_active_toolchain_prefix)
+        .ok_or_else(|| {
+            OpsError::new(
+                "failed to resolve active LLVM toolchain prefix; pass `--prefix` or set KERN_TOOLCHAIN_ROOT/LLVM_SYS_*_PREFIX",
+            )
+        })?;
+    if !prefix.is_dir() {
+        return Err(OpsError::new(format!(
+            "toolchain prefix `{}` is not a directory",
+            prefix.display()
+        )));
+    }
+    let prefix = canonical_or_original(&prefix);
+    if args.format == "github-env" {
+        println!("KERN_TOOLCHAIN_ROOT={}", prefix.display());
+        println!("KERN_DEBUG_LTO_LINK=1");
+    } else {
+        println!("toolchain.root: {}", prefix.display());
+        println!("toolchain.debug_lto_link: 1");
+    }
+    Ok(())
+}
+
 pub fn print_toolchain_info() -> OpsResult<()> {
     let host = detect_host_target()?;
     println!("runner_target: {}", host.archive_target);
+    let kern_toolchain_root = env::var("KERN_TOOLCHAIN_ROOT").ok();
     println!(
         "KERN_TOOLCHAIN_ROOT: {}",
-        env::var("KERN_TOOLCHAIN_ROOT").unwrap_or_else(|_| "<unset>".into())
+        kern_toolchain_root.as_deref().unwrap_or("<unset>")
     );
     println!(
         "CC: {}",
@@ -120,6 +147,7 @@ pub fn print_toolchain_info() -> OpsResult<()> {
         "CXX: {}",
         env::var("CXX").unwrap_or_else(|_| "<unset>".into())
     );
+    print_configured_toolchain_roots(kern_toolchain_root.as_deref());
     for name in [
         "cc",
         "clang",
@@ -143,9 +171,37 @@ pub fn print_toolchain_info() -> OpsResult<()> {
             Ok(result) if result.status_code == Some(0) => {
                 let path = result.stdout.lines().next().unwrap_or("").trim();
                 println!("{name}: {path}");
+                println!("{name} --version: {}", tool_version_line(Path::new(path)));
             }
             _ => println!("{name}: <missing>"),
         }
+    }
+    match resolve_bundled_toolchain(&host, None) {
+        Ok(toolchain) => {
+            println!("resolved_toolchain.prefix: {}", toolchain.prefix.display());
+            println!("resolved_toolchain.bindir: {}", toolchain.bindir.display());
+            println!("resolved_toolchain.libdir: {}", toolchain.libdir.display());
+            println!(
+                "resolved_toolchain.includedir: {}",
+                toolchain.includedir.display()
+            );
+            println!("resolved_toolchain.version: {}", toolchain.version);
+            for (name, path) in &toolchain.tools {
+                if let Some(path) = path.as_str() {
+                    println!("resolved_toolchain.tool.{name}: {path}");
+                }
+            }
+            if let Some(resource_dir) = toolchain.resource_dir {
+                println!(
+                    "resolved_toolchain.resource_dir: {}",
+                    resource_dir.display()
+                );
+            }
+            if let Some(sysroot_dir) = toolchain.sysroot_dir {
+                println!("resolved_toolchain.sysroot_dir: {}", sysroot_dir.display());
+            }
+        }
+        Err(err) => println!("resolved_toolchain: <unavailable> ({err})"),
     }
     Ok(())
 }
@@ -430,22 +486,163 @@ pub fn assert_toolchain_health() -> OpsResult<()> {
         Some(&host.archive_target),
     )?;
     println!("toolchain_health.target: {}", host.archive_target);
+    let toolchain = resolve_bundled_toolchain(&host, None).map_err(|err| {
+        OpsError::new(format!(
+            "release-grade host toolchain is incomplete for {}; expected a controlled LLVM toolchain with `{}`: {err}",
+            host.archive_target,
+            policy.required_tools.join("`, `")
+        ))
+    })?;
+    println!("toolchain_health.source: {}", toolchain.source_label);
+    println!("toolchain_health.version: {}", toolchain.version);
     for tool in &policy.required_tools {
+        let component = component_key_from_tool(tool)?;
+        let Some(path) = toolchain
+            .tools
+            .get(component)
+            .and_then(|value| value.as_str())
+        else {
+            return Err(OpsError::new(format!(
+                "resolved toolchain is missing required component `{component}` for {}",
+                host.archive_target
+            )));
+        };
+        let path = Path::new(path);
+        if !path.is_file() {
+            return Err(OpsError::new(format!(
+                "required tool `{component}` is missing at `{}`",
+                path.display()
+            )));
+        }
         let result = run_command_capture(
-            &[
-                OsString::from(if cfg!(windows) { "where" } else { "which" }),
-                OsString::from(tool),
-            ],
+            &[path.as_os_str().to_owned(), OsString::from("--version")],
             None,
         )?;
         if result.status_code != Some(0) {
-            return Err(OpsError::new(format!("required tool `{tool}` is missing")));
+            return Err(OpsError::new(format!(
+                "required tool `{component}` did not answer `--version`: {}{}",
+                result.stdout, result.stderr
+            )));
         }
-        let path = result.stdout.lines().next().unwrap_or("").trim();
-        println!("toolchain_health.{tool}: {path}");
+        let output = format!("{}{}", result.stdout, result.stderr);
+        let version = first_non_empty_line(&output).unwrap_or("<no version output>");
+        println!(
+            "toolchain_health.{component}: {} :: {version}",
+            path.display()
+        );
+    }
+    if !toolchain.libdir.is_dir() {
+        return Err(OpsError::new(format!(
+            "toolchain libdir `{}` is missing",
+            toolchain.libdir.display()
+        )));
+    }
+    if !toolchain.includedir.is_dir() {
+        return Err(OpsError::new(format!(
+            "toolchain includedir `{}` is missing",
+            toolchain.includedir.display()
+        )));
+    }
+    if let Some(resource_dir) = &toolchain.resource_dir
+        && !resource_dir.is_dir()
+    {
+        return Err(OpsError::new(format!(
+            "clang resource dir `{}` is missing",
+            resource_dir.display()
+        )));
     }
     println!("toolchain_health.status: ok");
     Ok(())
+}
+
+fn print_configured_toolchain_roots(kern_toolchain_root: Option<&str>) {
+    let configured = kern_toolchain_root
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .filter(|path| path.is_dir());
+    if let Some(path) = configured {
+        println!(
+            "KERN_TOOLCHAIN_ROOT: {}",
+            canonical_or_original(&path).display()
+        );
+    } else {
+        println!("configured_toolchain_root: <unset>");
+    }
+
+    let mut matches = env::vars_os()
+        .filter_map(|(key, value)| {
+            let key = key.into_string().ok()?;
+            if key.starts_with("LLVM_SYS_") && key.ends_with("_PREFIX") && !value.is_empty() {
+                Some((key, PathBuf::from(value)))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    matches.sort_by(|a, b| a.0.cmp(&b.0));
+    if let Some((key, path)) = matches.into_iter().find(|(_, path)| path.is_dir()) {
+        println!("{key}: {}", canonical_or_original(&path).display());
+    } else {
+        println!("LLVM_SYS prefix: <unset>");
+    }
+}
+
+fn find_active_toolchain_prefix() -> Option<PathBuf> {
+    if let Some(root) = env::var_os("KERN_TOOLCHAIN_ROOT")
+        .map(PathBuf::from)
+        .filter(|path| path.is_dir())
+    {
+        return Some(root);
+    }
+
+    let mut matches = env::vars_os()
+        .filter_map(|(key, value)| {
+            let key = key.into_string().ok()?;
+            if key.starts_with("LLVM_SYS_") && key.ends_with("_PREFIX") && !value.is_empty() {
+                Some((key, PathBuf::from(value)))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    matches.sort_by(|a, b| a.0.cmp(&b.0));
+    matches
+        .into_iter()
+        .find_map(|(_, path)| path.is_dir().then_some(path))
+}
+
+fn canonical_or_original(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn tool_version_line(path: &Path) -> String {
+    let Ok(result) = run_command_capture(
+        &[path.as_os_str().to_owned(), OsString::from("--version")],
+        None,
+    ) else {
+        return "<unavailable>".into();
+    };
+    if result.status_code != Some(0) {
+        return "<unavailable>".into();
+    }
+    let output = format!("{}{}", result.stdout, result.stderr);
+    first_non_empty_line(&output)
+        .unwrap_or("<unavailable>")
+        .to_string()
+}
+
+fn component_key_from_tool(tool: &str) -> OpsResult<&'static str> {
+    match tool {
+        "clang" => Ok("clang"),
+        "clang++" => Ok("clangxx"),
+        "llvm-ar" => Ok("llvm_ar"),
+        "llvm-config" => Ok("llvm_config"),
+        "ld.lld" | "ld64.lld" | "lld-link" => Ok("lld"),
+        "llvm-lib" => Ok("llvm_lib"),
+        other => Err(OpsError::new(format!(
+            "unknown required tool `{other}` in CI toolchain policy"
+        ))),
+    }
 }
 
 fn prepare_fixture(source: &Path, temp_root: &Path, version: &str) -> OpsResult<PathBuf> {

@@ -21,6 +21,7 @@ fn run() -> OpsResult<()> {
     match args::parse_args(env::args().skip(1).collect())? {
         Command::Ci(CiCommand::KerncTests { mode }) => ci::run_kernc_tests(mode),
         Command::Ci(CiCommand::CraftPolicy) => ci::run_craft_policy_checks(),
+        Command::Ci(CiCommand::ActivateToolchain(args)) => ci::activate_toolchain(args),
         Command::Ci(CiCommand::ToolchainInfo) => ci::print_toolchain_info(),
         Command::Ci(CiCommand::ToolchainHealth) => ci::assert_toolchain_health(),
         Command::Ci(CiCommand::ToolchainSpec(args)) => ci::print_toolchain_spec(args),

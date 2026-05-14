@@ -702,10 +702,10 @@ fn dirent_file_type(kind: u8) FileType {
 }
 
 fn is_dot_entry(name: &[u8]) bool {
-    if (#name == 1 and name.[0] == b'.') {
+    if (name.@len() == 1 and name.[0] == b'.') {
         return true;
     }
-    if (#name == 2 and name.[0] == b'.' and name.[1] == b'.') {
+    if (name.@len() == 2 and name.[0] == b'.' and name.[1] == b'.') {
         return true;
     }
     return false;

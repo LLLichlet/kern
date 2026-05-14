@@ -191,12 +191,12 @@ fn main() i32 {
         &bridge_source,
         r#"
 fn bytes_eq(lhs: &[u8], rhs: &[u8]) bool {
-    if (#lhs != #rhs) {
+    if (lhs.@len() != rhs.@len()) {
         return false;
     }
 
     let mut i = 0usize;
-    while (i < #lhs) {
+    while (i < lhs.@len()) {
         if (lhs.[i] != rhs.[i]) {
             return false;
         }
@@ -207,7 +207,7 @@ fn bytes_eq(lhs: &[u8], rhs: &[u8]) bool {
 
 #[export_name("bridge")]
 extern fn bridge_impl(args: &[&[u8]]) i32 {
-    if (#args != 2) {
+    if (args.@len() != 2) {
         return 1;
     }
 
@@ -411,7 +411,7 @@ fn main(argc: i32, argv: &&u8) i32 {
         .{ Some: arg } => arg,
         .None => return 2,
     };
-    if (#first == 0) {
+    if (first.@len() == 0) {
         return 2;
     }
     let second = match (args.get(1)) {

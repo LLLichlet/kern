@@ -380,7 +380,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kernc_ast::UnaryOperator;
     use kernc_mono::MonoId;
     use kernc_sema::SemaContext;
     use kernc_sema::def::{Def, UnionDef};
@@ -410,44 +409,6 @@ mod tests {
         assert_eq!(
             ctx.sess.diagnostics[0].message,
             "cannot lower an expression whose type was left unresolved"
-        );
-    }
-
-    #[test]
-    fn lowering_meta_of_unresolved_array_infer_emits_error_and_returns_trap() {
-        let mut session = Session::new();
-        let mut ctx = SemaContext::new(&mut session);
-        let operand = Expr {
-            id: NodeId(0),
-            span: Span::default(),
-            kind: ExprKind::Identifier(ctx.intern("value")),
-        };
-        let expr = Expr {
-            id: NodeId(1),
-            span: Span::default(),
-            kind: ExprKind::Unary {
-                op: UnaryOperator::MetaOf,
-                operand: Box::new(operand.clone()),
-            },
-        };
-        let array_infer_ty = ctx
-            .type_registry
-            .intern(TypeKind::ArrayInfer { elem: TypeId::U8 });
-        ctx.set_node_type(operand.id, array_infer_ty);
-        ctx.set_node_type(expr.id, TypeId::USIZE);
-        let value = ctx.intern("value");
-        let mut lowerer = Lowerer::new(&mut ctx);
-        lowerer
-            .local_types
-            .push(HashMap::from([(value, (array_infer_ty, false))]));
-
-        let lowered = lowerer.lower_expr(&expr, &HashMap::new(), None);
-
-        assert!(matches!(lowered.kind, MastExprKind::Trap));
-        assert_eq!(ctx.sess.diagnostics.len(), 1);
-        assert_eq!(
-            ctx.sess.diagnostics[0].message,
-            "cannot apply `#` to an array with inferred length `[_]T`"
         );
     }
 

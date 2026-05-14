@@ -198,7 +198,6 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             UnaryOperator::LogicalNot
             | UnaryOperator::AddressOf
             | UnaryOperator::MutAddressOf
-            | UnaryOperator::MetaOf
             | UnaryOperator::PointerDeRef => None,
         }
     }

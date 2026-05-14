@@ -27,7 +27,6 @@ pub enum UnaryOperator {
     BitwiseNot,   // ~
     AddressOf,    // .&
     MutAddressOf, // ..&
-    MetaOf,       // #
     PointerDeRef, // .*
 }
 

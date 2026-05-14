@@ -772,7 +772,7 @@ fn return_range() i32...i32 {
 fn main() void {
     take(0...10, ...20, ...);
     let a = (1 + 2)...(3 * 4);
-    let b = ...(#"abc");
+    let b = ...("abc".@len());
     let c = 0...;
 }
 "#;
@@ -1480,7 +1480,7 @@ type Good = i32;
 
     #[test]
     fn casts_bind_after_prefix_unary_operators() {
-        let source = "fn main() i32 { return #array as i32 - 1; }";
+        let source = "fn main() i32 { return -value as i32 - 1; }";
         let (_session, module) = parse_module(source);
         let ast::DeclKind::Function {
             body: Some(body), ..
@@ -1519,7 +1519,7 @@ type Good = i32;
         let ast::ExprKind::Unary { op, operand } = &cast_lhs.kind else {
             panic!("expected unary operand inside cast");
         };
-        assert_eq!(*op, ast::UnaryOperator::MetaOf);
+        assert_eq!(*op, ast::UnaryOperator::Negate);
         assert!(matches!(operand.kind, ast::ExprKind::Identifier(_)));
     }
 

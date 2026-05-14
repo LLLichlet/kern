@@ -183,10 +183,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             | MirRvalue::AtomicCas { .. }
             | MirRvalue::AddressOf(_)
             | MirRvalue::Load(_) => hint,
-            MirRvalue::Unary { op, operand } => match op {
-                UnaryOperator::MetaOf => Some(TypeId::USIZE),
-                _ => self.mir_operand_ty(body, operand),
-            },
+            MirRvalue::Unary { operand, .. } => self.mir_operand_ty(body, operand),
             MirRvalue::BitIntrinsic { operand, .. } => self.mir_operand_ty(body, operand),
             MirRvalue::Binary { op, lhs, .. } => match op {
                 BinaryOperator::Equal

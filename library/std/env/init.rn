@@ -28,12 +28,12 @@ pub struct Key {
 };
 
 fn bytes_eq(lhs: &[u8], rhs: &[u8]) bool {
-    if (#lhs != #rhs) {
+    if (lhs.@len() != rhs.@len()) {
         return false;
     }
 
     let mut i = 0usize;
-    while (i < #lhs) {
+    while (i < lhs.@len()) {
         if (lhs.[i] != rhs.[i]) {
             return false;
         }
@@ -61,17 +61,17 @@ impl Var {
 
 #[if((os == "linux" or os == "darwin") or os == "windows")]
 fn split_var(entry: &[u8]) ?Var {
-    if (#entry == 0) {
+    if (entry.@len() == 0) {
         return .None;
     }
 
     let mut start = 0usize;
-    if (entry.[0] == b'=' and #entry > 1) {
+    if (entry.[0] == b'=' and entry.@len() > 1) {
         start = 1;
     }
 
         let mut i = start;
-    while (i < #entry) {
+    while (i < entry.@len()) {
         if (entry.[i] != b'=') {
             i += 1;
             continue;
@@ -79,7 +79,7 @@ fn split_var(entry: &[u8]) ?Var {
         return .{
             Some: Var.{
                 name: entry.&[0...i],
-                value: entry.&[i + 1...#entry],
+                value: entry.&[i + 1...entry.@len()],
             },
         };
 
@@ -240,7 +240,7 @@ impl Key {
 
     /// Reads this environment variable into an owned `String`.
     pub fn get(alloc: &mut Allocator) (?String)!AllocError {
-        if (#self.name == 0) {
+        if (self.name.@len() == 0) {
             return .{ Ok: .None };
         }
 
@@ -260,7 +260,7 @@ impl Key {
 
     /// Returns `true` when this environment variable exists.
     pub fn has() bool {
-        if (#self.name == 0) {
+        if (self.name.@len() == 0) {
             return false;
         }
 
@@ -294,7 +294,7 @@ impl Key {
 
     /// Visits this environment variable's value when it exists.
     pub fn visit(visitor: &Fn(&[u8]) bool) bool {
-        if (#self.name == 0) {
+        if (self.name.@len() == 0) {
             return false;
         }
 

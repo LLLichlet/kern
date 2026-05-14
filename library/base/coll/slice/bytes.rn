@@ -41,11 +41,11 @@ fn eq_usize_range(
 
 #[inline]
 pub/ fn bytes_eq(lhs: &[u8], rhs: &[u8]) bool {
-    if (#lhs != #rhs) {
+    if (lhs.@len() != rhs.@len()) {
         return false;
     }
 
-    let len = #lhs;
+    let len = lhs.@len();
     if (len == 0) {
         return true;
     }
@@ -108,32 +108,32 @@ impl &[u8] : Ord[&[u8]] {}
 impl &[u8] {
     /// Returns `true` when this slice starts with `prefix`.
     pub fn starts_with(prefix: &[u8]) bool {
-        if (#prefix > #self) return false;
-        return self.&[0...#prefix] == prefix;
+        if (prefix.@len() > self.@len()) return false;
+        return self.&[0...prefix.@len()] == prefix;
     }
 
     /// Returns `true` when this slice ends with `suffix`.
     pub fn ends_with(suffix: &[u8]) bool {
-        if (#suffix > #self) return false;
-        return self.&[#self - #suffix...#self] == suffix;
+        if (suffix.@len() > self.@len()) return false;
+        return self.&[self.@len() - suffix.@len()...self.@len()] == suffix;
     }
 
     /// Removes `prefix` from the start of the slice when present.
     pub fn strip_prefix(prefix: &[u8]) ?&[u8] {
         if (!self.starts_with(prefix)) return .None;
-        return .{ Some: self.&[#prefix...#self] };
+        return .{ Some: self.&[prefix.@len()...self.@len()] };
     }
 
     /// Removes `suffix` from the end of the slice when present.
     pub fn strip_suffix(suffix: &[u8]) ?&[u8] {
         if (!self.ends_with(suffix)) return .None;
-        return .{ Some: self.&[0...#self - #suffix] };
+        return .{ Some: self.&[0...self.@len() - suffix.@len()] };
     }
 
     /// Returns the first index of `byte`.
     pub fn find_byte(byte: u8) ?usize {
                 let mut i = 0usize;
-        while (i < #self) {
+        while (i < self.@len()) {
             if (self.[i] == byte) {
                 return .{ Some: i };
             }
@@ -145,7 +145,7 @@ impl &[u8] {
 
     /// Returns the last index of `byte`.
     pub fn rfind_byte(byte: u8) ?usize {
-                let mut i = #self;
+                let mut i = self.@len();
         while (i > 0) {
             i -= 1;
             if (self.[i] == byte) {
@@ -163,20 +163,20 @@ impl &[u8] {
     /// Trims ASCII whitespace from the start of the slice.
     pub fn trim_ascii_start() &[u8] {
                 let mut start = 0usize;
-        while (start < #self) {
+        while (start < self.@len()) {
             let b = self.[start];
             if (!is_ascii_whitespace(b)) {
-                return self.&[start...#self];
+                return self.&[start...self.@len()];
             }
 
             start += 1;
         }
-        return self.&[#self...#self];
+        return self.&[self.@len()...self.@len()];
     }
 
     /// Trims ASCII whitespace from the end of the slice.
     pub fn trim_ascii_end() &[u8] {
-                let mut end = #self;
+                let mut end = self.@len();
         while (end > 0) {
             let b = self.[end - 1];
             if (!is_ascii_whitespace(b)) {

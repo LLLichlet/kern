@@ -142,6 +142,8 @@ pub enum MastExprKind {
     ExtractFatPtrData(Box<MastExpr>),
     /// Extracts fat-pointer metadata (`extractvalue 1`).
     ExtractFatPtrMeta(Box<MastExpr>),
+    /// Produces a pointer to the first element of an array or slice value.
+    ExtractElementPtr(Box<MastExpr>),
 
     // --- 9. Executable blocks ---
     /// A block executed as a standalone expression value.

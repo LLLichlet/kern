@@ -139,6 +139,21 @@ impl MirFunctionBuilder {
                     operand: inner,
                 }))
             }
+            MastExprKind::ExtractElementPtr(inner) => {
+                let zero = MastExpr::new(TypeId::USIZE, MastExprKind::Integer(0), expr.span);
+                let element = MastExpr::new(
+                    expr.ty,
+                    MastExprKind::IndexAccess {
+                        lhs: Box::new(inner.as_ref().clone()),
+                        index: Box::new(zero),
+                    },
+                    expr.span,
+                );
+                let Some(place) = self.lower_place(block_id, &element)? else {
+                    return Ok(None);
+                };
+                Ok(Some(MirRvalue::AddressOf(place)))
+            }
             MastExprKind::Unary { op, operand } => {
                 let Some(operand) = self.lower_expr_to_operand(block_id, operand)? else {
                     return Ok(None);

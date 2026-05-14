@@ -108,7 +108,7 @@ fn check_typed_helpers[W](t: &mut Report[W]) void
     alloc.free_array[i32](clone);
 
     let empty = alloc.try_alloc_array[u64](0usize).should_ok().sum(@loc(), t);
-    (#empty).should().eq(0usize).sum(@loc(), t);
+    (empty.@len()).should().eq(0usize).sum(@loc(), t);
     alloc.free_array[u64](empty);
 }
 

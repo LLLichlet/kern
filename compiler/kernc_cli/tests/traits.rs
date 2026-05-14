@@ -1129,7 +1129,7 @@ trait Fits[Rhs] {
 
 impl[T, N: usize] &[T] : Fits[[N]T] {
     pub fn fits(other: [N]T) bool {
-        return #self == N;
+        return self.@len() == N;
     }
 }
 
@@ -1186,7 +1186,7 @@ impl[T, N: usize] &[T] : Make[[N]T] {
     type Out = Wrap[N];
 
     pub fn make(other: [N]T) Out {
-        return Wrap[N].{ value: (#self + N) as i32 };
+        return Wrap[N].{ value: (self.@len() + N) as i32 };
     }
 }
 
@@ -1220,7 +1220,7 @@ trait Child[Rhs]: Parent[Rhs] {};
 
 impl[T, N: usize] &[T] : Parent[[N]T] {
     pub fn parent(other: [N]T) i32 {
-        return (#self + N) as i32;
+        return (self.@len() + N) as i32;
     }
 }
 

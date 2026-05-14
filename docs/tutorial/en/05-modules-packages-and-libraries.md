@@ -167,13 +167,14 @@ Kern has no automatic prelude. Import the modules or names you use:
 
 ```kern
 use std.io;
-use base.coll.{List, list, range};
+use base.coll.{List, String, list, string};
 use base.mem.alloc.gpa;
 use std.mem.page;
 ```
 
 `use std.io;` brings the module name `io` into the current scope.
-`use base.coll.{List, list, range};` imports several names from one module.
+`use base.coll.{List, String, list, string};` imports several names from one
+module.
 
 Imports only change how this file can write names. They do not change module
 visibility and do not re-export dependencies for other modules.
@@ -286,6 +287,36 @@ roots = ["tests/smoke.rn"]
 
 Each root becomes an independent target. The name comes from the file name.
 `examples/basics.rn` becomes `--example basics`.
+
+If `[test].roots` is absent, `craft test` discovers direct `tests/*.rn` files
+in that package. In a workspace this default is applied per member package;
+the workspace root is not a test package by itself. Write `[test].roots`
+explicitly when you want a different set, including globs such as
+`"integration/*.rn"`. Recursive globs are not test roots; nested files should
+usually be modules declared by a root.
+
+Inside a test root, mark test cases with `#[test]`:
+
+```kern
+use base.io;
+use base.test.report;
+
+#[test]
+fn adds() i32 {
+    let t = report(io.discard())..&;
+    (1 + 1).should().eq(2).sum(@loc(), t);
+    return t.finish();
+}
+
+#[test]
+fn accepts_args(argc: i32, argv: &&u8) i32 {
+    return 0;
+}
+```
+
+A test function returns `i32`, just like `main`: `0` passes and any other value
+fails. It may take no arguments or `(argc: i32, argv: &&u8)`. `#[if(test)]`
+keeps helper modules or declarations only when compiling in test mode.
 
 Run one repository example:
 

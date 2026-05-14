@@ -549,20 +549,30 @@ fn path_matches(path: &str, pattern: &str) -> bool {
 fn is_index_while_line(trimmed: &str) -> bool {
     let Some(condition) = trimmed
         .strip_prefix("while (")
-        .and_then(|rest| rest.split_once(')').map(|(condition, _)| condition.trim()))
+        .and_then(|rest| rest.rsplit_once(')').map(|(condition, _)| condition.trim()))
     else {
         return false;
     };
-    if !condition.contains('<') || !condition.contains('#') {
+    if !condition.contains('<') {
         return false;
     }
     let Some((lhs, rhs)) = condition.split_once('<') else {
         return false;
     };
     is_simple_identifier(lhs.trim())
-        && rhs.trim_start().starts_with('#')
+        && is_len_call_expr(rhs.trim())
         && !condition.contains(" and ")
         && !condition.contains(" or ")
+}
+
+fn is_len_call_expr(text: &str) -> bool {
+    let Some(receiver) = text
+        .strip_suffix(".@len()")
+        .or_else(|| text.strip_suffix(".len()"))
+    else {
+        return false;
+    };
+    is_simple_receiver(receiver)
 }
 
 fn is_simple_identifier(text: &str) -> bool {
@@ -572,6 +582,10 @@ fn is_simple_identifier(text: &str) -> bool {
     };
     (first == '_' || first.is_ascii_alphabetic())
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn is_simple_receiver(text: &str) -> bool {
+    !text.is_empty() && text.split('.').all(is_simple_identifier)
 }
 
 fn missing_module_doc(source: &str) -> bool {
@@ -806,9 +820,9 @@ pub fn undocumented() void {}
 
     #[test]
     fn recognizes_source_style_suggestions() {
-        assert!(is_index_while_line("while (index < #items) {"));
+        assert!(is_index_while_line("while (index < items.@len()) {"));
         assert!(!is_index_while_line(
-            "while (index < #items and keep_going) {"
+            "while (index < items.@len() and keep_going) {"
         ));
         assert!(StyleRule::IndexWhile.intent().contains("for"));
         assert!(StyleRule::IndexWhile.handling().contains("stateful scans"));
@@ -847,11 +861,11 @@ pub trait Stream {
 
 // Exercises source-level style suggestions.
 fn demo() void {
-    while (index < #items) {
+    while (index < items.@len()) {
         index += 1;
     }
     // A stateful scan keeps byte offsets explicit.
-    while (offset < #text) {
+    while (offset < text.@len()) {
         offset += 1;
     }
     value.should_ok().sum(@loc(), t).name.eq("root").should();
@@ -894,7 +908,7 @@ fn demo() void {
 
 // Exercises source-level style suggestions.
 fn demo() void {
-    while (index < #items) {
+    while (index < items.@len()) {
         index += 1;
     }
     value.should_ok().sum(@loc(), t).name.eq("root").should();

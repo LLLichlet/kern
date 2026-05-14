@@ -166,7 +166,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
             ast::UnaryOperator::AddressOf
             | ast::UnaryOperator::MutAddressOf
-            | ast::UnaryOperator::MetaOf
             | ast::UnaryOperator::PointerDeRef => true,
         }
     }
@@ -222,7 +221,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             // Keep memory/metadata operators owned by the language.
             ast::UnaryOperator::AddressOf
             | ast::UnaryOperator::MutAddressOf
-            | ast::UnaryOperator::MetaOf
             | ast::UnaryOperator::PointerDeRef => None,
         }
     }
@@ -234,7 +232,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ast::UnaryOperator::BitwiseNot => self.ctx.intern("bit_not"),
             ast::UnaryOperator::AddressOf
             | ast::UnaryOperator::MutAddressOf
-            | ast::UnaryOperator::MetaOf
             | ast::UnaryOperator::PointerDeRef => return None,
         })
     }
@@ -506,61 +503,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .measure_phase("            lower_ops_unary_builtin", |_this| {
                     MastExprKind::Deref(Box::new(op_mast))
                 }),
-            ast::UnaryOperator::MetaOf => {
-                let op_norm = self.ctx.type_registry.normalize(op_mast.ty);
-                let op_kind = self.ctx.type_registry.get(op_norm).clone();
-
-                match op_kind {
-                    // 1. Slices are fat pointers whose metadata stores the length.
-                    TypeKind::Slice { .. } => {
-                        return MastExprKind::ExtractFatPtrMeta(Box::new(op_mast));
-                    }
-
-                    // 2. Arrays have a compile-time-known length, so `#` folds to a constant.
-                    TypeKind::Array { len, .. } => {
-                        if let Some(len) = self.const_generic_usize(len, operand.span) {
-                            return MastExprKind::Integer(len as u128);
-                        }
-                        return MastExprKind::Trap;
-                    }
-                    TypeKind::ArrayInfer { .. } => {
-                        self.ctx
-                            .struct_error(
-                                operand.span,
-                                "cannot apply `#` to an array with inferred length `[_]T`",
-                            )
-                            .with_hint(
-                                "use an explicit `[N]T` length or let semantic analysis finish inferring the array before taking `#`",
-                            )
-                            .emit();
-                        return MastExprKind::Trap;
-                    }
-
-                    // 3. Closure and trait fat pointers expose their underlying data pointer.
-                    TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
-                        let elem_norm = self.ctx.type_registry.normalize(elem);
-                        let inner_kind = self.ctx.type_registry.get(elem_norm);
-
-                        if matches!(
-                            inner_kind,
-                            TypeKind::ClosureInterface { .. } | TypeKind::TraitObject(..)
-                        ) {
-                            // For closure and trait fat pointers, `#` recovers the heap data address.
-                            return MastExprKind::ExtractFatPtrData(Box::new(op_mast));
-                        }
-                    }
-
-                    _ => {}
-                }
-
-                self.measure_phase("            lower_ops_unary_builtin", |_this| {
-                    MastExprKind::Unary {
-                        op,
-                        operand: Box::new(op_mast),
-                    }
-                })
-            }
-
             _ if self.has_builtin_unary_fast_path(op, op_mast.ty) => {
                 self.measure_phase("            lower_ops_unary_builtin", |_this| {
                     MastExprKind::Unary {

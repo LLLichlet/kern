@@ -1117,9 +1117,9 @@ mod tests {
     fn splits_call_arguments_at_threshold() {
         assert_eq!(
             format_source_text(
-                "fn main() void {\n    print_stats(\"parse\", input_label, #text, iterations);\n}\n"
+                "fn main() void {\n    print_stats(\"parse\", input_label, text.@len(), iterations);\n}\n"
             ),
-            "fn main() void {\n    print_stats(\n        \"parse\",\n        input_label,\n        #text,\n        iterations,\n    );\n}\n"
+            "fn main() void {\n    print_stats(\n        \"parse\",\n        input_label,\n        text.@len(),\n        iterations,\n    );\n}\n"
         );
     }
 

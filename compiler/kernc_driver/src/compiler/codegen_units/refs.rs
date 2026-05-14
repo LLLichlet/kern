@@ -63,6 +63,7 @@ fn collect_expr_refs(expr: &MastExpr, refs: &mut ItemRefs) {
         | MastExprKind::Discard(inner)
         | MastExprKind::ExtractFatPtrData(inner)
         | MastExprKind::ExtractFatPtrMeta(inner)
+        | MastExprKind::ExtractElementPtr(inner)
         | MastExprKind::BitIntrinsic { operand: inner, .. }
         | MastExprKind::SimdUnaryIntrinsic { operand: inner, .. }
         | MastExprKind::SimdReduce { operand: inner, .. }

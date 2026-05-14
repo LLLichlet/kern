@@ -171,7 +171,7 @@ let writer = sink..& as &mut Write;
 
 Kern 要求 trait object 从指针构造，避免把未知大小的动态对象当成普通栈值。
 
-fat pointer 是一类统一概念。`&[u8]` 是 slice fat pointer，携带数据指针和长度；`&Write` / `&mut Write` 是 trait-object fat pointer，携带数据指针和 vtable；`&Fn(...) Ret` 是 closure fat pointer，携带状态指针和调用入口。它们的用途不同，但都不是单纯的 thin pointer。需要拿到这类值携带的状态或长度时，使用语言定义的操作，例如 `#slice` 或 `#callback`。
+fat pointer 是一类统一概念。`&[u8]` 是 slice fat pointer，携带数据指针和长度；`&Write` / `&mut Write` 是 trait-object fat pointer，携带数据指针和 vtable；`&Fn(...) Ret` 是 closure fat pointer，携带状态指针和调用入口。它们的用途不同，但都不是单纯的 thin pointer。需要拿到这类值携带的状态或长度时，使用语言定义的操作，例如 `slice.@len()` 或 `callback.@statePtr()`。
 
 trait object 可以从指针形态构造，包括指向普通对象的指针，也包括指向 slice 这类 fat value 的指针。关键规则仍然是同一条：构造 trait object 时传入的是某个具体值的指针，而不是把 trait 当成基类来继承。
 

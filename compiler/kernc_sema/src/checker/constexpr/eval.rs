@@ -1195,47 +1195,6 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return self.read_place_value(place.root_scope, place.root_name, &place.path, span);
         }
 
-        if op == UnaryOperator::MetaOf {
-            let norm_ty = self.node_type(operand.id);
-            return match self.type_kind(norm_ty).clone() {
-                TypeKind::Array { len, .. } => {
-                    let len = self.resolved_const_generic(len);
-                    let ConstGeneric::Value(value) = len else {
-                        self.ctx
-                            .struct_error(span, "array length is not a concrete constant")
-                            .emit();
-                        return Err(ConstEvalError);
-                    };
-                    let Some(len) = value.as_int() else {
-                        self.ctx
-                            .struct_error(span, "array length is not an integer constant")
-                            .emit();
-                        return Err(ConstEvalError);
-                    };
-                    Ok(ConstValue::Int(len))
-                }
-                TypeKind::Slice { .. } => {
-                    let value = self.eval_inner(operand, depth + 1)?;
-                    match value {
-                        ConstValue::String(s) => Ok(ConstValue::Int(s.len() as i128)),
-                        ConstValue::Array(items) => Ok(ConstValue::Int(items.len() as i128)),
-                        _ => {
-                            self.ctx
-                                .struct_error(span, "cannot evaluate slice length at compile time")
-                                .emit();
-                            Err(ConstEvalError)
-                        }
-                    }
-                }
-                _ => {
-                    self.ctx
-                        .struct_error(span, "invalid unary operator for the given constant type")
-                        .emit();
-                    Err(ConstEvalError)
-                }
-            };
-        }
-
         let val = self.eval_inner(operand, depth + 1)?;
 
         let norm_ty = self.node_type(operand.id);

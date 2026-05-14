@@ -107,7 +107,7 @@ fn check_utf8[W](t: &mut Report[W]) void
         .eq([4]u8.{ 0xF0, 0x9F, 0x9A, 0x80 })
         .sum(@loc(), t);
     let source = [6]u8.{ b'A', 0xE2, 0x98, 0x83, 0xF0, 0x9F };
-    let first = source.&[0...#source]
+    let first = source.&[0...source.@len()]
         .read_utf8_at(0)
         .should_ok()
         .sum(@loc(), t);
@@ -119,7 +119,7 @@ fn check_utf8[W](t: &mut Report[W]) void
         .should()
         .eq(1)
         .sum(@loc(), t);
-    let snowman = source.&[0...#source]
+    let snowman = source.&[0...source.@len()]
         .read_utf8_at(1)
         .should_ok()
         .sum(@loc(), t);
@@ -136,12 +136,12 @@ fn check_utf8[W](t: &mut Report[W]) void
         .should_ok()
         .eq(2)
         .sum(@loc(), t);
-    source.&[0...#source]
+    source.&[0...source.@len()]
         .is_utf8()
         .not()
         .should()
         .sum(@loc(), t);
-    source.&[4...#source]
+    source.&[4...source.@len()]
         .read_utf8_at(0)
         .should_err()
         .eq(utf8.Utf8Error.UnexpectedEof)

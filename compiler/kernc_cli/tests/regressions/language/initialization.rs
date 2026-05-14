@@ -419,7 +419,7 @@ struct Holder {
 static HOLDER = Holder.{ text: "abc" };
 
 fn main() i32 {
-    if (#HOLDER.text != 3) {
+    if (HOLDER.text.@len() != 3) {
         return 1;
     }
     if (HOLDER.text.[0] != b'a' or HOLDER.text.[2] != b'c') {
@@ -454,7 +454,7 @@ static TABLE = [2]Entry.{
 };
 
 fn main() i32 {
-    if (#TABLE.[0].name != 4 or #TABLE.[1].name != 4) {
+    if (TABLE.[0].name.@len() != 4 or TABLE.[1].name.@len() != 4) {
         return 1;
     }
     if (TABLE.[0].name.[0] != b'b' or TABLE.[1].name.[0] != b'i') {
@@ -490,7 +490,7 @@ struct Outer {
 static OUTER = Outer.{ inner: .{ label: "kern" }, count: 4 };
 
 fn main() i32 {
-    if (OUTER.count != #OUTER.inner.label) {
+    if (OUTER.count != OUTER.inner.label.@len()) {
         return 1;
     }
     if (OUTER.inner.label.[3] != b'n') {
@@ -579,7 +579,7 @@ struct Holder {
 
 fn main() i32 {
     static HOLDER = Holder.{ text: "local" };
-    if (#HOLDER.text != 5) {
+    if (HOLDER.text.@len() != 5) {
         return 1;
     }
     if (HOLDER.text.[0] != b'l' or HOLDER.text.[4] != b'l') {

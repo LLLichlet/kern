@@ -182,9 +182,14 @@ Pointer arithmetic stays explicit:
       * String literals do not include an implicit trailing NUL byte. Write `"\0"` explicitly when a NUL byte is part of the value.
       * Passing a string literal to a `&[u8]` parameter uses the ordinary array-to-slice decay path.
       * Storage follows the normal expression context. `static NAME = "Hello";` creates static array storage, while a call such as `write("Hello")` materializes an array value at the call site before slice decay.
-  * **Fat-Pointer State Extractor (`#`)**: The unary `#` operator is a universal primitive used to extract the implicit runtime metadata (or state) from a fat pointer or a container.
-      * For Arrays and Slices, `#` evaluates to the length (`usize`).
-      * For Closures (`&Fn`), `#` evaluates to the captured state's raw pointer (`&mut void` / `&void`).
+  * **Compiler-owned member intrinsics**: Values with compiler-owned physical
+    metadata expose that metadata through explicit `.@...()` projections rather
+    than ordinary fields or methods. Arrays and slices support `.@len()` and
+    `.@ptr()`. Ranges support `.@start()` and `.@end()` when the bound exists.
+    Trait objects support `.@dataPtr()` and `.@vtablePtr()`. Closure fat
+    pointers support `.@statePtr()` and `.@entryPtr()`. These are language
+    primitives, not `impl` methods, so they remain available in freestanding
+    code and do not occupy user method names.
 
 ### 2.5 SIMD Values
 
@@ -583,7 +588,7 @@ Kern deliberately does **not** treat every piece of syntax as overloadable. The 
   * assignment family: `=`, `+=`, `-=`, `*=`, `/=`, `%=` and similar forms
   * address-of operators: `.&`, `..&`
   * dereference: `.*`
-  * metadata extraction: unary `#`
+  * compiler-owned member intrinsics such as `.@len()` and `.@statePtr()`
 
 The reason is semantic, not accidental:
 
@@ -1175,11 +1180,11 @@ arr.sort([](a: i32, b: i32) bool {
 });
 ```
 
-### 11.4 Explicit Escape, Heap Allocation, and State Extraction (`#`)
+### 11.4 Explicit Escape, Heap Allocation, and State Projection
 
 Because closures evaluate to standard structs on the stack, escaping a closure requires explicitly allocating memory for its anonymous type and manually assembling the `&Fn` fat pointer.
 
-Kern strictly preserves **abstraction consistency**. Fat pointers (`&Fn`) are primitive types, not standard structs. Therefore, Kern explicitly forbids abstraction leaks like accessing internal fields directly (e.g., `cb.data`). To retrieve the original data pointer for memory deallocation, you must use the universal **Fat-Pointer State Extractor (`#`)**.
+Kern strictly preserves **abstraction consistency**. Fat pointers (`&Fn`) are primitive types, not standard structs. Therefore, Kern explicitly forbids abstraction leaks like accessing internal fields directly (e.g., `cb.data`). To retrieve the original data pointer for memory deallocation, use the compiler-owned member intrinsic `.@statePtr()`.
 
 ```kern
 // 1. Stack-allocated closure state (Anonymous Type)
@@ -1195,10 +1200,8 @@ let heap_cb = raw as &mut Fn(i32) i32;
 
 // --- Later, when memory needs to be freed ---
 
-// 4. Extract the anonymous state pointer using `#`
-// Note: The `as` cast has higher precedence than unary operators like `#`.
-// Parentheses are strictly required to ensure absolute explicit intent.
-let ptr_to_free = (#heap_cb) as &mut u8;
+// 4. Extract the anonymous state pointer explicitly.
+let ptr_to_free = heap_cb.@statePtr() as &mut u8;
 free(ptr_to_free, size); 
 ```
 
@@ -1292,6 +1295,26 @@ These intrinsics evaluate completely at compile-time and incur zero runtime over
   * `@typeOf(expr) -> Type`: Evaluates to the exact compile-time type of the provided expression. This is strictly a type-context intrinsic (it returns a type representation, not a value). It is crucial for manipulating anonymous types, such as allocating memory for closures (`@sizeOf[@typeOf(closure)]()`).
   * `@sizeOf[T]() -> usize`: Returns the memory footprint (size in bytes) of type `T`.
   * `@alignOf[T]() -> usize`: Returns the ABI-required alignment (in bytes) of type `T`.
+
+### 14.1.1 Member Intrinsics
+
+Member intrinsics use receiver syntax with an `@`-prefixed projection name:
+`value.@name()`. They are compiler-owned primitives and are not ordinary
+methods. This keeps low-level representation access explicit without reserving
+plain method names such as `len` or `ptr`.
+
+  * `array.@len() -> usize`, `slice.@len() -> usize`: returns the element count.
+  * `array.@ptr() -> &T`, `slice.@ptr() -> &T` / `&mut T`: returns the data pointer.
+  * `range.@start()`, `range.@end()`: returns the present bound of a range value.
+  * `trait_object.@dataPtr() -> &void` / `&mut void`: returns the dynamic receiver data pointer.
+  * `trait_object.@vtablePtr() -> &void`: returns the vtable pointer.
+  * `closure.@statePtr() -> &void` / `&mut void`: returns the captured state pointer.
+  * `closure.@entryPtr() -> &void`: returns the closure entry pointer.
+
+Libraries may wrap these primitives with ordinary methods for fluent user code,
+for example `slice.len()`, `slice.ptr()`, `range.start()`, `writer.data_ptr()`,
+and `callback.state_ptr()`. The compiler only owns the `.@name()` primitive
+spelling; plain method names remain normal library API.
 
 ### 14.2 Hardware & Execution Control
 

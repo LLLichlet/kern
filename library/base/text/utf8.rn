@@ -74,8 +74,8 @@ pub fn len(codepoint: u32) usize!Utf8Error {
 /// Writes one Unicode scalar as UTF-8 at `index`.
 pub fn write_at(codepoint: u32, out: &mut [u8], index: usize) usize!Utf8Error {
     let width = len(codepoint).?;
-    if (index > #out) return .{ Err: .ShortOutput };
-    if (#out - index < width) return .{ Err: .ShortOutput };
+    if (index > out.@len()) return .{ Err: .ShortOutput };
+    if (out.@len() - index < width) return .{ Err: .ShortOutput };
     if (width == 1) {
         out.[index] = codepoint as u8;
         return .{ Ok: index + 1 };
@@ -105,8 +105,8 @@ pub fn write(codepoint: u32, out: &mut [u8]) usize!Utf8Error {
 
 /// Reads one UTF-8 scalar from `text` at byte offset `start`.
 pub fn read_at(text: &[u8], start: usize) Utf8Scalar!Utf8Error {
-    if (start >= #text) return .{ Err: .UnexpectedEof };
-    let remaining = #text - start;
+    if (start >= text.@len()) return .{ Err: .UnexpectedEof };
+    let remaining = text.@len() - start;
 
     let b0 = text.[start];
     if (b0 < 0x80u8) {
@@ -173,7 +173,7 @@ pub fn read_at(text: &[u8], start: usize) Utf8Scalar!Utf8Error {
 pub fn is_valid(text: &[u8]) bool {
     let mut i = 0;
     // UTF-8 validation advances by scalar width, not by individual bytes.
-    while (i < #text) {
+    while (i < text.@len()) {
         let .{ Ok: scalar } = read_at(text, i) else return false;
         i += scalar.len;
     }
@@ -185,7 +185,7 @@ pub fn scalar_count(text: &[u8]) usize!Utf8Error {
     let mut count = 0;
     let mut i = 0;
     // Scalar counting shares the decoder so validation and counting cannot drift.
-    while (i < #text) {
+    while (i < text.@len()) {
         let scalar = read_at(text, i).?;
         count += 1;
         i += scalar.len;

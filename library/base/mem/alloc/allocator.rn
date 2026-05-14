@@ -29,3 +29,27 @@ pub/ trait Allocator {
     /// callers must pass the original pointer and the original layout.
     fn free(ptr: &mut u8, layout: Layout) void;
 };
+
+impl &Allocator {
+    /// Returns the data pointer carried by this trait object.
+    pub fn data_ptr() &void {
+        return self.@dataPtr();
+    }
+
+    /// Returns the vtable pointer carried by this trait object.
+    pub fn vtable_ptr() &void {
+        return self.@vtablePtr();
+    }
+}
+
+impl &mut Allocator {
+    /// Returns the data pointer carried by this mutable trait object.
+    pub fn data_ptr() &mut void {
+        return self.@dataPtr();
+    }
+
+    /// Returns the vtable pointer carried by this mutable trait object.
+    pub fn vtable_ptr() &void {
+        return self.@vtablePtr();
+    }
+}

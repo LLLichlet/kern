@@ -9,7 +9,7 @@ fn id[T](value: T) T {
 }
 
 fn len[N: usize](source: [N]u8) usize {
-    return #source;
+    return source.@len();
 }
 
 fn main() i32 {
@@ -27,7 +27,7 @@ fn main() i32 {
     if (captured.source != "id[usize](7usize)") {
         return 4;
     }
-    if (len(captured.source) != #captured.source) {
+    if (len(captured.source) != captured.source.@len()) {
         return 5;
     }
 

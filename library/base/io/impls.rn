@@ -27,7 +27,7 @@ fn write_printable_slice[T](items: &[T], writer: &mut Write) void
 {
     _ = writer.write("[");
 
-    let len = #items;
+    let len = items.@len();
     let mut i = 0usize;
     while (i < len) {
         let item = items.[i];

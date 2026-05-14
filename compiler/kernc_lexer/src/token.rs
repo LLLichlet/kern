@@ -95,7 +95,7 @@ pub enum TokenType {
     Percent,
 
     // Special prefixes
-    /// `#arr` length operator.
+    /// Attribute prefix.
     Hash,
 
     /// `@intToFloat`-style intrinsic prefix.

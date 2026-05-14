@@ -290,9 +290,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             .builder
                             .build_basic_not(op_val, "mir_simd_not")
                             .unwrap(),
-                        UnaryOperator::MetaOf => {
-                            self.compile_mir_unary_meta(body, operand, op_val, Span::default())
-                        }
                         _ => {
                             self.sess.emit_ice(
                                 Span::default(),
@@ -339,9 +336,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             );
                             self.zero_i8_value()
                         }
-                    }
-                    UnaryOperator::MetaOf => {
-                        self.compile_mir_unary_meta(body, operand, op_val, Span::default())
                     }
                     _ => {
                         self.sess.emit_ice(
@@ -669,41 +663,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .or_else(|| self.mir_place_ty(body, place))
                     .unwrap_or(TypeId::ERROR);
                 self.compile_mir_place_load(body, place, target_ty, Span::default())
-            }
-        }
-    }
-
-    pub(super) fn compile_mir_unary_meta(
-        &mut self,
-        body: &MirBody,
-        operand: &MirOperand,
-        op_val: BasicValueEnum<'ctx>,
-        span: Span,
-    ) -> BasicValueEnum<'ctx> {
-        let Some(operand_ty) = self.mir_operand_ty(body, operand) else {
-            return self.zero_i8_value();
-        };
-        let norm_ty = self.type_registry.normalize(operand_ty);
-        match self.type_registry.get(norm_ty) {
-            TypeKind::Array { len, .. } => {
-                let Some(len) = self.const_generic_usize(*len, span) else {
-                    return self.zero_i8_value();
-                };
-                self.context.i64_type().const_int(len, false).into()
-            }
-            TypeKind::Slice { .. } => self
-                .builder
-                .build_extract_value(op_val.into_struct_value(), 1, "mir_slice_len")
-                .unwrap(),
-            other => {
-                self.sess.emit_ice(
-                    span,
-                    format!(
-                        "Kern ICE (Codegen): MIR `MetaOf` applied to invalid type {:?}.",
-                        other
-                    ),
-                );
-                self.zero_i8_value()
             }
         }
     }

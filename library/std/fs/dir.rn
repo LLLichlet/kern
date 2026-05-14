@@ -76,7 +76,7 @@ impl &mut DirEntries {
     }
 
     fn push_copy_reserved(alloc: &mut Allocator, entry: DirEntry) void!AllocError {
-        if (!self.can_push_reserved(#entry.name)) {
+        if (!self.can_push_reserved(entry.name.@len())) {
             return .{ Err: .CapacityOverflow };
         }
         let start = self.names.&.len();
@@ -148,19 +148,19 @@ fn not_found_is_false(err: Error) bool!Error {
 fn dir_search_path_layout(path: &[u8]) ?base.mem.Layout {
     #[if(os == "windows")]
     {
-        let needs_sep = if (#path == 0) true else !is_path_separator(path.[#path - 1]);
+        let needs_sep = if (path.@len() == 0) true else !is_path_separator(path.[path.@len() - 1]);
         let extra = if (needs_sep) 3usize else 2usize;
-        return array_layout_of[u8](#path + extra);
+        return array_layout_of[u8](path.@len() + extra);
     }
 
-    return array_layout_of[u8](#path + 1usize);
+    return array_layout_of[u8](path.@len() + 1usize);
 }
 
 fn alloc_dir_search_path(alloc: &mut Allocator, path: &[u8]) (&mut u8)!Error {
     let .{ Some: layout } = dir_search_path_layout(path) else return .{ Err: .OutOfMemory };
     let .{ Some: ptr } = alloc.alloc(layout) else return .{ Err: .OutOfMemory };
 
-    let len = #path;
+    let len = path.@len();
     if (len > 0) {
         @memcpy(ptr, path.[0].&, len);
     }
@@ -211,12 +211,12 @@ fn create_dir_if_missing(alloc: &mut Allocator, path: &[u8]) bool!Error {
 /// Returns:
 /// `Ok(true)` when the call succeeds, even if some or all components already existed.
 fn create_dir_all(alloc: &mut Allocator, path: &[u8]) bool!Error {
-    if (#path == 0) {
+    if (path.@len() == 0) {
         return .{ Err: .InvalidPath };
     }
 
     let trimmed = trim_trailing_separators(path);
-    if (#trimmed == 0) {
+    if (trimmed.@len() == 0) {
         return .{ Ok: true };
     }
 
@@ -224,7 +224,7 @@ fn create_dir_all(alloc: &mut Allocator, path: &[u8]) bool!Error {
     let mut index = prefix_len;
     let mut any_created = false;
 
-        while (index < #trimmed) {
+        while (index < trimmed.@len()) {
         if (!is_path_separator(trimmed.[index])) {
             index += 1;
             continue;
@@ -299,7 +299,7 @@ fn read_dir_entries_into(
             size_err.* = true;
             return false;
         };
-        let .{ Some: next_bytes } = name_bytes.*.checked_add(#entry.name) else {
+        let .{ Some: next_bytes } = name_bytes.*.checked_add(entry.name.@len()) else {
             size_err.* = true;
             return false;
         };

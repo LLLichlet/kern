@@ -640,7 +640,7 @@ pub fn utf8_z_to_wide(path: &u8) (&mut u16)!Error {
 
 /// Converts a UTF-16 slice into UTF-8 bytes written into `out`.
 pub fn wide_to_utf8_into(wide: &[u16], out: &mut [u8]) usize!Error {
-    if (#wide == 0) {
+    if (wide.@len() == 0) {
         return .{ Ok: 0 };
     }
 
@@ -648,7 +648,7 @@ pub fn wide_to_utf8_into(wide: &[u16], out: &mut [u8]) usize!Error {
         CP_UTF8,
         0,
         wide.[0].&,
-        (#wide) as i32,
+        (wide.@len()) as i32,
         null_mut_ptr[u8](),
         0,
         null_ptr[u8](),
@@ -657,7 +657,7 @@ pub fn wide_to_utf8_into(wide: &[u16], out: &mut [u8]) usize!Error {
     if (required <= 0) {
         return .{ Err: last_error() };
     }
-    if ((required as usize) > #out) {
+    if ((required as usize) > out.@len()) {
         return .{ Err: conversion_error() };
     }
 
@@ -665,7 +665,7 @@ pub fn wide_to_utf8_into(wide: &[u16], out: &mut [u8]) usize!Error {
         CP_UTF8,
         0,
         wide.[0].&,
-        (#wide) as i32,
+        (wide.@len()) as i32,
         out.[0]..&,
         required,
         null_ptr[u8](),
@@ -826,10 +826,10 @@ fn find_data_name_len(data: &Win32FindDataW) usize {
 }
 
 fn is_dot_entry(name: &[u16]) bool {
-    if (#name == 1 and name.[0] == 46u16) {
+    if (name.@len() == 1 and name.[0] == 46u16) {
         return true;
     }
-    if (#name == 2 and name.[0] == 46u16 and name.[1] == 46u16) {
+    if (name.@len() == 2 and name.[0] == 46u16 and name.[1] == 46u16) {
         return true;
     }
     return false;

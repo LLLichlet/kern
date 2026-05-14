@@ -79,6 +79,11 @@ view, and `1..=3` includes the right endpoint. Slice bounds are memory offsets,
 so present endpoints have type `usize`; unsuffixed numbers usually infer that
 type from the slice context.
 
+These range expressions are builtin range values. In slice brackets they must
+be compiler-owned `SliceBounds` shapes, such as `usize...usize`, `...usize`,
+`usize...`, `usize..=usize`, or `...`. `SliceBounds` is only a marker for valid
+slice bounds; user code cannot implement it to invent new slicing behavior.
+
 Kern does not write mutability as `[5]mut i32`, because mutability belongs to
 the storage path, not to the element type:
 
@@ -105,8 +110,9 @@ fn sum(items: &[i32]) i32 {
 }
 ```
 
-The language primitive `#items` also extracts slice length and is common inside
-low-level library code.
+The compiler-owned primitive `items.@len()` extracts slice length without
+depending on the standard library. The ordinary `items.len()` form is a normal
+library wrapper over that primitive.
 
 ## Iterators
 
@@ -119,6 +125,18 @@ for (i: 1...4) {
     total += i * i;
 }
 ```
+
+Use `.rev()` on an existing range value when you want reverse traversal:
+
+```kern
+let mut descending = 0;
+for (i: (1...4).rev()) {
+    descending = descending * 10 + i;
+}
+```
+
+This visits `3`, then `2`, then `1`. The parentheses are intentional:
+`a...b.rev()` means `a...(b.rev())`, not `(a...b).rev()`.
 
 Slices provide `.iter()`. Arrays can naturally decay to slices at method-call
 and argument boundaries, so iterating over a whole array is usually direct:

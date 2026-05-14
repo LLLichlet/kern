@@ -157,6 +157,46 @@ fn command_id(command: &[u8]) i32 {
 For open-ended value domains, keep a `_` arm unless every possible value is
 covered by structural or scalar patterns.
 
+`Pattern[T]` can also bind data for the arm body. The binding shape is the
+associated `Bind` type. `void` means no bindings; `struct { ... }` means each
+field becomes an arm-local name:
+
+```kern
+struct Prefix {
+    byte: u8,
+};
+
+impl Prefix : Pattern[&[u8]] {
+    type Bind = struct { rest: &[u8] };
+
+    fn apply(value: &[u8]) ?Bind {
+        if (value.@len() == 0 or value.[0] != self.byte) {
+            return .None;
+        }
+        return .{ Some: .{ rest: value.&[1...] } };
+    }
+}
+
+fn after_dash(text: &[u8]) ?&[u8] {
+    return match (text) {
+        Prefix.{ byte: b'-' } => .{ Some: rest },
+        _ => .None,
+    };
+}
+```
+
+When one arm lists several patterns, all of them must produce the same binding
+shape: the same field names, field types, and binding mutability. This is why
+`1, 2, 3 => ...` is valid: each pattern has `Bind = void`. For binding
+patterns, keep the names aligned:
+
+```kern
+match (value) {
+    .{ A: item }, .{ B: item } => use(item),
+    // .{ A: left }, .{ B: right } => ...   // different bind names
+}
+```
+
 For enums, patterns can test the variant and unpack payloads:
 
 ```kern
@@ -223,7 +263,7 @@ a nullable pointer and does not have hidden ABI privileges.
 ```kern
 fn first_digit(text: &[u8]) ?u8 {
     let mut i = 0;
-    while (i < #text) {
+    while (i < text.@len()) {
         let byte = text.[i];
         if (byte >= b'0' and byte <= b'9') {
             return .{ Some: byte };
@@ -282,7 +322,7 @@ enum Error {
 };
 
 fn first(text: &[u8]) u8!Error {
-    if (#text == 0) {
+    if (text.@len() == 0) {
         return .{ Err: .Empty };
     }
     return .{ Ok: text.[0] };

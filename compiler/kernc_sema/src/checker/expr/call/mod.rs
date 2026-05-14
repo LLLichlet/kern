@@ -31,6 +31,121 @@ struct ArgumentInferredMethodCandidate {
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn member_intrinsic_call_result(
+        &mut self,
+        receiver_ty: TypeId,
+        intrinsic_name: &str,
+        arg_count: usize,
+        span: Span,
+    ) -> Option<TypeId> {
+        if !matches!(
+            intrinsic_name,
+            "@len"
+                | "@ptr"
+                | "@start"
+                | "@end"
+                | "@dataPtr"
+                | "@vtablePtr"
+                | "@statePtr"
+                | "@entryPtr"
+        ) {
+            return None;
+        }
+
+        if arg_count != 0 {
+            self.ctx
+                .struct_error(span, format!("`{}` expects no arguments", intrinsic_name))
+                .emit();
+            return Some(TypeId::ERROR);
+        }
+
+        let receiver_norm = self.resolve_tv(receiver_ty);
+
+        match self.ctx.type_registry.get(receiver_norm).clone() {
+            TypeKind::Array { elem, .. } => match intrinsic_name {
+                "@len" => Some(TypeId::USIZE),
+                "@ptr" => Some(self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut: false,
+                    elem,
+                })),
+                _ => None,
+            },
+            TypeKind::ArrayInfer { elem } => match intrinsic_name {
+                "@ptr" => Some(self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut: false,
+                    elem,
+                })),
+                "@len" => {
+                    self.ctx
+                        .struct_error(span, "cannot take `.@len()` of an inferred-length array")
+                        .with_hint("use an explicit `[N]T` length or let semantic analysis infer the array before taking its length")
+                        .emit();
+                    Some(TypeId::ERROR)
+                }
+                _ => None,
+            },
+            TypeKind::Slice { is_mut, elem } => match intrinsic_name {
+                "@len" => Some(TypeId::USIZE),
+                "@ptr" => Some(
+                    self.ctx
+                        .type_registry
+                        .intern(TypeKind::Pointer { is_mut, elem }),
+                ),
+                _ => None,
+            },
+            TypeKind::Range { start, end, .. } => match intrinsic_name {
+                "@start" => match start {
+                    Some(start) => Some(start),
+                    None => {
+                        self.ctx
+                            .struct_error(span, "`.@start()` requires a range with a start bound")
+                            .emit();
+                        Some(TypeId::ERROR)
+                    }
+                },
+                "@end" => match end {
+                    Some(end) => Some(end),
+                    None => {
+                        self.ctx
+                            .struct_error(span, "`.@end()` requires a range with an end bound")
+                            .emit();
+                        Some(TypeId::ERROR)
+                    }
+                },
+                _ => None,
+            },
+            TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } => {
+                let elem_norm = self.resolve_tv(elem);
+                match self.ctx.type_registry.get(elem_norm) {
+                    TypeKind::TraitObject(..) => match intrinsic_name {
+                        "@dataPtr" => Some(self.ctx.type_registry.intern(TypeKind::Pointer {
+                            is_mut,
+                            elem: TypeId::VOID,
+                        })),
+                        "@vtablePtr" => Some(self.ctx.type_registry.intern(TypeKind::Pointer {
+                            is_mut: false,
+                            elem: TypeId::VOID,
+                        })),
+                        _ => None,
+                    },
+                    TypeKind::ClosureInterface { .. } => match intrinsic_name {
+                        "@statePtr" => Some(self.ctx.type_registry.intern(TypeKind::Pointer {
+                            is_mut,
+                            elem: TypeId::VOID,
+                        })),
+                        "@entryPtr" => Some(self.ctx.type_registry.intern(TypeKind::Pointer {
+                            is_mut: false,
+                            elem: TypeId::VOID,
+                        })),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn check_call(
         &mut self,
         callee: &Expr,
@@ -43,6 +158,36 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         {
             self.ctx.set_node_type(callee.id, TypeId::VOID);
             return self.check_asm_call(args, span);
+        }
+
+        if let ExprKind::FieldAccess {
+            lhs,
+            field,
+            field_span: _,
+        } = &callee.kind
+        {
+            let receiver_ty = self.check_value_or_namespace_expr(lhs);
+            if receiver_ty == TypeId::ERROR {
+                for arg in args {
+                    self.check_expr(arg, None);
+                }
+                self.ctx.set_node_type(callee.id, TypeId::ERROR);
+                return TypeId::ERROR;
+            }
+
+            let field_name = self.ctx.resolve(*field).to_string();
+            if let Some(ret_ty) = self.member_intrinsic_call_result(
+                receiver_ty,
+                field_name.as_str(),
+                args.len(),
+                callee.span,
+            ) {
+                for arg in args {
+                    self.check_expr(arg, None);
+                }
+                self.ctx.set_node_type(callee.id, ret_ty);
+                return ret_ty;
+            }
         }
 
         let callee_ty = self.with_uninstantiated_generic_function_items_allowed(|this| {

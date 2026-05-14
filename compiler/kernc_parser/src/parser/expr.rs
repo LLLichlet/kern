@@ -241,7 +241,7 @@ impl<'a> Parser<'a> {
             TokenType::Slash => self.parse_anchored_path_expr(PathAnchor::Package, token.span),
             TokenType::DotLBrace => self.parse_data_init(None, span),
             TokenType::Dot => self.parse_enum_literal_expr(span),
-            TokenType::Minus | TokenType::Bang | TokenType::Tilde | TokenType::Hash => {
+            TokenType::Minus | TokenType::Bang | TokenType::Tilde => {
                 self.parse_unary_prefix_expr(token)
             }
             TokenType::LParen => self.parse_grouped_expr(span),
@@ -534,19 +534,33 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_field_access_expr(&mut self, left: Expr) -> ParseResult<Expr> {
+        let at_span = if self.check(TokenType::At) {
+            Some(self.advance().span)
+        } else {
+            None
+        };
+
         if !self.check(TokenType::Identifier) {
             let span = self.peek().span;
             return Ok(self.error_expr(span, "Expected field name after `.`"));
         }
         let field_token = self.advance();
-        let field_id = self.intern_token(field_token);
+        let field_id = if at_span.is_some() {
+            let name = format!("@{}", self.source_slice(field_token.span));
+            self.session.intern(&name)
+        } else {
+            self.intern_token(field_token)
+        };
+        let field_span = at_span
+            .map(|span| span.to(field_token.span))
+            .unwrap_or(field_token.span);
         Ok(Expr {
             id: self.new_id(),
-            span: left.span.to(field_token.span),
+            span: left.span.to(field_span),
             kind: ExprKind::FieldAccess {
                 lhs: Box::new(left),
                 field: field_id,
-                field_span: field_token.span,
+                field_span,
             },
         })
     }

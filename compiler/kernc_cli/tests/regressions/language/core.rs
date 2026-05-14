@@ -248,17 +248,17 @@ const TITLE = "abc\0";
 const EMPTY = "";
 
 fn take_slice(text: &[u8]) usize {
-    return #text;
+    return text.@len();
 }
 
 fn main() i32 {
-    if (#TITLE != 4) {
+    if (TITLE.@len() != 4) {
         return 1;
     }
     if (TITLE.[0] != b'a' or TITLE.[3] != 0) {
         return 2;
     }
-    if (#EMPTY != 0) {
+    if (EMPTY.@len() != 0) {
         return 3;
     }
     if (take_slice("hello") != 5) {
@@ -353,7 +353,7 @@ fn message() &[u8] {
 
 fn main() i32 {
     let text = message();
-    if (#text != 2) {
+    if (text.@len() != 2) {
         return 1;
     }
     if (text.[0] != b'o' or text.[1] != b'k') {
@@ -454,7 +454,7 @@ fn take_array(value: [5]u8) u8 {
 }
 
 fn take_slice(value: &[u8]) usize {
-    return #value;
+    return value.@len();
 }
 
 fn main() i32 {
@@ -563,7 +563,7 @@ fn parses_casts_after_prefix_unary_operators() {
         r#"
 fn main() i32 {
     let array = [4]u8.{ 1, 2, 3, 4 };
-    return #array as i32 - 1;
+    return array.@len() as i32 - 1;
 }
 "#,
     );
@@ -921,7 +921,7 @@ fn main() i32 {
     let mut sum = 0i32;
 
     let mut i = 0;
-    while (i < #data) {
+    while (i < data.@len()) {
         sum += data.[i] as i32;
         i += 1;
     }
@@ -946,8 +946,8 @@ fn infers_usize_for_slice_bounds_from_expected_context() {
 fn main() i32 {
     let data = [4]u8.{ 9, 8, 7, 6 };
     let start = 0;
-    let tail = data.&[start...#data];
-    return (#tail as i32) - 4;
+    let tail = data.&[start...data.@len()];
+    return (tail.@len() as i32) - 4;
 }
 "#,
     );
@@ -974,12 +974,12 @@ fn main() i32 {
     let inclusive = values.&[1usize..=3usize];
     let inclusive_prefix = values.&[..=2usize];
 
-    return (#middle as i32)
-        + (#tail as i32)
-        + (#prefix as i32)
-        + (#whole as i32)
-        + (#inclusive as i32)
-        + (#inclusive_prefix as i32)
+    return (middle.@len() as i32)
+        + (tail.@len() as i32)
+        + (prefix.@len() as i32)
+        + (whole.@len() as i32)
+        + (inclusive.@len() as i32)
+        + (inclusive_prefix.@len() as i32)
         - 20;
 }
 "#,
@@ -1118,7 +1118,7 @@ fn runs_explicit_loc_intrinsic_and_const_loc_values() {
 const GLOBAL = @loc();
 
 fn file_len[N: usize](file: [N]u8) usize {
-    return #file;
+    return file.@len();
 }
 
 fn take(loc: struct { file: &[u8], line: usize, col: usize }) usize {
@@ -1127,7 +1127,7 @@ fn take(loc: struct { file: &[u8], line: usize, col: usize }) usize {
 
 fn main() i32 {
     let local = @loc();
-    if (#GLOBAL.file == 0) {
+    if (GLOBAL.file.@len() == 0) {
         return 11;
     }
     if (GLOBAL.line != 2) {
@@ -1136,10 +1136,10 @@ fn main() i32 {
     if (GLOBAL.col == 0) {
         return 13;
     }
-    if (#local.file == 0) {
+    if (local.file.@len() == 0) {
         return 14;
     }
-    if (file_len(local.file) != #local.file) {
+    if (file_len(local.file) != local.file.@len()) {
         return 18;
     }
     if (local.line != 13) {
@@ -1179,7 +1179,7 @@ use base;
 const GLOBAL = @check(1i32 + 2i32);
 
 fn source_len[N: usize](source: [N]u8) usize {
-    return #source;
+    return source.@len();
 }
 
 fn take(capture: struct { value: bool, source: &[u8] }) bool {
@@ -1202,7 +1202,7 @@ fn main() i32 {
     if (math.source != "x + 3i32") {
         return 13;
     }
-    if (source_len(math.source) != #math.source) {
+    if (source_len(math.source) != math.source.@len()) {
         return 14;
     }
 
@@ -2493,7 +2493,7 @@ fn compiles_concrete_slice_impl_methods() {
     let output = compile_source(
         r#"
 fn slice_len(value: &[u8]) usize {
-    return #value;
+    return value.@len();
 }
 
 impl &[u8] {
@@ -2583,5 +2583,88 @@ fn main() i32 {
         "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn member_intrinsics_project_slice_array_range_and_fat_pointer_parts() {
+    let output = build_and_run_source(
+        r#"
+trait Write {
+    fn write(buf: &[u8]) usize;
+};
+
+struct Writer {
+    total: usize,
+};
+
+impl &mut Writer : Write {
+    pub fn write(buf: &[u8]) usize {
+        self.total += buf.@len();
+        return self.total;
+    }
+};
+
+fn closure_parts(cb: &Fn(i32) i32) i32 {
+    if (cb.@statePtr() as usize == 0usize) return 10;
+    if (cb.@entryPtr() as usize == 0usize) return 11;
+    return cb(2) - 7;
+}
+
+fn main() i32 {
+    let data = [3]u8.{ 1, 2, 3 };
+    let slice = data.&[1...3];
+    if (data.@len() != 3usize) return 1;
+    if (slice.@len() != 2usize) return 2;
+    if (data.@ptr().* != 1u8) return 3;
+    if (slice.@ptr().* != 2u8) return 4;
+
+    let range: i32...i32 = 4...9;
+    if (range.@start() != 4i32) return 5;
+    if (range.@end() != 9i32) return 6;
+
+    let mut sink = Writer.{ total: 0usize };
+    let writer = (sink..& as &mut Write);
+    if (writer.@dataPtr() as usize == 0usize) return 7;
+    if (writer.@vtablePtr() as usize == 0usize) return 8;
+    if (writer.write(slice) != 2usize) return 9;
+
+    let base = 5i32;
+    return closure_parts([base](x: i32) i32 { return base + x; });
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn member_intrinsics_must_be_called() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let data = [1]u8.{ 1 };
+    let _ = data.@len;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted bare member intrinsic:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("member intrinsic `@len` must be called"),
+        "unexpected stderr:\n{}",
+        stderr
     );
 }

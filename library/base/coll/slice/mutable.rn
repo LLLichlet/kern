@@ -10,7 +10,12 @@ use base.cmp.{Ord, Ordering, GREATER};
 impl[T] &mut [T] {
     /// Returns the number of elements in the slice.
     pub fn len() usize {
-        return #self;
+        return self.@len();
+    }
+
+    /// Returns a mutable pointer to the first element.
+    pub fn ptr() &mut T {
+        return self.@ptr();
     }
 
     /// Returns an iterator over mutable element pointers.
@@ -20,7 +25,7 @@ impl[T] &mut [T] {
 
     /// Swaps the elements at `lhs` and `rhs`.
     pub fn swap(lhs: usize, rhs: usize) bool {
-        if (lhs >= #self or rhs >= #self) {
+        if (lhs >= self.@len() or rhs >= self.@len()) {
             return false;
         }
         if (lhs == rhs) {
@@ -35,12 +40,12 @@ impl[T] &mut [T] {
 
     /// Swaps every element with the matching position in `other`.
     pub fn swap_with_slice(other: &mut [T]) bool {
-        if (#self != #other) {
+        if (self.@len() != other.@len()) {
             return false;
         }
 
                 let mut i = 0usize;
-        while (i < #self) {
+        while (i < self.@len()) {
             let tmp = self.[i];
             self.[i] = other.[i];
             other.[i] = tmp;
@@ -53,7 +58,7 @@ impl[T] &mut [T] {
     /// Overwrites every element with `value`.
     pub fn fill(value: T) void {
                 let mut i = 0usize;
-        while (i < #self) {
+        while (i < self.@len()) {
             self.[i] = value;
 
             i += 1;
@@ -63,7 +68,7 @@ impl[T] &mut [T] {
     /// Visits every element mutably.
     pub fn for_each_mut(visitor: &Fn(&mut T) void) void {
                 let mut i = 0usize;
-        while (i < #self) {
+        while (i < self.@len()) {
             visitor(self.[i]..&);
 
             i += 1;
@@ -72,10 +77,10 @@ impl[T] &mut [T] {
 
     /// Copies all elements from `source` into `self`.
     pub fn copy_from(source: &[T]) bool {
-        if (#self != #source) {
+        if (self.@len() != source.@len()) {
             return false;
         }
-        if (#self == 0) {
+        if (self.@len() == 0) {
             return true;
         }
 
@@ -84,14 +89,14 @@ impl[T] &mut [T] {
             return true;
         }
 
-        let bytes = #self * elem_size;
+        let bytes = self.@len() * elem_size;
         _ = memmove(self.[0]..& as &mut u8, source.[0].& as &u8, bytes);
         return true;
     }
 
     /// Reverses the slice in place.
     pub fn reverse() void {
-        self.reverse_range(0, #self);
+        self.reverse_range(0, self.@len());
     }
 
     fn reverse_range(start: usize, end: usize) void {
@@ -109,44 +114,44 @@ impl[T] &mut [T] {
 
     /// Rotates the slice left by `amount` elements.
     pub fn rotate_left(amount: usize) void {
-        if (#self == 0) {
+        if (self.@len() == 0) {
             return;
         }
 
-        let mid = amount % #self;
+        let mid = amount % self.@len();
         if (mid == 0) {
             return;
         }
 
         self.reverse_range(0, mid);
-        self.reverse_range(mid, #self);
-        self.reverse_range(0, #self);
+        self.reverse_range(mid, self.@len());
+        self.reverse_range(0, self.@len());
     }
 
     /// Rotates the slice right by `amount` elements.
     pub fn rotate_right(amount: usize) void {
-        if (#self == 0) {
+        if (self.@len() == 0) {
             return;
         }
 
-        let mid = amount % #self;
+        let mid = amount % self.@len();
         if (mid == 0) {
             return;
         }
 
-        self.rotate_left(#self - mid);
+        self.rotate_left(self.@len() - mid);
     }
 
     /// Copies the range `[src_start, src_end)` into `dest_start`.
     ///
     /// Overlapping source and destination ranges are supported.
     pub fn copy_within(src_start: usize, src_end: usize, dest_start: usize) bool {
-        if (src_start > src_end or src_end > #self) {
+        if (src_start > src_end or src_end > self.@len()) {
             return false;
         }
 
         let count = src_end - src_start;
-        if (count > #self or dest_start > #self - count) {
+        if (count > self.@len() or dest_start > self.@len() - count) {
             return false;
         }
         if (count == 0) {
@@ -171,7 +176,7 @@ impl[T] &mut [T] {
     /// high-throughput sorting policy.
     pub fn sort_by(compare: &Fn(T, T) Ordering) void {
         let mut i = 1usize;
-        while (i < #self) {
+        while (i < self.@len()) {
             let value = self.[i];
             let mut j = i;
             while (j > 0 and compare(self.[j - 1], value) == GREATER) {

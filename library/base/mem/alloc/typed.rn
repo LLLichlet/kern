@@ -36,8 +36,8 @@ impl &mut Allocator {
     /// Safety:
     /// `items` must have been allocated by `try_alloc_array[T]` from the same allocator.
     pub fn free_array[T](items: &mut [T]) void {
-        let .{ Some: layout } = array_layout_of[T](#items) else return;
-        if (#items == 0 or layout.size == 0) {
+        let .{ Some: layout } = array_layout_of[T](items.@len()) else return;
+        if (items.@len() == 0 or layout.size == 0) {
             return;
         }
         self.free(items.[0]..& as &mut u8, layout);
@@ -45,12 +45,12 @@ impl &mut Allocator {
 
     /// Allocates a mutable copy of `items`.
     pub fn try_clone_array[T](items: &[T]) (&mut [T])!AllocError {
-        let out = self.try_alloc_array[T](#items).?;
-        let .{ Some: layout } = array_layout_of[T](#items) else {
+        let out = self.try_alloc_array[T](items.@len()).?;
+        let .{ Some: layout } = array_layout_of[T](items.@len()) else {
             self.free_array[T](out);
             return .{ Err: .CapacityOverflow };
         };
-        if (#items != 0 and layout.size != 0) {
+        if (items.@len() != 0 and layout.size != 0) {
             @memcpy(out.[0]..& as &mut u8, items.[0].& as &u8, layout.size);
         }
         return .{ Ok: out };

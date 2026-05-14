@@ -176,14 +176,15 @@ fn create_heap_closure(alloc: &mut Allocator, factor: i32) StoredClosure {
 ```
 
 When freeing, do not pretend the closure fat pointer is an ordinary struct with
-fields. Use `#` to extract its state pointer:
+fields. Use `.@statePtr()` to extract its state pointer:
 
 ```kern
-defer alloc.free((#stored.callback) as &mut u8, stored.layout);
+defer alloc.free(stored.callback.@statePtr() as &mut u8, stored.layout);
 ```
 
-`#` is the language operation for extracting fat-pointer state or metadata. It
-also applies to slices; earlier chapters used `#slice` for length.
+Member intrinsics such as `.@statePtr()` and `.@len()` are compiler-owned
+projections. They are not ordinary methods, but libraries may provide ordinary
+method wrappers such as `slice.len()` and `callback.state_ptr()`.
 
 ## Common Uses
 

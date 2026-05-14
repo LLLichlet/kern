@@ -19,12 +19,12 @@ pub/ struct LimitReader {
 
 impl &mut SliceReader : Read {
     pub fn read(buf: &mut [u8]) usize {
-        if (#buf == 0 or self.pos >= #self.data) {
+        if (buf.@len() == 0 or self.pos >= self.data.@len()) {
             return 0;
         }
 
-        let available = #self.data - self.pos;
-        let count = available.min(#buf);
+        let available = self.data.@len() - self.pos;
+        let count = available.min(buf.@len());
         let out = (buf.[0]..& + 0usize)..&[0...count];
         _ = out.copy_from(self.data.&[self.pos...self.pos + count]);
         self.pos += count;
@@ -34,11 +34,11 @@ impl &mut SliceReader : Read {
 
 impl &mut LimitReader : Read {
     pub fn read(buf: &mut [u8]) usize {
-        if (#buf == 0 or self.remaining == 0) {
+        if (buf.@len() == 0 or self.remaining == 0) {
             return 0;
         }
 
-        let want = (#buf).min(self.remaining);
+        let want = (buf.@len()).min(self.remaining);
         let n = self.inner.read(buf..&[0...want]);
         self.remaining -= n;
         return n;
@@ -48,17 +48,17 @@ impl &mut LimitReader : Read {
 impl &SliceReader {
     /// Returns the unread suffix.
     pub fn remaining_slice() &[u8] {
-        return self.data.&[self.pos...#self.data];
+        return self.data.&[self.pos...self.data.@len()];
     }
 
     /// Returns how many unread bytes remain.
     pub fn remaining() usize {
-        return #self.data - self.pos;
+        return self.data.@len() - self.pos;
     }
 
     /// Returns `true` when all bytes have been consumed.
     pub fn is_empty() bool {
-        return self.pos >= #self.data;
+        return self.pos >= self.data.@len();
     }
 }
 
@@ -82,11 +82,11 @@ impl &mut Read {
         return .{ inner: self, remaining: limit };
     }
 
-    /// Reads exactly `#buf` bytes unless the reader reaches EOF first.
+    /// Reads exactly `buf.@len()` bytes unless the reader reaches EOF first.
     pub fn read_exact(buf: &mut [u8]) bool {
         let mut filled = 0usize;
-        while (filled < #buf) {
-            let n = self.read((buf.[0]..& + filled)..&[0...#buf - filled]);
+        while (filled < buf.@len()) {
+            let n = self.read((buf.[0]..& + filled)..&[0...buf.@len() - filled]);
             if (n == 0) {
                 return false;
             }
@@ -100,7 +100,7 @@ impl &mut Read {
         let mut scratch: [128]u8 = undef;
         let mut skipped = 0usize;
         while (skipped < count) {
-            let want = (#scratch).min(count - skipped);
+            let want = (scratch.@len()).min(count - skipped);
             let n = self.read(scratch..&[0...want]);
             if (n == 0) {
                 return skipped;

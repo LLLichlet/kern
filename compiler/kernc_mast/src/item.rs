@@ -206,6 +206,7 @@ fn visit_expr(expr: &MastExpr, stats: &mut MastWorkloadStats) {
         | crate::MastExprKind::Discard(inner)
         | crate::MastExprKind::ExtractFatPtrData(inner)
         | crate::MastExprKind::ExtractFatPtrMeta(inner)
+        | crate::MastExprKind::ExtractElementPtr(inner)
         | crate::MastExprKind::Unary { operand: inner, .. }
         | crate::MastExprKind::Cast { operand: inner, .. }
         | crate::MastExprKind::BitIntrinsic { operand: inner, .. }

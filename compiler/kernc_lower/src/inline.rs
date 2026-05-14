@@ -130,6 +130,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             | MastExprKind::Discard(inner)
             | MastExprKind::ExtractFatPtrData(inner)
             | MastExprKind::ExtractFatPtrMeta(inner)
+            | MastExprKind::ExtractElementPtr(inner)
             | MastExprKind::Unary { operand: inner, .. }
             | MastExprKind::Cast { operand: inner, .. }
             | MastExprKind::BitIntrinsic { operand: inner, .. }
@@ -658,6 +659,7 @@ fn expr_contains_return(expr: &MastExpr) -> bool {
         | MastExprKind::Discard(inner)
         | MastExprKind::ExtractFatPtrData(inner)
         | MastExprKind::ExtractFatPtrMeta(inner)
+        | MastExprKind::ExtractElementPtr(inner)
         | MastExprKind::Unary { operand: inner, .. }
         | MastExprKind::Cast { operand: inner, .. }
         | MastExprKind::BitIntrinsic { operand: inner, .. }

@@ -150,7 +150,7 @@ the boundary:
 
 ```kern
 fn len(text: &[u8]) usize {
-    return #text;
+    return text.@len();
 }
 
 fn main() i32 {

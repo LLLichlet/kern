@@ -12,6 +12,95 @@ struct PlainFnCallLowering<'a> {
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn maybe_lower_member_intrinsic_call(
+        &mut self,
+        callee: &Expr,
+        args: &[Expr],
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+        span: Span,
+        result_ty: TypeId,
+    ) -> Option<MastExpr> {
+        if !args.is_empty() {
+            return None;
+        }
+        let ExprKind::FieldAccess { lhs, field, .. } = &callee.kind else {
+            return None;
+        };
+
+        let name = self.ctx.resolve(*field).to_string();
+        if !name.starts_with('@') {
+            return None;
+        }
+        let recv = self.lower_expr(lhs, subst_map, None);
+        let recv_norm = self.ctx.type_registry.normalize(recv.ty);
+
+        let kind = match self.ctx.type_registry.get(recv_norm).clone() {
+            TypeKind::Array { len, .. } if name == "@len" => {
+                let Some(len) = self.const_generic_usize(len, lhs.span) else {
+                    return Some(MastExpr::new(result_ty, MastExprKind::Trap, span));
+                };
+                MastExprKind::Integer(len as u128)
+            }
+            TypeKind::ArrayInfer { .. } if name == "@len" => MastExprKind::Trap,
+            TypeKind::Array { .. } | TypeKind::ArrayInfer { .. } if name == "@ptr" => {
+                MastExprKind::ExtractElementPtr(Box::new(recv))
+            }
+            TypeKind::Slice { .. } if name == "@len" => {
+                MastExprKind::ExtractFatPtrMeta(Box::new(recv))
+            }
+            TypeKind::Slice { .. } if name == "@ptr" => {
+                MastExprKind::ExtractFatPtrData(Box::new(recv))
+            }
+            TypeKind::Range { start, .. } if name == "@start" => {
+                let Some(_) = start else {
+                    return Some(MastExpr::new(result_ty, MastExprKind::Trap, span));
+                };
+                let field = self.ctx.intern("start");
+                self.lower_field_access(lhs, field, subst_map, span)
+            }
+            TypeKind::Range { end, .. } if name == "@end" => {
+                let Some(_) = end else {
+                    return Some(MastExpr::new(result_ty, MastExprKind::Trap, span));
+                };
+                let field = self.ctx.intern("end");
+                self.lower_field_access(lhs, field, subst_map, span)
+            }
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                let elem_norm = self.ctx.type_registry.normalize(elem);
+                match self.ctx.type_registry.get(elem_norm) {
+                    TypeKind::TraitObject(..) if name == "@dataPtr" => {
+                        MastExprKind::ExtractFatPtrData(Box::new(recv))
+                    }
+                    TypeKind::TraitObject(..) if name == "@vtablePtr" => MastExprKind::Cast {
+                        kind: MastCastKind::IntToPtr,
+                        operand: Box::new(MastExpr::new(
+                            TypeId::USIZE,
+                            MastExprKind::ExtractFatPtrMeta(Box::new(recv)),
+                            span,
+                        )),
+                    },
+                    TypeKind::ClosureInterface { .. } if name == "@statePtr" => {
+                        MastExprKind::ExtractFatPtrData(Box::new(recv))
+                    }
+                    TypeKind::ClosureInterface { .. } if name == "@entryPtr" => {
+                        MastExprKind::Cast {
+                            kind: MastCastKind::IntToPtr,
+                            operand: Box::new(MastExpr::new(
+                                TypeId::USIZE,
+                                MastExprKind::ExtractFatPtrMeta(Box::new(recv)),
+                                span,
+                            )),
+                        }
+                    }
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        };
+
+        Some(MastExpr::new(result_ty, kind, span))
+    }
+
     fn coerce_call_args_to_params(
         &mut self,
         arg_masts: Vec<MastExpr>,
@@ -254,6 +343,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> MastExpr {
         if let Some(asm_call) = self.maybe_lower_asm_call(callee, args, subst_map, span) {
             return MastExpr::new(result_ty, asm_call, span);
+        }
+
+        if let Some(projection) =
+            self.maybe_lower_member_intrinsic_call(callee, args, subst_map, span, result_ty)
+        {
+            return projection;
         }
 
         let raw_callee_ty = self.ctx.node_type(callee.id).unwrap_or(TypeId::ERROR);

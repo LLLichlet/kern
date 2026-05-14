@@ -27,7 +27,7 @@ pub const fn mix_u128(value: u128) u64 {
 /// Hashes an arbitrary byte slice.
 pub fn hash_bytes(bytes: &[u8]) u64 {
     let mut acc = 14695981039346656037u64;
-    let len = #bytes;
+    let len = bytes.@len();
         let mut i = 0usize;
     while (i < len) {
         acc ^= bytes.[i] as u64;

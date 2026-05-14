@@ -411,6 +411,7 @@ impl MirFunctionBuilder {
             MastExprKind::ConstructFatPointer { .. } => "fat-pointer construction",
             MastExprKind::ExtractFatPtrData(_) => "fat-pointer data projection",
             MastExprKind::ExtractFatPtrMeta(_) => "fat-pointer meta projection",
+            MastExprKind::ExtractElementPtr(_) => "element pointer projection",
             MastExprKind::Block(_) => "block expression",
             MastExprKind::DataInit { .. } => "data init",
             MastExprKind::Asm(_) => "inline asm",

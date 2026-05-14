@@ -38,6 +38,7 @@ fn expr_workload(expr: &MastExpr) -> usize {
         | MastExprKind::Discard(inner)
         | MastExprKind::ExtractFatPtrData(inner)
         | MastExprKind::ExtractFatPtrMeta(inner)
+        | MastExprKind::ExtractElementPtr(inner)
         | MastExprKind::BitIntrinsic { operand: inner, .. }
         | MastExprKind::SimdUnaryIntrinsic { operand: inner, .. }
         | MastExprKind::SimdReduce { operand: inner, .. }

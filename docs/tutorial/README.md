@@ -33,7 +33,7 @@ no exceptions, no implicit heap allocation, and no implicit prelude namespace.
 2. [Language Basics](./en/02-language-basics.md): functions, bindings, types, strings, formatted output, and mutability.
 3. [Data And Control Flow](./en/03-data-and-control-flow.md): structs, enums, `match`, option/result values, and error propagation.
 4. [Memory, Slices, And Collections](./en/04-memory-slices-and-collections.md): arrays, slices, pointers, explicit allocation, `List`, and `String`.
-5. [Modules, Packages, And Library Layers](./en/05-modules-packages-and-libraries.md): `use`, official library layers, `Craft.toml`, and example project structure.
+5. [Modules, Packages, And Library Layers](./en/05-modules-packages-and-libraries.md): `use`, official library layers, `Craft.toml`, examples, and tests.
 6. [Freestanding And Runtime Basics](./en/06-freestanding-and-runtime.md): runtime entry, the `base` bundle, custom `_start`, and linker-script entry points.
 7. [Aggregates And Initialization](./en/07-aggregates-and-initialization.md): struct defaults, field puns, layout, anonymous structs, unions, and enum initialization.
 8. [Impls, Traits, And Generic Bounds](./en/08-impl-traits-and-generics.md): methods, trait objects, associated types, builtin traits, and operator boundaries.

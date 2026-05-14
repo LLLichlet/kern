@@ -35,7 +35,7 @@ fn main() i32 {
     let gpa = gpa().on(page)..&;
 
     let stored = create_heap_closure(gpa, 10);
-    defer gpa.free((#stored.callback) as &mut u8, stored.layout);
+    defer gpa.free(stored.callback.@statePtr() as &mut u8, stored.layout);
 
     let result = stored.callback(5);
     (result == 50).should().sum(@loc(), t);

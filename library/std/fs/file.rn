@@ -503,7 +503,7 @@ impl &mut File {
 
     /// Reads bytes into the provided mutable slice.
     pub fn read(buf: &mut [u8]) usize!Error {
-        let len = #buf;
+        let len = buf.@len();
         if (len == 0) {
             return .{ Ok: 0usize };
         }
@@ -542,8 +542,8 @@ impl &mut File {
     /// returns `UnexpectedEof` if the file ends before the buffer is full.
     pub fn read_exact(buf: &mut [u8]) bool!Error {
         let mut total = 0usize;
-        while (total < #buf) {
-            let chunk = (buf.[0]..& + total)..&[0...#buf - total];
+        while (total < buf.@len()) {
+            let chunk = (buf.[0]..& + total)..&[0...buf.@len() - total];
             let read = self.read(chunk).?;
             if (read == 0) {
                 return .{ Err: .UnexpectedEof };
@@ -555,7 +555,7 @@ impl &mut File {
 
     /// Writes bytes from the provided slice.
     pub fn write(buf: &[u8]) usize!Error {
-        let len = #buf;
+        let len = buf.@len();
         if (len == 0) {
             return .{ Ok: 0usize };
         }
@@ -567,8 +567,8 @@ impl &mut File {
     /// Repeatedly writes until the full buffer has been flushed.
     pub fn write_all(buf: &[u8]) usize!Error {
         let mut total = 0usize;
-                while (total < #buf) {
-            let written = self.write(buf.&[total...#buf]).?;
+                while (total < buf.@len()) {
+            let written = self.write(buf.&[total...buf.@len()]).?;
             if (written == 0) {
                 return .{ Err: .WriteZero };
             }

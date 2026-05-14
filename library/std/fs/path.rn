@@ -35,7 +35,7 @@ fn preferred_separator_byte(path: &[u8]) u8 {
     #[if(os == "windows")]
     {
                 let mut i = 0usize;
-        while (i < #path) {
+        while (i < path.@len()) {
             if (path.[i] == b'\\') {
                 return b'\\';
             }
@@ -57,7 +57,7 @@ fn preferred_separator_byte(path: &[u8]) u8 {
 /// Note:
 /// on Windows this includes drive prefixes and UNC roots.
 pub/ fn root_prefix_len(path: &[u8]) usize {
-    let len = #path;
+    let len = path.@len();
     if (len == 0) {
         return 0usize;
     }
@@ -112,7 +112,7 @@ pub/ fn root_prefix_len(path: &[u8]) usize {
 /// Removes trailing separators while preserving the root prefix.
 pub/ fn trim_trailing_separators(path: &[u8]) &[u8] {
     let prefix_len = root_prefix_len(path);
-    let mut end = #path;
+    let mut end = path.@len();
         while (end > prefix_len) {
         if (!is_path_separator(path.[end - 1])) {
             break;
@@ -132,7 +132,7 @@ pub/ fn build_child_path(
     let sep = preferred_separator_byte(base);
     out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).?;
 
-    if (#base > 0 and !is_path_separator(base.[#base - 1])) {
+    if (base.@len() > 0 and !is_path_separator(base.[base.@len() - 1])) {
         if (out..&.try_push_char(alloc, sep).is_err()) {
             out..&.deinit(alloc);
             return .{ Err: .OutOfMemory };
@@ -170,7 +170,7 @@ fn append_path_segment(
 
 fn last_separator(path: &[u8]) ?usize {
     let prefix_len = root_prefix_len(path);
-        let mut index = #path;
+        let mut index = path.@len();
     while (index > prefix_len) {
         index -= 1;
         if (is_path_separator(path.[index])) {
@@ -184,19 +184,19 @@ fn last_separator(path: &[u8]) ?usize {
 pub/ fn file_name(path: &[u8]) ?&[u8] {
     let trimmed = trim_trailing_separators(path);
     let prefix_len = root_prefix_len(trimmed);
-    if (#trimmed == 0 or #trimmed == prefix_len) {
+    if (trimmed.@len() == 0 or trimmed.@len() == prefix_len) {
         return .None;
     }
 
     let .{ Some: index } = last_separator(trimmed) else return .{ Some: trimmed };
-    return .{ Some: trimmed.&[index + 1...#trimmed] };
+    return .{ Some: trimmed.&[index + 1...trimmed.@len()] };
 }
 
 /// Returns the parent directory of a path.
 pub/ fn parent(path: &[u8]) ?&[u8] {
     let trimmed = trim_trailing_separators(path);
     let prefix_len = root_prefix_len(trimmed);
-    if (#trimmed == 0 or #trimmed == prefix_len) {
+    if (trimmed.@len() == 0 or trimmed.@len() == prefix_len) {
         return .None;
     }
 
@@ -213,16 +213,16 @@ pub/ fn parent(path: &[u8]) ?&[u8] {
 pub/ fn extension(path: &[u8]) ?&[u8] {
     let name = file_name(path).?;
 
-        let mut index = #name;
+        let mut index = name.@len();
     while (index > 0) {
         index -= 1;
         if (name.[index] != b'.') {
             continue;
         }
-        if (index == 0 or index + 1 == #name) {
+        if (index == 0 or index + 1 == name.@len()) {
             return .None;
         }
-        return .{ Some: name.&[index + 1...#name] };
+        return .{ Some: name.&[index + 1...name.@len()] };
     }
 
     return .None;
@@ -232,7 +232,7 @@ pub/ fn extension(path: &[u8]) ?&[u8] {
 pub/ fn file_stem(path: &[u8]) ?&[u8] {
     let name = file_name(path).?;
 
-        let mut index = #name;
+        let mut index = name.@len();
     while (index > 0) {
         index -= 1;
         if (name.[index] != b'.') {
@@ -262,13 +262,13 @@ pub/ fn join(
         return .{ Ok: out };
     }
 
-    if (#base == 0) {
+    if (base.@len() == 0) {
         let mut out = String.{};
         out..&.try_push_str(alloc, child).map_err(wrap_alloc_error).?;
         return .{ Ok: out };
     }
 
-    if (#child == 0) {
+    if (child.@len() == 0) {
         let mut out = String.{};
         out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).?;
         return .{ Ok: out };
@@ -291,15 +291,15 @@ pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
     defer segments.deinit(alloc);
 
     let mut index = prefix_len;
-        while (index < #path) {
-                while (index < #path and is_path_separator(path.[index])) {            index += 1;
+        while (index < path.@len()) {
+                while (index < path.@len() and is_path_separator(path.[index])) {            index += 1;
         }
-        if (index >= #path) {
+        if (index >= path.@len()) {
             break;
         }
 
         let start = index;
-                while (index < #path and !is_path_separator(path.[index])) {            index += 1;
+                while (index < path.@len() and !is_path_separator(path.[index])) {            index += 1;
         }
         let segment = path.&[start...index];
 
@@ -361,7 +361,7 @@ pub/ fn with_file_name(
     path: &[u8],
     name: &[u8],
 ) String!Error {
-    if (#name == 0) {
+    if (name.@len() == 0) {
         return .{ Err: .InvalidPath };
     }
 
@@ -369,7 +369,7 @@ pub/ fn with_file_name(
     let prefix_len = root_prefix_len(trimmed);
 
     let .{ Some: dir } = parent(trimmed) else {
-        if (#trimmed == prefix_len and prefix_len > 0) {
+        if (trimmed.@len() == prefix_len and prefix_len > 0) {
             return join(alloc, trimmed, name);
         }
         return join(alloc, "", name);
@@ -390,7 +390,7 @@ pub/ fn with_extension(
     let mut new_name = String.{};
     new_name..&.try_push_str(alloc, stem).map_err(wrap_alloc_error).?;
 
-    if (#ext > 0) {
+    if (ext.@len() > 0) {
         if (new_name..&.try_push_char(alloc, b'.').is_err()) {
             new_name..&.deinit(alloc);
             return .{ Err: .OutOfMemory };

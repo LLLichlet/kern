@@ -1308,6 +1308,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
+        let field_str = self.ctx.resolve(field).to_string();
+        if field_str.starts_with('@') {
+            self.ctx
+                .struct_error(
+                    span,
+                    format!("member intrinsic `{}` must be called", field_str),
+                )
+                .with_hint(format!("write `expr.{}()`", field_str))
+                .emit();
+            return TypeId::ERROR;
+        }
+
         // Peel pointers before checking aggregate or module members.
         let base_norm = self.get_base_type(lhs_ty);
 
@@ -1456,7 +1468,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // No field or method matched. Emit the detailed fallback diagnostic.
         let miss_started = self.timing_start();
-        let field_str = self.ctx.resolve(field).to_string();
         let lhs_str = self.ctx.ty_to_string(lhs_ty);
 
         let mutable_slice_hint = self.mutable_slice_method_hint(lhs, lhs_ty, field, span);

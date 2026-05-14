@@ -170,7 +170,7 @@ pub struct Value {
 }
 
 pub fn clone_owned_value_in_arena(value: Value) Value!CloneError {
-    if (#value.raw == 0) {
+    if (value.raw.@len() == 0) {
         return .{ Err: CloneError.Empty };
     }
     return .{ Ok: value };

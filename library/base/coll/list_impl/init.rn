@@ -246,7 +246,7 @@ impl[T] &mut List[T] {
             return .{ Err: .IndexOutOfBounds };
         }
 
-        let additional = #slice;
+        let additional = slice.@len();
         if (additional == 0) {
             return .{ Ok: {} };
         }
@@ -411,7 +411,7 @@ impl[T] &mut List[T] {
 
     /// Appends every element from `slice` or returns a structured allocation error.
     pub fn try_append_slice(alloc: &mut Allocator, slice: &[T]) void!AllocError {
-        let additional = #slice;
+        let additional = slice.@len();
         if (additional == 0) return .{ Ok: {} };
 
         let old_len = self.len;
@@ -422,7 +422,7 @@ impl[T] &mut List[T] {
 
     /// Appends every element from `slice`, growing exactly when reallocation is needed.
     pub fn try_append_slice_exact(alloc: &mut Allocator, slice: &[T]) void!AllocError {
-        let additional = #slice;
+        let additional = slice.@len();
         if (additional == 0) return .{ Ok: {} };
 
         let old_len = self.len;

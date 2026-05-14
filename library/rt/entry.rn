@@ -235,7 +235,7 @@ fn utf16_z_len(str: &u16) usize {
 
 #[if(os == "windows")]
 fn wide_to_utf8_into(wide: &[u16], out: &mut [u8]) usize {
-    if (#wide == 0) {
+    if (wide.@len() == 0) {
         return 0;
     }
 
@@ -243,13 +243,13 @@ fn wide_to_utf8_into(wide: &[u16], out: &mut [u8]) usize {
         CP_UTF8,
         0,
         wide.[0].&,
-        #wide as i32,
+        wide.@len() as i32,
         0usize as &mut u8,
         0,
         0usize as &u8,
         0usize as &mut u8
     );
-    if (required <= 0 or required as usize > #out) {
+    if (required <= 0 or required as usize > out.@len()) {
         return 0;
     }
 
@@ -257,7 +257,7 @@ fn wide_to_utf8_into(wide: &[u16], out: &mut [u8]) usize {
         CP_UTF8,
         0,
         wide.[0].&,
-        #wide as i32,
+        wide.@len() as i32,
         out.[0]..&,
         required,
         0usize as &u8,

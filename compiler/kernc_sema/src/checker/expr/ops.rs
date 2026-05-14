@@ -296,11 +296,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             UnaryOperator::Negate => Some(("Neg", false)),
             UnaryOperator::LogicalNot => Some(("Not", false)),
             UnaryOperator::BitwiseNot => Some(("BitNot", false)),
-            // Address-of, metadata access, and dereference carry memory/control-flow
+            // Address-of and dereference carry memory/control-flow
             // semantics and remain language-owned instead of overloadable traits.
             UnaryOperator::AddressOf
             | UnaryOperator::MutAddressOf
-            | UnaryOperator::MetaOf
             | UnaryOperator::PointerDeRef => None,
         }
     }
@@ -828,54 +827,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         self.ctx
                             .struct_error(span, "cannot dereference a non-pointer type")
                             .with_hint(format!("type is `{}`", ty_str))
-                            .emit();
-                        TypeId::ERROR
-                    }
-                }
-            }
-            UnaryOperator::MetaOf => {
-                let norm = self.resolve_tv(op_ty);
-                let kind = self.ctx.type_registry.get(norm).clone(); // Clone to simplify matching.
-
-                match kind {
-                    // 1. Slices and arrays produce their logical length.
-                    TypeKind::Array { .. }
-                    | TypeKind::Slice { .. }
-                    | TypeKind::ArrayInfer { .. } => TypeId::USIZE,
-
-                    // 2. Closure and trait fat pointers expose their underlying data pointer.
-                    TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } => {
-                        let elem_norm = self.resolve_tv(elem);
-                        let inner_kind = self.ctx.type_registry.get(elem_norm);
-
-                        // Both closure interfaces and trait objects use `{ data_ptr, meta_ptr }`.
-                        if matches!(
-                            inner_kind,
-                            TypeKind::ClosureInterface { .. } | TypeKind::TraitObject(..)
-                        ) {
-                            // Return a raw data pointer for explicit frees or low-level unsafe casts.
-                            self.ctx.type_registry.intern(TypeKind::Pointer {
-                                is_mut,
-                                elem: TypeId::VOID,
-                            })
-                        } else {
-                            self.ctx
-                                .struct_error(
-                                    span,
-                                    "operator `#` cannot be applied to a standard thin pointer",
-                                )
-                                .with_hint("it can only extract metadata or state from fat pointers (e.g., slices `&[T]`, closures `&Fn`, or trait objects `&Trait`)")
-                                .emit();
-                            TypeId::ERROR
-                        }
-                    }
-
-                    _ => {
-                        self.ctx
-                            .struct_error(
-                                span,
-                                "operator `#` can only be applied to arrays, slices, or fat pointers",
-                            )
                             .emit();
                         TypeId::ERROR
                     }

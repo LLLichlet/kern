@@ -93,7 +93,7 @@ documented.
 In scanner-style code, an empty loop body should still use a real Kern block:
 
 ```kern
-while (index < #text and is_ws(text.[index])) {
+while (index < text.@len() and is_ws(text.[index])) {
     index += 1;
 }
 ```
@@ -133,7 +133,7 @@ by the local context:
 
 ```kern
 let mut i = 0;
-while (i < #text) {
+while (i < text.@len()) {
     ...
     i += 1;
 }

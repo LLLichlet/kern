@@ -36,18 +36,38 @@ pub struct RangeRevInclusive[T] {
 impl[T] T...T
     where T: Integer,
 {
+    /// Returns the lower bound of this half-open range.
+    pub fn start() T {
+        return self.@start();
+    }
+
+    /// Returns the upper bound of this half-open range.
+    pub fn end() T {
+        return self.@end();
+    }
+
     /// Returns an iterator that visits this half-open range from high to low.
     pub fn rev() RangeRev[T] {
-        return .{ start: self.start, end: self.end };
+        return .{ start: self.@start(), end: self.@end() };
     }
 }
 
 impl[T] T..=T
     where T: Integer,
 {
+    /// Returns the lower bound of this inclusive range.
+    pub fn start() T {
+        return self.@start();
+    }
+
+    /// Returns the upper bound of this inclusive range.
+    pub fn end() T {
+        return self.@end();
+    }
+
     /// Returns an iterator that visits this inclusive range from high to low.
     pub fn rev() RangeRevInclusive[T] {
-        return .{ start: self.start, end: self.end };
+        return .{ start: self.@start(), end: self.@end() };
     }
 }
 

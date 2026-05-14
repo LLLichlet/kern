@@ -17,7 +17,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Check whether the current lookahead starts an attribute rather than `#arr`.
+    /// Check whether the current lookahead starts an attribute.
     fn is_at_attribute(&mut self) -> bool {
         self.is_at_attribute_with_level(false) || self.is_at_attribute_with_level(true)
     }

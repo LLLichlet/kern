@@ -35,7 +35,7 @@ fn overview_doc() -> HelpDoc {
                     "fetch",
                     "Populate external package sources into .craft cache",
                 )
-                .entry("publish", "Run release-oriented publish readiness checks")
+                .entry("publish", "Generate and verify Craft.publish")
                 .entry("doc", "Render package docs to Markdown")
                 .entry("fmt", "Normalize Kern source text deterministically")
                 .entry("style", "Report source metrics and comment ratios")
@@ -126,12 +126,9 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
         ),
         "publish" => feature_command_doc(
             "publish",
-            "Run publish-readiness checks with release-oriented defaults",
+            "Generate and verify Craft.publish with release-oriented defaults",
             "craft publish [OPTIONS]",
-            &[(
-                "craft publish",
-                "Validate that the package is publish-ready",
-            )],
+            &[("craft publish", "Update the repository publish declaration")],
         ),
         "doc" => feature_command_doc(
             "doc",

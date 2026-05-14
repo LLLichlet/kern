@@ -2,7 +2,6 @@
 name = "rt"
 version = "0.7.6"
 kern = "0.7.6"
-publish = false
 description = "Runtime startup glue and compiler-required fallbacks for Kern"
 readme = "README.md"
 license = "MIT"

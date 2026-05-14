@@ -10,7 +10,6 @@ pub struct PackagePlan {
     pub package_id: PackageId,
     pub manifest_path: PathBuf,
     pub kern: String,
-    pub publish: Option<bool>,
     pub targets: Vec<TargetPlan>,
     pub dependencies: BTreeMap<String, DependencySpec>,
     pub dev_dependencies: BTreeMap<String, DependencySpec>,
@@ -88,7 +87,6 @@ impl PackagePlan {
             package_id: package_id.clone(),
             manifest_path: manifest_path.to_path_buf(),
             kern: package.kern.clone(),
-            publish: package.publish,
             targets,
             dependencies: manifest.dependencies.clone(),
             dev_dependencies: manifest.dev_dependencies.clone(),
@@ -519,7 +517,6 @@ mod tests {
 name = "demo"
 version = "0.1.0"
 kern = "0.7.6"
-publish = false
 
 [lib]
 root = "src/lib.kn"
@@ -546,7 +543,6 @@ limine = { path = "vendor/limine" }
 
         assert_eq!(plan.kern, "0.7.6");
         assert_eq!(plan.manifest_path, Path::new("Craft.toml"));
-        assert_eq!(plan.publish, Some(false));
         assert_eq!(
             plan.resources
                 .get("limine")

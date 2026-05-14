@@ -7,7 +7,6 @@ use crate::error::{Error, Result};
 use crate::graph::{DependencyKind, PackageId, SourceId};
 use crate::manifest::ResourceSpec;
 use crate::plan::TargetKind;
-use crate::publish_proof;
 use crate::resolver::{ExternalPackageId, ResolvedDependencyTarget};
 use std::fs;
 use std::path::Path;
@@ -23,7 +22,6 @@ impl Lockfile {
         let mut package_resources = Vec::new();
         let mut external_packages = Vec::new();
         let mut dependencies = Vec::new();
-        let mut publish_proofs = Vec::new();
 
         for package in &resolved.packages {
             let package_id = package_lock_id(&package.id);
@@ -66,30 +64,6 @@ impl Lockfile {
                     source_locator: resource_source_locator(spec),
                     source_selector: resource_source_selector(spec),
                 });
-            }
-            if package_plan.publish != Some(false)
-                && let Some(repository) = publish_repository(
-                    package_plan,
-                    &elaboration.manifest,
-                    &package.manifest_path,
-                    manifest_path,
-                )?
-            {
-                let package_root = package
-                    .manifest_path
-                    .parent()
-                    .unwrap_or_else(|| Path::new("."));
-                let manifest = crate::workspace::load_member_manifest(
-                    manifest_path,
-                    &elaboration.manifest,
-                    &package.manifest_path,
-                )?;
-                publish_proofs.push(publish_proof::expected_publish_proof(
-                    package_id.clone(),
-                    package_root,
-                    &manifest,
-                    &repository,
-                )?);
             }
             for dep in &package.dependencies {
                 let (target_kind, target_id) = match &dep.target {
@@ -141,39 +115,8 @@ impl Lockfile {
             package_resources,
             external_packages,
             dependencies,
-            publish_proofs,
         })
     }
-}
-
-fn publish_repository(
-    package_plan: &crate::plan::PackagePlan,
-    root_manifest: &crate::manifest::Manifest,
-    package_manifest_path: &Path,
-    root_manifest_path: &Path,
-) -> Result<Option<String>> {
-    let manifest = crate::workspace::load_member_manifest(
-        root_manifest_path,
-        root_manifest,
-        package_manifest_path,
-    )?;
-    let package_repository = manifest
-        .package
-        .as_ref()
-        .and_then(|package| package.repository.clone());
-    if package_repository.is_some() {
-        return Ok(package_repository);
-    }
-    let is_workspace_package = package_plan.package_id.source == SourceId::Root
-        || package_manifest_path != root_manifest_path;
-    if !is_workspace_package {
-        return Ok(None);
-    }
-    Ok(root_manifest
-        .workspace
-        .as_ref()
-        .and_then(|workspace| workspace.package.as_ref())
-        .and_then(|package| package.repository.clone()))
 }
 
 fn dependency_kind(kind: DependencyKind) -> &'static str {

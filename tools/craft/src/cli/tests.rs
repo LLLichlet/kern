@@ -209,9 +209,11 @@ fn assert_lockfile_is_current(root: &Path) {
 }
 
 fn assert_lockfile_has_publish_proof(root: &Path) {
+    let publish = fs::read_to_string(root.join("Craft.publish")).unwrap();
+    assert!(publish.contains("[[package]]"));
+    assert!(publish.contains("name = \"demo\"") || publish.contains("name = \"member\""));
     let lockfile = fs::read_to_string(root.join("Craft.lock")).unwrap();
-    assert!(lockfile.contains("[[publish-proof]]"));
-    assert!(lockfile.contains("package = \"demo\"") || lockfile.contains("package = \"member\""));
+    assert!(!lockfile.contains("[[publish-proof]]"));
 }
 
 fn assert_command_resyncs_missing_and_damaged_lockfile(
@@ -2700,7 +2702,6 @@ fn publish_auto_syncs_release_lock_and_checks_metadata() {
         ui: UiOptions::default(),
     })
     .unwrap();
-    assert_lockfile_has_publish_proof(&root);
     run_git(&root, ["add", "Craft.lock"]);
     run_git(&root, ["commit", "-m", "lock"]);
 
@@ -2713,6 +2714,7 @@ fn publish_auto_syncs_release_lock_and_checks_metadata() {
         ui: UiOptions::default(),
     })
     .unwrap();
+    assert_lockfile_has_publish_proof(&root);
 
     let _ = fs::remove_dir_all(root);
 }
@@ -2990,6 +2992,9 @@ fn publish_accepts_workspace_package_metadata_for_members() {
 [workspace]
 name = "workspace"
 members = ["member"]
+
+[workspace.exports]
+member = { member = "member" }
 
 [workspace.package]
 description = "Shared package metadata"

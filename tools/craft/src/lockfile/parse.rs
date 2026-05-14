@@ -1,6 +1,6 @@
 use super::{
     LockedDependency, LockedExternalPackage, LockedPackage, LockedPackageResource,
-    LockedPackageTarget, LockedPublishProof, Lockfile,
+    LockedPackageTarget, Lockfile,
 };
 use crate::error::{Error, Result};
 use std::path::Path;
@@ -13,7 +13,6 @@ enum Section {
     PackageResource(usize),
     ExternalPackage(usize),
     Dependency(usize),
-    PublishProof(usize),
 }
 
 impl Lockfile {
@@ -29,7 +28,6 @@ impl Lockfile {
             package_resources: Vec::new(),
             external_packages: Vec::new(),
             dependencies: Vec::new(),
-            publish_proofs: Vec::new(),
         };
         let mut section = Section::Root;
 
@@ -127,18 +125,6 @@ fn start_section(lockfile: &mut Lockfile, line: &str) -> std::result::Result<Sec
             });
             Ok(Section::Dependency(lockfile.dependencies.len() - 1))
         }
-        "[[publish-proof]]" => {
-            lockfile.publish_proofs.push(LockedPublishProof {
-                package_id: String::new(),
-                package: String::new(),
-                version: String::new(),
-                kern: String::new(),
-                repository: String::new(),
-                manifest_sha256: String::new(),
-                source_sha256: String::new(),
-            });
-            Ok(Section::PublishProof(lockfile.publish_proofs.len() - 1))
-        }
         _ => Err(format!("unsupported array table `{line}`")),
     }
 }
@@ -222,19 +208,6 @@ fn assign_key_value(
                 "target" => dependency.target_kind = parse_string(raw_value)?,
                 "target-id" => dependency.target_id = parse_string(raw_value)?,
                 _ => return Err(format!("unsupported [[dependency]] key `{key}`")),
-            }
-        }
-        Section::PublishProof(index) => {
-            let proof = &mut lockfile.publish_proofs[index];
-            match key {
-                "package-id" => proof.package_id = parse_string(raw_value)?,
-                "package" => proof.package = parse_string(raw_value)?,
-                "version" => proof.version = parse_string(raw_value)?,
-                "kern" => proof.kern = parse_string(raw_value)?,
-                "repository" => proof.repository = parse_string(raw_value)?,
-                "manifest-sha256" => proof.manifest_sha256 = parse_string(raw_value)?,
-                "source-sha256" => proof.source_sha256 = parse_string(raw_value)?,
-                _ => return Err(format!("unsupported [[publish-proof]] key `{key}`")),
             }
         }
     }

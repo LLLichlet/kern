@@ -2,7 +2,6 @@
 name = "examples"
 version = "0.7.6"
 kern = "0.7.6"
-publish = false
 description = "Small runnable Kern examples for first-time learners"
 readme = "README.md"
 license = "MIT"

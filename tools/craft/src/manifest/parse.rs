@@ -149,7 +149,6 @@ fn assign_key_value(
                 "name" => package.name = parse_string(raw_value)?,
                 "version" => package.version = parse_string(raw_value)?,
                 "kern" => package.kern = parse_string(raw_value)?,
-                "publish" => package.publish = Some(parse_bool(raw_value)?),
                 "description" => package.description = Some(parse_string(raw_value)?),
                 "license" => package.license = Some(parse_string(raw_value)?),
                 "authors" => package.authors = parse_string_array(raw_value)?,

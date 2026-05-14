@@ -366,7 +366,6 @@ Example:
 name = "http"
 version = "0.1.0"
 kern = "0.7.6"
-publish = false
 
 [runtime]
 entry = "rt"
@@ -479,18 +478,17 @@ The member package remains a normal package manifest:
 ```toml
 [package]
 name = "json"
-publish = true
 
 [lib]
 root = "src/lib.kn"
 ```
 
-The test and benchmark tools can stay private to the workspace:
+The test and benchmark tools can stay private to the workspace because only
+`[workspace.exports]` members are published from a workspace root:
 
 ```toml
 [package]
 name = "json-test"
-publish = false
 description = "Extended conformance tests for json-kern"
 
 [[bin]]
@@ -547,13 +545,10 @@ Member packages may receive workspace defaults for:
 
 `version` and `kern` participate in member package identity and validation when
 the member omits them. `description`, `license`, `authors`, `readme`, and
-`repository` are used as defaults for publish-readiness checks and publish
-proofs. `homepage` and `documentation` are accepted shared metadata fields for
-the package surface. A member can override an inherited/defaulted field by
-declaring it directly under its own `[package]`.
-
-`publish` is deliberately not inherited. Each member declares its own release
-intent with `publish = true` or `publish = false`.
+`repository` are used as defaults for publish metadata. `homepage` and
+`documentation` are accepted shared metadata fields for the package surface. A
+member can override an inherited/defaulted field by declaring it directly under
+its own `[package]`.
 
 `[workspace.dependencies]` is dependency declaration reuse for members:
 
@@ -570,23 +565,27 @@ The member owns the dependency edge. The workspace only owns the shared source
 declaration. A member can still add local feature choices on the inherited
 edge.
 
-## Publish Readiness
+## Publishing
 
-`craft publish` is a local release-readiness check. It does not upload
-anywhere, talk to a registry, or rewrite dependency state.
+`craft publish` writes and verifies `Craft.publish`, the repository's explicit
+publish declaration. It does not upload anywhere or talk to a registry.
 
 The current rules are:
 
-- `craft publish` always evaluates release-mode publish readiness
+- package roots publish the root package; workspace roots publish the members
+  listed in `[workspace.exports]`
+- `craft publish` always evaluates release-mode publish checks
 - `craft publish` requires the package to be inside a Git worktree with a
   resolvable `HEAD`
-- the Git worktree must be clean before release checks run
+- the Git worktree must be clean before release checks run, except that
+  `craft publish` may create or update `Craft.publish`
 - the canonical `Craft.lock` must already exist and be committed
 - after release graph resolution, `Craft.lock` must still be current; if it
   would be created or updated, publish fails without rewriting the lockfile
 - each publishable package's `repository` URL must match a configured Git
   remote after normalizing common HTTPS and SSH GitHub forms
-- each publishable package must have a current publish proof in `Craft.lock`
+- `Craft.publish` records the current publish metadata and content proof for
+  each published package
 - `craft publish` runs deterministic source formatting checks and reports
   source-style and public-doc metrics without rewriting source files
 
@@ -601,20 +600,21 @@ Required package metadata for a publishable package is:
 These values may be declared directly under `[package]`. Workspace defaults may
 also be placed in `[workspace.package]` for shared package metadata. If
 `readme` comes from `[workspace.package]`, it is resolved relative to the
-workspace root. A package may opt out entirely with `publish = false`.
+workspace root.
 
-`Craft.lock` records a distributed publish proof for each publishable package,
-not a registry entry. The proof records the package name, version, Kern version,
-repository URL, and SHA-256 digests for `Craft.toml` and the package source
-tree. The source-tree digest excludes `.git`, `.craft`, and `Craft.lock` so the
-lockfile can carry the proof without changing the digest it proves.
+`Craft.publish` records the package path, name, package version, Kern version,
+metadata, repository URL, and SHA-256 digests for `Craft.toml` and the package
+source tree. The source-tree digest excludes `.git`, `.craft`, `Craft.lock`,
+and `Craft.publish` so the publish declaration can carry the proof without
+changing the digest it proves.
 
 Git dependencies are verified automatically when they are fetched. A Git
-dependency is rejected if it has no committed `Craft.lock` publish proof, if
-the proof does not match the fetched package contents, if the proof metadata
-does not match the requested package and version, or if the proof repository
-does not match the fetched Git source. This is the default ecosystem boundary
-for Git packages; callers do not opt in to it with a local policy flag.
+dependency is rejected if it has no committed `Craft.publish`, if the publish
+proof does not match the fetched package contents, if the publish metadata does
+not match the requested package and package version, or if the publish
+repository does not match the fetched Git source. This is the default ecosystem
+boundary for Git packages; callers do not opt in to it with a local policy
+flag.
 
 ## Resolution And Execution Inputs
 
@@ -1142,8 +1142,8 @@ Command behavior:
 - `fetch` auto-synchronizes `Craft.lock`, then materializes both external package sources and declared package resources into the local cache
   - package source backends are explicit package paths or git repositories
   - resource source backends are explicit package-relative paths or git repositories
-- `publish` requires a clean Git worktree with committed `Craft.lock`, a
-  current lockfile publish proof, and a matching repository remote, then runs
+- `publish` requires a clean Git worktree with committed `Craft.lock` and a
+  matching repository remote, creates or updates `Craft.publish`, then runs
   release-oriented metadata, source-policy, format, style, and public-doc checks
   without uploading anywhere
 - `doc` auto-synchronizes `Craft.lock`, builds the selected package graph, and renders Markdown package docs under `.craft/docs`

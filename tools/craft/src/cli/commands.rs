@@ -12,6 +12,7 @@ use crate::lockfile;
 use crate::manifest::Manifest;
 use crate::operation_lock::WorkspaceOperationLock;
 use crate::plan::TargetKind;
+use crate::publish::{self, PublishFile, PublishPackageInput};
 use crate::source;
 use crate::style;
 use crate::workspace;
@@ -520,8 +521,13 @@ fn run_publish(
     crate::test_support::hit(crate::test_support::FAILPOINT_AFTER_WORKSPACE_LOCK);
     let summary = publish_summary(&manifest_path, &manifest, &workspace_members)?;
     validate_publish_metadata(&summary)?;
-    let _preflight_vcs_summary =
-        validate_publish_vcs(&manifest_path, &manifest, &workspace_members, &summary)?;
+    let preflight_vcs_summary = validate_publish_vcs(
+        &manifest_path,
+        &manifest,
+        &workspace_members,
+        &summary,
+        None,
+    )?;
     let security_summary = summarize_source_security(&manifest);
     validate_check_source_policy(&manifest_path, &feature_selection, &security_summary)?;
     let lock_path = workspace_root.join("Craft.lock");
@@ -548,6 +554,20 @@ fn run_publish(
             message: "publish lockfile check failed: Craft.lock is not current; run `craft check` and commit Craft.lock before publishing"
                 .to_string(),
         });
+    }
+    let expected_publish =
+        expected_publish_file(&manifest_path, &manifest, &workspace_members, &summary)?;
+    let publish_write_result = publish::sync_publish_file(workspace_root, &expected_publish)?;
+    validate_publish_vcs(
+        &manifest_path,
+        &manifest,
+        &workspace_members,
+        &summary,
+        Some(workspace_root.join(publish::PUBLISH_FILE_NAME).as_path()),
+    )?;
+    if publish_write_result != publish::PublishWriteResult::Unchanged {
+        let publish_path = workspace_root.join(publish::PUBLISH_FILE_NAME);
+        crate::publish::PublishFile::load(&publish_path)?;
     }
     let format_summaries = fmt::format_workspace_sources(
         &manifest_path,
@@ -587,8 +607,7 @@ fn run_publish(
     for summary in &style_summaries {
         style_total.merge(&summary.metrics);
     }
-    let vcs_summary =
-        validate_publish_vcs(&manifest_path, &manifest, &workspace_members, &summary)?;
+    let vcs_summary = preflight_vcs_summary;
 
     render.header_with_path("publish", &manifest, &manifest_path, &feature_selection);
     render.summary(
@@ -639,7 +658,14 @@ fn run_publish(
         "style",
         format!("{style_suggestion_count} advisory source style suggestion(s)"),
     );
-    render.summary("publish-proof", "current in Craft.lock");
+    render.summary(
+        "publish",
+        format!(
+            "{} in {}",
+            publish_write_result.as_str(),
+            publish::PUBLISH_FILE_NAME
+        ),
+    );
     render.summary(
         "lockfile",
         match lockfile_write_result {
@@ -696,6 +722,53 @@ fn run_publish(
     render.ok("publish check completed");
 
     Ok(())
+}
+
+pub(crate) fn expected_publish_file(
+    manifest_path: &Path,
+    manifest: &Manifest,
+    workspace_members: &[workspace::WorkspaceMember],
+    summary: &super::policy::PublishSummary,
+) -> Result<PublishFile> {
+    let workspace_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let mut inputs = Vec::new();
+    for package in &summary.ready {
+        let package_root = package.manifest_path.parent().unwrap_or(workspace_root);
+        let package_manifest = if package.manifest_path == manifest_path {
+            manifest.clone()
+        } else {
+            workspace_members
+                .iter()
+                .find(|member| member.manifest_path == package.manifest_path)
+                .map(|member| member.manifest.clone())
+                .ok_or_else(|| Error::Validation {
+                    path: package.manifest_path.clone(),
+                    message: "publish metadata check failed: package manifest is not part of the workspace"
+                        .to_string(),
+                })?
+        };
+        inputs.push(PublishPackageInput {
+            path: relative_display(workspace_root, package_root),
+            package_root: package_root.to_path_buf(),
+            manifest: package_manifest,
+            description: package.description.clone(),
+            license: package.license.clone(),
+            authors: package.authors.clone(),
+            readme: package.readme.clone(),
+            repository: package.repository.clone(),
+        });
+    }
+    PublishFile::expected(inputs)
+}
+
+fn relative_display(root: &Path, path: &Path) -> String {
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let text = relative.to_string_lossy().replace('\\', "/");
+    if text.is_empty() {
+        ".".to_string()
+    } else {
+        text
+    }
 }
 
 fn run_build(

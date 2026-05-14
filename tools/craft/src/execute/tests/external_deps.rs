@@ -178,6 +178,10 @@ members = ["json"]
 [workspace.package]
 version = "1"
 kern = "0.7.6"
+description = "JSON workspace"
+license = "MIT"
+authors = ["Craft Tests <craft-tests@example.invalid>"]
+readme = "README.md"
 repository = "{}"
 
 [workspace.exports]
@@ -187,6 +191,7 @@ json = {{ member = "json" }}
         ),
     )
     .unwrap();
+    fs::write(repo.join("README.md"), "# json workspace\n").unwrap();
     fs::write(
         json_dir.join("Craft.toml"),
         format!(
@@ -195,6 +200,10 @@ json = {{ member = "json" }}
 name = "json"
 version = "1"
 kern = "0.7.6"
+description = "JSON package"
+license = "MIT"
+authors = ["Craft Tests <craft-tests@example.invalid>"]
+readme = "../README.md"
 repository = "{}"
 
 [lib]

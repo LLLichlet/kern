@@ -1,0 +1,838 @@
+use crate::error::{Error, Result};
+use crate::graph::SourceId;
+use crate::manifest::Manifest;
+use crate::resolver::ExternalPackageId;
+use crate::source::{FetchedSource, FetchedSourceBackend};
+use crate::workspace;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+pub(crate) const PUBLISH_FILE_NAME: &str = "Craft.publish";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PublishFile {
+    pub(crate) packages: Vec<PublishPackage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct PublishPackage {
+    pub(crate) path: String,
+    pub(crate) name: String,
+    pub(crate) version: String,
+    pub(crate) kern: String,
+    pub(crate) description: String,
+    pub(crate) license: String,
+    pub(crate) authors: Vec<String>,
+    pub(crate) readme: String,
+    pub(crate) repository: String,
+    pub(crate) proof: PublishProof,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct PublishProof {
+    pub(crate) manifest_sha256: String,
+    pub(crate) source_sha256: String,
+}
+
+pub(crate) struct PublishPackageInput {
+    pub(crate) path: String,
+    pub(crate) package_root: PathBuf,
+    pub(crate) manifest: Manifest,
+    pub(crate) description: String,
+    pub(crate) license: String,
+    pub(crate) authors: Vec<String>,
+    pub(crate) readme: String,
+    pub(crate) repository: String,
+}
+
+impl PublishFile {
+    pub(crate) fn expected(inputs: Vec<PublishPackageInput>) -> Result<Self> {
+        let mut packages = Vec::new();
+        for input in inputs {
+            let package = input
+                .manifest
+                .package
+                .as_ref()
+                .ok_or_else(|| Error::Validation {
+                    path: input.package_root.join("Craft.toml"),
+                    message: "publish package requires `[package]` metadata".to_string(),
+                })?;
+            packages.push(PublishPackage {
+                path: input.path,
+                name: package.name.clone(),
+                version: package.version.clone(),
+                kern: package.kern.clone(),
+                description: input.description,
+                license: input.license,
+                authors: input.authors,
+                readme: input.readme,
+                repository: input.repository,
+                proof: expected_publish_proof(&input.package_root)?,
+            });
+        }
+        packages.sort();
+        Ok(Self { packages })
+    }
+
+    pub(crate) fn load(path: &Path) -> Result<Self> {
+        let source = fs::read_to_string(path).map_err(|err| Error::from_io(path, err))?;
+        let publish = Self::parse(&source, path)?;
+        publish.validate(path)?;
+        Ok(publish)
+    }
+
+    pub(crate) fn parse(source: &str, path: &Path) -> Result<Self> {
+        parse_publish_file(source, path)
+    }
+
+    pub(crate) fn validate(&self, path: &Path) -> Result<()> {
+        let mut keys = std::collections::BTreeSet::new();
+        for package in &self.packages {
+            validate_non_empty(path, "[[package]].path", &package.path)?;
+            validate_non_empty(path, "[[package]].name", &package.name)?;
+            validate_non_empty(path, "[[package]].version", &package.version)?;
+            validate_non_empty(path, "[[package]].kern", &package.kern)?;
+            validate_non_empty(path, "[[package]].description", &package.description)?;
+            validate_non_empty(path, "[[package]].license", &package.license)?;
+            if package.authors.is_empty() {
+                return Err(Error::Validation {
+                    path: path.to_path_buf(),
+                    message: "[[package]].authors must not be empty".to_string(),
+                });
+            }
+            for author in &package.authors {
+                validate_non_empty(path, "[[package]].authors[]", author)?;
+            }
+            validate_non_empty(path, "[[package]].readme", &package.readme)?;
+            validate_non_empty(path, "[[package]].repository", &package.repository)?;
+            validate_sha256_digest(
+                path,
+                "[package.proof].manifest-sha256",
+                &package.proof.manifest_sha256,
+            )?;
+            validate_sha256_digest(
+                path,
+                "[package.proof].source-sha256",
+                &package.proof.source_sha256,
+            )?;
+            if !keys.insert((
+                package.path.as_str(),
+                package.name.as_str(),
+                package.version.as_str(),
+            )) {
+                return Err(Error::Validation {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "duplicate publish package `{}` `{}` at `{}`",
+                        package.name, package.version, package.path
+                    ),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn render(&self) -> String {
+        let mut out = String::new();
+        out.push_str("# This file is generated by craft publish.\n");
+        for package in &self.packages {
+            out.push('\n');
+            out.push_str("[[package]]\n");
+            push_string_line(&mut out, "path", &package.path);
+            push_string_line(&mut out, "name", &package.name);
+            push_string_line(&mut out, "version", &package.version);
+            push_string_line(&mut out, "kern", &package.kern);
+            push_string_line(&mut out, "description", &package.description);
+            push_string_line(&mut out, "license", &package.license);
+            push_string_array_line(&mut out, "authors", &package.authors);
+            push_string_line(&mut out, "readme", &package.readme);
+            push_string_line(&mut out, "repository", &package.repository);
+            out.push('\n');
+            out.push_str("[package.proof]\n");
+            push_string_line(&mut out, "manifest-sha256", &package.proof.manifest_sha256);
+            push_string_line(&mut out, "source-sha256", &package.proof.source_sha256);
+        }
+        out
+    }
+}
+
+pub(crate) fn sync_publish_file(
+    workspace_root: &Path,
+    expected: &PublishFile,
+) -> Result<PublishWriteResult> {
+    let path = workspace_root.join(PUBLISH_FILE_NAME);
+    let rendered = expected.render();
+    if path.is_file() {
+        let actual = fs::read_to_string(&path).map_err(|err| Error::from_io(&path, err))?;
+        if actual == rendered {
+            return Ok(PublishWriteResult::Unchanged);
+        }
+    }
+    let result = if path.is_file() {
+        PublishWriteResult::Updated
+    } else {
+        PublishWriteResult::Created
+    };
+    crate::local_state::write_file_atomic(&path, rendered)?;
+    Ok(result)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PublishWriteResult {
+    Created,
+    Updated,
+    Unchanged,
+}
+
+impl PublishWriteResult {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Created => "created",
+            Self::Updated => "updated",
+            Self::Unchanged => "current",
+        }
+    }
+}
+
+pub(crate) fn validate_git_dependency_publish_file(
+    package_root: &Path,
+    dependency: &ExternalPackageId,
+    source: &FetchedSource,
+) -> Result<()> {
+    if source.backend != FetchedSourceBackend::GitDependency {
+        return Ok(());
+    }
+
+    let publish_path = package_root.join(PUBLISH_FILE_NAME);
+    if !publish_path.is_file() {
+        return Err(Error::Validation {
+            path: publish_path,
+            message: "git dependency is missing committed `Craft.publish`; run `craft publish`, commit Craft.publish, and depend on that published revision"
+                .to_string(),
+        });
+    }
+    let root_manifest_path = package_root.join("Craft.toml");
+    let root_manifest = Manifest::load(&root_manifest_path)?;
+    let (member_root, member_manifest_path, manifest) = git_dependency_package_manifest(
+        package_root,
+        &root_manifest_path,
+        &root_manifest,
+        dependency,
+    )?;
+    let package = manifest.package.as_ref().ok_or_else(|| Error::Validation {
+        path: member_manifest_path.clone(),
+        message: "git dependency manifest is missing `[package]`".to_string(),
+    })?;
+    let publish = PublishFile::load(&publish_path)?;
+    let Some(actual) = publish
+        .packages
+        .iter()
+        .find(|entry| entry.name == package.name && entry.version == package.version)
+    else {
+        return Err(Error::Validation {
+            path: publish_path,
+            message: "git dependency is missing a matching `Craft.publish` package entry"
+                .to_string(),
+        });
+    };
+    let expected_path = relative_display(package_root, &member_root);
+    if actual.path != expected_path {
+        return Err(Error::Validation {
+            path: publish_path,
+            message: format!(
+                "git dependency publish entry path `{}` does not match package path `{expected_path}`",
+                actual.path
+            ),
+        });
+    }
+    if actual.kern != package.kern {
+        return Err(Error::Validation {
+            path: publish_path,
+            message: "git dependency publish entry Kern version does not match package metadata"
+                .to_string(),
+        });
+    }
+    let expected_proof = expected_publish_proof(&member_root)?;
+    if actual.proof != expected_proof {
+        return Err(Error::Validation {
+            path: publish_path,
+            message: "git dependency Craft.publish proof does not match package contents"
+                .to_string(),
+        });
+    }
+
+    if let Some(version) = dependency.version.as_deref()
+        && package.version != version
+    {
+        return Err(Error::Validation {
+            path: member_manifest_path.clone(),
+            message: format!(
+                "git dependency `{}` requested version `{version}` but Craft.publish describes `{}`",
+                dependency.package_name, package.version
+            ),
+        });
+    }
+    if !repository_urls_match(&actual.repository, &source.locator) {
+        return Err(Error::Validation {
+            path: publish_path,
+            message: format!(
+                "git dependency repository `{}` does not match fetched source `{}`",
+                actual.repository, source.locator
+            ),
+        });
+    }
+    if !matches!(dependency.source, SourceId::GitDependency { .. }) {
+        return Err(Error::Validation {
+            path: package_root.to_path_buf(),
+            message: "publish validation only supports git dependencies".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+fn git_dependency_package_manifest(
+    package_root: &Path,
+    manifest_path: &Path,
+    root_manifest: &Manifest,
+    dependency: &ExternalPackageId,
+) -> Result<(PathBuf, PathBuf, Manifest)> {
+    if root_manifest.package.is_some() {
+        return Ok((
+            package_root.to_path_buf(),
+            manifest_path.to_path_buf(),
+            root_manifest.clone(),
+        ));
+    }
+
+    let exported =
+        workspace::exported_package(manifest_path, root_manifest, &dependency.package_name)?;
+    let member_root = exported
+        .manifest_path
+        .parent()
+        .unwrap_or(package_root)
+        .to_path_buf();
+    Ok((member_root, exported.manifest_path, exported.manifest))
+}
+
+fn expected_publish_proof(package_root: &Path) -> Result<PublishProof> {
+    Ok(PublishProof {
+        manifest_sha256: sha256_file_prefixed(&package_root.join("Craft.toml"))?,
+        source_sha256: sha256_tree_prefixed(package_root)?,
+    })
+}
+
+pub(crate) fn valid_sha256_digest(value: &str) -> bool {
+    let Some(hex) = value.strip_prefix("sha256:") else {
+        return false;
+    };
+    hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn validate_non_empty(path: &Path, field: &str, value: &str) -> Result<()> {
+    if value.trim().is_empty() {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!("{field} must not be empty"),
+        });
+    }
+    Ok(())
+}
+
+fn validate_sha256_digest(path: &Path, field: &str, value: &str) -> Result<()> {
+    validate_non_empty(path, field, value)?;
+    if !valid_sha256_digest(value) {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!("{field} must be a `sha256:` digest"),
+        });
+    }
+    Ok(())
+}
+
+fn sha256_file_prefixed(path: &Path) -> Result<String> {
+    let bytes = fs::read(path).map_err(|err| Error::from_io(path, err))?;
+    Ok(format!("sha256:{}", sha256_hex(&bytes)))
+}
+
+fn sha256_tree_prefixed(root: &Path) -> Result<String> {
+    let mut entries = Vec::new();
+    collect_tree_entries(root, root, &mut entries)?;
+    entries.sort();
+
+    let mut bytes = Vec::new();
+    for entry in entries {
+        match entry {
+            TreeEntry::Dir(relative) => {
+                bytes.extend_from_slice(b"dir:");
+                bytes.extend_from_slice(relative.as_bytes());
+                bytes.push(0);
+            }
+            TreeEntry::File(relative, contents) => {
+                bytes.extend_from_slice(b"file:");
+                bytes.extend_from_slice(relative.as_bytes());
+                bytes.push(0);
+                bytes.extend_from_slice(&contents);
+                bytes.push(0);
+            }
+        }
+    }
+    Ok(format!("sha256:{}", sha256_hex(&bytes)))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum TreeEntry {
+    Dir(String),
+    File(String, Vec<u8>),
+}
+
+fn collect_tree_entries(root: &Path, current: &Path, entries: &mut Vec<TreeEntry>) -> Result<()> {
+    for entry in fs::read_dir(current).map_err(|err| Error::from_io(current, err))? {
+        let entry = entry.map_err(Error::from_io_plain)?;
+        let name = entry.file_name();
+        if name == std::ffi::OsStr::new(".git")
+            || name == std::ffi::OsStr::new(".craft")
+            || name == std::ffi::OsStr::new("Craft.lock")
+            || name == std::ffi::OsStr::new(PUBLISH_FILE_NAME)
+        {
+            continue;
+        }
+        let path = entry.path();
+        let file_type = entry.file_type().map_err(Error::from_io_plain)?;
+        if file_type.is_dir() {
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            entries.push(TreeEntry::Dir(relative));
+            collect_tree_entries(root, &path, entries)?;
+        } else if file_type.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let bytes = fs::read(&path).map_err(|err| Error::from_io(&path, err))?;
+            entries.push(TreeEntry::File(relative, bytes));
+        } else {
+            return Err(Error::Execution(format!(
+                "unsupported filesystem entry `{}` while hashing publish source tree",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn repository_urls_match(repository: &str, remote: &str) -> bool {
+    normalize_repository_url(repository) == normalize_repository_url(remote)
+}
+
+fn normalize_repository_url(url: &str) -> String {
+    let trimmed = url.trim().trim_end_matches('/');
+    let without_git = trimmed.strip_suffix(".git").unwrap_or(trimmed);
+    if let Some(path) = without_git.strip_prefix("file://") {
+        return path.trim_end_matches('/').to_string();
+    }
+    if let Some(rest) = without_git.strip_prefix("git@github.com:") {
+        return format!("https://github.com/{rest}");
+    }
+    without_git.to_string()
+}
+
+fn relative_display(root: &Path, path: &Path) -> String {
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let text = relative.to_string_lossy().replace('\\', "/");
+    if text.is_empty() {
+        ".".to_string()
+    } else {
+        text
+    }
+}
+
+fn push_string_line(out: &mut String, key: &str, value: &str) {
+    out.push_str(key);
+    out.push_str(" = \"");
+    out.push_str(&escape_string(value));
+    out.push_str("\"\n");
+}
+
+fn push_string_array_line(out: &mut String, key: &str, values: &[String]) {
+    out.push_str(key);
+    out.push_str(" = [");
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push('"');
+        out.push_str(&escape_string(value));
+        out.push('"');
+    }
+    out.push_str("]\n");
+}
+
+fn escape_string(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Section {
+    Root,
+    Package(usize),
+    PackageProof(usize),
+}
+
+fn parse_publish_file(source: &str, path: &Path) -> Result<PublishFile> {
+    let mut publish = PublishFile {
+        packages: Vec::new(),
+    };
+    let mut section = Section::Root;
+    for line in logical_lines(source).map_err(|message| Error::LockfileParse {
+        path: path.to_path_buf(),
+        message,
+    })? {
+        if line.starts_with("[[") || line.starts_with('[') {
+            section =
+                start_section(&mut publish, &line).map_err(|message| Error::LockfileParse {
+                    path: path.to_path_buf(),
+                    message,
+                })?;
+            continue;
+        }
+        let (key, raw_value) = split_key_value(&line).map_err(|message| Error::LockfileParse {
+            path: path.to_path_buf(),
+            message,
+        })?;
+        assign_key_value(&mut publish, section, key, raw_value).map_err(|message| {
+            Error::LockfileParse {
+                path: path.to_path_buf(),
+                message,
+            }
+        })?;
+    }
+    Ok(publish)
+}
+
+fn start_section(publish: &mut PublishFile, line: &str) -> std::result::Result<Section, String> {
+    match line {
+        "[[package]]" => {
+            publish.packages.push(PublishPackage {
+                path: String::new(),
+                name: String::new(),
+                version: String::new(),
+                kern: String::new(),
+                description: String::new(),
+                license: String::new(),
+                authors: Vec::new(),
+                readme: String::new(),
+                repository: String::new(),
+                proof: PublishProof {
+                    manifest_sha256: String::new(),
+                    source_sha256: String::new(),
+                },
+            });
+            Ok(Section::Package(publish.packages.len() - 1))
+        }
+        "[package.proof]" => {
+            if publish.packages.is_empty() {
+                return Err("[package.proof] must follow [[package]]".to_string());
+            }
+            Ok(Section::PackageProof(publish.packages.len() - 1))
+        }
+        _ => Err(format!("unsupported publish table `{line}`")),
+    }
+}
+
+fn assign_key_value(
+    publish: &mut PublishFile,
+    section: Section,
+    key: &str,
+    raw_value: &str,
+) -> std::result::Result<(), String> {
+    match section {
+        Section::Root => Err(format!("unsupported root key `{key}`")),
+        Section::Package(index) => {
+            let package = &mut publish.packages[index];
+            match key {
+                "path" => package.path = parse_string(raw_value)?,
+                "name" => package.name = parse_string(raw_value)?,
+                "version" => package.version = parse_string(raw_value)?,
+                "kern" => package.kern = parse_string(raw_value)?,
+                "description" => package.description = parse_string(raw_value)?,
+                "license" => package.license = parse_string(raw_value)?,
+                "authors" => package.authors = parse_string_array(raw_value)?,
+                "readme" => package.readme = parse_string(raw_value)?,
+                "repository" => package.repository = parse_string(raw_value)?,
+                _ => return Err(format!("unsupported [[package]] key `{key}`")),
+            };
+            Ok(())
+        }
+        Section::PackageProof(index) => {
+            let proof = &mut publish.packages[index].proof;
+            match key {
+                "manifest-sha256" => proof.manifest_sha256 = parse_string(raw_value)?,
+                "source-sha256" => proof.source_sha256 = parse_string(raw_value)?,
+                _ => return Err(format!("unsupported [package.proof] key `{key}`")),
+            };
+            Ok(())
+        }
+    }
+}
+
+fn logical_lines(source: &str) -> std::result::Result<Vec<String>, String> {
+    let mut lines = Vec::new();
+    for raw_line in source.lines() {
+        let stripped = strip_comment(raw_line)?;
+        let trimmed = stripped.trim();
+        if !trimmed.is_empty() {
+            lines.push(trimmed.to_string());
+        }
+    }
+    Ok(lines)
+}
+
+fn strip_comment(line: &str) -> std::result::Result<String, String> {
+    let mut out = String::new();
+    let mut in_string = false;
+    let mut escape = false;
+
+    for ch in line.chars() {
+        if escape {
+            out.push(ch);
+            escape = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if in_string => {
+                out.push(ch);
+                escape = true;
+            }
+            '"' => {
+                out.push(ch);
+                in_string = !in_string;
+            }
+            '#' if !in_string => break,
+            _ => out.push(ch),
+        }
+    }
+
+    if in_string {
+        return Err("unterminated string literal".to_string());
+    }
+
+    Ok(out)
+}
+
+fn split_key_value(line: &str) -> std::result::Result<(&str, &str), String> {
+    let mut in_string = false;
+    let mut escape = false;
+
+    for (index, ch) in line.char_indices() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        if in_string {
+            if ch == '\\' {
+                escape = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+            continue;
+        }
+        if ch == '=' {
+            let key = line[..index].trim();
+            let value = line[index + 1..].trim();
+            if key.is_empty() || value.is_empty() {
+                return Err(format!("invalid key/value line `{line}`"));
+            }
+            return Ok((key, value));
+        }
+    }
+
+    Err(format!("expected key/value line, got `{line}`"))
+}
+
+fn parse_string(raw: &str) -> std::result::Result<String, String> {
+    let raw = raw.trim();
+    if !raw.starts_with('"') || !raw.ends_with('"') || raw.len() < 2 {
+        return Err(format!("expected string literal, got `{raw}`"));
+    }
+    let body = &raw[1..raw.len() - 1];
+    let mut out = String::new();
+    let mut chars = body.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        let Some(escaped) = chars.next() else {
+            return Err("unterminated string escape".to_string());
+        };
+        match escaped {
+            '\\' => out.push('\\'),
+            '"' => out.push('"'),
+            'n' => out.push('\n'),
+            'r' => out.push('\r'),
+            't' => out.push('\t'),
+            other => return Err(format!("unsupported string escape `\\{other}`")),
+        }
+    }
+    Ok(out)
+}
+
+fn parse_string_array(raw: &str) -> std::result::Result<Vec<String>, String> {
+    let raw = raw.trim();
+    if !raw.starts_with('[') || !raw.ends_with(']') {
+        return Err(format!("expected string array, got `{raw}`"));
+    }
+    let body = raw[1..raw.len() - 1].trim();
+    if body.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut values = Vec::new();
+    let mut start = 0usize;
+    let mut in_string = false;
+    let mut escape = false;
+    for (index, ch) in body.char_indices() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        if in_string {
+            if ch == '\\' {
+                escape = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+            continue;
+        }
+        if ch == ',' {
+            values.push(parse_string(body[start..index].trim())?);
+            start = index + 1;
+        }
+    }
+    if in_string {
+        return Err("unterminated string array".to_string());
+    }
+    values.push(parse_string(body[start..].trim())?);
+    Ok(values)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ];
+
+    let mut data = bytes.to_vec();
+    let bit_len = (data.len() as u64) * 8;
+    data.push(0x80);
+    while data.len() % 64 != 56 {
+        data.push(0);
+    }
+    data.extend_from_slice(&bit_len.to_be_bytes());
+
+    let mut h = [
+        0x6a09e667u32,
+        0xbb67ae85,
+        0x3c6ef372,
+        0xa54ff53a,
+        0x510e527f,
+        0x9b05688c,
+        0x1f83d9ab,
+        0x5be0cd19,
+    ];
+
+    for chunk in data.chunks_exact(64) {
+        let mut w = [0u32; 64];
+        for (i, word) in w.iter_mut().take(16).enumerate() {
+            let offset = i * 4;
+            *word = u32::from_be_bytes([
+                chunk[offset],
+                chunk[offset + 1],
+                chunk[offset + 2],
+                chunk[offset + 3],
+            ]);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
+        }
+
+        let mut a = h[0];
+        let mut b = h[1];
+        let mut c = h[2];
+        let mut d = h[3];
+        let mut e = h[4];
+        let mut f = h[5];
+        let mut g = h[6];
+        let mut hh = h[7];
+
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let temp1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0.wrapping_add(maj);
+
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+
+        h[0] = h[0].wrapping_add(a);
+        h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d);
+        h[4] = h[4].wrapping_add(e);
+        h[5] = h[5].wrapping_add(f);
+        h[6] = h[6].wrapping_add(g);
+        h[7] = h[7].wrapping_add(hh);
+    }
+
+    h.iter().map(|word| format!("{word:08x}")).collect()
+}

@@ -29,7 +29,6 @@ impl Manifest {
             validate_non_empty(path, "[package].version", &package.version)?;
             validate_non_empty(path, "[package].kern", &package.kern)?;
             validate_kern_version(path, &package.kern)?;
-            let _ = package.publish;
             validate_optional_package_metadata(path, "[package]", package)?;
         }
 

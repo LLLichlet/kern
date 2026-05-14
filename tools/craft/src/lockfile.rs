@@ -1,6 +1,8 @@
 mod build;
+#[cfg(test)]
 mod parse;
 mod render;
+#[cfg(test)]
 mod validate;
 
 use crate::elaborate::ElaborationPlan;
@@ -21,7 +23,6 @@ pub struct Lockfile {
     pub package_resources: Vec<LockedPackageResource>,
     pub external_packages: Vec<LockedExternalPackage>,
     pub dependencies: Vec<LockedDependency>,
-    pub publish_proofs: Vec<LockedPublishProof>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,8 +77,6 @@ pub struct LockedPackageTarget {
     pub root: String,
 }
 
-pub type LockedPublishProof = crate::publish_proof::PublishProof;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LockWriteResult {
     Created,
@@ -131,6 +130,7 @@ fn render_lockfile(manifest_path: &Path, elaboration: &ElaborationPlan) -> Resul
     Ok(Lockfile::from_elaboration(manifest_path, elaboration)?.render())
 }
 
+#[cfg(test)]
 impl Lockfile {
     pub fn load(path: &Path) -> Result<Self> {
         let source = fs::read_to_string(path).map_err(|err| Error::from_io(path, err))?;

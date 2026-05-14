@@ -26,7 +26,7 @@ The current implementation covers:
 - `workspace = true` dependency inheritance
 - dependency export selection with `export = "..."`
 - automatic deterministic canonical `Craft.lock` synchronization during `init` and package-graph commands
-- release-oriented publish readiness checks via `craft publish`
+- release-oriented `Craft.publish` generation and verification via `craft publish`
 - build-plan derivation from normalized package targets and resolved dependencies
 - package-level `build.kn` discovery, validation, and structured per-target link-plan orchestration for execution-sensitive adaptation
 - package-level `build.kn` C-family source compilation through the resolved SDK-first `kernc --cc` path with structured include directories, defines, and generated dependencies

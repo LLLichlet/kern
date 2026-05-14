@@ -34,7 +34,6 @@ pub struct Package {
     pub name: String,
     pub version: String,
     pub kern: String,
-    pub publish: Option<bool>,
     pub description: Option<String>,
     pub license: Option<String>,
     pub authors: Vec<String>,

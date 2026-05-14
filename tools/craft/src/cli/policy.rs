@@ -42,6 +42,11 @@ pub(super) struct PublishPackageSummary {
     pub(super) name: String,
     pub(super) version: String,
     pub(super) manifest_path: PathBuf,
+    pub(super) description: String,
+    pub(super) license: String,
+    pub(super) authors: Vec<String>,
+    pub(super) readme: String,
+    pub(super) repository: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -255,9 +260,7 @@ pub(super) fn publish_summary(
     let mut ready = Vec::new();
     let mut blocked = Vec::new();
 
-    if let Some(package) = &root_manifest.package
-        && package.publish != Some(false)
-    {
+    if let Some(package) = &root_manifest.package {
         classify_publish_package(
             root_manifest_path,
             root_manifest_path,
@@ -268,27 +271,36 @@ pub(super) fn publish_summary(
         )?;
     }
 
-    for member in workspace_members {
-        let Some(package) = &member.manifest.package else {
-            continue;
-        };
-        if package.publish == Some(false) {
-            continue;
+    if let Some(workspace) = &root_manifest.workspace {
+        for export in workspace.exports.values() {
+            let member = workspace_members
+                .iter()
+                .find(|member| member_path(root_manifest_path, &member.manifest_path) == export.member)
+                .ok_or_else(|| Error::Validation {
+                    path: root_manifest_path.to_path_buf(),
+                    message: format!(
+                        "publish metadata check failed: exported member `{}` is not part of the workspace",
+                        export.member
+                    ),
+                })?;
+            let Some(package) = &member.manifest.package else {
+                continue;
+            };
+            classify_publish_package(
+                root_manifest_path,
+                &member.manifest_path,
+                package,
+                workspace_defaults,
+                &mut ready,
+                &mut blocked,
+            )?;
         }
-        classify_publish_package(
-            root_manifest_path,
-            &member.manifest_path,
-            package,
-            workspace_defaults,
-            &mut ready,
-            &mut blocked,
-        )?;
     }
 
     if ready.is_empty() && blocked.is_empty() {
         return Err(Error::Validation {
             path: root_manifest_path.to_path_buf(),
-            message: "publish found no publishable packages; set `[package].publish = true` or omit `publish = false`"
+            message: "publish found no packages; package roots publish themselves, and workspace roots publish `[workspace.exports]` members"
                 .to_string(),
         });
     }
@@ -333,6 +345,7 @@ pub(super) fn validate_publish_vcs(
     root_manifest: &Manifest,
     workspace_members: &[workspace::WorkspaceMember],
     summary: &PublishSummary,
+    allowed_dirty_path: Option<&Path>,
 ) -> Result<PublishVcsSummary> {
     let workspace_root = root_manifest_path
         .parent()
@@ -356,7 +369,7 @@ pub(super) fn validate_publish_vcs(
             path: root_manifest_path.to_path_buf(),
             message: format!("publish vcs check failed: could not read git status ({err})"),
         })?;
-    if !status.trim().is_empty() {
+    if !git_status_is_clean_or_allowed(&repo_root, &status, allowed_dirty_path) {
         return Err(Error::Validation {
             path: root_manifest_path.to_path_buf(),
             message: "publish vcs check failed: git worktree has uncommitted changes".to_string(),
@@ -406,6 +419,39 @@ pub(super) fn validate_publish_vcs(
     })
 }
 
+fn git_status_is_clean_or_allowed(
+    repo_root: &Path,
+    status: &str,
+    allowed_dirty_path: Option<&Path>,
+) -> bool {
+    let allowed = allowed_dirty_path.map(|path| {
+        path.strip_prefix(repo_root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    });
+    for line in status.lines().filter(|line| !line.trim().is_empty()) {
+        let Some(allowed) = allowed.as_deref() else {
+            return false;
+        };
+        if !status_line_matches_path(line, allowed) {
+            return false;
+        }
+    }
+    true
+}
+
+fn status_line_matches_path(line: &str, allowed: &str) -> bool {
+    let path_part = line.get(3..).unwrap_or("").trim();
+    if path_part == allowed {
+        return true;
+    }
+    if let Some((_, rhs)) = path_part.split_once(" -> ") {
+        return rhs == allowed;
+    }
+    false
+}
+
 fn manifest_for_publish_package<'a>(
     root_manifest_path: &Path,
     root_manifest: &'a Manifest,
@@ -425,6 +471,20 @@ fn manifest_for_publish_package<'a>(
         message: "publish metadata check failed: package manifest is not part of the workspace"
             .to_string(),
     })
+}
+
+fn member_path(root_manifest_path: &Path, member_manifest_path: &Path) -> String {
+    let workspace_root = root_manifest_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    let member_root = member_manifest_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    member_root
+        .strip_prefix(workspace_root)
+        .unwrap_or(member_root)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 fn parse_remote_urls(remotes: &str) -> Vec<String> {
@@ -516,10 +576,28 @@ fn classify_publish_package(
         .filter(|path| !path.is_file());
 
     if missing_fields.is_empty() && missing_readme_path.is_none() {
+        let description = publish_description(package, defaults)
+            .expect("publish metadata was checked")
+            .to_string();
+        let license = publish_license(package, defaults)
+            .expect("publish metadata was checked")
+            .to_string();
+        let authors = publish_authors(package, defaults)
+            .expect("publish metadata was checked")
+            .to_vec();
+        let readme = readme.expect("publish metadata was checked").0.to_string();
+        let repository = publish_repository(package, defaults)
+            .expect("publish metadata was checked")
+            .to_string();
         ready.push(PublishPackageSummary {
             name: package.name.clone(),
             version: package.version.clone(),
             manifest_path: manifest_path.to_path_buf(),
+            description,
+            license,
+            authors,
+            readme,
+            repository,
         });
     } else {
         blocked.push(PublishIssue {

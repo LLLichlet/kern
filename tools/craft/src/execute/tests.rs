@@ -1221,6 +1221,7 @@ fn init_git_package(repo: &Path, manifest: &str, lib_source: &str) {
     fs::create_dir_all(repo.join("src")).unwrap();
     let manifest = add_repository_to_manifest(manifest, repo);
     fs::write(repo.join("Craft.toml"), manifest).unwrap();
+    fs::write(repo.join("README.md"), "# test package\n").unwrap();
     fs::write(repo.join("src/lib.kn"), lib_source).unwrap();
     write_publish_artifacts(repo);
     run_git(repo, ["init", "--initial-branch=main"]);
@@ -1253,6 +1254,70 @@ fn write_publish_artifacts(repo: &Path) {
     )
     .unwrap();
     lockfile::sync_lockfile(&manifest_path, &elaboration).unwrap();
+    let publish = test_publish_file(repo, &manifest_path, &manifest, &workspace_members);
+    crate::publish::sync_publish_file(repo, &publish).unwrap();
+}
+
+fn test_publish_file(
+    repo: &Path,
+    manifest_path: &Path,
+    manifest: &Manifest,
+    workspace_members: &[workspace::WorkspaceMember],
+) -> crate::publish::PublishFile {
+    let mut inputs = Vec::new();
+    if manifest.package.is_some() {
+        inputs.push(test_publish_input(repo, repo, manifest.clone()));
+    } else if let Some(workspace) = &manifest.workspace {
+        for export in workspace.exports.values() {
+            let member = workspace_members
+                .iter()
+                .find(|member| {
+                    member
+                        .manifest_path
+                        .parent()
+                        .and_then(|path| path.strip_prefix(repo).ok())
+                        .map(|path| path.to_string_lossy().replace('\\', "/"))
+                        .as_deref()
+                        == Some(export.member.as_str())
+                })
+                .expect("test workspace export must reference a member");
+            let member_root = member.manifest_path.parent().unwrap();
+            inputs.push(test_publish_input(
+                repo,
+                member_root,
+                member.manifest.clone(),
+            ));
+        }
+    }
+    let _ = manifest_path;
+    crate::publish::PublishFile::expected(inputs).unwrap()
+}
+
+fn test_publish_input(
+    repo: &Path,
+    package_root: &Path,
+    manifest: Manifest,
+) -> crate::publish::PublishPackageInput {
+    let package = manifest.package.as_ref().unwrap();
+    let path = package_root
+        .strip_prefix(repo)
+        .unwrap_or(package_root)
+        .to_string_lossy()
+        .replace('\\', "/");
+    crate::publish::PublishPackageInput {
+        path: if path.is_empty() {
+            ".".to_string()
+        } else {
+            path
+        },
+        package_root: package_root.to_path_buf(),
+        manifest: manifest.clone(),
+        description: package.description.clone().unwrap(),
+        license: package.license.clone().unwrap(),
+        authors: package.authors.clone(),
+        readme: package.readme.clone().unwrap(),
+        repository: package.repository.clone().unwrap(),
+    }
 }
 
 fn add_repository_to_manifest(manifest: &str, repo: &Path) -> String {
@@ -1262,7 +1327,7 @@ fn add_repository_to_manifest(manifest: &str, repo: &Path) -> String {
     manifest.replacen(
         "kern = \"0.7.6\"",
         &format!(
-            "kern = \"0.7.6\"\nrepository = \"{}\"",
+            "kern = \"0.7.6\"\ndescription = \"Test package\"\nlicense = \"MIT\"\nauthors = [\"Craft Tests <craft-tests@example.invalid>\"]\nreadme = \"README.md\"\nrepository = \"{}\"",
             toml_string_literal(repo)
         ),
         1,

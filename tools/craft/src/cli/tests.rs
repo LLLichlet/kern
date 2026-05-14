@@ -2725,7 +2725,8 @@ fn publish_auto_syncs_release_lock_and_checks_metadata() {
         ui: UiOptions::default(),
     })
     .unwrap();
-    run_git(&root, ["add", "Craft.lock"]);
+    assert!(root.join("Craft.publish").is_file());
+    run_git(&root, ["add", "Craft.lock", "Craft.publish"]);
     run_git(&root, ["commit", "-m", "lock"]);
 
     run_command(Command::Publish {
@@ -2845,26 +2846,14 @@ fn publish_rejects_dirty_git_worktree() {
 }
 
 #[test]
-fn publish_allows_only_existing_publish_file_to_be_dirty() {
-    let root = temp_dir("craft-cli-publish-dirty-publish-file");
+fn check_refreshes_existing_publish_file() {
+    let root = temp_dir("craft-cli-check-refresh-publish-file");
     write_publishable_git_bin_package(&root);
-    run_command(Command::Publish {
-        path: Some(root.clone()),
-        feature_selection: FeatureSelection {
-            profile: crate::script::ProfileSelection::Release,
-            ..Default::default()
-        },
-        ui: UiOptions::default(),
-    })
-    .unwrap();
     fs::write(root.join("Craft.publish"), "stale publish declaration\n").unwrap();
 
-    run_command(Command::Publish {
+    run_command(Command::Check {
         path: Some(root.clone()),
-        feature_selection: FeatureSelection {
-            profile: crate::script::ProfileSelection::Release,
-            ..Default::default()
-        },
+        feature_selection: FeatureSelection::default(),
         ui: UiOptions::default(),
     })
     .unwrap();

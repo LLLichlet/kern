@@ -289,6 +289,7 @@ fn run_check(
         &feature_selection,
         "check",
     )?;
+    let publish_sync = sync_publish_file_for_check(&loaded)?;
     let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Check)?;
     let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
@@ -406,6 +407,14 @@ fn run_check(
             lockfile::LockWriteResult::Created => "created",
             lockfile::LockWriteResult::Updated => "updated",
             lockfile::LockWriteResult::Unchanged => "current",
+        },
+    );
+    render.summary(
+        "publish",
+        match publish_sync {
+            CheckPublishSync::Ready(result) => result.as_str(),
+            CheckPublishSync::Blocked => "blocked",
+            CheckPublishSync::None => "none",
         },
     );
     if render.is_verbose() && build_plan.generated_file_count() > 0 {
@@ -1944,6 +1953,13 @@ struct LoadedPackageGraph {
     lockfile_write_result: lockfile::LockWriteResult,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheckPublishSync {
+    Ready(publish::PublishWriteResult),
+    Blocked,
+    None,
+}
+
 fn load_package_graph(
     path: Option<&Path>,
     command: crate::script::ScriptCommand,
@@ -1992,6 +2008,35 @@ fn load_package_graph(
         },
         workspace_lock,
     ))
+}
+
+fn sync_publish_file_for_check(loaded: &LoadedPackageGraph) -> Result<CheckPublishSync> {
+    let summary = match publish_summary(
+        &loaded.manifest_path,
+        &loaded.manifest,
+        &loaded.workspace_members,
+    ) {
+        Ok(summary) => summary,
+        Err(_) => return Ok(CheckPublishSync::None),
+    };
+    if !summary.blocked.is_empty() {
+        return Ok(CheckPublishSync::Blocked);
+    }
+    if summary.ready.is_empty() {
+        return Ok(CheckPublishSync::None);
+    }
+
+    let workspace_root = loaded
+        .manifest_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    let expected = expected_publish_file(
+        &loaded.manifest_path,
+        &loaded.manifest,
+        &loaded.workspace_members,
+        &summary,
+    )?;
+    publish::sync_publish_file(workspace_root, &expected).map(CheckPublishSync::Ready)
 }
 
 fn filter_selected_package(

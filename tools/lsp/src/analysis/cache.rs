@@ -110,6 +110,13 @@ pub(super) struct SemanticTokensCacheKey {
     pub(super) document_version: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct LexicalCacheKey {
+    pub(super) uri: String,
+    pub(super) document_version: i64,
+    pub(super) text_hash: u64,
+}
+
 impl AnalysisCacheKey {
     #[cfg(test)]
     pub(super) fn from_resolved(

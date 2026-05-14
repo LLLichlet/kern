@@ -1,6 +1,6 @@
 use super::{AnalysisOutcome, TextDocumentContentChangeEvent};
 use crate::protocol::{Position, Range};
-use kernc_lexer::{Token, TokenType, Tokenizer};
+use kernc_lexer::{LexemeType, Token, TokenType, Tokenizer};
 use kernc_utils::FileId;
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
@@ -12,6 +12,58 @@ use std::path::{Path, PathBuf};
 pub(super) enum CompletionContext {
     Value,
     Type,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct LexicalIndex {
+    protected_ranges: Vec<(usize, usize)>,
+}
+
+impl LexicalIndex {
+    pub(super) fn new(text: &str) -> Self {
+        let mut tokenizer = Tokenizer::new(text, FileId(0));
+        let mut protected_ranges = Vec::new();
+
+        loop {
+            let lexeme = tokenizer.next_lexeme();
+            let is_protected = match lexeme.tag {
+                LexemeType::LineComment | LexemeType::BlockComment => true,
+                LexemeType::Token(tag) => matches!(
+                    tag,
+                    TokenType::DocCommentOuter
+                        | TokenType::DocCommentInner
+                        | TokenType::StringLiteral
+                        | TokenType::CharLiteral
+                        | TokenType::ByteCharLiteral
+                        | TokenType::Illegal
+                        | TokenType::LexError(_)
+                ),
+                LexemeType::Whitespace => false,
+            };
+            if is_protected && lexeme.span.start < lexeme.span.end {
+                protected_ranges.push((lexeme.span.start, lexeme.span.end));
+            }
+            if matches!(lexeme.tag, LexemeType::Token(TokenType::Eof)) {
+                break;
+            }
+        }
+
+        Self { protected_ranges }
+    }
+
+    pub(super) fn contains(&self, offset: usize) -> bool {
+        self.protected_ranges
+            .binary_search_by(|(start, end)| {
+                if offset < *start {
+                    std::cmp::Ordering::Greater
+                } else if offset >= *end {
+                    std::cmp::Ordering::Less
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .is_ok()
+    }
 }
 
 const VALUE_KEYWORD_COMPLETIONS: &[&str] = &[
@@ -468,84 +520,6 @@ pub(super) fn completion_member_access_has_receiver(text: &str, offset: usize) -
         .take_while(|ch| *ch != '\n' && *ch != '\r')
         .find(|ch| !ch.is_whitespace())
         .is_some()
-}
-
-pub(super) fn position_is_in_comment_or_literal(text: &str, offset: usize) -> bool {
-    let bytes = text.as_bytes();
-    let end = offset.min(bytes.len());
-    let mut index = 0;
-    let mut in_line_comment = false;
-    let mut block_comment_depth = 0usize;
-    let mut in_string = false;
-    let mut in_char = false;
-    let mut escaped = false;
-
-    while index < end {
-        let byte = bytes[index];
-
-        if in_line_comment {
-            if byte == b'\n' {
-                in_line_comment = false;
-            }
-            index += 1;
-            continue;
-        }
-
-        if block_comment_depth > 0 {
-            if byte == b'/' && bytes.get(index + 1) == Some(&b'*') {
-                block_comment_depth += 1;
-                index += 2;
-            } else if byte == b'*' && bytes.get(index + 1) == Some(&b'/') {
-                block_comment_depth -= 1;
-                index += 2;
-            } else {
-                index += 1;
-            }
-            continue;
-        }
-
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                in_string = false;
-            }
-            index += 1;
-            continue;
-        }
-
-        if in_char {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'\'' {
-                in_char = false;
-            }
-            index += 1;
-            continue;
-        }
-
-        if byte == b'/' && bytes.get(index + 1) == Some(&b'/') {
-            in_line_comment = true;
-            index += 2;
-        } else if byte == b'/' && bytes.get(index + 1) == Some(&b'*') {
-            block_comment_depth = 1;
-            index += 2;
-        } else if byte == b'"' {
-            in_string = true;
-            index += 1;
-        } else if byte == b'\'' {
-            in_char = true;
-            index += 1;
-        } else {
-            index += 1;
-        }
-    }
-
-    in_line_comment || block_comment_depth > 0 || in_string || in_char
 }
 
 pub(super) fn completion_is_binding_name_context(text: &str, offset: usize) -> bool {

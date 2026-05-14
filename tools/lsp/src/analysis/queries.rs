@@ -14,7 +14,10 @@ impl AnalysisEngine {
         let Some(offset) = position_to_byte_offset(&file, position) else {
             return Ok(None);
         };
-        if position_is_in_comment_or_literal(&target_doc.text, offset) {
+        if self
+            .lexical_index_for_document(uri, target_doc)
+            .contains(offset)
+        {
             self.record_analysis_tier(AnalysisTier::Lexical);
             return Ok(None);
         }
@@ -204,7 +207,10 @@ impl AnalysisEngine {
         let Some(offset) = position_to_byte_offset(&file, &position) else {
             return Ok(Vec::new());
         };
-        if position_is_in_comment_or_literal(&target_doc.text, offset) {
+        if self
+            .lexical_index_for_document(uri, target_doc)
+            .contains(offset)
+        {
             self.record_analysis_tier(AnalysisTier::Lexical);
             return Ok(Vec::new());
         }

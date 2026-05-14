@@ -8,5 +8,5 @@ mod token;
 /// Source-to-token conversion.
 mod tokenizer;
 
-pub use token::{Token, TokenType};
+pub use token::{Lexeme, LexemeType, Token, TokenType};
 pub use tokenizer::Tokenizer;

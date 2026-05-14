@@ -10,6 +10,36 @@ pub struct Token {
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Lexeme {
+    /// Lexeme kind.
+    pub tag: LexemeType,
+
+    /// File-relative source span for this lexeme.
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum LexemeType {
+    /// Horizontal or vertical whitespace.
+    Whitespace,
+
+    /// A normal `//` comment. Doc comments remain tokens.
+    LineComment,
+
+    /// A normal `/* ... */` comment.
+    BlockComment,
+
+    /// A parser-visible token.
+    Token(TokenType),
+}
+
+impl Default for LexemeType {
+    fn default() -> Self {
+        Self::Token(TokenType::default())
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TokenType {
     // === Identifiers and literals ===
     /// Identifier token, for example `abc` or `my_var`.

@@ -11,7 +11,8 @@ mod tests;
 mod text;
 
 use self::cache::{
-    AnalysisCacheKey, DirtyDocumentsSnapshot, SemanticTokensCacheKey, hash_source_text,
+    AnalysisCacheKey, DirtyDocumentsSnapshot, LexicalCacheKey, SemanticTokensCacheKey,
+    hash_source_text,
 };
 use self::code_actions::{
     lightweight_quick_fix_for_diagnostic, quick_fix_for_diagnostic, ranges_overlap,
@@ -32,13 +33,12 @@ pub(crate) use self::text::single_server_diagnostic;
 #[cfg(test)]
 pub(crate) use self::text::uri_to_file_path;
 use self::text::{
-    apply_content_change, byte_offset_to_position, completion_context,
+    LexicalIndex, apply_content_change, byte_offset_to_position, completion_context,
     completion_is_binding_name_context, completion_is_member_access,
     completion_member_access_has_receiver, completion_prefix, fallback_keyword_completion_labels,
     file_path_to_uri, has_following_call_paren, is_valid_identifier, keyword_completion_labels,
-    match_position_in_file, normalize_path, position_is_in_comment_or_literal,
-    position_to_byte_offset, span_contains_offset, span_to_range, trim_line_ending,
-    uri_to_analysis_path,
+    match_position_in_file, normalize_path, position_to_byte_offset, span_contains_offset,
+    span_to_range, trim_line_ending, uri_to_analysis_path,
 };
 use crate::defaults::default_analysis_compile_options;
 use crate::protocol::{
@@ -156,6 +156,7 @@ pub struct AnalysisEngine {
     artifact_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisArtifact>>>,
     navigation_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisNavigationArtifact>>>,
     semantic_tokens_cache: RefCell<BTreeMap<SemanticTokensCacheKey, SemanticTokens>>,
+    lexical_cache: RefCell<BTreeMap<LexicalCacheKey, Rc<LexicalIndex>>>,
     dirty_documents_snapshot: RefCell<Option<Rc<DirtyDocumentsSnapshot>>>,
     open_uri_by_path: RefCell<Option<Rc<BTreeMap<PathBuf, String>>>>,
     last_analysis_tier: RefCell<Option<AnalysisTier>>,
@@ -180,6 +181,7 @@ impl AnalysisEngine {
             artifact_cache: RefCell::new(BTreeMap::new()),
             navigation_cache: RefCell::new(BTreeMap::new()),
             semantic_tokens_cache: RefCell::new(BTreeMap::new()),
+            lexical_cache: RefCell::new(BTreeMap::new()),
             dirty_documents_snapshot: RefCell::new(None),
             open_uri_by_path: RefCell::new(None),
             last_analysis_tier: RefCell::new(None),
@@ -851,6 +853,24 @@ impl AnalysisEngine {
 
     fn invalidate_render_caches(&self) {
         self.semantic_tokens_cache.borrow_mut().clear();
+        self.lexical_cache.borrow_mut().clear();
+    }
+
+    fn lexical_index_for_document(&self, uri: &str, document: &OpenDocument) -> Rc<LexicalIndex> {
+        let key = LexicalCacheKey {
+            uri: uri.to_string(),
+            document_version: document.version,
+            text_hash: document.text_hash,
+        };
+        if let Some(index) = self.lexical_cache.borrow().get(&key) {
+            return Rc::clone(index);
+        }
+
+        let index = Rc::new(LexicalIndex::new(&document.text));
+        self.lexical_cache
+            .borrow_mut()
+            .insert(key, Rc::clone(&index));
+        index
     }
 
     fn prune_cache_family_for_insert(&self, keep: &AnalysisCacheKey) {

@@ -1,4 +1,4 @@
-use super::token::{Token, TokenType};
+use super::token::{Lexeme, LexemeType, Token, TokenType};
 use kernc_utils::{FileId, Span};
 
 #[derive(Clone)]
@@ -32,141 +32,198 @@ impl<'a> Tokenizer<'a> {
 
     /// Produce the next token from the input stream.
     pub fn next_token(&mut self) -> Token {
-        if let Some(err_token) = self.skip_whitespace_and_comments() {
-            return err_token;
+        loop {
+            let lexeme = self.next_lexeme();
+            match lexeme.tag {
+                LexemeType::Whitespace | LexemeType::LineComment | LexemeType::BlockComment => {}
+                LexemeType::Token(tag) => {
+                    return Token {
+                        tag,
+                        span: lexeme.span,
+                    };
+                }
+            }
         }
+    }
 
+    /// Produce the next lexeme, including comments and whitespace.
+    ///
+    /// Parser-facing tokenization should keep using `next_token`; this API is
+    /// for tools that need a faithful lexical view of source text.
+    pub fn next_lexeme(&mut self) -> Lexeme {
         self.start = self.current;
 
         let c = match self.advance() {
             Some(c) => c,
-            None => return self.make_token(TokenType::Eof),
+            None => return self.make_lexeme(LexemeType::Token(TokenType::Eof)),
         };
 
         match c {
+            b' ' | b'\t' | b'\r' | b'\n' => self.scan_whitespace(),
+            b'/' if self.peek() == b'/' => self.scan_line_comment_or_doc_comment(),
+            b'/' if self.peek() == b'*' => self.scan_block_comment(),
             b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
                 // Detect the byte-character prefix `b'`.
                 if c == b'b' && self.peek() == b'\'' {
                     self.advance(); // Consume the quote after `b`.
-                    return self.scan_char(TokenType::ByteCharLiteral);
+                    return token_lexeme(self.scan_char(TokenType::ByteCharLiteral));
                 }
-                self.scan_identifier()
+                token_lexeme(self.scan_identifier())
             }
-            b'0'..=b'9' => self.scan_number(),
-            b'"' => self.scan_string(),
+            b'0'..=b'9' => token_lexeme(self.scan_number()),
+            b'"' => token_lexeme(self.scan_string()),
             b'\\' => {
                 if self.match_char(b'\\') {
-                    self.scan_multiline_string()
+                    token_lexeme(self.scan_multiline_string())
                 } else {
-                    self.make_token(TokenType::Illegal)
+                    self.make_token_lexeme(TokenType::Illegal)
                 }
             }
-            b'\'' => self.scan_char(TokenType::CharLiteral),
+            b'\'' => token_lexeme(self.scan_char(TokenType::CharLiteral)),
 
-            b'(' => self.make_token(TokenType::LParen),
-            b')' => self.make_token(TokenType::RParen),
-            b'{' => self.make_token(TokenType::LBrace),
-            b'}' => self.make_token(TokenType::RBrace),
-            b'[' => self.make_token(TokenType::LBracket),
-            b']' => self.make_token(TokenType::RBracket),
-            b',' => self.make_token(TokenType::Comma),
-            b';' => self.make_token(TokenType::Semicolon),
-            b':' => self.make_token(TokenType::Colon),
-            b'#' => self.make_token(TokenType::Hash),
-            b'@' => self.make_token(TokenType::At),
-            b'?' => self.make_token(TokenType::Question),
+            b'(' => self.make_token_lexeme(TokenType::LParen),
+            b')' => self.make_token_lexeme(TokenType::RParen),
+            b'{' => self.make_token_lexeme(TokenType::LBrace),
+            b'}' => self.make_token_lexeme(TokenType::RBrace),
+            b'[' => self.make_token_lexeme(TokenType::LBracket),
+            b']' => self.make_token_lexeme(TokenType::RBracket),
+            b',' => self.make_token_lexeme(TokenType::Comma),
+            b';' => self.make_token_lexeme(TokenType::Semicolon),
+            b':' => self.make_token_lexeme(TokenType::Colon),
+            b'#' => self.make_token_lexeme(TokenType::Hash),
+            b'@' => self.make_token_lexeme(TokenType::At),
+            b'?' => self.make_token_lexeme(TokenType::Question),
 
             b'.' => {
                 if self.match_char(b'.') {
                     if self.match_char(b'.') {
-                        self.make_token(TokenType::Ellipsis)
+                        self.make_token_lexeme(TokenType::Ellipsis)
                     } else if self.match_char(b'=') {
-                        self.make_token(TokenType::DotDotEqual)
+                        self.make_token_lexeme(TokenType::DotDotEqual)
                     } else if self.match_char(b'&') {
                         // Parse `..&` as mutable address-of.
-                        self.make_token(TokenType::DotDotAmpersand)
+                        self.make_token_lexeme(TokenType::DotDotAmpersand)
                     } else {
-                        self.make_token(TokenType::DotDot)
+                        self.make_token_lexeme(TokenType::DotDot)
                     }
                 } else if self.match_char(b'*') {
-                    self.make_token(TokenType::DotStar)
+                    self.make_token_lexeme(TokenType::DotStar)
                 } else if self.match_char(b'&') {
-                    self.make_token(TokenType::DotAmpersand)
+                    self.make_token_lexeme(TokenType::DotAmpersand)
                 } else if self.match_char(b'?') {
-                    self.make_token(TokenType::DotQuestion)
+                    self.make_token_lexeme(TokenType::DotQuestion)
                 } else if self.match_char(b'[') {
-                    self.make_token(TokenType::DotLBracket)
+                    self.make_token_lexeme(TokenType::DotLBracket)
                 } else if self.match_char(b'{') {
-                    self.make_token(TokenType::DotLBrace)
+                    self.make_token_lexeme(TokenType::DotLBrace)
                 } else {
-                    self.make_token(TokenType::Dot)
+                    self.make_token_lexeme(TokenType::Dot)
                 }
             }
 
-            b'+' => self.match_assign(TokenType::Plus, TokenType::PlusAssign),
-            b'-' => self.match_assign(TokenType::Minus, TokenType::MinusAssign),
-            b'*' => self.match_assign(TokenType::Star, TokenType::StarAssign),
-            b'%' => self.match_assign(TokenType::Percent, TokenType::PercentAssign),
+            b'+' => token_lexeme(self.match_assign(TokenType::Plus, TokenType::PlusAssign)),
+            b'-' => token_lexeme(self.match_assign(TokenType::Minus, TokenType::MinusAssign)),
+            b'*' => token_lexeme(self.match_assign(TokenType::Star, TokenType::StarAssign)),
+            b'%' => token_lexeme(self.match_assign(TokenType::Percent, TokenType::PercentAssign)),
 
             b'/' => {
                 if self.match_char(b'=') {
-                    self.make_token(TokenType::SlashAssign)
+                    self.make_token_lexeme(TokenType::SlashAssign)
                 } else {
-                    self.make_token(TokenType::Slash)
+                    self.make_token_lexeme(TokenType::Slash)
                 }
             }
 
             b'=' => {
                 if self.match_char(b'=') {
-                    self.make_token(TokenType::EqualEqual)
+                    self.make_token_lexeme(TokenType::EqualEqual)
                 } else if self.match_char(b'>') {
-                    self.make_token(TokenType::Arrow)
+                    self.make_token_lexeme(TokenType::Arrow)
                 } else {
-                    self.make_token(TokenType::Assign)
+                    self.make_token_lexeme(TokenType::Assign)
                 }
             }
             b'!' => {
                 if self.match_char(b'=') {
-                    self.make_token(TokenType::NotEqual)
+                    self.make_token_lexeme(TokenType::NotEqual)
                 } else {
-                    self.make_token(TokenType::Bang)
+                    self.make_token_lexeme(TokenType::Bang)
                 }
             }
             b'<' => {
                 if self.match_char(b'<') {
                     if self.match_char(b'=') {
-                        return self.make_token(TokenType::LShiftAssign);
+                        return self.make_token_lexeme(TokenType::LShiftAssign);
                     }
-                    return self.make_token(TokenType::LShift);
+                    return self.make_token_lexeme(TokenType::LShift);
                 }
                 if self.match_char(b'=') {
-                    return self.make_token(TokenType::LessEqual);
+                    return self.make_token_lexeme(TokenType::LessEqual);
                 }
-                self.make_token(TokenType::LessThan)
+                self.make_token_lexeme(TokenType::LessThan)
             }
             b'>' => {
                 if self.match_char(b'>') {
                     if self.match_char(b'=') {
-                        return self.make_token(TokenType::RShiftAssign);
+                        return self.make_token_lexeme(TokenType::RShiftAssign);
                     }
-                    return self.make_token(TokenType::RShift);
+                    return self.make_token_lexeme(TokenType::RShift);
                 }
                 if self.match_char(b'=') {
-                    return self.make_token(TokenType::GreaterEqual);
+                    return self.make_token_lexeme(TokenType::GreaterEqual);
                 }
-                self.make_token(TokenType::GreaterThan)
+                self.make_token_lexeme(TokenType::GreaterThan)
             }
 
-            b'&' => self.match_assign(TokenType::Ampersand, TokenType::AmpersandAssign),
-            b'|' => self.match_assign(TokenType::Pipe, TokenType::PipeAssign),
-            b'^' => self.match_assign(TokenType::Caret, TokenType::CaretAssign),
-            b'~' => self.make_token(TokenType::Tilde),
+            b'&' => {
+                token_lexeme(self.match_assign(TokenType::Ampersand, TokenType::AmpersandAssign))
+            }
+            b'|' => token_lexeme(self.match_assign(TokenType::Pipe, TokenType::PipeAssign)),
+            b'^' => token_lexeme(self.match_assign(TokenType::Caret, TokenType::CaretAssign)),
+            b'~' => self.make_token_lexeme(TokenType::Tilde),
 
-            _ => self.make_token(TokenType::Illegal),
+            _ => self.make_token_lexeme(TokenType::Illegal),
         }
     }
 
     // === Core scanning logic ===
+
+    fn scan_whitespace(&mut self) -> Lexeme {
+        while matches!(self.peek(), b' ' | b'\t' | b'\r' | b'\n') {
+            self.advance();
+        }
+        self.make_lexeme(LexemeType::Whitespace)
+    }
+
+    fn scan_line_comment_or_doc_comment(&mut self) -> Lexeme {
+        self.advance(); // Consume the second `/`.
+        let doc_kind = match self.peek() {
+            b'/' if self.peek_next() != b'/' => Some(TokenType::DocCommentOuter),
+            b'!' => Some(TokenType::DocCommentInner),
+            _ => None,
+        };
+        if doc_kind.is_some() {
+            self.advance();
+        }
+        while !self.is_eof() && !is_line_break(self.peek()) {
+            self.advance();
+        }
+
+        if let Some(tag) = doc_kind {
+            self.make_token_lexeme(tag)
+        } else {
+            self.make_lexeme(LexemeType::LineComment)
+        }
+    }
+
+    fn scan_block_comment(&mut self) -> Lexeme {
+        self.advance(); // Consume `*`.
+        if self.skip_comment_block() {
+            self.make_lexeme(LexemeType::BlockComment)
+        } else {
+            self.make_token_lexeme(TokenType::LexError("Unterminated multi-line comment"))
+        }
+    }
 
     fn scan_identifier(&mut self) -> Token {
         while is_alpha_numeric(self.peek()) {
@@ -569,10 +626,6 @@ impl<'a> Tokenizer<'a> {
         self.source[self.current + 1]
     }
 
-    fn peek_nth(&self, offset: usize) -> u8 {
-        self.source.get(self.current + offset).copied().unwrap_or(0)
-    }
-
     fn match_char(&mut self, expected: u8) -> bool {
         if self.current >= self.source.len() {
             return false;
@@ -611,62 +664,19 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn skip_whitespace_and_comments(&mut self) -> Option<Token> {
-        loop {
-            if self.is_eof() {
-                break;
-            }
-            let c = self.peek();
-            match c {
-                b' ' | b'\t' | b'\r' | b'\n' => {
-                    self.advance();
-                }
-                b'/' => {
-                    if self.peek_next() == b'/' {
-                        let doc_kind = match self.peek_nth(2) {
-                            b'/' if self.peek_nth(3) != b'/' => Some(TokenType::DocCommentOuter),
-                            b'!' => Some(TokenType::DocCommentInner),
-                            _ => None,
-                        };
-                        if let Some(tag) = doc_kind {
-                            self.start = self.current;
-                            self.advance();
-                            self.advance();
-                            self.advance();
-                            while !self.is_eof() && !is_line_break(self.peek()) {
-                                self.advance();
-                            }
-                            return Some(self.make_token(tag));
-                        }
-
-                        // Skip a line comment.
-                        while !self.is_eof() && self.peek() != b'\n' {
-                            self.advance();
-                        }
-                    } else if self.peek_next() == b'*' {
-                        let start_pos = self.current; // Remember the start of `/*`.
-                        self.advance(); // Consume `/`.
-                        self.advance(); // Consume `*`.
-
-                        if !self.skip_comment_block() {
-                            // Surface unterminated block comments as lexer errors.
-                            return Some(Token {
-                                tag: TokenType::LexError("Unterminated multi-line comment"),
-                                span: Span {
-                                    file: self.file_id,
-                                    start: start_pos,
-                                    end: self.current,
-                                },
-                            });
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                _ => break,
-            }
+    fn make_lexeme(&self, tag: LexemeType) -> Lexeme {
+        Lexeme {
+            tag,
+            span: Span {
+                file: self.file_id,
+                start: self.start,
+                end: self.current,
+            },
         }
-        None // Completed normally with no lexer error.
+    }
+
+    fn make_token_lexeme(&self, tag: TokenType) -> Lexeme {
+        self.make_lexeme(LexemeType::Token(tag))
     }
 
     fn skip_comment_block(&mut self) -> bool {
@@ -700,6 +710,89 @@ impl<'a> Tokenizer<'a> {
     #[inline]
     fn is_eof(&self) -> bool {
         self.current >= self.source.len()
+    }
+}
+
+fn token_lexeme(token: Token) -> Lexeme {
+    Lexeme {
+        tag: LexemeType::Token(token.tag),
+        span: token.span,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lexeme_tags(source: &str) -> Vec<LexemeType> {
+        let mut tokenizer = Tokenizer::new(source, FileId(0));
+        let mut tags = Vec::new();
+        loop {
+            let lexeme = tokenizer.next_lexeme();
+            tags.push(lexeme.tag);
+            if matches!(lexeme.tag, LexemeType::Token(TokenType::Eof)) {
+                break;
+            }
+        }
+        tags
+    }
+
+    fn token_tags(source: &str) -> Vec<TokenType> {
+        let mut tokenizer = Tokenizer::new(source, FileId(0));
+        let mut tags = Vec::new();
+        loop {
+            let token = tokenizer.next_token();
+            tags.push(token.tag);
+            if token.tag == TokenType::Eof {
+                break;
+            }
+        }
+        tags
+    }
+
+    #[test]
+    fn next_lexeme_keeps_normal_comments_as_trivia() {
+        assert_eq!(
+            lexeme_tags("value // line\n/* block */ next"),
+            vec![
+                LexemeType::Token(TokenType::Identifier),
+                LexemeType::Whitespace,
+                LexemeType::LineComment,
+                LexemeType::Whitespace,
+                LexemeType::BlockComment,
+                LexemeType::Whitespace,
+                LexemeType::Token(TokenType::Identifier),
+                LexemeType::Token(TokenType::Eof),
+            ]
+        );
+    }
+
+    #[test]
+    fn next_token_still_skips_normal_comments_but_keeps_doc_comments() {
+        assert_eq!(
+            token_tags("value // line\n/// doc\n//! inner\n/* block */ next"),
+            vec![
+                TokenType::Identifier,
+                TokenType::DocCommentOuter,
+                TokenType::DocCommentInner,
+                TokenType::Identifier,
+                TokenType::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn next_lexeme_reports_unterminated_block_comment_as_lex_error() {
+        let tags = lexeme_tags("value /* unterminated");
+        assert!(matches!(
+            tags.as_slice(),
+            [
+                LexemeType::Token(TokenType::Identifier),
+                LexemeType::Whitespace,
+                LexemeType::Token(TokenType::LexError("Unterminated multi-line comment")),
+                LexemeType::Token(TokenType::Eof),
+            ]
+        ));
     }
 }
 

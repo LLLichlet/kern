@@ -1205,10 +1205,16 @@ fn semantic_position_queries_skip_comments_and_literals() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
         "fn helper(first: i32) i32 { return first; }\n",
+        "/// helper(1)\n",
         "fn main() i32 {\n",
         "    // helper(1)\n",
         "    let text = \"helper(1)\";\n",
-        "    return helper(1);\n",
+        "    let bad = \"\\qhelper(1)\";\n",
+        "    let multi = \\\\ helper(1)\n",
+        "    let ch = 'h';\n",
+        "    let byte = b'h';\n",
+        "    /* outer /* inner helper(1) */ still helper(1) */\n",
+        "    return helper(1) + h as i32;\n",
         "}\n",
     );
     let uri = temp_file_uri("semantic_queries_skip_text_contexts", source);
@@ -1227,7 +1233,7 @@ fn semantic_position_queries_skip_comments_and_literals() {
     analysis.structure_cache.borrow_mut().clear();
     analysis.artifact_cache.borrow_mut().clear();
 
-    let comment_position = position_of_nth(source, "helper(1)", 0, 1);
+    let comment_position = position_of_nth(source, "helper(1)", 1, 1);
     assert!(
         analysis
             .hover(&uri, comment_position.clone())
@@ -1288,7 +1294,7 @@ fn semantic_position_queries_skip_comments_and_literals() {
     assert!(analysis.artifact_cache.borrow().is_empty());
 
     analysis.clear_last_analysis_tier();
-    let literal_position = position_of_nth(source, "helper(1)", 1, 8);
+    let literal_position = position_of_nth(source, "helper(1)", 2, 8);
     assert!(
         analysis
             .signature_help(&uri, literal_position)
@@ -1297,6 +1303,39 @@ fn semantic_position_queries_skip_comments_and_literals() {
     );
     assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
     assert!(analysis.artifact_cache.borrow().is_empty());
+
+    for (description, position) in [
+        ("doc comment", position_of_nth(source, "helper(1)", 0, 1)),
+        (
+            "multiline string",
+            position_of_nth(source, "helper(1)", 4, 1),
+        ),
+        ("invalid string", position_of_nth(source, "helper(1)", 3, 1)),
+        ("char literal", position_of_nth(source, "'h'", 0, 1)),
+        ("byte char literal", position_of_nth(source, "b'h'", 0, 2)),
+        (
+            "nested block comment",
+            position_of_nth(source, "helper(1)", 5, 1),
+        ),
+        (
+            "outer block comment after nested close",
+            position_of_nth(source, "helper(1)", 6, 1),
+        ),
+    ] {
+        analysis.clear_last_analysis_tier();
+        assert!(
+            analysis.hover(&uri, position).unwrap().is_none(),
+            "hover should be empty inside {description}"
+        );
+        assert_eq!(
+            analysis.last_analysis_tier(),
+            Some(AnalysisTier::Lexical),
+            "{description}"
+        );
+        assert!(analysis.artifact_cache.borrow().is_empty(), "{description}");
+    }
+
+    assert_eq!(analysis.lexical_cache.borrow().len(), 1);
 }
 
 #[test]

@@ -218,6 +218,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "kernup"
+version = "0.7.5"
+dependencies = [
+ "shared_cli",
+ "shared_ops",
+]
+
+[[package]]
+name = "kernworker"
+version = "0.7.5"
+dependencies = [
+ "shared_cli",
+ "shared_ops",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -325,6 +341,14 @@ dependencies = [
 [[package]]
 name = "shared_cli"
 version = "0.7.5"
+
+[[package]]
+name = "shared_ops"
+version = "0.7.5"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "shlex"

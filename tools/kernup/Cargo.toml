@@ -1,0 +1,10 @@
+[package]
+name = "kernup"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+shared_cli = { workspace = true }
+shared_ops = { workspace = true }

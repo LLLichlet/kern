@@ -193,12 +193,24 @@ cargo test
 
 构建结果会放在 `target/release/`，包括 `kernc`、`craft` 和 `kern-lsp`。
 
+仓库维护命令正在迁移到 Rust 宿主工具。分组编译器集成测试优先使用：
+
+```sh
+cargo run -p kernworker -- ci kernc-tests --mode smoke
+```
+
 在 Windows 上从源码构建时，需要完整的 LLVM 21 开发环境，不能只安装面向使用者的 SDK。如果 `cargo build` 报告缺少 `libxml2.lib`、`libxml2s.lib` 等 LLVM 库，请参考 [Windows Distribution](docs/windows-distribution.md#local-development-build) 中的本地构建说明。
 
 如果希望本地安装的 SDK 在删除源码目录后仍然可用，应先打包并安装本地归档，而不是手工复制 `target/release`。打包入口：
 
 ```sh
 python -m ops release package --version v0.7.5 --target <host-target>
+```
+
+本地 SDK 归档安装已经有 Rust 入口：
+
+```sh
+cargo run -p kernup -- install --archive ./kern-v0.7.5-<host-target>.tar.gz
 ```
 
 ## 文档

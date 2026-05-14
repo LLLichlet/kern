@@ -219,6 +219,13 @@ The official library workspace is checked in under `library/`. You can still
 set `KERNLIB_PATH` to an external compatible library workspace when testing an
 alternate library snapshot.
 
+Repository maintenance commands are moving to Rust host tools. For grouped
+compiler integration tests, prefer:
+
+```sh
+cargo run -p kernworker -- ci kernc-tests --mode smoke
+```
+
 Windows source builds require a full LLVM 21 development prefix, not only the
 installed end-user SDK. If `cargo build` reports missing LLVM libraries such as
 `libxml2.lib` or `libxml2s.lib`, follow the Windows source-build setup in
@@ -230,6 +237,12 @@ checkout, package and install a local archive instead of copying
 
 ```sh
 python -m ops release package --version v0.7.5 --target <host-target>
+```
+
+Local SDK archive installation has a Rust entry point:
+
+```sh
+cargo run -p kernup -- install --archive ./kern-v0.7.5-<host-target>.tar.gz
 ```
 
 ## Documentation

@@ -49,6 +49,8 @@ These documents sit between public behavior and implementation detail.
 
 - [`tools/craft/README.md`](../tools/craft/README.md): current `craft` surface and internal module index
 - [`tools/lsp/README.md`](../tools/lsp/README.md): current `kern-lsp` feature surface, protocol coverage, and integration constraints
+- `tools/kernup`: Rust SDK installer and future toolchain manager entry point
+- `tools/kernworker`: Rust repository maintenance and CI worker entry point
 
 ## Source Of Truth By Topic
 

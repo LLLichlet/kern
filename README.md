@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./logo.svg" alt="Kern logo" width="120">
+  <img src="./assets/brand/kern-logo.svg" alt="Kern logo" width="120">
 </p>
 
 <h1 align="center">Kern</h1>

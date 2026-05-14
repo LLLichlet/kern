@@ -548,7 +548,6 @@ function createLanguageServerWatchers(): vscode.FileSystemWatcher[] {
         vscode.workspace.createFileSystemWatcher("**/*.kn"),
         vscode.workspace.createFileSystemWatcher("**/Craft.toml"),
         vscode.workspace.createFileSystemWatcher("**/.craft/analysis.toml"),
-        vscode.workspace.createFileSystemWatcher("**/craft.kn"),
         vscode.workspace.createFileSystemWatcher("**/build.kn"),
     ];
 }

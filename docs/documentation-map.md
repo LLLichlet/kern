@@ -28,6 +28,7 @@ These are the current public reference documents.
 - [`docs/unix-distribution.md`](./unix-distribution.md): Unix host-tool distribution policy
 - [`docs/windows-distribution.md`](./windows-distribution.md): Windows host-tool distribution policy
 - [`docs/style.md`](./style.md): repository source-style guidance
+- [`docs/roadmap.md`](./roadmap.md): current follow-up work that remains useful but is not release-blocking
 
 ## Implementation Docs
 

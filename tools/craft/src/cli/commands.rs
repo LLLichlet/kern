@@ -397,12 +397,7 @@ fn run_check(
     if render.is_verbose() {
         render.meta(
             "scripts",
-            format!(
-                "workspace craft {}, package craft {}, build.kn {}",
-                format_yes_no(loaded.elaboration.workspace_script.is_some()),
-                loaded.elaboration.package_script_count(),
-                build_plan.build_script_count()
-            ),
+            format!("build.kn {}", build_plan.build_script_count()),
         );
     }
     render.summary(

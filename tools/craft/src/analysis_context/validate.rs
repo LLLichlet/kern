@@ -1,6 +1,5 @@
 use super::{
-    ANALYSIS_CONTEXT_VERSION, AnalysisContext, digest_file, path_and_digest_current,
-    relative_display, resolve_context_path,
+    ANALYSIS_CONTEXT_VERSION, AnalysisContext, digest_file, relative_display, resolve_context_path,
 };
 use crate::error::{Error, Result};
 use std::collections::BTreeSet;
@@ -18,12 +17,6 @@ impl AnalysisContext {
         validate_non_empty(path, "manifest", &self.manifest)?;
         validate_digest(path, "manifest-digest", &self.manifest_digest)?;
         validate_non_empty(path, "profile", &self.profile)?;
-        validate_optional_path_and_digest(
-            path,
-            "workspace-script",
-            self.workspace_script.as_deref(),
-            self.workspace_script_digest.as_deref(),
-        )?;
 
         let mut package_manifests = BTreeSet::new();
         for package in &self.packages {
@@ -32,12 +25,6 @@ impl AnalysisContext {
                 path,
                 "[[package]].manifest-digest",
                 &package.manifest_digest,
-            )?;
-            validate_optional_path_and_digest(
-                path,
-                "[[package]].craft-script",
-                package.craft_script.as_deref(),
-                package.craft_script_digest.as_deref(),
             )?;
             if !package_manifests.insert(package.manifest.as_str()) {
                 return Err(Error::AnalysisContextValidation {
@@ -153,27 +140,12 @@ impl AnalysisContext {
             return Ok(false);
         }
 
-        if !path_and_digest_current(
-            workspace_root,
-            self.workspace_script.as_deref(),
-            self.workspace_script_digest.as_deref(),
-        )? {
-            return Ok(false);
-        }
-
         for package in &self.packages {
             let manifest_path = resolve_context_path(workspace_root, &package.manifest);
             if !manifest_path.is_file() {
                 return Ok(false);
             }
             if package.manifest_digest != digest_file(&manifest_path)? {
-                return Ok(false);
-            }
-            if !path_and_digest_current(
-                workspace_root,
-                package.craft_script.as_deref(),
-                package.craft_script_digest.as_deref(),
-            )? {
                 return Ok(false);
             }
         }
@@ -190,27 +162,6 @@ fn validate_non_empty(path: &Path, field: &str, value: &str) -> Result<()> {
         });
     }
     Ok(())
-}
-
-fn validate_optional_path_and_digest(
-    path: &Path,
-    field: &str,
-    value: Option<&str>,
-    digest: Option<&str>,
-) -> Result<()> {
-    match (value, digest) {
-        (None, None) => Ok(()),
-        (Some(value), Some(digest)) => {
-            validate_non_empty(path, field, value)?;
-            validate_digest(path, &format!("{field}-digest"), digest)
-        }
-        _ => Err(Error::AnalysisContextValidation {
-            path: path.to_path_buf(),
-            message: format!(
-                "{field} and {field}-digest must either both be present or both be absent"
-            ),
-        }),
-    }
 }
 
 fn validate_digest(path: &Path, field: &str, value: &str) -> Result<()> {

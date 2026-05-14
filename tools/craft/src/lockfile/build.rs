@@ -25,11 +25,6 @@ impl Lockfile {
 
         for package in &resolved.packages {
             let package_id = package_lock_id(&package.id);
-            let script = elaboration
-                .packages
-                .iter()
-                .find(|entry| entry.package_id == package.id)
-                .and_then(|entry| entry.script.as_ref());
             packages.push(LockedPackage {
                 id: package_id.clone(),
                 name: package.id.name.clone(),
@@ -38,8 +33,6 @@ impl Lockfile {
                 source_value: source_value(&package.id.source),
                 manifest: relative_display(root, &package.manifest_path),
                 manifest_digest: digest_file(&package.manifest_path)?,
-                craft_script: script.map(|script| script.relative_path.clone()),
-                craft_script_digest: script.map(|script| script.digest.clone()),
             });
             let package_plan = &elaboration
                 .packages
@@ -102,14 +95,6 @@ impl Lockfile {
             version: 1,
             manifest,
             manifest_digest,
-            workspace_script: elaboration
-                .workspace_script
-                .as_ref()
-                .map(|script| script.relative_path.clone()),
-            workspace_script_digest: elaboration
-                .workspace_script
-                .as_ref()
-                .map(|script| script.digest.clone()),
             packages,
             package_targets,
             package_resources,

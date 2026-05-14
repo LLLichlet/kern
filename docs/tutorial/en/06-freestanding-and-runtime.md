@@ -201,12 +201,11 @@ resources, or call tools exposed by build dependencies. The repository's
 freestanding example: it uses `entry = "none"` and `bundle = "base"`, exports
 `_start`, and uses `build.kn` to assemble a Limine ISO.
 
-## `build.kn` And `craft.kn`
+## `build.kn`
 
 Low-level projects often need extra build logic. Use this boundary:
 
 - `Craft.toml`: package, targets, dependencies, resources, and runtime policy.
-- `craft.kn`: optional pre-resolution planning script; affects the lockfile and is not needed for ordinary projects.
 - `build.kn`: optional post-lock build script; good for linker scripts, generated files, C support files, artifact copying, and tool invocation.
 
 If you only need to add `kernel.ld`, use `build.kn`. If you only need to

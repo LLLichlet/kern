@@ -16,8 +16,6 @@ pub struct Lockfile {
     pub version: u32,
     pub manifest: String,
     pub manifest_digest: String,
-    pub workspace_script: Option<String>,
-    pub workspace_script_digest: Option<String>,
     pub packages: Vec<LockedPackage>,
     pub package_targets: Vec<LockedPackageTarget>,
     pub package_resources: Vec<LockedPackageResource>,
@@ -34,8 +32,6 @@ pub struct LockedPackage {
     pub source_value: Option<String>,
     pub manifest: String,
     pub manifest_digest: String,
-    pub craft_script: Option<String>,
-    pub craft_script_digest: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,11 +176,6 @@ shared = { git = "https://example.com/shared.git", branch = "stable", version = 
         )
         .unwrap();
         fs::write(
-            root.join("craft.kn"),
-            "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
-        )
-        .unwrap();
-        fs::write(
             app_dir.join("Craft.toml"),
             r#"
 [package]
@@ -202,17 +193,6 @@ shared = { workspace = true, features = ["simd"] }
 
 [resources]
 limine = { git = "https://example.com/limine.git", branch = "main" }
-"#,
-        )
-        .unwrap();
-        fs::write(
-            app_dir.join("craft.kn"),
-            r#"
-use craft.plan;
-
-pub fn craft(p: &mut plan.Plan) void {{
-    p.define_string("pkg", p.package.name);
-}}
 "#,
         )
         .unwrap();
@@ -252,8 +232,8 @@ kern = "0.7.6"
             rendered.contains("package = \"app 0.1.0 workspace-member:app\"")
                 && rendered.contains("kind = \"bin\"")
         );
-        assert!(rendered.contains("workspace-script = \"craft.kn\""));
-        assert!(rendered.contains("craft-script = \"app/craft.kn\""));
+        assert!(!rendered.contains("workspace-script"));
+        assert!(!rendered.contains("craft-script"));
         assert!(rendered.contains("name = \"limine\""));
         assert!(rendered.contains("source-locator = \"https://example.com/limine.git\""));
         assert!(rendered.contains("source-selector = \"branch:main\""));

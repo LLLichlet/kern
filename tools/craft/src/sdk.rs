@@ -23,9 +23,7 @@ fn source_sdk_root() -> PathBuf {
 }
 
 fn is_valid_sdk_root(path: &Path) -> bool {
-    path.join("mod.kn").is_file()
-        && path.join("builder.kn").is_file()
-        && path.join("plan.kn").is_file()
+    path.join("mod.kn").is_file() && path.join("builder.kn").is_file()
 }
 
 pub(crate) fn sdk_root_for_executable(exe: &Path) -> Option<PathBuf> {
@@ -59,9 +57,8 @@ mod tests {
         let root = temp_dir("craft-sdk-root");
         let sdk = root.join("lib").join("kern").join("craft");
         fs::create_dir_all(&sdk).unwrap();
-        fs::write(sdk.join("mod.kn"), "pub mod builder;\npub mod plan;\n").unwrap();
+        fs::write(sdk.join("mod.kn"), "pub mod builder;\n").unwrap();
         fs::write(sdk.join("builder.kn"), "pub struct Builder {};\n").unwrap();
-        fs::write(sdk.join("plan.kn"), "pub struct Plan {};\n").unwrap();
 
         let exe = root.join("bin").join("craft");
         fs::create_dir_all(exe.parent().unwrap()).unwrap();

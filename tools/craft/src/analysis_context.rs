@@ -25,8 +25,6 @@ pub struct AnalysisContext {
     profile: String,
     default_features: bool,
     features: Vec<String>,
-    workspace_script: Option<String>,
-    workspace_script_digest: Option<String>,
     packages: Vec<AnalysisContextPackage>,
     units: Vec<AnalysisContextUnit>,
     unit_aliases: Vec<AnalysisContextUnitAlias>,
@@ -37,8 +35,6 @@ pub struct AnalysisContext {
 struct AnalysisContextPackage {
     manifest: String,
     manifest_digest: String,
-    craft_script: Option<String>,
-    craft_script_digest: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -156,30 +152,15 @@ impl AnalysisContext {
         let workspace_root = &build_plan.workspace_root;
         let manifest = relative_display(workspace_root, manifest_path);
         let manifest_digest = digest_file(manifest_path)?;
-        let workspace_script = elaboration
-            .workspace_script
-            .as_ref()
-            .map(|script| script.relative_path.clone());
-        let workspace_script_digest = elaboration
-            .workspace_script
-            .as_ref()
-            .map(|script| script.digest.clone());
 
         let mut packages = elaboration
             .resolved_graph
             .packages
             .iter()
             .map(|package| {
-                let script = elaboration
-                    .packages
-                    .iter()
-                    .find(|entry| entry.package_id == package.id)
-                    .and_then(|entry| entry.script.as_ref());
                 Ok(AnalysisContextPackage {
                     manifest: relative_display(workspace_root, &package.manifest_path),
                     manifest_digest: digest_file(&package.manifest_path)?,
-                    craft_script: script.map(|script| script.relative_path.clone()),
-                    craft_script_digest: script.map(|script| script.digest.clone()),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -248,8 +229,6 @@ impl AnalysisContext {
             profile: feature_selection.profile.name().to_string(),
             default_features: feature_selection.enable_default,
             features: feature_selection.explicit.iter().cloned().collect(),
-            workspace_script,
-            workspace_script_digest,
             packages,
             units: units.into_iter().collect(),
             unit_aliases: unit_aliases.into_iter().collect(),
@@ -398,24 +377,6 @@ fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
 #[cfg(not(target_os = "macos"))]
 fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
     path
-}
-
-fn path_and_digest_current(
-    workspace_root: &Path,
-    path: Option<&str>,
-    digest: Option<&str>,
-) -> Result<bool> {
-    match (path, digest) {
-        (None, None) => Ok(true),
-        (Some(path), Some(digest)) => {
-            let resolved = resolve_context_path(workspace_root, path);
-            if !resolved.is_file() {
-                return Ok(false);
-            }
-            Ok(digest_file(&resolved)? == digest)
-        }
-        _ => Ok(false),
-    }
 }
 
 fn relative_display(root: &Path, path: &Path) -> String {

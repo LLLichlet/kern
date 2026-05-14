@@ -34,24 +34,12 @@ impl AnalysisContext {
         push_string_line(&mut out, "profile", &self.profile);
         push_bool_line(&mut out, "default-features", self.default_features);
         push_string_array_line(&mut out, "features", &self.features);
-        if let Some(path) = &self.workspace_script {
-            push_string_line(&mut out, "workspace-script", path);
-        }
-        if let Some(digest) = &self.workspace_script_digest {
-            push_string_line(&mut out, "workspace-script-digest", digest);
-        }
 
         for package in &self.packages {
             out.push('\n');
             out.push_str("[[package]]\n");
             push_string_line(&mut out, "manifest", &package.manifest);
             push_string_line(&mut out, "manifest-digest", &package.manifest_digest);
-            if let Some(path) = &package.craft_script {
-                push_string_line(&mut out, "craft-script", path);
-            }
-            if let Some(digest) = &package.craft_script_digest {
-                push_string_line(&mut out, "craft-script-digest", digest);
-            }
         }
 
         for unit in &self.units {

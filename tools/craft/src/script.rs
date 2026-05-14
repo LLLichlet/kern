@@ -1,19 +1,16 @@
 mod analysis;
 mod build_host;
 
-use self::analysis::{
-    BUILD_SCRIPT_ENTRY, CRAFT_SCRIPT_ENTRY, PreparedScript, prepare_script, validate_script,
-};
+use self::analysis::{BUILD_SCRIPT_ENTRY, PreparedScript, prepare_script, validate_script};
 use self::build_host::{BuildUnitHost, LinkArgPathFields, build_argument_value};
 use crate::build_plan::{BuildUnit, StagedAction};
 use crate::error::{Error, Result};
 use crate::graph::BuildDomain;
-use crate::graph::DependencyKind;
 use crate::graph::PackageId;
 use crate::manifest::Manifest;
-use crate::plan::{PackagePlan, TargetKind};
+use crate::plan::TargetKind;
 use crate::resolver::ExternalPackageId;
-use kernc_sema::checker::{ConstEvaluator, ConstValue, ScriptHost};
+use kernc_sema::checker::{ConstEvaluator, ConstValue};
 use kernc_utils::config::{CodeModel, CompileOptions, LtoMode};
 use kernc_utils::{Session, Span, SymbolId};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -25,10 +22,6 @@ const RELEASE_DEFAULT_MAX_CODEGEN_UNITS: usize = 4;
 
 const OPTION_SOME_TAG: i128 = 0;
 const OPTION_NONE_TAG: i128 = 1;
-
-const DEPENDENCY_KIND_NORMAL_TAG: i128 = 0;
-const DEPENDENCY_KIND_DEV_TAG: i128 = 1;
-const DEPENDENCY_KIND_BUILD_TAG: i128 = 2;
 
 const SCRIPT_COMMAND_CHECK_TAG: i128 = 0;
 const SCRIPT_COMMAND_FETCH_TAG: i128 = 1;
@@ -61,12 +54,6 @@ fn option_none() -> ConstValue {
         tag: OPTION_NONE_TAG,
         payload: None,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CraftScriptContext {
-    pub package: ScriptPackage,
-    pub workspace: ScriptWorkspace,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -284,42 +271,8 @@ fn default_profile_lto_mode(selection: ProfileSelection, _opt: u8) -> LtoMode {
     }
 }
 
-pub fn validate_craft_script(path: &Path) -> Result<()> {
-    validate_script(path, CRAFT_SCRIPT_ENTRY)
-}
-
 pub fn validate_build_script(path: &Path) -> Result<()> {
     validate_script(path, BUILD_SCRIPT_ENTRY)
-}
-
-pub fn apply_craft_script(
-    path: &Path,
-    package_plan: &mut PackagePlan,
-    script_context: &CraftScriptContext,
-) -> Result<()> {
-    let mut session = Session::new();
-    let PreparedScript {
-        script_path,
-        mut ctx,
-        entry_def,
-    } = prepare_script(path, &mut session, CRAFT_SCRIPT_ENTRY)?;
-
-    let mut host = PackagePlanHost { package_plan };
-    let arg_values = vec![craft_plan_argument_value(&mut ctx, script_context)];
-    let mut evaluator = ConstEvaluator::with_script_host(&mut ctx, &mut host);
-    evaluator
-        .eval_function(entry_def, &[], arg_values, Span::default())
-        .map_err(|_| Error::ScriptValidation {
-            path: script_path.clone(),
-            message: ctx
-                .sess
-                .diagnostics
-                .last()
-                .map(|diag| format!("craft script execution failed: {}", diag.message))
-                .unwrap_or_else(|| "craft script execution failed".to_string()),
-        })?;
-
-    Ok(())
 }
 
 pub fn apply_build_script(
@@ -357,182 +310,6 @@ pub fn apply_build_script(
     Ok(())
 }
 
-struct PackagePlanHost<'a> {
-    package_plan: &'a mut PackagePlan,
-}
-
-impl ScriptHost for PackagePlanHost<'_> {
-    fn call_extern(
-        &mut self,
-        name: &str,
-        args: &[ConstValue],
-        _span: Span,
-    ) -> std::result::Result<ConstValue, String> {
-        match name {
-            "__craft_plan_cfg_bool" => {
-                let _ = expect_arg(args, 0, "plan receiver")?;
-                let key = expect_string(args, 1, "cfg name")?;
-                let value = expect_bool(args, 2, "cfg value")?;
-                self.package_plan
-                    .set_cfg_bool(&key, value)
-                    .map_err(|err| err.to_string())?;
-                Ok(ConstValue::Void)
-            }
-            "__craft_plan_cfg_string" => {
-                let _ = expect_arg(args, 0, "plan receiver")?;
-                let key = expect_string(args, 1, "cfg name")?;
-                let value = expect_string(args, 2, "cfg value")?;
-                self.package_plan
-                    .set_cfg_string(&key, value)
-                    .map_err(|err| err.to_string())?;
-                Ok(ConstValue::Void)
-            }
-            "__craft_plan_define_bool" => {
-                let _ = expect_arg(args, 0, "plan receiver")?;
-                let key = expect_string(args, 1, "define name")?;
-                let value = expect_bool(args, 2, "define value")?;
-                self.package_plan
-                    .set_define_bool(&key, value)
-                    .map_err(|err| err.to_string())?;
-                Ok(ConstValue::Void)
-            }
-            "__craft_plan_define_string" => {
-                let _ = expect_arg(args, 0, "plan receiver")?;
-                let key = expect_string(args, 1, "define name")?;
-                let value = expect_string(args, 2, "define value")?;
-                self.package_plan
-                    .set_define_string(&key, value)
-                    .map_err(|err| err.to_string())?;
-                Ok(ConstValue::Void)
-            }
-            "__craft_plan_set_lib_root" => {
-                let _ = expect_arg(args, 0, "plan receiver")?;
-                let root = expect_string(args, 1, "lib root")?;
-                self.package_plan
-                    .set_lib_root(root)
-                    .map_err(|err| err.to_string())?;
-                Ok(ConstValue::Void)
-            }
-            "__craft_plan_add_bin" => self.add_named_target(args, TargetKind::Bin, "bin"),
-            "__craft_plan_add_test" => self.add_test_target(args),
-            "__craft_plan_add_example" => {
-                self.add_named_target(args, TargetKind::Example, "example")
-            }
-            "__craft_plan_remove_lib" => {
-                let _ = expect_arg(args, 0, "plan receiver")?;
-                Ok(ConstValue::Bool(
-                    self.package_plan.remove_target(TargetKind::Lib, None),
-                ))
-            }
-            "__craft_plan_remove_bin" => self.remove_named_target(args, TargetKind::Bin, "bin"),
-            "__craft_plan_remove_test" => self.remove_test_target(args),
-            "__craft_plan_remove_example" => {
-                self.remove_named_target(args, TargetKind::Example, "example")
-            }
-            "__craft_plan_dep_version" => {
-                let _ = expect_arg(args, 0, "plan receiver")?;
-                let kind = expect_dependency_kind(args, 1, "dependency kind")?;
-                let name = expect_string(args, 2, "dependency name")?;
-                let version = expect_string(args, 3, "dependency version")?;
-                self.package_plan
-                    .set_dependency_version(kind, &name, version)
-                    .map_err(|err| err.to_string())?;
-                Ok(ConstValue::Void)
-            }
-            "__craft_plan_dep_path" => {
-                let _ = expect_arg(args, 0, "plan receiver")?;
-                let kind = expect_dependency_kind(args, 1, "dependency kind")?;
-                let name = expect_string(args, 2, "dependency name")?;
-                let path = expect_string(args, 3, "dependency path")?;
-                self.package_plan
-                    .set_dependency_path(kind, &name, path)
-                    .map_err(|err| err.to_string())?;
-                Ok(ConstValue::Void)
-            }
-            "__craft_plan_dep_git" => {
-                let _ = expect_arg(args, 0, "plan receiver")?;
-                let kind = expect_dependency_kind(args, 1, "dependency kind")?;
-                let name = expect_string(args, 2, "dependency name")?;
-                let git = expect_string(args, 3, "dependency git")?;
-                self.package_plan
-                    .set_dependency_git(kind, &name, git)
-                    .map_err(|err| err.to_string())?;
-                Ok(ConstValue::Void)
-            }
-            "__craft_plan_dep_workspace" => {
-                let _ = expect_arg(args, 0, "plan receiver")?;
-                let kind = expect_dependency_kind(args, 1, "dependency kind")?;
-                let name = expect_string(args, 2, "dependency name")?;
-                self.package_plan
-                    .use_workspace_dependency(kind, &name)
-                    .map_err(|err| err.to_string())?;
-                Ok(ConstValue::Void)
-            }
-            "__craft_plan_remove_dep" => {
-                let _ = expect_arg(args, 0, "plan receiver")?;
-                let kind = expect_dependency_kind(args, 1, "dependency kind")?;
-                let name = expect_string(args, 2, "dependency name")?;
-                Ok(ConstValue::Bool(
-                    self.package_plan
-                        .remove_dependency(kind, &name)
-                        .map_err(|err| err.to_string())?,
-                ))
-            }
-            _ => Err(format!("unsupported craft host function `{name}`")),
-        }
-    }
-}
-
-impl PackagePlanHost<'_> {
-    fn add_named_target(
-        &mut self,
-        args: &[ConstValue],
-        kind: TargetKind,
-        label: &str,
-    ) -> std::result::Result<ConstValue, String> {
-        let _ = expect_arg(args, 0, "plan receiver")?;
-        let name = expect_string(args, 1, &format!("{label} name"))?;
-        let root = expect_string(args, 2, &format!("{label} root"))?;
-        self.package_plan
-            .add_named_target(kind, name, root)
-            .map_err(|err| err.to_string())?;
-        Ok(ConstValue::Void)
-    }
-
-    fn add_test_target(&mut self, args: &[ConstValue]) -> std::result::Result<ConstValue, String> {
-        let _ = expect_arg(args, 0, "plan receiver")?;
-        let root = expect_string(args, 1, "test root")?;
-        self.package_plan
-            .add_test_target(root)
-            .map_err(|err| err.to_string())?;
-        Ok(ConstValue::Void)
-    }
-
-    fn remove_named_target(
-        &mut self,
-        args: &[ConstValue],
-        kind: TargetKind,
-        label: &str,
-    ) -> std::result::Result<ConstValue, String> {
-        let _ = expect_arg(args, 0, "plan receiver")?;
-        let name = expect_string(args, 1, &format!("{label} name"))?;
-        Ok(ConstValue::Bool(
-            self.package_plan.remove_target(kind, Some(&name)),
-        ))
-    }
-
-    fn remove_test_target(
-        &mut self,
-        args: &[ConstValue],
-    ) -> std::result::Result<ConstValue, String> {
-        let _ = expect_arg(args, 0, "plan receiver")?;
-        let root = expect_string(args, 1, "test root")?;
-        Ok(ConstValue::Bool(
-            self.package_plan.remove_test_target(&root),
-        ))
-    }
-}
-
 fn expect_arg<'a>(
     args: &'a [ConstValue],
     index: usize,
@@ -564,69 +341,8 @@ fn expect_bool(
     }
 }
 
-fn expect_dependency_kind(
-    args: &[ConstValue],
-    index: usize,
-    label: &str,
-) -> std::result::Result<DependencyKind, String> {
-    let tag = match expect_arg(args, index, label)? {
-        ConstValue::Enum { tag, .. } => *tag,
-        ConstValue::Int(tag) => *tag,
-        _ => return Err(format!("expected `{label}` to be a dependency kind enum")),
-    };
-
-    match tag {
-        DEPENDENCY_KIND_NORMAL_TAG => Ok(DependencyKind::Normal),
-        DEPENDENCY_KIND_DEV_TAG => Ok(DependencyKind::Dev),
-        DEPENDENCY_KIND_BUILD_TAG => Ok(DependencyKind::Build),
-        _ => Err(format!("invalid `{label}` value `{tag}`")),
-    }
-}
-
 fn pure_enum_value(tag: i128) -> ConstValue {
     ConstValue::Int(tag)
-}
-
-fn craft_plan_argument_value(
-    ctx: &mut kernc_sema::SemaContext<'_>,
-    script_context: &CraftScriptContext,
-) -> ConstValue {
-    fn field(name: &str, ctx: &mut kernc_sema::SemaContext<'_>) -> SymbolId {
-        ctx.intern(name)
-    }
-
-    let mut package = HashMap::new();
-    package.insert(
-        field("name", ctx),
-        ConstValue::String(script_context.package.name.clone()),
-    );
-    package.insert(
-        field("version", ctx),
-        ConstValue::String(script_context.package.version.clone()),
-    );
-    package.insert(
-        field("root", ctx),
-        ConstValue::String(script_context.package.root.clone()),
-    );
-    package.insert(
-        field("is_root", ctx),
-        ConstValue::Bool(script_context.package.is_root),
-    );
-
-    let mut workspace = HashMap::new();
-    workspace.insert(
-        field("root", ctx),
-        ConstValue::String(script_context.workspace.root.clone()),
-    );
-    workspace.insert(
-        field("has_workspace", ctx),
-        ConstValue::Bool(script_context.workspace.has_workspace),
-    );
-
-    let mut plan = HashMap::new();
-    plan.insert(field("package", ctx), ConstValue::Struct(package));
-    plan.insert(field("workspace", ctx), ConstValue::Struct(workspace));
-    ConstValue::Struct(plan)
 }
 
 fn plan_argument_value(
@@ -773,7 +489,7 @@ impl ScriptOs {
 mod tests {
     use super::{
         Manifest, ProfileSelection, default_profile_codegen_units, default_profile_lto_mode,
-        manifest_profile, validate_build_script, validate_craft_script,
+        manifest_profile, validate_build_script,
     };
     use kernc_utils::config::{CodeModel, LtoMode};
     use std::fs;
@@ -788,54 +504,6 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
         fs::create_dir_all(&dir).unwrap();
         dir
-    }
-
-    #[test]
-    fn accepts_public_craft_entry() {
-        let root = temp_dir("craft-script-valid");
-        let path = root.join("craft.kn");
-        fs::write(
-            &path,
-            "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
-        )
-        .unwrap();
-
-        let result = validate_craft_script(&path);
-        assert!(result.is_ok(), "unexpected result: {result:?}");
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn rejects_missing_public_craft_entry() {
-        let root = temp_dir("craft-script-missing-entry");
-        let path = root.join("craft.kn");
-        fs::write(&path, "fn helper() void {}\n").unwrap();
-
-        let err = validate_craft_script(&path).unwrap_err();
-        let message = err.to_string();
-        assert!(
-            message.contains("missing required entry"),
-            "unexpected error: {message}"
-        );
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn rejects_entry_without_plan_parameter() {
-        let root = temp_dir("craft-script-missing-plan-param");
-        let path = root.join("craft.kn");
-        fs::write(&path, "pub fn craft() void {}\n").unwrap();
-
-        let err = validate_craft_script(&path).unwrap_err();
-        let message = err.to_string();
-        assert!(
-            message.contains("exactly one parameter"),
-            "unexpected error: {message}"
-        );
-
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

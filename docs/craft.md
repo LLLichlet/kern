@@ -166,8 +166,6 @@ This is the important model:
 
 - loading `Craft.toml`
 - discovering workspace structure
-- evaluating optional `craft.kn`
-- normalizing package metadata into a deterministic package graph
 - resolving dependencies
 - reading and writing `Craft.lock`
 - deriving explicit compile and link actions
@@ -261,19 +259,16 @@ share one stable path identity.
 
 ## Phase Model
 
-The package pipeline is split into four explicit artifacts:
+The package pipeline is split into three explicit artifacts:
 
 1. `Craft.toml`
-2. `craft.kn`
-3. `Craft.lock`
-4. `build.kn`
+2. `Craft.lock`
+3. `build.kn`
 
 The order is:
 
 ```text
 Craft.toml
-  -> craft.kn
-  -> normalized package graph
   -> dependency resolution
   -> Craft.lock
   -> build.kn
@@ -283,15 +278,13 @@ Craft.toml
 
 This split is a core part of the design.
 
-- `Craft.toml` carries static declarations.
-- `craft.kn` normalizes those declarations before resolution, but only from lock-stable inputs.
+- `Craft.toml` carries package, workspace, dependency, target, resource, and profile declarations.
 - `Craft.lock` records the canonical resolved graph for the workspace.
 - `build.kn` performs post-lock build orchestration.
 
 The critical rule is:
 
-- `craft.kn` may affect dependency resolution and therefore lockfile contents,
-  but only from checked-in, lock-stable inputs.
+- `Craft.toml` is the only checked-in declaration surface that affects dependency resolution.
 - `build.kn` may affect execution, staging, and linkage.
 - `build.kn` must not affect dependency resolution or lockfile contents.
 
@@ -438,7 +431,7 @@ Manifest rules:
   `long-postfix-chain`, or `repeated-borrow-receiver`
 - `[craft.style].exclude` matches package-relative path prefixes, with
   `/**` accepted for subtree notation
-- declarative package-graph structure belongs in `Craft.toml` plus lock-stable `craft.kn`
+- declarative package-graph structure belongs in `Craft.toml`
 - invocation-sensitive adaptation belongs in `build.kn`
 
 ## Workspace Namespaces
@@ -642,7 +635,6 @@ The intended split is:
 
 - manifest discovery affects resolution
 - checked-in package/workspace declarations affect resolution
-- `craft.kn` affects resolution, but only through lock-stable inputs
 - selected profile affects execution
 - command mode affects execution
 - selected CLI feature sets affect execution
@@ -652,84 +644,6 @@ This keeps the system orthogonal: `Craft.lock` is the shared resolution
 artifact, while profile and command mode are execution concerns layered on top
 of it.
 
-## `craft.kn`
-
-`craft.kn` is an optional pre-resolution normalization script.
-
-It exists because pure TOML is good at declaration but weak at structured
-normalization. Rather than inflate the manifest format, `craft` allows a
-bounded Kern phase that rewrites package planning state before resolution.
-
-Because `craft.kn` contributes to `Craft.lock`, it must stay on canonical
-resolution inputs only.
-
-Conceptually, `craft.kn` works on lock-stable package planning state:
-
-- package metadata from `Craft.toml`
-- workspace metadata
-- checked-in target declarations
-- checked-in dependency declarations
-- other checked-in package structure owned by the workspace
-
-It does not receive:
-
-- host target
-- final target
-- profile
-- command mode
-- process environment
-- ad hoc CLI-selected feature state
-
-Its job is to elaborate the canonical package graph, not to execute a build.
-
-Example:
-
-```kern
-use craft.plan;
-
-pub fn craft(p: &mut plan.Plan) void {
-    if (p.package.is_root) {
-        p.add_bin("tools", "src/tools.kn");
-    }
-
-    p.set_lib_root("src/lib.kn");
-    p.cfg_bool("workspace_member", p.workspace.has_workspace);
-}
-```
-
-Path semantics for `craft.kn` are intentionally display-oriented and
-workspace-relative:
-
-- `p.workspace.root` is the workspace root relative to itself, so it is `"."`
-- `p.package.root` is the current package root relative to the workspace root
-- for the root package, `p.package.root` is also `"."`
-- these values are canonical lock inputs, not machine-local absolute paths
-
-That split is important. `craft.kn` participates in elaboration and lock
-derivation, so its root strings are stable across machines as long as the
-workspace layout is the same.
-
-### What `craft.kn` May Do
-
-- normalize checked-in package structure deterministically
-- add or remove dependency edges only from lock-stable checked-in inputs
-- add package-local cfg/define values that are themselves lock-stable
-- adjust or add targets owned by the current package
-- choose source roots
-- apply workspace policy explicitly
-
-### What `craft.kn` Must Not Do
-
-- inspect host, target, profile, command mode, or process environment
-- perform network access
-- depend on wall-clock time
-- use randomness
-- trigger compilation or linking
-- mutate the dependency graph after lock resolution
-
-`craft.kn` is part of the lock input. It is therefore required to be
-deterministic and canonical across team members and CI.
-
 ## Environment And Canonical Resolution
 
 Machine-local environment is not part of canonical resolution.
@@ -737,7 +651,6 @@ Machine-local environment is not part of canonical resolution.
 That means:
 
 - `Craft.lock` must not vary with process environment
-- pre-lock `craft.kn` must not branch on environment values
 - machine-local adaptation belongs after lock, typically in `build.kn`
 
 If a project needs environment-sensitive execution behavior, that behavior
@@ -762,9 +675,7 @@ It exists to answer:
 The current lockfile model records:
 
 - manifest path and digest
-- workspace `craft.kn` path and digest, when present
 - package manifests and digests
-- package `craft.kn` paths and digests, when present
 - normalized package targets
 - resolved external packages
 - dependency edges
@@ -906,7 +817,7 @@ Important:
 
 ### `build.kn` Path Semantics
 
-`build.kn` path semantics are intentionally different from `craft.kn`.
+`build.kn` path semantics are execution-oriented.
 
 - `b.workspace.root` is an absolute normalized path to the workspace root
 - `b.package.root` is an absolute normalized path to the current package root
@@ -946,10 +857,8 @@ Package-relative staging rules:
 - generated destination paths are relative to `b.paths.generated_root`
 - artifact destination paths are relative to `b.paths.artifact_root`
 
-The practical rule is simple:
-
-- use `craft.kn` roots for canonical workspace-relative elaboration
-- use `build.kn` roots and `b.paths.*` for real filesystem work
+The practical rule is simple: use `build.kn` roots and `b.paths.*` for real
+filesystem work.
 
 ## Generated Files And Staged Actions
 

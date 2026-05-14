@@ -239,7 +239,7 @@ pub fn validate_sdk_root(sdk_root: &Path, expected_target: &str) -> OpsResult<Sd
         }
     }
     if !library_root.join("craft").join("mod.kn").is_file() {
-        return Err(OpsError::new("SDK craft script modules are missing"));
+        return Err(OpsError::new("SDK craft build modules are missing"));
     }
     if !sdk_root.join("toolchain").join("host").join("bin").is_dir() {
         return Err(OpsError::new("SDK toolchain layout is incomplete"));

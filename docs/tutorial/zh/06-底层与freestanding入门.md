@@ -175,12 +175,11 @@ pub fn build(b: &mut builder.Builder) void {
 
 如果要构建更完整的 bootable 镜像，`build.kn` 还可以拷贝 kernel artifact、拷贝资源、调用 build dependency 暴露的工具。仓库里的 [`examples/limine-smoke`](../../../examples/limine-smoke) 就是一个小型 freestanding 示例：它用 `entry = "none"`、`bundle = "base"`，自己导出 `_start`，再通过 `build.kn` 组织 Limine ISO。
 
-## `build.kn` 和 `craft.kn` 的位置
+## `build.kn` 的位置
 
 底层项目很容易需要额外构建逻辑。先记住一个实用边界：
 
 - `Craft.toml`：声明包、target、依赖、资源和 runtime 策略。
-- `craft.kn`：可选的 pre-resolution 规划脚本，会影响 lockfile，普通项目先不用。
 - `build.kn`：可选的 post-lock 构建脚本，适合链接脚本、生成文件、C 支持文件、拷贝 artifact、调用工具。
 
 所以如果你只是要给内核加 `kernel.ld`，用 `build.kn`。如果你只是要声明 Limine 资源，用 `[resources]`。不要把这些策略藏进手写 shell 命令里。

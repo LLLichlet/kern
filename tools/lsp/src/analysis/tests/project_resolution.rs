@@ -116,14 +116,14 @@ root = \"src/lib.kn\"
     .unwrap();
     fs::write(app_dir.join("src/lib.kn"), "pub fn helper() void {}\n").unwrap();
     fs::write(
-        app_dir.join("craft.kn"),
-        "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
+        app_dir.join("build.kn"),
+        "use craft.builder;\npub fn build(b: &mut builder.Builder) void { let _ = b; }\n",
     )
     .unwrap();
 
     let mut analysis = AnalysisEngine::default();
-    let uri = file_path_to_uri(&app_dir.join("craft.kn")).unwrap();
-    let source = fs::read_to_string(app_dir.join("craft.kn")).unwrap();
+    let uri = file_path_to_uri(&app_dir.join("build.kn")).unwrap();
+    let source = fs::read_to_string(app_dir.join("build.kn")).unwrap();
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -138,7 +138,7 @@ root = \"src/lib.kn\"
 
     assert_eq!(
         super::normalize_path(&resolved.input_file),
-        super::normalize_path(&app_dir.join("craft.kn"))
+        super::normalize_path(&app_dir.join("build.kn"))
     );
     assert!(
         resolved

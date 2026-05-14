@@ -1,5 +1,3 @@
-use craft.plan;
-
 pub enum TargetKind {
     lib,
     bin,
@@ -15,6 +13,48 @@ pub enum BuildDomain {
 pub enum Text {
     Some: &[u8],
     None,
+};
+
+pub enum Os {
+    unknown,
+    linux,
+    windows,
+    darwin,
+};
+
+pub enum Command {
+    check,
+    fetch,
+    build,
+    run,
+    test,
+};
+
+pub struct Target {
+    pub os: Os,
+    pub arch: &[u8],
+    pub vendor: &[u8],
+    pub env: &[u8],
+};
+
+pub struct Profile {
+    pub name: &[u8],
+    pub opt: u8,
+    pub debug: bool,
+    pub codegen_units: usize,
+    pub code_model: &[u8],
+};
+
+pub struct Package {
+    pub name: &[u8],
+    pub version: &[u8],
+    pub root: &[u8],
+    pub is_root: bool,
+};
+
+pub struct Workspace {
+    pub root: &[u8],
+    pub has_workspace: bool,
 };
 
 pub struct Unit {
@@ -57,12 +97,12 @@ pub struct LinkOptions {
 };
 
 pub extern struct Builder {
-    pub package: plan.Package,
-    pub workspace: plan.Workspace,
-    pub host: plan.Target,
-    pub target: plan.Target,
-    pub profile: plan.Profile,
-    pub command: plan.Command,
+    pub package: Package,
+    pub workspace: Workspace,
+    pub host: Target,
+    pub target: Target,
+    pub profile: Profile,
+    pub command: Command,
     pub unit: Unit,
     pub paths: Paths,
 };

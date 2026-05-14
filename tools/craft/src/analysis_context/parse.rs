@@ -14,8 +14,6 @@ impl AnalysisContext {
             profile: String::new(),
             default_features: true,
             features: Vec::new(),
-            workspace_script: None,
-            workspace_script_digest: None,
             packages: Vec::new(),
             units: Vec::new(),
             unit_aliases: Vec::new(),
@@ -33,8 +31,6 @@ impl AnalysisContext {
                         context.packages.push(AnalysisContextPackage {
                             manifest: String::new(),
                             manifest_digest: String::new(),
-                            craft_script: None,
-                            craft_script_digest: None,
                         });
                         Section::Package(context.packages.len() - 1)
                     }
@@ -106,10 +102,6 @@ fn assign_key_value(
             "profile" => context.profile = parse_string(raw_value)?,
             "default-features" => context.default_features = parse_bool(raw_value)?,
             "features" => context.features = parse_string_array(raw_value)?,
-            "workspace-script" => context.workspace_script = Some(parse_string(raw_value)?),
-            "workspace-script-digest" => {
-                context.workspace_script_digest = Some(parse_string(raw_value)?)
-            }
             _ => return Err(format!("unsupported root key `{key}`")),
         },
         Section::Package(index) => {
@@ -117,10 +109,6 @@ fn assign_key_value(
             match key {
                 "manifest" => package.manifest = parse_string(raw_value)?,
                 "manifest-digest" => package.manifest_digest = parse_string(raw_value)?,
-                "craft-script" => package.craft_script = Some(parse_string(raw_value)?),
-                "craft-script-digest" => {
-                    package.craft_script_digest = Some(parse_string(raw_value)?)
-                }
                 _ => return Err(format!("unsupported [[package]] key `{key}`")),
             }
         }

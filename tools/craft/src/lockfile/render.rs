@@ -9,12 +9,6 @@ impl Lockfile {
         out.push('\n');
         push_string_line(&mut out, "manifest", &self.manifest);
         push_string_line(&mut out, "manifest-digest", &self.manifest_digest);
-        if let Some(path) = &self.workspace_script {
-            push_string_line(&mut out, "workspace-script", path);
-        }
-        if let Some(digest) = &self.workspace_script_digest {
-            push_string_line(&mut out, "workspace-script-digest", digest);
-        }
 
         for package in &self.packages {
             out.push('\n');
@@ -28,12 +22,6 @@ impl Lockfile {
             }
             push_string_line(&mut out, "manifest", &package.manifest);
             push_string_line(&mut out, "manifest-digest", &package.manifest_digest);
-            if let Some(path) = &package.craft_script {
-                push_string_line(&mut out, "craft-script", path);
-            }
-            if let Some(digest) = &package.craft_script_digest {
-                push_string_line(&mut out, "craft-script-digest", digest);
-            }
         }
 
         for target in &self.package_targets {

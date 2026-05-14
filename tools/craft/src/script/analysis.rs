@@ -15,13 +15,6 @@ pub(super) struct ScriptEntrySpec {
     pub(super) param_display: &'static str,
 }
 
-pub(super) const CRAFT_SCRIPT_ENTRY: ScriptEntrySpec = ScriptEntrySpec {
-    script_kind: "craft",
-    entry_name: "craft",
-    script_name: "craft.kn",
-    param_display: "&mut plan.Plan",
-};
-
 pub(super) const BUILD_SCRIPT_ENTRY: ScriptEntrySpec = ScriptEntrySpec {
     script_kind: "build",
     entry_name: "build",

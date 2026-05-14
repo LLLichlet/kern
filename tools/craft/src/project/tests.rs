@@ -5,7 +5,6 @@ use crate::build_plan;
 use crate::elaborate::{FeatureSelection, plan};
 use crate::manifest::Manifest;
 use crate::plan::TargetKind;
-use crate::sdk;
 use crate::workspace::load_members;
 use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};
 use std::collections::HashMap;
@@ -461,107 +460,6 @@ root = \"src/demo.kn\"
         normalize_test_path(&app_dir.join("src/demo.kn"))
     );
     assert_eq!(resolved.compile_options.root_module_name, None);
-}
-
-#[test]
-fn resolves_package_craft_script_with_sdk_alias_even_when_library_exists() {
-    let root = temp_dir("craft-project-script-analysis");
-    let app_dir = root.join("app");
-    fs::create_dir_all(app_dir.join("src")).unwrap();
-
-    fs::write(
-        root.join("Craft.toml"),
-        "[workspace]\nname = \"workspace\"\nmembers = [\"app\"]\n",
-    )
-    .unwrap();
-    fs::write(
-        app_dir.join("Craft.toml"),
-        "\
-[package]
-name = \"app\"
-version = \"0.1.0\"
-kern = \"0.7.6\"
-
-[lib]
-root = \"src/lib.kn\"
-",
-    )
-    .unwrap();
-    fs::write(app_dir.join("src/lib.kn"), "pub fn helper() void {}\n").unwrap();
-    fs::write(
-        app_dir.join("craft.kn"),
-        "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
-    )
-    .unwrap();
-
-    let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
-    let resolved = project.resolve_for_file(&app_dir.join("craft.kn"), &CompileOptions::default());
-
-    assert_eq!(
-        normalize_test_path(&resolved.input_file),
-        normalize_test_path(&app_dir.join("craft.kn"))
-    );
-    assert_eq!(
-        resolved
-            .compile_options
-            .module_aliases
-            .get("craft")
-            .and_then(|path| normalize_test_optional_path(Some(path))),
-        Some(normalize_test_path(&sdk::sdk_root()))
-    );
-    assert_eq!(resolved.compile_options.root_module_name, None);
-}
-
-#[test]
-fn resolves_workspace_craft_script_with_sdk_alias() {
-    let root = temp_dir("craft-workspace-script-analysis");
-    fs::create_dir_all(root.join("app/src")).unwrap();
-
-    fs::write(
-        root.join("Craft.toml"),
-        "[workspace]\nname = \"workspace\"\nmembers = [\"app\"]\n",
-    )
-    .unwrap();
-    fs::write(
-        root.join("craft.kn"),
-        "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
-    )
-    .unwrap();
-    fs::write(
-        root.join("app/Craft.toml"),
-        "\
-[package]
-name = \"app\"
-version = \"0.1.0\"
-kern = \"0.7.6\"
-
-[[bin]]
-name = \"app\"
-root = \"src/main.kn\"
-",
-    )
-    .unwrap();
-    fs::write(
-        root.join("app/src/main.kn"),
-        "fn main() i32 { return 0; }\n",
-    )
-    .unwrap();
-
-    let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
-    let resolved = project.resolve_for_file(&root.join("craft.kn"), &CompileOptions::default());
-
-    assert_eq!(
-        normalize_test_path(&resolved.input_file),
-        normalize_test_path(&root.join("craft.kn"))
-    );
-    assert_eq!(
-        resolved
-            .compile_options
-            .module_aliases
-            .get("craft")
-            .and_then(|path| normalize_test_optional_path(Some(path))),
-        Some(normalize_test_path(&sdk::sdk_root()))
-    );
 }
 
 #[test]

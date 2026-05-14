@@ -110,22 +110,8 @@ fn craft_sdk_aliases() -> BTreeMap<String, PathBuf> {
 }
 
 fn script_roots_for_package_root(package_root: &Path) -> Vec<AnalysisScriptRoot> {
-    ["craft.kn", "build.kn"]
-        .into_iter()
-        .map(|name| AnalysisScriptRoot {
-            root: package_root.join(name),
-            module_aliases: craft_sdk_aliases(),
-        })
-        .collect()
-}
-
-pub(super) fn workspace_script_roots(manifest_path: &Path) -> Vec<AnalysisScriptRoot> {
-    let Some(workspace_root) = manifest_path.parent() else {
-        return Vec::new();
-    };
-
     vec![AnalysisScriptRoot {
-        root: workspace_root.join("craft.kn"),
+        root: package_root.join("build.kn"),
         module_aliases: craft_sdk_aliases(),
     }]
 }

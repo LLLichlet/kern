@@ -79,10 +79,6 @@ impl Error {
                     .to_string(),
             ),
             Self::ScriptValidation { path, .. } => match path.file_name().and_then(|name| name.to_str()) {
-                Some("craft.kn") => Some(
-                    "declare `pub fn craft(p: &mut plan.Plan) void` and import `craft.plan`"
-                        .to_string(),
-                ),
                 Some("build.kn") => Some(
                     "declare `pub fn build(b: &mut builder.Builder) void` and import `craft.builder`"
                         .to_string(),
@@ -177,7 +173,7 @@ impl Display for Error {
                 write!(f, "invalid manifest `{}`: {message}", path.display())
             }
             Self::ScriptValidation { path, message } => {
-                write!(f, "invalid craft script `{}`: {message}", path.display())
+                write!(f, "invalid build script `{}`: {message}", path.display())
             }
             Self::Execution(message) => write!(f, "execution failed: {message}"),
             Self::AnalysisContextValidation { path, message } => {
@@ -221,14 +217,14 @@ mod tests {
     }
 
     #[test]
-    fn craft_script_validation_provides_entrypoint_hint() {
+    fn build_script_validation_provides_entrypoint_hint() {
         let err = Error::ScriptValidation {
-            path: PathBuf::from("craft.kn"),
+            path: PathBuf::from("build.kn"),
             message: "missing required entry".to_string(),
         };
         assert_eq!(
             err.hint().as_deref(),
-            Some("declare `pub fn craft(p: &mut plan.Plan) void` and import `craft.plan`")
+            Some("declare `pub fn build(b: &mut builder.Builder) void` and import `craft.builder`")
         );
     }
 

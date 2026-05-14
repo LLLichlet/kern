@@ -21,8 +21,6 @@ impl Lockfile {
             version: 0,
             manifest: String::new(),
             manifest_digest: String::new(),
-            workspace_script: None,
-            workspace_script_digest: None,
             packages: Vec::new(),
             package_targets: Vec::new(),
             package_resources: Vec::new(),
@@ -73,8 +71,6 @@ fn start_section(lockfile: &mut Lockfile, line: &str) -> std::result::Result<Sec
                 source_value: None,
                 manifest: String::new(),
                 manifest_digest: String::new(),
-                craft_script: None,
-                craft_script_digest: None,
             });
             Ok(Section::Package(lockfile.packages.len() - 1))
         }
@@ -140,10 +136,6 @@ fn assign_key_value(
             "version" => lockfile.version = parse_u32(raw_value)?,
             "manifest" => lockfile.manifest = parse_string(raw_value)?,
             "manifest-digest" => lockfile.manifest_digest = parse_string(raw_value)?,
-            "workspace-script" => lockfile.workspace_script = Some(parse_string(raw_value)?),
-            "workspace-script-digest" => {
-                lockfile.workspace_script_digest = Some(parse_string(raw_value)?)
-            }
             _ => return Err(format!("unsupported root key `{key}`")),
         },
         Section::Package(index) => {
@@ -156,10 +148,6 @@ fn assign_key_value(
                 "source-value" => package.source_value = Some(parse_string(raw_value)?),
                 "manifest" => package.manifest = parse_string(raw_value)?,
                 "manifest-digest" => package.manifest_digest = parse_string(raw_value)?,
-                "craft-script" => package.craft_script = Some(parse_string(raw_value)?),
-                "craft-script-digest" => {
-                    package.craft_script_digest = Some(parse_string(raw_value)?)
-                }
                 _ => return Err(format!("unsupported [[package]] key `{key}`")),
             }
         }

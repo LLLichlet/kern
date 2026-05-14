@@ -21,7 +21,6 @@ The current implementation covers:
 - workspace package metadata inheritance through `[workspace.package]`
 - local package graph construction
 - resolved external package graph construction
-- `craft.kn` discovery and pre-lock normalization scaffolding
 - normalized package-plan snapshots for declared targets
 - `workspace = true` dependency inheritance
 - dependency export selection with `export = "..."`
@@ -86,7 +85,7 @@ It accepts the same environment knobs as the retired shell script:
 
 - `src/manifest.rs` and `src/manifest/`: `Craft.toml` parsing and validation
 - `src/workspace.rs` and `src/project/`: workspace/package discovery and path rules
-- `src/elaborate.rs` and `src/script/`: pre-lock `craft.kn` and post-lock `build.kn` execution
+- `src/elaborate.rs` and `src/script/`: package-plan elaboration and post-lock `build.kn` execution
 - `src/graph.rs`, `src/resolver.rs`, and `src/source.rs`: package graph and
   source resolution
 - `src/lockfile/`: `Craft.lock` parsing, rendering, validation, and build data

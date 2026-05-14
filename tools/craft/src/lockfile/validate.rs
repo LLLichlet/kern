@@ -14,12 +14,6 @@ impl Lockfile {
 
         validate_non_empty(path, "manifest", &self.manifest)?;
         validate_digest(path, "manifest-digest", &self.manifest_digest)?;
-        validate_optional_path_and_digest(
-            path,
-            "workspace-script",
-            self.workspace_script.as_deref(),
-            self.workspace_script_digest.as_deref(),
-        )?;
 
         let mut package_ids = BTreeSet::new();
         for package in &self.packages {
@@ -49,12 +43,6 @@ impl Lockfile {
                 path,
                 "[[package]].manifest-digest",
                 &package.manifest_digest,
-            )?;
-            validate_optional_path_and_digest(
-                path,
-                "[[package]].craft-script",
-                package.craft_script.as_deref(),
-                package.craft_script_digest.as_deref(),
             )?;
         }
 
@@ -236,27 +224,6 @@ fn validate_non_empty(path: &Path, field: &str, value: &str) -> Result<()> {
         });
     }
     Ok(())
-}
-
-fn validate_optional_path_and_digest(
-    path: &Path,
-    field: &str,
-    value: Option<&str>,
-    digest: Option<&str>,
-) -> Result<()> {
-    match (value, digest) {
-        (None, None) => Ok(()),
-        (Some(value), Some(digest)) => {
-            validate_non_empty(path, field, value)?;
-            validate_digest(path, &format!("{field}-digest"), digest)
-        }
-        _ => Err(Error::LockfileValidation {
-            path: path.to_path_buf(),
-            message: format!(
-                "{field} and {field}-digest must either both be present or both be absent"
-            ),
-        }),
-    }
 }
 
 fn validate_digest(path: &Path, field: &str, value: &str) -> Result<()> {

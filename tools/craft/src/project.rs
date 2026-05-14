@@ -5,7 +5,7 @@ mod tests;
 
 use self::packages::{
     AnalysisPackage, AnalysisScriptRoot, PackageEntry, assemble_packages, package_entries,
-    target_match_score, workspace_script_roots,
+    target_match_score,
 };
 use self::paths::{
     build_unit_source_aliases, compile_time_defines, resolve_unit_source_root_path,
@@ -32,7 +32,6 @@ pub struct AnalysisProject {
     manifest_path: PathBuf,
     workspace_root: PathBuf,
     packages: Vec<AnalysisPackage>,
-    workspace_script_roots: Vec<AnalysisScriptRoot>,
     build_plan_cache: Rc<RefCell<BTreeMap<AnalysisBuildPlanKey, BuildPlan>>>,
 }
 
@@ -196,7 +195,6 @@ impl AnalysisProject {
             manifest_path: manifest_path.to_path_buf(),
             workspace_root,
             packages,
-            workspace_script_roots: workspace_script_roots(manifest_path),
             build_plan_cache: Rc::new(RefCell::new(BTreeMap::new())),
         }
     }
@@ -215,13 +213,9 @@ impl AnalysisProject {
     }
 
     fn script_root_for_file(&self, file: &Path) -> Option<&AnalysisScriptRoot> {
-        self.workspace_script_roots
+        self.packages
             .iter()
-            .chain(
-                self.packages
-                    .iter()
-                    .flat_map(|package| package.script_roots.iter()),
-            )
+            .flat_map(|package| package.script_roots.iter())
             .find(|script| script.root == file)
     }
 

@@ -984,12 +984,12 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             return None;
         }
 
-        let dir_init = base_path.join("init.rn");
-        let file_kn = PathBuf::from(format!("{}.rn", base_path.display()));
+        let dir_mod = base_path.join("mod.kn");
+        let file_kn = PathBuf::from(format!("{}.kn", base_path.display()));
 
-        if self.path_exists(&dir_init) {
+        if self.path_exists(&dir_mod) {
             Some(ResolvedRootModule {
-                entry_path: dir_init,
+                entry_path: dir_mod,
                 declared_root_name: None,
                 package_name: None,
             })
@@ -1012,11 +1012,11 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
     fn resolve_submodule_path(&mut self, dir_path: &Path, decl: &ast::Decl) -> Option<PathBuf> {
         let mod_name = self.ctx.resolve(decl.name).to_string();
-        let dir_init = dir_path.join(&mod_name).join("init.rn");
-        let file_kn = dir_path.join(format!("{}.rn", mod_name));
+        let dir_mod = dir_path.join(&mod_name).join("mod.kn");
+        let file_kn = dir_path.join(format!("{}.kn", mod_name));
 
-        if self.path_exists(&dir_init) {
-            Some(dir_init)
+        if self.path_exists(&dir_mod) {
+            Some(dir_mod)
         } else if self.path_exists(&file_kn) {
             Some(file_kn)
         } else {
@@ -1028,7 +1028,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 .with_hint(format!(
                     "expected to find `{}` or `{}`",
                     file_kn.display(),
-                    dir_init.display()
+                    dir_mod.display()
                 ))
                 .emit();
             None
@@ -1106,8 +1106,9 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         let scope_id = self.ctx.scopes.enter_scope();
         self.ctx.scopes.exit_scope();
 
-        let is_init = abs_path.file_name().and_then(|n| n.to_str()) == Some("init.rn");
-        let dir_path = self.module_child_anchor_dir(&source_dir_path, name, parent, is_init);
+        let is_mod_entry = abs_path.file_name().and_then(|n| n.to_str()) == Some("mod.kn");
+        let dir_path =
+            self.module_child_anchor_dir(&source_dir_path, name, parent, is_mod_entry);
 
         let dummy_def = ModuleDef {
             id: mod_id,
@@ -1117,7 +1118,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             scope_id,
             dir_path: dir_path.clone(),
             file_id,
-            is_init,
+            is_init: is_mod_entry,
             submodules: HashMap::new(),
             items: Vec::new(),
             imports: Vec::new(),

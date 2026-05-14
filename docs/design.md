@@ -759,8 +759,8 @@ conditional compilation.
 
 Files and directories do not implicitly become part of the compilation unit just by existing on the filesystem. A module must be explicitly declared using the `mod` keyword.
 
-  * **File Modules**: `mod utils;` instructs the compiler to look for `utils.rn`.
-  * **Directory Modules**: If `utils` is a directory, the compiler looks for `utils/init.rn`.
+  * **File Modules**: `mod utils;` instructs the compiler to look for `utils.kn`.
+  * **Directory Modules**: If `utils` is a directory, the compiler looks for `utils/mod.kn`.
   * **Inline Modules**: `mod utils { ... }` declares the same child module without a separate entry file.
   * **Visibility**: By default, modules are private. Use `pub mod utils;` to expose a module publicly, `pub.. mod utils;` to expose it to the parent module subtree, or `pub/ mod utils;` to expose it throughout the current package.
 
@@ -776,7 +776,7 @@ mod inline_detail {
     pub.. fn helper() void {}
 }
 
-// Conditional module compilation (e.g., in std/os/init.rn)
+// Conditional module compilation (e.g., in std/os/mod.kn)
 #[if(os == "linux")]
 mod linux;
 
@@ -784,7 +784,7 @@ mod linux;
 mod windows;
 ```
 
-Inline modules are module nodes, not textual includes. A file-backed child declared inside an inline module is resolved under that module's child directory, so `mod api { mod detail; }` looks for `api/detail.rn` or `api/detail/init.rn`.
+Inline modules are module nodes, not textual includes. A file-backed child declared inside an inline module is resolved under that module's child directory, so `mod api { mod detail; }` looks for `api/detail.kn` or `api/detail/mod.kn`.
 
 ### 8.2 Imports and Path Resolution (`use`)
 
@@ -802,7 +802,7 @@ Grouped imports keep the same anchor as their base path, for example `use /host.
 Kern supports the Facade pattern via `pub use`. This allows you to construct a clean, unified public API while keeping the internal module layout complex and conditionally compiled. Kern also supports `pub..` when an API should be visible throughout the parent module subtree, and `pub/` when it should stay package-internal without becoming fully public.
 
 ```kern
-// host/os/init.rn
+// host/os/mod.kn
 #[if(os == "linux")]
 mod linux;
 
@@ -1245,7 +1245,7 @@ Kern completely rejects traditional C-style preprocessor macros, substituting th
 ### 13.1 Scope: Outer vs. Inner Attributes
 
   * **Outer Attributes (`#[...]`)**: Attached to the immediately following AST node (e.g., a function, struct, or variable declaration).
-  * **Inner Attributes (`#![...]`)**: Applies to the entire enclosing lexical scope (usually the file). If placed at the top of an `init.rn` file, the attribute applies to the entire module.
+  * **Inner Attributes (`#![...]`)**: Applies to the entire enclosing lexical scope (usually the file). If placed at the top of an `mod.kn` file, the attribute applies to the entire module.
 
 ### 13.2 Mutually Exclusive Content
 

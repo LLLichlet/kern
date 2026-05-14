@@ -49,7 +49,7 @@ fn rejects_requests_before_initialize() {
             id: Some(json!(1)),
             method: Some("textDocument/hover".to_string()),
             params: Some(json!({
-                "textDocument": { "uri": "file:///main.rn" },
+                "textDocument": { "uri": "file:///main.kn" },
                 "position": { "line": 0, "character": 0 }
             })),
         },
@@ -109,7 +109,7 @@ fn rejects_requests_after_shutdown() {
             id: Some(json!(7)),
             method: Some("textDocument/documentSymbol".to_string()),
             params: Some(json!({
-                "textDocument": { "uri": "file:///main.rn" }
+                "textDocument": { "uri": "file:///main.kn" }
             })),
         },
     )

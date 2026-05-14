@@ -78,11 +78,11 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 }
 
 fn write_minimal_lib_package(root: &Path) {
@@ -96,11 +96,11 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/lib.rn"), "pub fn demo() void {}\n").unwrap();
+    fs::write(root.join("src/lib.kn"), "pub fn demo() void {}\n").unwrap();
 }
 
 fn write_publishable_bin_package(root: &Path) {
@@ -120,12 +120,12 @@ repository = "https://example.com/demo"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(root.join("README.md"), "# demo\n").unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 }
 
 fn write_workspace_member_package(root: &Path, member_name: &str) -> PathBuf {
@@ -153,12 +153,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "{member_name}"
-root = "src/main.rn"
+root = "src/main.kn"
 "#
         ),
     )
     .unwrap();
-    fs::write(member.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(member.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     member
 }
 
@@ -310,12 +310,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         bin_arg_check_source(first, second),
     )
     .unwrap();
@@ -332,12 +332,12 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["tests/smoke.rn"]
+roots = ["tests/smoke.kn"]
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("tests/smoke.rn"),
+        root.join("tests/smoke.kn"),
         arg_check_source(first, second, true),
     )
     .unwrap();
@@ -354,17 +354,17 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["tests/alpha.rn", "tests/beta.rn"]
+roots = ["tests/alpha.kn", "tests/beta.kn"]
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("tests/alpha.rn"),
+        root.join("tests/alpha.kn"),
         "#[test]\nfn main() i32 { return 1; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("tests/beta.rn"),
+        root.join("tests/beta.kn"),
         "#[test]\nfn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -383,16 +383,16 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [test]
-roots = ["tests/smoke.rn"]
+roots = ["tests/smoke.kn"]
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
-        root.join("tests/smoke.rn"),
+        root.join("tests/smoke.kn"),
         "#[test]\nfn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -411,16 +411,16 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [example]
-roots = ["examples/sample.rn"]
+roots = ["examples/sample.kn"]
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
-        root.join("examples/sample.rn"),
+        root.join("examples/sample.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -438,16 +438,16 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [[bin]]
 name = "helper"
-root = "src/helper.rn"
+root = "src/helper.kn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
-    fs::write(root.join("src/helper.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/helper.kn"), "fn main() i32 { return 0; }\n").unwrap();
 }
 
 fn write_workspace_with_member_test_package(root: &std::path::Path) -> PathBuf {
@@ -467,12 +467,12 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["tests/smoke.rn"]
+roots = ["tests/smoke.kn"]
 "#,
     )
     .unwrap();
     fs::write(
-        member.join("tests/smoke.rn"),
+        member.join("tests/smoke.kn"),
         "#[test]\nfn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -624,27 +624,27 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/placeholder.rn"),
+        root.join("src/placeholder.kn"),
         "fn main() i32 { return 1; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
 let main = b.emit_generated(
-    "src/main.rn",
+    "src/main.kn",
     "mod helper;\nfn main() i32 { return helper.answer(); }\n"
 );
 let _ = b.emit_generated(
-    "src/helper.rn",
+    "src/helper.kn",
     "pub/ fn answer() i32 { return 0; }\n"
 );
 b.set_source_root(main);
@@ -1746,17 +1746,17 @@ fn build_command_recovers_after_killed_process_leaves_partial_generated_state() 
     );
     assert!(
         root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("main.rn")
+            .join("main.kn")
             .exists()
     );
     assert!(
         root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("main.rn")
+            .join("main.kn")
             .is_file()
     );
     assert!(
         root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("helper.rn")
+            .join("helper.kn")
             .is_file()
     );
     assert!(
@@ -1836,12 +1836,12 @@ fn check_command_recovers_after_killed_process_leaves_partial_generated_state() 
 
     assert!(
         root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("main.rn")
+            .join("main.kn")
             .is_file()
     );
     assert!(
         root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("helper.rn")
+            .join("helper.kn")
             .is_file()
     );
     assert!(root.join(".craft/analysis.toml").is_file());
@@ -1869,7 +1869,7 @@ fn check_command_recovers_after_killed_process_leaves_partial_analysis_context()
     assert!(root.join(".craft/analysis.toml").is_file());
     assert!(
         root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("main.rn")
+            .join("main.kn")
             .is_file()
     );
     assert!(
@@ -1941,12 +1941,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "hello"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        app_root.join("src/main.rn"),
+        app_root.join("src/main.kn"),
         r#"
 use std.io;
 
@@ -2323,7 +2323,7 @@ fn init_command_scaffolds_minimal_bin_package() {
 
     let manifest = fs::read_to_string(root.join("Craft.toml")).unwrap();
     assert!(manifest.contains("[[bin]]"));
-    assert!(manifest.contains("root = \"src/main.rn\""));
+    assert!(manifest.contains("root = \"src/main.kn\""));
     assert_eq!(
         fs::read_to_string(root.join(".gitignore")).unwrap(),
         ".craft/\n"
@@ -2331,7 +2331,7 @@ fn init_command_scaffolds_minimal_bin_package() {
     let lockfile = fs::read_to_string(root.join("Craft.lock")).unwrap();
     assert!(lockfile.contains("manifest = \"Craft.toml\""));
     assert!(lockfile.contains("name = \"craft_cli_init_minimal"));
-    assert!(root.join("src/main.rn").is_file());
+    assert!(root.join("src/main.kn").is_file());
 
     let _ = fs::remove_dir_all(root);
 }
@@ -2342,14 +2342,14 @@ fn init_command_collects_existing_test_and_example_roots() {
     fs::create_dir_all(root.join("src")).unwrap();
     fs::create_dir_all(root.join("tests/nested")).unwrap();
     fs::create_dir_all(root.join("examples")).unwrap();
-    fs::write(root.join("src/lib.rn"), "pub fn demo() void {}\n").unwrap();
+    fs::write(root.join("src/lib.kn"), "pub fn demo() void {}\n").unwrap();
     fs::write(
-        root.join("tests/nested/smoke.rn"),
+        root.join("tests/nested/smoke.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("examples/sample.rn"),
+        root.join("examples/sample.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -2363,14 +2363,14 @@ fn init_command_collects_existing_test_and_example_roots() {
     let manifest = fs::read_to_string(root.join("Craft.toml")).unwrap();
     assert!(manifest.contains("[lib]"));
     assert!(manifest.contains("[test]"));
-    assert!(manifest.contains("\"tests/nested/smoke.rn\""));
+    assert!(manifest.contains("\"tests/nested/smoke.kn\""));
     assert!(manifest.contains("[example]"));
-    assert!(manifest.contains("\"examples/sample.rn\""));
+    assert!(manifest.contains("\"examples/sample.kn\""));
     let lockfile = fs::read_to_string(root.join("Craft.lock")).unwrap();
     assert!(lockfile.contains("kind = \"lib\""));
     assert!(lockfile.contains("kind = \"test\""));
     assert!(lockfile.contains("kind = \"example\""));
-    assert!(!root.join("src/main.rn").exists());
+    assert!(!root.join("src/main.kn").exists());
 
     let _ = fs::remove_dir_all(root);
 }
@@ -2395,11 +2395,11 @@ kern = "0.7.6"
 
 [[bin]]
 name = "member"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
-    fs::write(member.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(member.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
     run_command(Command::Build {
         path: Some(member.clone()),
@@ -2550,11 +2550,11 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
     run_command(Command::Build {
         path: Some(root.clone()),
@@ -2606,7 +2606,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
@@ -2646,11 +2646,11 @@ kern = "0.7.6"
 
 [[bin]]
 name = "member"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
-    fs::write(member.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(member.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
     run_command(Command::Build {
         path: Some(member.clone()),
@@ -2883,7 +2883,7 @@ fn publish_matches_repository_against_normalized_ssh_remote() {
 fn publish_rejects_unformatted_sources() {
     let root = temp_dir("craft-cli-publish-format");
     write_publishable_bin_package(&root);
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }  \n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }  \n").unwrap();
     fs::write(root.join(".gitignore"), ".craft/\n").unwrap();
     run_command(Command::Check {
         path: Some(root.clone()),
@@ -2945,7 +2945,7 @@ fn publish_allows_advisory_style_findings() {
     let root = temp_dir("craft-cli-publish-style");
     write_publishable_bin_package(&root);
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
     let mut index = 0usize;
@@ -3012,11 +3012,11 @@ kern = "0.7.6"
 
 [[bin]]
 name = "member"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
-    fs::write(member.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(member.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     run_command(Command::Check {
         path: Some(root.clone()),
         feature_selection: FeatureSelection::default(),

@@ -793,7 +793,7 @@ mod tests {
     #[test]
     fn accepts_public_craft_entry() {
         let root = temp_dir("craft-script-valid");
-        let path = root.join("craft.rn");
+        let path = root.join("craft.kn");
         fs::write(
             &path,
             "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
@@ -809,7 +809,7 @@ mod tests {
     #[test]
     fn rejects_missing_public_craft_entry() {
         let root = temp_dir("craft-script-missing-entry");
-        let path = root.join("craft.rn");
+        let path = root.join("craft.kn");
         fs::write(&path, "fn helper() void {}\n").unwrap();
 
         let err = validate_craft_script(&path).unwrap_err();
@@ -825,7 +825,7 @@ mod tests {
     #[test]
     fn rejects_entry_without_plan_parameter() {
         let root = temp_dir("craft-script-missing-plan-param");
-        let path = root.join("craft.rn");
+        let path = root.join("craft.kn");
         fs::write(&path, "pub fn craft() void {}\n").unwrap();
 
         let err = validate_craft_script(&path).unwrap_err();
@@ -841,7 +841,7 @@ mod tests {
     #[test]
     fn accepts_public_build_entry() {
         let root = temp_dir("build-script-valid");
-        let path = root.join("build.rn");
+        let path = root.join("build.kn");
         fs::write(
             &path,
             "use craft.builder;\npub fn build(b: &mut builder.Builder) void { let _ = b; }\n",

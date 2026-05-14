@@ -15,7 +15,7 @@ manifest-digest = "fnv1a64:3fb0bcc9e3ff98d2"
 package = "limine-smoke 0.1.0 root"
 kind = "bin"
 name = "kernel"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [[package-resource]]
 package = "limine-smoke 0.1.0 root"

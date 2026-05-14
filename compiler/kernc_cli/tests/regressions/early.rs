@@ -1367,10 +1367,10 @@ fn main() i32 {
 fn compiles_same_private_const_name_in_multiple_modules() {
     let output = compile_source_tree_with_args(
         "kernc_private_const_module_scope",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 mod left;
 mod right;
@@ -1381,7 +1381,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "left.rn",
+                "left.kn",
                 r#"
 const SHARED = 10i32;
 
@@ -1391,7 +1391,7 @@ pub fn value() i32 {
 "#,
             ),
             (
-                "right.rn",
+                "right.kn",
                 r#"
 const SHARED = 32i32;
 
@@ -1411,10 +1411,10 @@ pub fn value() i32 {
 fn parent_module_can_access_pub_super_items() {
     let output = compile_source_tree_with_args(
         "kernc_pub_super_parent_access",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 mod inner;
 
@@ -1426,7 +1426,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "inner.rn",
+                "inner.kn",
                 r#"
 pub.. fn parent_only() i32 {
     return 0;
@@ -1444,10 +1444,10 @@ pub.. fn parent_only() i32 {
 fn parent_module_can_access_pub_super_reexports() {
     let output = compile_source_tree_with_args(
         "kernc_pub_super_reexport",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 mod middle;
 
@@ -1457,7 +1457,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "middle.rn",
+                "middle.kn",
                 r#"
 mod leaf;
 
@@ -1465,7 +1465,7 @@ pub.. use .leaf.shared as shared;
 "#,
             ),
             (
-                "middle/leaf.rn",
+                "middle/leaf.kn",
                 r#"
 pub fn shared() i32 {
     return 0;
@@ -1483,10 +1483,10 @@ pub fn shared() i32 {
 fn public_reexport_promotes_pub_super_items_to_outer_modules() {
     let output = compile_source_tree_with_args(
         "kernc_pub_super_public_reexport",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 mod middle;
 
@@ -1496,7 +1496,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "middle.rn",
+                "middle.kn",
                 r#"
 mod leaf;
 
@@ -1504,7 +1504,7 @@ pub use .leaf.shared as shared;
 "#,
             ),
             (
-                "middle/leaf.rn",
+                "middle/leaf.kn",
                 r#"
 pub.. fn shared() i32 {
     return 0;
@@ -1522,10 +1522,10 @@ pub.. fn shared() i32 {
 fn sibling_module_can_access_pub_super_items() {
     let output = compile_source_tree_with_args(
         "kernc_pub_super_sibling_access",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 pub mod left;
 mod right;
@@ -1536,7 +1536,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "left.rn",
+                "left.kn",
                 r#"
 pub.. fn helper() i32 {
     return 0;
@@ -1544,7 +1544,7 @@ pub.. fn helper() i32 {
 "#,
             ),
             (
-                "right.rn",
+                "right.kn",
                 r#"
 use ..left.helper as helper;
 
@@ -1564,10 +1564,10 @@ pub fn value() i32 {
 fn descendant_module_can_access_pub_super_items() {
     let output = compile_source_tree_with_args(
         "kernc_pub_super_descendant_access",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 pub mod left;
 
@@ -1577,7 +1577,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "left.rn",
+                "left.kn",
                 r#"
 pub mod deep;
 
@@ -1587,7 +1587,7 @@ pub.. fn helper() i32 {
 "#,
             ),
             (
-                "left/deep.rn",
+                "left/deep.kn",
                 r#"
 use ..helper;
 
@@ -1607,10 +1607,10 @@ pub fn value() i32 {
 fn grandparent_module_cannot_access_pub_super_items() {
     let output = compile_source_tree_with_args(
         "kernc_pub_super_grandparent_rejected",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 pub mod outer;
 
@@ -1620,13 +1620,13 @@ fn main() i32 {
 "#,
             ),
             (
-                "outer.rn",
+                "outer.kn",
                 r#"
 pub mod mid;
 "#,
             ),
             (
-                "outer/mid.rn",
+                "outer/mid.kn",
                 r#"
 pub.. fn helper() i32 {
     return 0;
@@ -1656,10 +1656,10 @@ pub.. fn helper() i32 {
 fn module_outside_parent_subtree_cannot_access_pub_super_items() {
     let output = compile_source_tree_with_args(
         "kernc_pub_super_outside_subtree_rejected",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 pub mod outer;
 mod peer;
@@ -1670,13 +1670,13 @@ fn main() i32 {
 "#,
             ),
             (
-                "outer.rn",
+                "outer.kn",
                 r#"
 pub mod mid;
 "#,
             ),
             (
-                "outer/mid.rn",
+                "outer/mid.kn",
                 r#"
 pub.. fn helper() i32 {
     return 0;
@@ -1684,7 +1684,7 @@ pub.. fn helper() i32 {
 "#,
             ),
             (
-                "peer.rn",
+                "peer.kn",
                 r#"
 use ..outer.mid.helper as helper;
 
@@ -1716,10 +1716,10 @@ pub fn value() i32 {
 fn sibling_module_can_access_pub_package_items() {
     let output = compile_source_tree_with_args(
         "kernc_pub_package_sibling_access",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 pub mod left;
 mod right;
@@ -1730,7 +1730,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "left.rn",
+                "left.kn",
                 r#"
 pub/ fn helper() i32 {
     return 0;
@@ -1738,7 +1738,7 @@ pub/ fn helper() i32 {
 "#,
             ),
             (
-                "right.rn",
+                "right.kn",
                 r#"
 use ..left.helper as helper;
 
@@ -1758,10 +1758,10 @@ pub fn value() i32 {
 fn package_root_paths_work_in_use_type_and_expr_positions() {
     let output = compile_source_tree_with_args(
         "kernc_package_root_paths",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 pub mod util;
 
@@ -1777,7 +1777,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "util.rn",
+                "util.kn",
                 r#"
 pub enum Kind {
     Root,
@@ -1904,10 +1904,10 @@ fn main() i32 {
 fn bare_use_path_no_longer_falls_back_to_local_package_root() {
     let output = compile_source_tree_with_args(
         "kernc_external_use_no_local_fallback",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 mod util;
 
@@ -1919,7 +1919,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "util.rn",
+                "util.kn",
                 r#"
 pub fn answer() i32 {
     return 0;

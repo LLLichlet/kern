@@ -63,8 +63,8 @@ cd hello
 craft init
 ```
 
-`craft init` creates a minimal package with `Craft.toml` and `src/main.rn`.
-Edit `src/main.rn`:
+`craft init` creates a minimal package with `Craft.toml` and `src/main.kn`.
+Edit `src/main.kn`:
 
 ```kern
 use std.io;
@@ -113,20 +113,20 @@ model.
 For direct compiler use, call `kernc` with explicit runtime and library choices:
 
 ```sh
-kernc --runtime-entry rt --library-bundle std examples/hello_world.rn -o hello
+kernc --runtime-entry rt --library-bundle std examples/hello_world.kn -o hello
 ./hello
 ```
 
 Compile only:
 
 ```sh
-kernc -c --runtime-entry rt --library-bundle std examples/hello_world.rn -o hello.o
+kernc -c --runtime-entry rt --library-bundle std examples/hello_world.kn -o hello.o
 ```
 
 Inspect LLVM IR:
 
 ```sh
-kernc --emit-llvm --runtime-entry rt --library-bundle std examples/hello_world.rn
+kernc --emit-llvm --runtime-entry rt --library-bundle std examples/hello_world.kn
 ```
 
 For full compiler-driver usage, see [docs/kernc.md](docs/kernc.md).
@@ -199,7 +199,7 @@ to drive a specific compile or link action directly.
 ## Editors
 
 The first-party VS Code extension lives in [editors/vscode](editors/vscode).
-It provides Kern language support and a `Kern Icons` file icon theme for `.rn`
+It provides Kern language support and a `Kern Icons` file icon theme for `.kn`
 files.
 
 ## Build From Source

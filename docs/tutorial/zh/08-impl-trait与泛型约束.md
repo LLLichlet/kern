@@ -331,9 +331,9 @@ Kern 有意限制重载边界。下面这些语法保留给语言本身：
 
 想理解 Kern 的 trait 风格，可以先看这些文件：
 
-- [`library/base/io/traits.rn`](../../../library/base/io/traits.rn)：`Read`、`Write`、`Formatable`。
-- [`library/std/io/init.rn`](../../../library/std/io/init.rn)：`Printable` 和 `println`。
-- [`library/base/cmp/init.rn`](../../../library/base/cmp/init.rn)：`Comparable`、`Ord`。
-- [`library/base/hash/init.rn`](../../../library/base/hash/init.rn)：`Hash`。
-- [`library/base/coll/ranges.rn`](../../../library/base/coll/ranges.rn)：marker trait 和 capability trait 如何一起约束数值泛型。
-- [`library/base/coll/slice/query.rn`](../../../library/base/coll/slice/query.rn)：slice 上的泛型方法和 trait 实现。
+- [`library/base/io/traits.kn`](../../../library/base/io/traits.kn)：`Read`、`Write`、`Formatable`。
+- [`library/std/io/mod.kn`](../../../library/std/io/mod.kn)：`Printable` 和 `println`。
+- [`library/base/cmp/mod.kn`](../../../library/base/cmp/mod.kn)：`Comparable`、`Ord`。
+- [`library/base/hash/mod.kn`](../../../library/base/hash/mod.kn)：`Hash`。
+- [`library/base/coll/ranges.kn`](../../../library/base/coll/ranges.kn)：marker trait 和 capability trait 如何一起约束数值泛型。
+- [`library/base/coll/slice/query.kn`](../../../library/base/coll/slice/query.kn)：slice 上的泛型方法和 trait 实现。

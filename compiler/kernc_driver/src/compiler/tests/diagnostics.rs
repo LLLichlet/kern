@@ -12,7 +12,7 @@ fn analysis_artifact_exposes_unused_private_items() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "const dead_const = 1;\n",
         "fn dead_fn() i32 { return dead_const; }\n",
@@ -48,7 +48,7 @@ fn analysis_artifact_omits_retained_private_items_from_unused_list() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "#[retain]\n",
         "const kept_const = 1;\n",
@@ -78,7 +78,7 @@ fn analysis_artifact_exposes_unused_bindings() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn helper(_: i32, unused_param: i32, used_param: i32) i32 {\n",
         "    let unused_local = used_param;\n",
@@ -115,7 +115,7 @@ fn analysis_artifact_exposes_dead_stores() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn helper(seed: i32) i32 {\n",
         "    let mut value = seed;\n",
@@ -166,7 +166,7 @@ fn analyze_source_for_diagnostics(name: &str, source: &str) -> AnalysisArtifact 
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());

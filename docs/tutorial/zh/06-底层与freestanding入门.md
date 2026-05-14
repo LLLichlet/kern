@@ -100,7 +100,7 @@ bundle = "base"
 
 [[bin]]
 name = "kernel"
-root = "src/main.rn"
+root = "src/main.kn"
 ```
 
 这表示：
@@ -110,7 +110,7 @@ root = "src/main.rn"
 - 只接入 `base` 这一层官方库。
 - 最终入口符号由项目自己导出。
 
-`src/main.rn` 可以导出 `_start`：
+`src/main.kn` 可以导出 `_start`：
 
 ```kern
 #[export_name("_start")]
@@ -134,7 +134,7 @@ kernc \
   --runtime-libc no \
   --library-bundle base \
   --entry-symbol _start \
-  src/main.rn \
+  src/main.kn \
   -o kernel.bin
 ```
 
@@ -157,11 +157,11 @@ kernc \
   --entry-symbol _start \
   --link-arg -T \
   --link-arg kernel.ld \
-  src/main.rn \
+  src/main.kn \
   -o kernel.bin
 ```
 
-在 `craft` 包里，更推荐把这类策略放进 `build.rn`：
+在 `craft` 包里，更推荐把这类策略放进 `build.kn`：
 
 ```kern
 use craft.builder;
@@ -173,17 +173,17 @@ pub fn build(b: &mut builder.Builder) void {
 
 `link_arg_path` 会把路径作为真实链接输入记录下来。这样项目的链接策略留在仓库里，而不是散落在命令行历史中。
 
-如果要构建更完整的 bootable 镜像，`build.rn` 还可以拷贝 kernel artifact、拷贝资源、调用 build dependency 暴露的工具。仓库里的 [`examples/limine-smoke`](../../../examples/limine-smoke) 就是一个小型 freestanding 示例：它用 `entry = "none"`、`bundle = "base"`，自己导出 `_start`，再通过 `build.rn` 组织 Limine ISO。
+如果要构建更完整的 bootable 镜像，`build.kn` 还可以拷贝 kernel artifact、拷贝资源、调用 build dependency 暴露的工具。仓库里的 [`examples/limine-smoke`](../../../examples/limine-smoke) 就是一个小型 freestanding 示例：它用 `entry = "none"`、`bundle = "base"`，自己导出 `_start`，再通过 `build.kn` 组织 Limine ISO。
 
-## `build.rn` 和 `craft.rn` 的位置
+## `build.kn` 和 `craft.kn` 的位置
 
 底层项目很容易需要额外构建逻辑。先记住一个实用边界：
 
 - `Craft.toml`：声明包、target、依赖、资源和 runtime 策略。
-- `craft.rn`：可选的 pre-resolution 规划脚本，会影响 lockfile，普通项目先不用。
-- `build.rn`：可选的 post-lock 构建脚本，适合链接脚本、生成文件、C 支持文件、拷贝 artifact、调用工具。
+- `craft.kn`：可选的 pre-resolution 规划脚本，会影响 lockfile，普通项目先不用。
+- `build.kn`：可选的 post-lock 构建脚本，适合链接脚本、生成文件、C 支持文件、拷贝 artifact、调用工具。
 
-所以如果你只是要给内核加 `kernel.ld`，用 `build.rn`。如果你只是要声明 Limine 资源，用 `[resources]`。不要把这些策略藏进手写 shell 命令里。
+所以如果你只是要给内核加 `kernel.ld`，用 `build.kn`。如果你只是要声明 Limine 资源，用 `[resources]`。不要把这些策略藏进手写 shell 命令里。
 
 ## 与 C 和硬件边界
 

@@ -24,14 +24,14 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [test]
-roots = ["tests/smoke.rn"]
+roots = ["tests/smoke.kn"]
 "#,
     )
     .unwrap();
@@ -100,14 +100,14 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 util = { path = "../util" }
 "#,
     )
     .unwrap();
-    fs::write(app_dir.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(app_dir.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
         util_dir.join("Craft.toml"),
         r#"
@@ -117,12 +117,12 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        util_dir.join("src/lib.rn"),
+        util_dir.join("src/lib.kn"),
         "pub fn value() i32 { return 0; }\n",
     )
     .unwrap();
@@ -182,17 +182,17 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [test]
-roots = ["tests/smoke.rn"]
+roots = ["tests/smoke.kn"]
 
 [example]
-roots = ["examples/sample.rn"]
+roots = ["examples/sample.kn"]
 "#,
     )
     .unwrap();
@@ -269,10 +269,10 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [example]
-roots = ["examples/sample.rn"]
+roots = ["examples/sample.kn"]
 "#,
     )
     .unwrap();
@@ -322,14 +322,14 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [example]
-roots = ["examples/sample.rn"]
+roots = ["examples/sample.kn"]
 "#,
     )
     .unwrap();

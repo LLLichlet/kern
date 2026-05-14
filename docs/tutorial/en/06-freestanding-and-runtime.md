@@ -113,7 +113,7 @@ bundle = "base"
 
 [[bin]]
 name = "kernel"
-root = "src/main.rn"
+root = "src/main.kn"
 ```
 
 This says:
@@ -123,7 +123,7 @@ This says:
 - only the `base` official layer is wired;
 - the final entry symbol is exported by the project.
 
-`src/main.rn` can export `_start`:
+`src/main.kn` can export `_start`:
 
 ```kern
 #[export_name("_start")]
@@ -153,7 +153,7 @@ kernc \
   --runtime-libc no \
   --library-bundle base \
   --entry-symbol _start \
-  src/main.rn \
+  src/main.kn \
   -o kernel.bin
 ```
 
@@ -178,11 +178,11 @@ kernc \
   --entry-symbol _start \
   --link-arg -T \
   --link-arg kernel.ld \
-  src/main.rn \
+  src/main.kn \
   -o kernel.bin
 ```
 
-In a `craft` package, prefer putting this policy in `build.rn`:
+In a `craft` package, prefer putting this policy in `build.kn`:
 
 ```kern
 use craft.builder;
@@ -195,21 +195,21 @@ pub fn build(b: &mut builder.Builder) void {
 `link_arg_path` records the path as a real link input. The linking policy stays
 in the repository instead of command-line history.
 
-For a fuller bootable image, `build.rn` can copy the kernel artifact, copy
+For a fuller bootable image, `build.kn` can copy the kernel artifact, copy
 resources, or call tools exposed by build dependencies. The repository's
 [`examples/limine-smoke`](../../../examples/limine-smoke) is a small
 freestanding example: it uses `entry = "none"` and `bundle = "base"`, exports
-`_start`, and uses `build.rn` to assemble a Limine ISO.
+`_start`, and uses `build.kn` to assemble a Limine ISO.
 
-## `build.rn` And `craft.rn`
+## `build.kn` And `craft.kn`
 
 Low-level projects often need extra build logic. Use this boundary:
 
 - `Craft.toml`: package, targets, dependencies, resources, and runtime policy.
-- `craft.rn`: optional pre-resolution planning script; affects the lockfile and is not needed for ordinary projects.
-- `build.rn`: optional post-lock build script; good for linker scripts, generated files, C support files, artifact copying, and tool invocation.
+- `craft.kn`: optional pre-resolution planning script; affects the lockfile and is not needed for ordinary projects.
+- `build.kn`: optional post-lock build script; good for linker scripts, generated files, C support files, artifact copying, and tool invocation.
 
-If you only need to add `kernel.ld`, use `build.rn`. If you only need to
+If you only need to add `kernel.ld`, use `build.kn`. If you only need to
 declare Limine resources, use `[resources]`. Do not hide this policy in manual
 shell commands.
 

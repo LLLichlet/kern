@@ -54,7 +54,7 @@ cd hello
 craft init
 ```
 
-`craft init` 会创建一个最小包，其中包含 `Craft.toml` 和 `src/main.rn`。编辑 `src/main.rn`：
+`craft init` 会创建一个最小包，其中包含 `Craft.toml` 和 `src/main.kn`。编辑 `src/main.kn`：
 
 ```kern
 use std.io;
@@ -101,20 +101,20 @@ craft build --profile release
 如果绕过 `craft` 直接调用编译器，需要显式选择运行时入口和库组合：
 
 ```sh
-kernc --runtime-entry rt --library-bundle std examples/hello_world.rn -o hello
+kernc --runtime-entry rt --library-bundle std examples/hello_world.kn -o hello
 ./hello
 ```
 
 只生成目标文件：
 
 ```sh
-kernc -c --runtime-entry rt --library-bundle std examples/hello_world.rn -o hello.o
+kernc -c --runtime-entry rt --library-bundle std examples/hello_world.kn -o hello.o
 ```
 
 查看 LLVM IR：
 
 ```sh
-kernc --emit-llvm --runtime-entry rt --library-bundle std examples/hello_world.rn
+kernc --emit-llvm --runtime-entry rt --library-bundle std examples/hello_world.kn
 ```
 
 完整的编译驱动说明见 [docs/kernc.md](docs/kernc.md)。
@@ -178,7 +178,7 @@ Kern 包含这些工具：
 
 ## 编辑器
 
-第一方 VS Code 扩展位于 [editors/vscode](editors/vscode)。它提供 Kern 语言支持，并附带用于 `.rn` 文件的 `Kern Icons` 图标主题。
+第一方 VS Code 扩展位于 [editors/vscode](editors/vscode)。它提供 Kern 语言支持，并附带用于 `.kn` 文件的 `Kern Icons` 图标主题。
 
 ## 从源码构建
 

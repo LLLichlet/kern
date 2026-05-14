@@ -375,10 +375,10 @@ fn main() i32 {
 #[test]
 fn module_value_member_can_share_name_with_child_module() {
     let output = compile_source_tree(
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 mod proc;
 
@@ -388,7 +388,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "proc/init.rn",
+                "proc/mod.kn",
                 r#"
 pub mod args;
 
@@ -398,7 +398,7 @@ pub fn args() i32 {
 "#,
             ),
             (
-                "proc/args.rn",
+                "proc/args.kn",
                 r#"
 pub const VALUE = 1i32;
 "#,
@@ -674,10 +674,10 @@ fn main() i32 {
 fn runs_inline_module_with_file_backed_nested_module() {
     let output = compile_source_tree_with_args(
         "kernc_inline_nested_file_module",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 mod api {
     mod detail;
@@ -693,7 +693,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "api/detail.rn",
+                "api/detail.kn",
                 r#"
 pub fn value() i32 {
     return 7;
@@ -1781,10 +1781,10 @@ fn main() i32 {
 #[test]
 fn imported_struct_field_default_uses_definition_scope() {
     let output = compile_source_tree(
-        "main.rn",
+        "main.kn",
         &[
             (
-                "settings.rn",
+                "settings.kn",
                 r#"
 pub type Mode = u8;
 
@@ -1796,7 +1796,7 @@ pub struct Settings {
 "#,
             ),
             (
-                "main.rn",
+                "main.kn",
                 r#"
 mod settings;
 
@@ -1839,7 +1839,7 @@ fn main() i32 {
     return 0;
 }
 "#;
-    let source_path = unique_temp_path("kernc_empty_capture_map_err", "rn");
+    let source_path = unique_temp_path("kernc_empty_capture_map_err", "kn");
     let output_path = unique_temp_path("kernc_empty_capture_map_err", "out");
     std::fs::write(&source_path, source).unwrap();
     let output = run_kernc([
@@ -2349,10 +2349,10 @@ fn main() i32 {
 #[test]
 fn compiles_imported_type_alias_payloadless_variants_in_if_expressions() {
     let output = compile_source_tree(
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 mod kinds;
 use .kinds.DocumentKind;
@@ -2372,7 +2372,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "kinds.rn",
+                "kinds.kn",
                 r#"
 pub enum DocumentKind {
     KeyValue,

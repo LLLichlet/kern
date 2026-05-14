@@ -5,9 +5,9 @@ fn imports_kmeta_package_with_alias_and_links_against_real_package_name() {
     let root = unique_temp_path("kernc_kmeta_pkg", "dir");
     let lib_dir = root.join("lib");
     let metadata_dir = root.join("kmeta");
-    let lib_entry = lib_dir.join("init.rn");
+    let lib_entry = lib_dir.join("mod.kn");
     let lib_object = root.join("util.o");
-    let main_source = root.join("main.rn");
+    let main_source = root.join("main.kn");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable = root.join(format!("app.{}", exe_ext));
 
@@ -98,9 +98,9 @@ fn imported_package_cannot_access_pub_package_items() {
     let root = unique_temp_path("kernc_pub_package_external", "dir");
     let lib_dir = root.join("lib");
     let metadata_dir = root.join("kmeta");
-    let lib_entry = lib_dir.join("init.rn");
+    let lib_entry = lib_dir.join("mod.kn");
     let lib_object = root.join("util.o");
-    let main_source = root.join("main.rn");
+    let main_source = root.join("main.kn");
 
     fs::create_dir_all(&lib_dir).unwrap();
     fs::create_dir_all(&metadata_dir).unwrap();
@@ -182,9 +182,9 @@ fn imported_package_cannot_access_pub_package_struct_fields() {
     let root = unique_temp_path("kernc_pub_package_field_external", "dir");
     let lib_dir = root.join("lib");
     let metadata_dir = root.join("kmeta");
-    let lib_entry = lib_dir.join("init.rn");
+    let lib_entry = lib_dir.join("mod.kn");
     let lib_object = root.join("util.o");
-    let main_source = root.join("main.rn");
+    let main_source = root.join("main.kn");
 
     fs::create_dir_all(&lib_dir).unwrap();
     fs::create_dir_all(&metadata_dir).unwrap();
@@ -270,9 +270,9 @@ fn imported_package_cannot_initialize_pub_package_struct_fields() {
     let root = unique_temp_path("kernc_pub_package_field_init_external", "dir");
     let lib_dir = root.join("lib");
     let metadata_dir = root.join("kmeta");
-    let lib_entry = lib_dir.join("init.rn");
+    let lib_entry = lib_dir.join("mod.kn");
     let lib_object = root.join("util.o");
-    let main_source = root.join("main.rn");
+    let main_source = root.join("main.kn");
 
     fs::create_dir_all(&lib_dir).unwrap();
     fs::create_dir_all(&metadata_dir).unwrap();
@@ -354,9 +354,9 @@ fn rejects_orphan_impl_of_imported_trait_for_foreign_primitive() {
     let root = unique_temp_path("kernc_orphan_foreign_primitive", "dir");
     let lib_dir = root.join("lib");
     let metadata_dir = root.join("kmeta");
-    let lib_entry = lib_dir.join("init.rn");
+    let lib_entry = lib_dir.join("mod.kn");
     let lib_object = root.join("iface.o");
-    let main_source = root.join("main.rn");
+    let main_source = root.join("main.kn");
 
     fs::create_dir_all(&lib_dir).unwrap();
     fs::create_dir_all(&metadata_dir).unwrap();
@@ -437,9 +437,9 @@ fn allows_impl_of_imported_trait_for_pointer_to_local_type() {
     let root = unique_temp_path("kernc_orphan_local_pointer", "dir");
     let lib_dir = root.join("lib");
     let metadata_dir = root.join("kmeta");
-    let lib_entry = lib_dir.join("init.rn");
+    let lib_entry = lib_dir.join("mod.kn");
     let lib_object = root.join("iface.o");
-    let main_source = root.join("main.rn");
+    let main_source = root.join("main.kn");
     let executable = root.join(if cfg!(windows) { "app.exe" } else { "app.out" });
 
     fs::create_dir_all(&lib_dir).unwrap();
@@ -521,8 +521,8 @@ fn main() i32 {
 fn rejects_orphan_impl_of_source_tree_trait_for_foreign_primitive() {
     let root = unique_temp_path("kernc_orphan_foreign_source_tree", "dir");
     let dep_dir = root.join("dep");
-    let dep_entry = dep_dir.join("init.rn");
-    let main_source = root.join("main.rn");
+    let dep_entry = dep_dir.join("mod.kn");
+    let main_source = root.join("main.kn");
 
     fs::create_dir_all(&dep_dir).unwrap();
 
@@ -591,9 +591,9 @@ fn kmeta_snapshot_keeps_cfg_gated_submodule_sources() {
     let lib_dir = root.join("lib");
     let inner_dir = lib_dir.join("inner");
     let metadata_dir = root.join("kmeta");
-    let lib_entry = lib_dir.join("init.rn");
-    let inner_entry = inner_dir.join("init.rn");
-    let gated_entry = inner_dir.join("entry.rn");
+    let lib_entry = lib_dir.join("mod.kn");
+    let inner_entry = inner_dir.join("mod.kn");
+    let gated_entry = inner_dir.join("entry.kn");
     let lib_object = root.join("pkg.o");
 
     fs::create_dir_all(&inner_dir).unwrap();
@@ -644,7 +644,7 @@ pub fn hidden() i32 {
     assert_success(&output, "kernc kmeta snapshot");
 
     assert!(
-        metadata_dir.join("src/inner/entry.rn").is_file(),
+        metadata_dir.join("src/inner/entry.kn").is_file(),
         "cfg-gated submodule source missing from kmeta snapshot"
     );
 
@@ -656,7 +656,7 @@ fn concurrent_kmeta_snapshot_writers_serialize_on_output_lock() {
     let root = unique_temp_path("kernc_kmeta_parallel", "dir");
     let lib_dir = root.join("lib");
     let metadata_dir = root.join("kmeta");
-    let lib_entry = lib_dir.join("init.rn");
+    let lib_entry = lib_dir.join("mod.kn");
     let object_a = root.join("pkg-a.o");
     let object_b = root.join("pkg-b.o");
 
@@ -669,7 +669,7 @@ fn concurrent_kmeta_snapshot_writers_serialize_on_output_lock() {
         let module_name = format!("m{i:03}");
         root_source.push_str(&format!("pub mod {module_name};\n"));
         fs::write(
-            lib_dir.join(format!("{module_name}.rn")),
+            lib_dir.join(format!("{module_name}.kn")),
             format!(
                 r#"
 pub fn answer() i32 {{
@@ -722,7 +722,7 @@ pub fn answer() i32 {{
     assert_success(&output_a, "kernc concurrent kmeta writer A");
     assert_success(&output_b, "kernc concurrent kmeta writer B");
     assert!(metadata_dir.join("Kmeta.toml").is_file());
-    assert!(metadata_dir.join("src/init.rn").is_file());
+    assert!(metadata_dir.join("src/mod.kn").is_file());
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -731,8 +731,8 @@ pub fn answer() i32 {{
 fn rejects_raw_source_tree_passed_via_imported_interface_alias() {
     let root = unique_temp_path("kernc_kmeta_reject_raw", "dir");
     let dep_dir = root.join("dep");
-    let dep_entry = dep_dir.join("init.rn");
-    let main_source = root.join("main.rn");
+    let dep_entry = dep_dir.join("mod.kn");
+    let main_source = root.join("main.kn");
     let object_path = root.join("app.o");
 
     fs::create_dir_all(&dep_dir).unwrap();

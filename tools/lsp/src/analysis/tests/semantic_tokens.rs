@@ -479,20 +479,20 @@ fn semantic_tokens_classify_imported_function_references_in_submodules() {
     fs::create_dir_all(&dbg_dir).unwrap();
 
     fs::write(
-        dbg_dir.join("init.rn"),
+        dbg_dir.join("mod.kn"),
         "pub mod helper;\nmod use_helper;\n",
     )
     .unwrap();
     fs::write(
-        dbg_dir.join("helper.rn"),
+        dbg_dir.join("helper.kn"),
         "pub fn helper() i32 { return 1; }\n",
     )
     .unwrap();
     let use_helper_source = "use ..helper.helper;\npub fn run() i32 { return helper(); }\n";
-    fs::write(dbg_dir.join("use_helper.rn"), use_helper_source).unwrap();
+    fs::write(dbg_dir.join("use_helper.kn"), use_helper_source).unwrap();
 
     let mut analysis = AnalysisEngine::default();
-    let uri = file_path_to_uri(&dbg_dir.join("use_helper.rn")).unwrap();
+    let uri = file_path_to_uri(&dbg_dir.join("use_helper.kn")).unwrap();
     let _ = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: uri.clone(),

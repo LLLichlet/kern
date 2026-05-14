@@ -57,7 +57,7 @@ fn unique_temp_file_path(prefix: &str) -> PathBuf {
         .as_nanos();
     let counter = UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "{}_{}_{}_{}.rn",
+        "{}_{}_{}_{}.kn",
         prefix,
         std::process::id(),
         nanos,

@@ -1036,12 +1036,12 @@ version = "1"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
         )
         .unwrap();
         fs::write(
-            package_root.join("src/lib.rn"),
+            package_root.join("src/lib.kn"),
             "pub fn x() i32 { return 0; }\n",
         )
         .unwrap();
@@ -1088,7 +1088,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "kernel"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [resources]
 limine = { path = "vendor/limine" }
@@ -1096,7 +1096,7 @@ limine = { path = "vendor/limine" }
         )
         .unwrap();
         fs::create_dir_all(root.join("src")).unwrap();
-        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
         fs::write(resource_root.join("cfg").join("limine.conf"), "TIMEOUT=0\n").unwrap();
 
         let manifest_path = root.join("Craft.toml");
@@ -1140,7 +1140,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [resources]
 limine = { path = "vendor/limine" }
@@ -1148,7 +1148,7 @@ limine = { path = "vendor/limine" }
         )
         .unwrap();
         fs::create_dir_all(root.join("src")).unwrap();
-        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
         fs::write(resource_root.join("cfg").join("limine.conf"), "TIMEOUT=0\n").unwrap();
 
         let manifest_path = root.join("Craft.toml");
@@ -1194,7 +1194,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [resources]
 limine = { path = "vendor/limine" }
@@ -1202,7 +1202,7 @@ limine = { path = "vendor/limine" }
         )
         .unwrap();
         fs::create_dir_all(root.join("src")).unwrap();
-        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
         fs::write(resource_root.join("cfg").join("limine.conf"), "TIMEOUT=0\n").unwrap();
         symlink(
             resource_root.join("cfg").join("limine.conf"),
@@ -1255,12 +1255,12 @@ version = "1"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
         )
         .unwrap();
         fs::write(
-            package_root.join("src/lib.rn"),
+            package_root.join("src/lib.kn"),
             "pub fn x() i32 { return 0; }\n",
         )
         .unwrap();
@@ -1349,7 +1349,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
             Some(git_head(&repo).as_str())
         );
         assert_eq!(
-            normalized_text_file(&fetched[0].cache_path.join("src/lib.rn")),
+            normalized_text_file(&fetched[0].cache_path.join("src/lib.kn")),
             "pub fn x() i32 { return 1; }\n"
         );
     }
@@ -1406,7 +1406,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
         let root = temp_dir("craft-fetch-git-stale-proof");
         let repo = root.join("log.git");
         init_git_package(&repo, "pub fn x() i32 { return 0; }\n");
-        fs::write(repo.join("src/lib.rn"), "pub fn x() i32 { return 2; }\n").unwrap();
+        fs::write(repo.join("src/lib.kn"), "pub fn x() i32 { return 2; }\n").unwrap();
         run_git(&repo, ["add", "."]).unwrap();
         run_git(&repo, ["commit", "-m", "stale proof"]).unwrap();
 
@@ -1465,7 +1465,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "kernel"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [resources]
 limine = {{ git = "{}", branch = "main" }}
@@ -1475,7 +1475,7 @@ limine = {{ git = "{}", branch = "main" }}
         )
         .unwrap();
         fs::create_dir_all(root.join("src")).unwrap();
-        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -1518,7 +1518,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "kernel"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [resources]
 limine = {{ git = "{}", tag = "v1.0.0" }}
@@ -1528,7 +1528,7 @@ limine = {{ git = "{}", tag = "v1.0.0" }}
         )
         .unwrap();
         fs::create_dir_all(root.join("src")).unwrap();
-        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -1608,7 +1608,7 @@ log = {{ git = "{}", rev = "{}", version = "1" }}
             Some(revision.as_str())
         );
         assert_eq!(
-            normalized_text_file(&fetched[0].cache_path.join("src/lib.rn")),
+            normalized_text_file(&fetched[0].cache_path.join("src/lib.kn")),
             "pub fn x() i32 { return 0; }\n"
         );
 
@@ -1628,13 +1628,13 @@ kern = "0.7.6"
 repository = "{}"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
                 toml_string_literal(repo)
             ),
         )
         .unwrap();
-        fs::write(repo.join("src/lib.rn"), lib_source).unwrap();
+        fs::write(repo.join("src/lib.kn"), lib_source).unwrap();
         write_publish_artifacts(repo);
         run_git(repo, ["init", "--initial-branch=main"]).unwrap();
         run_git(repo, ["config", "user.name", "Craft Tests"]).unwrap();
@@ -1660,7 +1660,7 @@ root = "src/lib.rn"
     }
 
     fn commit_git_package(repo: &PathBuf, lib_source: &str) {
-        fs::write(repo.join("src/lib.rn"), lib_source).unwrap();
+        fs::write(repo.join("src/lib.kn"), lib_source).unwrap();
         write_publish_artifacts(repo);
         run_git(repo, ["add", "."]).unwrap();
         run_git(repo, ["commit", "-m", "update"]).unwrap();

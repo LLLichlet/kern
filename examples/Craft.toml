@@ -9,16 +9,16 @@ license = "MIT"
 
 [example]
 roots = [
-    "hello_world.rn",
-    "basics.rn",
-    "control_flow.rn",
-    "anonymous_aggregates.rn",
-    "slices_and_iterators.rn",
-    "string.rn",
-    "collections.rn",
-    "test_closure.rn",
-    "closure_heap_escape.rn",
-    "sync.rn",
-    "io_and_files.rn",
-    "void.rn",
+    "hello_world.kn",
+    "basics.kn",
+    "control_flow.kn",
+    "anonymous_aggregates.kn",
+    "slices_and_iterators.kn",
+    "string.kn",
+    "collections.kn",
+    "test_closure.kn",
+    "closure_heap_escape.kn",
+    "sync.kn",
+    "io_and_files.kn",
+    "void.kn",
 ]

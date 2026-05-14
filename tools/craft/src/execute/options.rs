@@ -360,7 +360,7 @@ mod tests {
     }
 
     fn lib_action(root: &Path, package_name: &str, manifest_path: PathBuf) -> CompileAction {
-        let source_path = root.join("src/lib.rn");
+        let source_path = root.join("src/lib.kn");
         CompileAction {
             domain: BuildDomain::Target,
             package_id: PackageId {
@@ -468,7 +468,7 @@ mod tests {
             "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nkern = \"0.7.6\"\n",
         )
         .unwrap();
-        let source_path = root.join("src/main.rn");
+        let source_path = root.join("src/main.kn");
         let action = CompileAction {
             domain: BuildDomain::Target,
             package_id: PackageId {
@@ -532,7 +532,7 @@ kern = "0.7.6"
 bundle = "base"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
         )
         .unwrap();
@@ -583,7 +583,7 @@ kern = "0.7.6"
 bundle = "base"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
         )
         .unwrap();
@@ -627,7 +627,7 @@ kern = "0.7.6"
 bundle = "none"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
         )
         .unwrap();
@@ -671,7 +671,7 @@ kern = "0.7.6"
 bundle = "std"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
         )
         .unwrap();

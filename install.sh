@@ -137,7 +137,7 @@ validate_sdk_root() {
         [ -f "$sdk_root/bin/$binary" ] || fail "SDK binary \`$binary\` is missing from \`$sdk_root\`"
     done
 
-    [ -f "$sdk_root/lib/kern/craft/init.rn" ] || fail "SDK craft script modules are missing"
+    [ -f "$sdk_root/lib/kern/craft/mod.kn" ] || fail "SDK craft script modules are missing"
     [ -d "$sdk_root/toolchain/host/bin" ] || fail "SDK toolchain layout is incomplete"
 
     verify_toolchain_component "$sdk_root/toolchain/host/bin/clang" "$expected_target"

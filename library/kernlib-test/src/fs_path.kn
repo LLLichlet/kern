@@ -35,9 +35,9 @@ fn check_allocating_paths[W](t: &mut Report[W]) void
     let gpa = gpa().on(page)..&;
     defer gpa.deinit();
 
-    let joined = fs.join(gpa, "/tmp/kern", "src/main.rn").should_ok().sum(@loc(), t)..&;
+    let joined = fs.join(gpa, "/tmp/kern", "src/main.kn").should_ok().sum(@loc(), t)..&;
     defer joined.deinit(gpa);
-    joined.as_str().should().eq("/tmp/kern/src/main.rn").sum(@loc(), t);
+    joined.as_str().should().eq("/tmp/kern/src/main.kn").sum(@loc(), t);
 
     let bare = fs.join(gpa, "", "note.txt").should_ok().sum(@loc(), t)..&;
     defer bare.deinit(gpa);
@@ -67,11 +67,11 @@ fn check_allocating_paths[W](t: &mut Report[W]) void
     defer empty.deinit(gpa);
     empty.as_str().should().eq(".").sum(@loc(), t);
 
-    let renamed = fs.with_file_name(gpa, "/tmp/kern/main.rn", "lib.rn").should_ok().sum(@loc(), t)..&;
+    let renamed = fs.with_file_name(gpa, "/tmp/kern/main.kn", "lib.kn").should_ok().sum(@loc(), t)..&;
     defer renamed.deinit(gpa);
-    renamed.as_str().should().eq("/tmp/kern/lib.rn").sum(@loc(), t);
+    renamed.as_str().should().eq("/tmp/kern/lib.kn").sum(@loc(), t);
 
-    let reext = fs.with_extension(gpa, "/tmp/kern/main.rn", "ll").should_ok().sum(@loc(), t)..&;
+    let reext = fs.with_extension(gpa, "/tmp/kern/main.kn", "ll").should_ok().sum(@loc(), t)..&;
     defer reext.deinit(gpa);
     reext.as_str().should().eq("/tmp/kern/main.ll").sum(@loc(), t);
 
@@ -95,17 +95,17 @@ fn check_allocating_paths[W](t: &mut Report[W]) void
     path.extension().should_some().eq("tar").sum(@loc(), t);
     path.file_stem().should_some().eq("archive").sum(@loc(), t);
 
-    let method_joined = "/tmp/kern".path().join(gpa, "src/main.rn").should_ok().sum(@loc(), t)..&;
+    let method_joined = "/tmp/kern".path().join(gpa, "src/main.kn").should_ok().sum(@loc(), t)..&;
     defer method_joined.deinit(gpa);
-    method_joined.as_str().should().eq("/tmp/kern/src/main.rn").sum(@loc(), t);
+    method_joined.as_str().should().eq("/tmp/kern/src/main.kn").sum(@loc(), t);
 
     let method_normalized = "/tmp/./kern//src/../out/file.txt".path().normalize(gpa).should_ok().sum(@loc(), t)..&;
     defer method_normalized.deinit(gpa);
     method_normalized.as_str().should().eq("/tmp/kern/out/file.txt").sum(@loc(), t);
 
-    let method_renamed = path.with_file_name(gpa, "lib.rn").should_ok().sum(@loc(), t)..&;
+    let method_renamed = path.with_file_name(gpa, "lib.kn").should_ok().sum(@loc(), t)..&;
     defer method_renamed.deinit(gpa);
-    method_renamed.as_str().should().eq("/tmp/kern/lib.rn").sum(@loc(), t);
+    method_renamed.as_str().should().eq("/tmp/kern/lib.kn").sum(@loc(), t);
 
     let method_reext = path.with_extension(gpa, "zip").should_ok().sum(@loc(), t)..&;
     defer method_reext.deinit(gpa);
@@ -120,21 +120,21 @@ fn check_windows_paths[W](t: &mut Report[W]) void
     let gpa = gpa().on(page)..&;
     defer gpa.deinit();
 
-    fs.parent("C:\\kern\\src\\main.rn").should_some().eq("C:\\kern\\src").sum(@loc(), t);
+    fs.parent("C:\\kern\\src\\main.kn").should_some().eq("C:\\kern\\src").sum(@loc(), t);
     fs.parent("C:\\").should_none().sum(@loc(), t);
-    fs.file_name("C:\\kern\\main.rn").should_some().eq("main.rn").sum(@loc(), t);
+    fs.file_name("C:\\kern\\main.kn").should_some().eq("main.kn").sum(@loc(), t);
 
-    let joined = fs.join(gpa, "C:\\kern", "src\\main.rn").should_ok().sum(@loc(), t)..&;
+    let joined = fs.join(gpa, "C:\\kern", "src\\main.kn").should_ok().sum(@loc(), t)..&;
     defer joined.deinit(gpa);
-    joined.as_str().should().eq("C:\\kern\\src\\main.rn").sum(@loc(), t);
+    joined.as_str().should().eq("C:\\kern\\src\\main.kn").sum(@loc(), t);
 
-    let forward = fs.join(gpa, "C:/kern", "src/main.rn").should_ok().sum(@loc(), t)..&;
+    let forward = fs.join(gpa, "C:/kern", "src/main.kn").should_ok().sum(@loc(), t)..&;
     defer forward.deinit(gpa);
-    forward.as_str().should().eq("C:/kern/src/main.rn").sum(@loc(), t);
+    forward.as_str().should().eq("C:/kern/src/main.kn").sum(@loc(), t);
 
-    let rooted = fs.join(gpa, "C:\\kern", "D:\\other\\out.rn").should_ok().sum(@loc(), t)..&;
+    let rooted = fs.join(gpa, "C:\\kern", "D:\\other\\out.kn").should_ok().sum(@loc(), t)..&;
     defer rooted.deinit(gpa);
-    rooted.as_str().should().eq("D:\\other\\out.rn").sum(@loc(), t);
+    rooted.as_str().should().eq("D:\\other\\out.kn").sum(@loc(), t);
 
     let normalized = fs.normalize(gpa, "C:\\kern\\.\\src\\\\..\\out\\file.txt").should_ok().sum(@loc(), t)..&;
     defer normalized.deinit(gpa);

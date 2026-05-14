@@ -397,7 +397,7 @@ fn run_check(
         render.meta(
             "scripts",
             format!(
-                "workspace craft {}, package craft {}, build.rn {}",
+                "workspace craft {}, package craft {}, build.kn {}",
                 format_yes_no(loaded.elaboration.workspace_script.is_some()),
                 loaded.elaboration.package_script_count(),
                 build_plan.build_script_count()
@@ -1519,16 +1519,16 @@ fn plan_init(root: &Path) -> Result<InitPlan> {
     }
 
     let lib_root = root
-        .join("src/lib.rn")
+        .join("src/lib.kn")
         .is_file()
-        .then(|| "src/lib.rn".to_string());
+        .then(|| "src/lib.kn".to_string());
     let mut bin_root = root
-        .join("src/main.rn")
+        .join("src/main.kn")
         .is_file()
-        .then(|| "src/main.rn".to_string());
+        .then(|| "src/main.kn".to_string());
     let create_main_stub = lib_root.is_none() && bin_root.is_none();
     if create_main_stub {
-        bin_root = Some("src/main.rn".to_string());
+        bin_root = Some("src/main.kn".to_string());
     }
 
     Ok(InitPlan {
@@ -1548,7 +1548,7 @@ fn apply_init_plan(root: &Path, init: &InitPlan) -> Result<Vec<PathBuf>> {
 
     if init.create_main_stub {
         write_if_missing(
-            &root.join("src/main.rn"),
+            &root.join("src/main.kn"),
             "fn main() i32 {\n    return 0;\n}\n",
             &mut created,
         )?;
@@ -1663,7 +1663,7 @@ fn collect_kern_roots_recursive(root: &Path, dir: &Path, found: &mut Vec<String>
             collect_kern_roots_recursive(root, &path, found)?;
             continue;
         }
-        if path.extension().and_then(|ext| ext.to_str()) != Some("rn") {
+        if path.extension().and_then(|ext| ext.to_str()) != Some("kn") {
             continue;
         }
         let relative = path

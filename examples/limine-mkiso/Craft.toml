@@ -8,4 +8,4 @@ license = "MIT"
 
 [[bin]]
 name = "limine-mkiso"
-root = "src/main.rn"
+root = "src/main.kn"

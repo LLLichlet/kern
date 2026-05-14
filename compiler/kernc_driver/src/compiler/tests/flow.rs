@@ -11,7 +11,7 @@ fn analysis_artifact_exposes_flow_owners() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = "const helper = 1i32;\nfn main() i32 { return helper; }\n";
     fs::write(&main, source).unwrap();
 
@@ -48,7 +48,7 @@ fn analysis_artifact_exposes_flow_local_bindings() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn main(value: i32) i32 {\n",
         "    let local = value;\n",
@@ -91,7 +91,7 @@ fn analysis_artifact_exposes_flow_liveness() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn main(value: i32) i32 {\n",
         "    let local = value;\n",
@@ -177,7 +177,7 @@ fn analysis_artifact_exposes_flow_binding_summaries() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn main(value: i32) i32 {\n",
         "    let local = value;\n",
@@ -234,7 +234,7 @@ fn analysis_artifact_exposes_flow_reaching_definitions() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn main(seed: i32) i32 {\n",
         "    let mut value = seed;\n",
@@ -307,7 +307,7 @@ fn analysis_artifact_exposes_flow_node_facts_and_transfers() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn main(seed: i32) i32 {\n",
         "    let mut value = seed;\n",
@@ -398,7 +398,7 @@ fn analysis_artifact_exposes_flow_definition_facts() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn main(seed: i32) i32 {\n",
         "    let local = seed;\n",
@@ -483,7 +483,7 @@ fn analysis_artifact_exposes_flow_use_defs() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn main(seed: i32) i32 {\n",
         "    let mut value = seed;\n",
@@ -540,7 +540,7 @@ fn analysis_artifact_exposes_flow_def_uses() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn main(seed: i32) i32 {\n",
         "    let mut value = seed;\n",
@@ -600,7 +600,7 @@ fn analysis_artifact_exposes_flow_resolved_uses() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn main(flag: bool, seed: i32) i32 {\n",
         "    let mut value = seed;\n",
@@ -662,7 +662,7 @@ fn analysis_artifact_exposes_flow_resolved_uses() {
         .expect("expected missing seed use");
     assert!(missing_seed_use.candidate_definitions.is_empty());
 
-    let unique = root.join("unique.rn");
+    let unique = root.join("unique.kn");
     let unique_source = concat!(
         "fn main(seed: i32) i32 {\n",
         "    let mut value = seed;\n",
@@ -718,7 +718,7 @@ fn analysis_artifact_exposes_flow_single_source_uses() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn main(seed: i32) i32 {\n",
         "    let local = seed;\n",
@@ -784,7 +784,7 @@ fn analysis_artifact_exposes_flow_control_summary() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn main(flag: bool) i32 {\n",
         "    defer trace(flag);\n",

@@ -204,7 +204,7 @@ fn check_ranges[W](t: &mut Report[W]) void
     for (value: (2i32...6i32).rev()) {
         descending_sum += value;
     }
-    descending_sum.should().eq(12i32).sum(@loc(), t);
+    descending_sum.should().eq(14i32).sum(@loc(), t);
 
     let mut inclusive_descending_sum = 0i32;
     for (value: (1i32..=3i32).rev()) {

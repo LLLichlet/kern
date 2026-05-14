@@ -307,7 +307,7 @@ fn collect_kern_source_files(
             collect_kern_source_files(&path, excluded_roots, files)?;
             continue;
         }
-        if file_type.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("rn") {
+        if file_type.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("kn") {
             files.push(path);
         }
     }
@@ -851,7 +851,7 @@ pub fn undocumented() void {}
     fn collects_source_suggestions_with_locations() {
         let suggestions = collect_source_suggestions(
             Path::new("/pkg"),
-            Path::new("/pkg/src/main.rn"),
+            Path::new("/pkg/src/main.kn"),
             r#"
 //! Test module.
 
@@ -878,7 +878,7 @@ fn demo() void {
         assert!(
             suggestions
                 .iter()
-                .any(|suggestion| suggestion.path == Path::new("src/main.rn")
+                .any(|suggestion| suggestion.path == Path::new("src/main.kn")
                     && suggestion.rule == StyleRule::IndexWhile)
         );
         assert!(!suggestions.iter().any(|suggestion| suggestion.line == 5
@@ -928,7 +928,7 @@ fn demo() void {
 
         let suggestions = collect_source_suggestions(
             Path::new("/pkg"),
-            Path::new("/pkg/src/main.rn"),
+            Path::new("/pkg/src/main.kn"),
             source,
             &config,
         );
@@ -951,7 +951,7 @@ fn demo() void {
         assert!(
             collect_source_suggestions(
                 Path::new("/pkg"),
-                Path::new("/pkg/src/main.rn"),
+                Path::new("/pkg/src/main.kn"),
                 source,
                 &off_config,
             )
@@ -978,7 +978,7 @@ fn demo() void {
         assert!(
             collect_source_suggestions(
                 Path::new("/pkg"),
-                Path::new("/pkg/src/main.rn"),
+                Path::new("/pkg/src/main.kn"),
                 source,
                 &excluded_config,
             )
@@ -996,7 +996,7 @@ fn demo() void {
         .unwrap();
         fs::create_dir_all(root.join("tools")).unwrap();
         fs::write(
-            root.join("tools").join("main.rn"),
+            root.join("tools").join("main.kn"),
             "fn root_helper() void {}\n",
         )
         .unwrap();
@@ -1007,7 +1007,7 @@ fn demo() void {
         )
         .unwrap();
         fs::write(
-            root.join("member").join("src").join("lib.rn"),
+            root.join("member").join("src").join("lib.kn"),
             "fn member_helper() void {}\n",
         )
         .unwrap();
@@ -1044,13 +1044,13 @@ fn demo() void {
             workspace_summary
                 .suggestions
                 .iter()
-                .all(|suggestion| suggestion.path == Path::new("tools/main.rn"))
+                .all(|suggestion| suggestion.path == Path::new("tools/main.kn"))
         );
         assert!(
             member_summary
                 .suggestions
                 .iter()
-                .all(|suggestion| suggestion.path == Path::new("src/lib.rn"))
+                .all(|suggestion| suggestion.path == Path::new("src/lib.kn"))
         );
     }
 
@@ -1058,7 +1058,7 @@ fn demo() void {
     fn collects_documentation_suggestions() {
         let suggestions = collect_source_suggestions(
             Path::new("/pkg"),
-            Path::new("/pkg/src/parser.rn"),
+            Path::new("/pkg/src/parser.kn"),
             r#"
 fn parse_name(text: &[u8], start: usize) usize!Error {
     return start;
@@ -1074,11 +1074,11 @@ fn parse_name(text: &[u8], start: usize) usize!Error {
 
     #[test]
     fn path_scope_supports_plain_prefixes_and_globs() {
-        assert!(path_matches("src/generated/bindings.rn", "src/generated"));
+        assert!(path_matches("src/generated/bindings.kn", "src/generated"));
         assert!(path_matches(
-            "src/generated/bindings.rn",
+            "src/generated/bindings.kn",
             "src/generated/**"
         ));
-        assert!(!path_matches("src/xml/init.rn", "src/generated/**"));
+        assert!(!path_matches("src/xml/mod.kn", "src/generated/**"));
     }
 }

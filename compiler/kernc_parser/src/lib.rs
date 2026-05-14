@@ -14,7 +14,7 @@ mod tests {
         let mut session = Session::new();
         let file_id = session
             .source_manager
-            .add_file("parser_test.rn".to_string(), source.to_string());
+            .add_file("parser_test.kn".to_string(), source.to_string());
 
         let mut parser = Parser::new(source, file_id, &mut session);
         let module = parser.parse_module().unwrap();

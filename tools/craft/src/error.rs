@@ -79,11 +79,11 @@ impl Error {
                     .to_string(),
             ),
             Self::ScriptValidation { path, .. } => match path.file_name().and_then(|name| name.to_str()) {
-                Some("craft.rn") => Some(
+                Some("craft.kn") => Some(
                     "declare `pub fn craft(p: &mut plan.Plan) void` and import `craft.plan`"
                         .to_string(),
                 ),
-                Some("build.rn") => Some(
+                Some("build.kn") => Some(
                     "declare `pub fn build(b: &mut builder.Builder) void` and import `craft.builder`"
                         .to_string(),
                 ),
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn craft_script_validation_provides_entrypoint_hint() {
         let err = Error::ScriptValidation {
-            path: PathBuf::from("craft.rn"),
+            path: PathBuf::from("craft.kn"),
             message: "missing required entry".to_string(),
         };
         assert_eq!(
@@ -247,13 +247,13 @@ mod tests {
     #[test]
     fn io_not_found_errors_provide_path_hint() {
         let err = Error::from_io(
-            &PathBuf::from("/tmp/demo/src/main.rn"),
+            &PathBuf::from("/tmp/demo/src/main.kn"),
             std::io::Error::new(std::io::ErrorKind::NotFound, "missing"),
         );
         assert_eq!(
             err.hint().as_deref(),
             Some(
-                "check that `/tmp/demo/src/main.rn` exists and that generated files were not removed during the build"
+                "check that `/tmp/demo/src/main.kn` exists and that generated files were not removed during the build"
             )
         );
     }

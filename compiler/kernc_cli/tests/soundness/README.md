@@ -14,12 +14,12 @@ very strong source of *bug shapes*:
 - escaping stack closures / fat-pointer mismatches
 - illegal mutability upgrades through pointer-like values
 
-Each `.rn` file is a minimized regression seed. The harness lives in
+Each `.kn` file is a minimized regression seed. The harness lives in
 [`soundness.rs`](../soundness.rs) and currently recognizes:
 
 - `reject/`: program must be rejected by the compiler.
-- `tree-reject/`: a case directory with `main.rn` plus helper package trees.
-- `interface-reject/`: a case directory with `main.rn` plus helper interface packages.
+- `tree-reject/`: a case directory with `main.kn` plus helper package trees.
+- `interface-reject/`: a case directory with `main.kn` plus helper interface packages.
 - `known-bug-compile/`: currently compiles, but should not. The test fails once the bug is fixed.
 - `known-bug-reject/`: currently rejects or ICEs, but should not. The test fails once the bug is fixed.
 - `known-bug-timeout/`: currently hangs or times out. The test fails once the compiler stops timing out.
@@ -39,7 +39,7 @@ Leading comment directives:
 // timeout-ms: 2000
 ```
 
-`tree-reject/` cases read directives from `main.rn`, copy the whole case directory
+`tree-reject/` cases read directives from `main.kn`, copy the whole case directory
 to a temporary workspace, and currently support relative `module-path` mappings
 such as `dep=dep`.
 

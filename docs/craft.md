@@ -62,7 +62,7 @@ hello/
   Craft.toml
   Craft.lock
   src/
-    main.rn
+    main.kn
 ```
 
 Use this shape for ordinary applications, tools, and small libraries. Move to a
@@ -88,7 +88,7 @@ bundle = "base"
 
 [[bin]]
 name = "kernel"
-root = "src/main.rn"
+root = "src/main.kn"
 ```
 
 The source file may export `_start` directly:
@@ -102,7 +102,7 @@ fn kmain() void {
 ```
 
 For a single-package project whose linker script sits next to `Craft.toml`,
-`build.rn` can attach it to the final link:
+`build.kn` can attach it to the final link:
 
 ```kern
 use craft.builder;
@@ -118,7 +118,7 @@ pub fn build(b: &mut builder.Builder) void {
 }
 ```
 
-`build.rn` can also compile small C-family support files with the same C driver
+`build.kn` can also compile small C-family support files with the same C driver
 resolution used by `kernc --cc`. The generated object is staged before Kern
 compilation and added to the current target's final link:
 
@@ -158,7 +158,7 @@ This is the important model:
 - `entry = "none"` means the package owns startup itself
 - `libc = false` means libc is not linked implicitly
 - `bundle = "base"` keeps the library surface minimal and freestanding-oriented
-- custom linker behavior belongs in `build.rn`, not in hidden tool defaults
+- custom linker behavior belongs in `build.kn`, not in hidden tool defaults
 
 ## Responsibilities
 
@@ -166,12 +166,12 @@ This is the important model:
 
 - loading `Craft.toml`
 - discovering workspace structure
-- evaluating optional `craft.rn`
+- evaluating optional `craft.kn`
 - normalizing package metadata into a deterministic package graph
 - resolving dependencies
 - reading and writing `Craft.lock`
 - deriving explicit compile and link actions
-- evaluating optional `build.rn`
+- evaluating optional `build.kn`
 - executing the derived build graph
 - managing local package/source caches
 
@@ -264,19 +264,19 @@ share one stable path identity.
 The package pipeline is split into four explicit artifacts:
 
 1. `Craft.toml`
-2. `craft.rn`
+2. `craft.kn`
 3. `Craft.lock`
-4. `build.rn`
+4. `build.kn`
 
 The order is:
 
 ```text
 Craft.toml
-  -> craft.rn
+  -> craft.kn
   -> normalized package graph
   -> dependency resolution
   -> Craft.lock
-  -> build.rn
+  -> build.kn
   -> explicit compile/link actions
   -> execution
 ```
@@ -284,16 +284,16 @@ Craft.toml
 This split is a core part of the design.
 
 - `Craft.toml` carries static declarations.
-- `craft.rn` normalizes those declarations before resolution, but only from lock-stable inputs.
+- `craft.kn` normalizes those declarations before resolution, but only from lock-stable inputs.
 - `Craft.lock` records the canonical resolved graph for the workspace.
-- `build.rn` performs post-lock build orchestration.
+- `build.kn` performs post-lock build orchestration.
 
 The critical rule is:
 
-- `craft.rn` may affect dependency resolution and therefore lockfile contents,
+- `craft.kn` may affect dependency resolution and therefore lockfile contents,
   but only from checked-in, lock-stable inputs.
-- `build.rn` may affect execution, staging, and linkage.
-- `build.rn` must not affect dependency resolution or lockfile contents.
+- `build.kn` may affect execution, staging, and linkage.
+- `build.kn` must not affect dependency resolution or lockfile contents.
 
 ## Package And Workspace Model
 
@@ -374,11 +374,11 @@ libc = false
 bundle = "std"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [[bin]]
 name = "http-cli"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 net = { git = "https://example.com/net.git", tag = "v1" }
@@ -408,7 +408,7 @@ debug = false
 
 Manifest rules:
 
-- targets are explicit, except that package tests default to direct `tests/*.rn` roots when `[test].roots` is absent
+- targets are explicit, except that package tests default to direct `tests/*.kn` roots when `[test].roots` is absent
 - `[package].kern` must match the current installed Kern toolchain version exactly
 - `[package].name` is always package-local; workspace inheritance never names a member package
 - a root `Craft.toml` cannot be both a package and a workspace
@@ -421,8 +421,8 @@ Manifest rules:
 - without an explicit `[runtime]` override, `craft` keeps runnable targets on the pure-first default (`entry = "rt"`, `libc = false`, `bundle = "std"`)
 - `rt` implementation choice belongs to normal package/module wiring, not a manifest runtime-selection field
 - test targets are listed under `[test].roots`, and each target name is derived from its file stem
-- if `[test].roots` is absent, `craft` discovers direct `tests/*.rn` files in that package; an explicit `[test].roots` list, including `roots = []`, overrides this default
-- `[test].roots` supports direct `*.rn` globs such as `"tests/*.rn"` or `"integration/*.rn"`; recursive globs are intentionally not test roots because nested files are usually modules owned by a root
+- if `[test].roots` is absent, `craft` discovers direct `tests/*.kn` files in that package; an explicit `[test].roots` list, including `roots = []`, overrides this default
+- `[test].roots` supports direct `*.kn` globs such as `"tests/*.kn"` or `"integration/*.kn"`; recursive globs are intentionally not test roots because nested files are usually modules owned by a root
 - inside a test target, each `#[test]` function is one test case; case names are the Kern module path plus function name
 - example targets are listed under `[example].roots`, and each example name is derived from its file stem
 - external dependencies must be explicit `path` or `git` entries; plain version strings are not a source model
@@ -439,8 +439,8 @@ Manifest rules:
   `long-postfix-chain`, or `repeated-borrow-receiver`
 - `[craft.style].exclude` matches package-relative path prefixes, with
   `/**` accepted for subtree notation
-- declarative package-graph structure belongs in `Craft.toml` plus lock-stable `craft.rn`
-- invocation-sensitive adaptation belongs in `build.rn`
+- declarative package-graph structure belongs in `Craft.toml` plus lock-stable `craft.kn`
+- invocation-sensitive adaptation belongs in `build.kn`
 
 ## Workspace Namespaces
 
@@ -482,7 +482,7 @@ name = "json"
 publish = true
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 ```
 
 The test and benchmark tools can stay private to the workspace:
@@ -495,7 +495,7 @@ description = "Extended conformance tests for json-kern"
 
 [[bin]]
 name = "json-test"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 json = { workspace = true }
@@ -642,7 +642,7 @@ The intended split is:
 
 - manifest discovery affects resolution
 - checked-in package/workspace declarations affect resolution
-- `craft.rn` affects resolution, but only through lock-stable inputs
+- `craft.kn` affects resolution, but only through lock-stable inputs
 - selected profile affects execution
 - command mode affects execution
 - selected CLI feature sets affect execution
@@ -652,18 +652,18 @@ This keeps the system orthogonal: `Craft.lock` is the shared resolution
 artifact, while profile and command mode are execution concerns layered on top
 of it.
 
-## `craft.rn`
+## `craft.kn`
 
-`craft.rn` is an optional pre-resolution normalization script.
+`craft.kn` is an optional pre-resolution normalization script.
 
 It exists because pure TOML is good at declaration but weak at structured
 normalization. Rather than inflate the manifest format, `craft` allows a
 bounded Kern phase that rewrites package planning state before resolution.
 
-Because `craft.rn` contributes to `Craft.lock`, it must stay on canonical
+Because `craft.kn` contributes to `Craft.lock`, it must stay on canonical
 resolution inputs only.
 
-Conceptually, `craft.rn` works on lock-stable package planning state:
+Conceptually, `craft.kn` works on lock-stable package planning state:
 
 - package metadata from `Craft.toml`
 - workspace metadata
@@ -689,15 +689,15 @@ use craft.plan;
 
 pub fn craft(p: &mut plan.Plan) void {
     if (p.package.is_root) {
-        p.add_bin("tools", "src/tools.rn");
+        p.add_bin("tools", "src/tools.kn");
     }
 
-    p.set_lib_root("src/lib.rn");
+    p.set_lib_root("src/lib.kn");
     p.cfg_bool("workspace_member", p.workspace.has_workspace);
 }
 ```
 
-Path semantics for `craft.rn` are intentionally display-oriented and
+Path semantics for `craft.kn` are intentionally display-oriented and
 workspace-relative:
 
 - `p.workspace.root` is the workspace root relative to itself, so it is `"."`
@@ -705,11 +705,11 @@ workspace-relative:
 - for the root package, `p.package.root` is also `"."`
 - these values are canonical lock inputs, not machine-local absolute paths
 
-That split is important. `craft.rn` participates in elaboration and lock
+That split is important. `craft.kn` participates in elaboration and lock
 derivation, so its root strings are stable across machines as long as the
 workspace layout is the same.
 
-### What `craft.rn` May Do
+### What `craft.kn` May Do
 
 - normalize checked-in package structure deterministically
 - add or remove dependency edges only from lock-stable checked-in inputs
@@ -718,7 +718,7 @@ workspace layout is the same.
 - choose source roots
 - apply workspace policy explicitly
 
-### What `craft.rn` Must Not Do
+### What `craft.kn` Must Not Do
 
 - inspect host, target, profile, command mode, or process environment
 - perform network access
@@ -727,7 +727,7 @@ workspace layout is the same.
 - trigger compilation or linking
 - mutate the dependency graph after lock resolution
 
-`craft.rn` is part of the lock input. It is therefore required to be
+`craft.kn` is part of the lock input. It is therefore required to be
 deterministic and canonical across team members and CI.
 
 ## Environment And Canonical Resolution
@@ -737,8 +737,8 @@ Machine-local environment is not part of canonical resolution.
 That means:
 
 - `Craft.lock` must not vary with process environment
-- pre-lock `craft.rn` must not branch on environment values
-- machine-local adaptation belongs after lock, typically in `build.rn`
+- pre-lock `craft.kn` must not branch on environment values
+- machine-local adaptation belongs after lock, typically in `build.kn`
 
 If a project needs environment-sensitive execution behavior, that behavior
 should be modeled as post-lock build orchestration rather than as dependency
@@ -762,14 +762,14 @@ It exists to answer:
 The current lockfile model records:
 
 - manifest path and digest
-- workspace `craft.rn` path and digest, when present
+- workspace `craft.kn` path and digest, when present
 - package manifests and digests
-- package `craft.rn` paths and digests, when present
+- package `craft.kn` paths and digests, when present
 - normalized package targets
 - resolved external packages
 - dependency edges
 
-It intentionally does not record post-lock build execution details from `build.rn`.
+It intentionally does not record post-lock build execution details from `build.kn`.
 
 Lockfile responsibilities:
 
@@ -813,7 +813,7 @@ Typical examples:
 - linker scripts or vendor configuration bundles
 - prebuilt headers, templates, or runtime data copied into final artifacts
 
-Those inputs belong in package-local `[resources]`, not in `build.rn` shell commands.
+Those inputs belong in package-local `[resources]`, not in `build.kn` shell commands.
 
 Example:
 
@@ -839,11 +839,11 @@ Fetch/materialization rules:
 - fetched resource trees are materialized under `.craft/resources/`
 - repeated `craft fetch` / `craft build` reuses unchanged resource trees instead of recloning or recopying them
 
-This keeps remote source acquisition auditable, cacheable, and reproducible without turning `build.rn` into a general shell escape hatch.
+This keeps remote source acquisition auditable, cacheable, and reproducible without turning `build.kn` into a general shell escape hatch.
 
-## `build.rn`
+## `build.kn`
 
-`build.rn` is an optional post-lock build script.
+`build.kn` is an optional post-lock build script.
 
 Its role is build orchestration, not package elaboration.
 
@@ -876,9 +876,9 @@ use craft.builder;
 pub fn build(b: &mut builder.Builder) void {
     b.define_string("host_arch", b.host.arch);
 
-    let generated = b.copy_package_file("templates/main.rn", "src/main.rn");
+    let generated = b.copy_package_file("templates/main.kn", "src/main.kn");
     let generated_from_tool =
-        b.emit_generated_from_tool("codegen", "codegen", "src/generated.rn", .{});
+        b.emit_generated_from_tool("codegen", "codegen", "src/generated.kn", .{});
     let artifact = b.primary_artifact();
     let _ = b.copy_output_to_artifact(artifact, "bundle/app");
     let _ = b.copy_package_file_to_artifact("assets/config.json", "config/config.json");
@@ -901,19 +901,19 @@ pub fn build(b: &mut builder.Builder) void {
 Important:
 
 - generated source files participate in compilation through the generated root
-- `build.rn` replaces a unit source root; it does not implicitly add sibling modules into the original package `src/` tree
+- `build.kn` replaces a unit source root; it does not implicitly add sibling modules into the original package `src/` tree
 - if you want `mod build_info;` to resolve against a generated file, copy or generate the entry source under the generated root as well, then bind that output with `set_source_root(...)` or `set_source_root_from(...)`
 
-### `build.rn` Path Semantics
+### `build.kn` Path Semantics
 
-`build.rn` path semantics are intentionally different from `craft.rn`.
+`build.kn` path semantics are intentionally different from `craft.kn`.
 
 - `b.workspace.root` is an absolute normalized path to the workspace root
 - `b.package.root` is an absolute normalized path to the current package root
 - for a workspace member package, those two values differ
 - for the workspace root package, they are the same absolute path
 
-This is deliberate. `build.rn` runs in the execution-oriented phase, so it
+This is deliberate. `build.kn` runs in the execution-oriented phase, so it
 needs direct filesystem coordinates rather than lock-stable display strings.
 
 Derived execution paths are also absolute:
@@ -927,8 +927,8 @@ Derived execution paths are also absolute:
 
 Relative path rules:
 
-- `set_source_root("src/main.rn")` resolves from the current package root
-- `set_source_root("/abs/path/to/file.rn")` keeps the absolute path as given
+- `set_source_root("src/main.kn")` resolves from the current package root
+- `set_source_root("/abs/path/to/file.kn")` keeps the absolute path as given
 - `set_source_root_from(output)` is the preferred way to bind staged generated outputs
 - `link_search("native")` records a relative search path in the plan, then resolves it from the current package root during execution
 - `link_search("/abs/path")` keeps the absolute search path as given
@@ -948,12 +948,12 @@ Package-relative staging rules:
 
 The practical rule is simple:
 
-- use `craft.rn` roots for canonical workspace-relative elaboration
-- use `build.rn` roots and `b.paths.*` for real filesystem work
+- use `craft.kn` roots for canonical workspace-relative elaboration
+- use `build.kn` roots and `b.paths.*` for real filesystem work
 
 ## Generated Files And Staged Actions
 
-`build.rn` does not work by mutating the filesystem invisibly during planning.
+`build.kn` does not work by mutating the filesystem invisibly during planning.
 
 Instead, it records explicit plan data:
 
@@ -1006,7 +1006,7 @@ Dependency edges added with `depend(output, dependency)` are not just ordering h
 
 This keeps build behavior explicit and inspectable instead of hiding it behind arbitrary script side effects.
 
-## `build.rn` Capability Surface
+## `build.kn` Capability Surface
 
 The `Builder` API includes:
 
@@ -1070,11 +1070,11 @@ The important property is not API breadth by itself. The important property is t
 Domain behavior:
 
 - ordinary package units are target-domain units
-- `build.rn` executes with both host and target context available
+- `build.kn` executes with both host and target context available
 - `build-dependencies` are tracked separately from target unit dependencies so build-time tools do not pollute the final target graph
-- local and external `build-dependencies` that expose binaries can be resolved as explicit tools inside `build.rn`
+- local and external `build-dependencies` that expose binaries can be resolved as explicit tools inside `build.kn`
 - tool-driven file generation is represented as explicit staged nodes with declared dependencies rather than opaque script-side process execution
-- `build.rn` is the correct place for host/target/profile/command-sensitive adaptation because those inputs do not belong to canonical resolution
+- `build.kn` is the correct place for host/target/profile/command-sensitive adaptation because those inputs do not belong to canonical resolution
 
 ## Build Plan And Execution
 
@@ -1157,7 +1157,7 @@ Command behavior:
 - `run` auto-synchronizes `Craft.lock`, then builds and runs the selected runnable binary from its owning package root
 - `test` auto-synchronizes `Craft.lock`, then builds selected test targets and runs each discovered `#[test]` case from its owning package root
 
-`craft test` treats a test root as a compiled test target and `#[test]` functions inside that root as individual cases. Without `[test].roots`, each package automatically uses direct `tests/*.rn` files as roots. In a workspace, that rule is applied independently to each member package; the workspace root does not become a test package by itself. A target is built once; `craft` then launches the test binary once per case using the compiler-owned case-selection protocol. Extra arguments after the command are forwarded to every case, so a test function declared as `fn case(argc: i32, argv: &&u8) i32` sees only those user arguments.
+`craft test` treats a test root as a compiled test target and `#[test]` functions inside that root as individual cases. Without `[test].roots`, each package automatically uses direct `tests/*.kn` files as roots. In a workspace, that rule is applied independently to each member package; the workspace root does not become a test package by itself. A target is built once; `craft` then launches the test binary once per case using the compiler-owned case-selection protocol. Extra arguments after the command are forwarded to every case, so a test function declared as `fn case(argc: i32, argv: &&u8) i32` sees only those user arguments.
 
 For each case, return `0` to pass and a non-zero value to fail. `craft` reports failures with both the target name and the case name. It also sets `CRAFT_TEST_NAME`, `CRAFT_TEST_CASE`, and `CRAFT_TEST_TMPDIR` for case processes.
 
@@ -1188,8 +1188,8 @@ The system follows these rules:
 - no implicit host-environment dependence
 - no hidden pre-lock side effects
 - no profile- or command-dependent lockfile variance
-- no `build.rn` influence on resolution
-- no network or shell side effects hidden inside `build.rn`
+- no `build.kn` influence on resolution
+- no network or shell side effects hidden inside `build.kn`
 - no silent mutation of dependency topology after locking
 - explicit build edges over ad hoc script behavior
 - readable lockfiles over opaque hashes alone

@@ -232,13 +232,13 @@ pub fn validate_sdk_root(sdk_root: &Path, expected_target: &str) -> OpsResult<Sd
         ));
     }
     for layer in OFFICIAL_LIBRARY_LAYERS {
-        if !library_root.join(layer).join("init.rn").is_file() {
+        if !library_root.join(layer).join("mod.kn").is_file() {
             return Err(OpsError::new(format!(
                 "SDK official library `{layer}` is missing"
             )));
         }
     }
-    if !library_root.join("craft").join("init.rn").is_file() {
+    if !library_root.join("craft").join("mod.kn").is_file() {
         return Err(OpsError::new("SDK craft script modules are missing"));
     }
     if !sdk_root.join("toolchain").join("host").join("bin").is_dir() {
@@ -687,7 +687,7 @@ pub fn resolve_official_library_root(root: &Path) -> OpsResult<PathBuf> {
     if library_root.join("Craft.toml").is_file()
         && OFFICIAL_LIBRARY_LAYERS
             .iter()
-            .all(|layer| library_root.join(layer).join("init.rn").is_file())
+            .all(|layer| library_root.join(layer).join("mod.kn").is_file())
     {
         return Ok(library_root);
     }

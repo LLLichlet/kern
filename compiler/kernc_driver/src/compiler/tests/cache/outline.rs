@@ -11,7 +11,7 @@ fn analyze_outline_reuses_collected_cache_without_extra_frontend_parse() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
@@ -41,7 +41,7 @@ fn analyze_outline_reuses_clean_collected_structure_for_body_only_overrides() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
@@ -82,7 +82,7 @@ fn analyze_outline_does_not_reuse_clean_collected_structure_for_surface_changes(
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());

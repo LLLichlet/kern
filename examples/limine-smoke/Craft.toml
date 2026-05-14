@@ -14,7 +14,7 @@ bundle = "base"
 
 [[bin]]
 name = "kernel"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [build-dependencies]
 mkiso = { path = "../limine-mkiso", export = "limine-mkiso" }

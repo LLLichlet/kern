@@ -11,7 +11,7 @@ fn imported_structure_cache_reuses_loaded_frontend_modules_without_type_stage() 
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
@@ -49,7 +49,7 @@ fn analyze_imported_structure_reuses_clean_imported_structure_for_body_only_over
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
@@ -97,7 +97,7 @@ fn analyze_imported_structure_does_not_reuse_clean_imported_structure_for_surfac
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
@@ -136,7 +136,7 @@ fn surface_artifact_reuses_cached_imported_stage_without_extra_frontend_parse() 
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
@@ -170,7 +170,7 @@ fn analyze_structure_reuses_cached_imported_stage_without_extra_frontend_parse()
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
@@ -203,7 +203,7 @@ fn parse_modules_reuses_cached_imported_stage_without_extra_frontend_parse() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
@@ -236,7 +236,7 @@ fn parsed_modules_cache_preserves_body_completion_regions() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = "fn main() i32 {\n    return 1;\n}\n";
     fs::write(&main, source).unwrap();
 

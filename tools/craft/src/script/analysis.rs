@@ -18,14 +18,14 @@ pub(super) struct ScriptEntrySpec {
 pub(super) const CRAFT_SCRIPT_ENTRY: ScriptEntrySpec = ScriptEntrySpec {
     script_kind: "craft",
     entry_name: "craft",
-    script_name: "craft.rn",
+    script_name: "craft.kn",
     param_display: "&mut plan.Plan",
 };
 
 pub(super) const BUILD_SCRIPT_ENTRY: ScriptEntrySpec = ScriptEntrySpec {
     script_kind: "build",
     entry_name: "build",
-    script_name: "build.rn",
+    script_name: "build.kn",
     param_display: "&mut builder.Builder",
 };
 
@@ -127,7 +127,7 @@ fn find_script_entry(
             path: script_path.to_path_buf(),
             message: format!(
                 "missing required entry `pub fn {}`(...) ... at script root",
-                script_name.trim_end_matches(".rn")
+                script_name.trim_end_matches(".kn")
             ),
         })
 }

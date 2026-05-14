@@ -12,7 +12,7 @@ fn lowering_replaces_dead_pure_initializer_with_undef() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn helper(seed: i32) i32 {\n",
         "    let mut value = seed;\n",
@@ -66,7 +66,7 @@ fn lowering_prunes_dead_pure_assignment_statement() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn helper(seed: i32) i32 {\n",
         "    let mut value = seed;\n",
@@ -120,7 +120,7 @@ fn lowering_prunes_dead_pure_assignment_before_never_entered_while() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn helper(seed: i32) i32 {\n",
         "    let mut value = seed;\n",
@@ -164,7 +164,7 @@ fn lowering_keeps_assignment_in_while_body() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn helper(limit: usize, seed: i32) i32 {\n",
         "    let mut i = 0usize;\n",
@@ -211,7 +211,7 @@ fn lowering_prunes_dead_pure_assignment_in_ignored_let_initializer() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn helper(seed: i32) i32 {\n",
         "    let mut value = seed;\n",
@@ -254,7 +254,7 @@ fn lowering_copy_propagates_identifier_use_from_immutable_source_chain() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn helper(seed: i32) i32 {\n",
         "    let local = seed;\n",
@@ -318,7 +318,7 @@ fn lowering_forwards_pure_value_binding_without_emitting_local_let() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn helper(seed: i32) i32 {\n",
         "    let value = seed + 1;\n",
@@ -389,7 +389,7 @@ fn lowering_does_not_forward_value_binding_that_depends_on_mutable_local() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn helper(seed: i32) i32 {\n",
         "    let mut current = seed;\n",
@@ -452,7 +452,7 @@ fn lowering_elides_unused_immutable_pure_binding() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn helper(seed: i32) i32 {\n",
         "    let unused = seed + 1;\n",
@@ -513,7 +513,7 @@ fn lowering_expands_optional_propagate_into_match_like_early_return() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn helper(input: ?i32) ?i32 {\n",
         "    let value = input.?;\n",
@@ -628,7 +628,7 @@ fn lowering_preserves_return_temp_when_scope_has_defer() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "struct Guard {\n",
         "    ptr: &mut i32,\n",
@@ -714,7 +714,7 @@ fn mir_lower_preserves_deferred_return_value_snapshot() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "struct Guard {\n",
         "    ptr: &mut i32,\n",
@@ -786,7 +786,7 @@ fn mir_passes_preserve_deferred_return_value_snapshot() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "struct Guard {\n",
         "    ptr: &mut i32,\n",
@@ -855,7 +855,7 @@ fn lowering_std_hello_world_prunes_unreachable_file_methods() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(
         &main,
         concat!(
@@ -939,7 +939,7 @@ fn lowering_inlines_simple_inline_helper() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "#[inline]\n",
         "fn add_one(x: i32) i32 {\n",
@@ -989,7 +989,7 @@ fn lowering_inlines_guard_return_inline_helper() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "#[inline]\n",
         "fn pick_positive(x: i32) i32 {\n",
@@ -1041,7 +1041,7 @@ fn lowering_keeps_fallthrough_inline_helper_as_call() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "#[inline]\n",
         "fn pick_positive(x: i32) i32 {\n",
@@ -1096,7 +1096,7 @@ fn lowering_inlines_plain_inline_helper() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "#[inline]\n",
         "fn add_one(x: i32) i32 {\n",
@@ -1146,7 +1146,7 @@ fn lowering_respects_visibility_for_linkage() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let source = concat!(
         "fn private_helper() i32 { return 1; }\n",
         "pub.. fn parent_helper() i32 { return 3; }\n",
@@ -1207,7 +1207,7 @@ fn lowering_keeps_pub_super_imported_helpers_reachable() {
     ));
     fs::create_dir_all(root.join("left")).unwrap();
     fs::create_dir_all(root.join("right")).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(
         &main,
         concat!(
@@ -1218,12 +1218,12 @@ fn lowering_keeps_pub_super_imported_helpers_reachable() {
     )
     .unwrap();
     fs::write(
-        root.join("left").join("init.rn"),
+        root.join("left").join("mod.kn"),
         "pub.. fn helper() i32 { return 7; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("right").join("init.rn"),
+        root.join("right").join("mod.kn"),
         concat!(
             "use ..left.helper;\n",
             "pub fn value() i32 { return helper(); }\n",

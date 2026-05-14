@@ -21,15 +21,15 @@ The current implementation covers:
 - workspace package metadata inheritance through `[workspace.package]`
 - local package graph construction
 - resolved external package graph construction
-- `craft.rn` discovery and pre-lock normalization scaffolding
+- `craft.kn` discovery and pre-lock normalization scaffolding
 - normalized package-plan snapshots for declared targets
 - `workspace = true` dependency inheritance
 - dependency export selection with `export = "..."`
 - automatic deterministic canonical `Craft.lock` synchronization during `init` and package-graph commands
 - release-oriented publish readiness checks via `craft publish`
 - build-plan derivation from normalized package targets and resolved dependencies
-- package-level `build.rn` discovery, validation, and structured per-target link-plan orchestration for execution-sensitive adaptation
-- package-level `build.rn` C-family source compilation through the resolved SDK-first `kernc --cc` path with structured include directories, defines, and generated dependencies
+- package-level `build.kn` discovery, validation, and structured per-target link-plan orchestration for execution-sensitive adaptation
+- package-level `build.kn` C-family source compilation through the resolved SDK-first `kernc --cc` path with structured include directories, defines, and generated dependencies
 - host `craft build/run/test` execution through explicit `kernc` compile/link action graphs
 - `craft install/uninstall` for copying package `bin` targets into an install root
 - `craft fetch` materialization of external sources into `.craft/sources`
@@ -86,7 +86,7 @@ It accepts the same environment knobs as the retired shell script:
 
 - `src/manifest.rs` and `src/manifest/`: `Craft.toml` parsing and validation
 - `src/workspace.rs` and `src/project/`: workspace/package discovery and path rules
-- `src/elaborate.rs` and `src/script/`: pre-lock `craft.rn` and post-lock `build.rn` execution
+- `src/elaborate.rs` and `src/script/`: pre-lock `craft.kn` and post-lock `build.kn` execution
 - `src/graph.rs`, `src/resolver.rs`, and `src/source.rs`: package graph and
   source resolution
 - `src/lockfile/`: `Craft.lock` parsing, rendering, validation, and build data

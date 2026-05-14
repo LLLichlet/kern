@@ -19,15 +19,15 @@ simd = []
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [test]
-roots = ["tests/smoke.rn"]
+roots = ["tests/smoke.kn"]
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         format!(
             r#"
 use craft.builder;
@@ -93,7 +93,7 @@ if (b.unit.kind == .test) {{
             .build_script
             .as_ref()
             .map(|script| script.relative_path.as_str()),
-        Some("build.rn")
+        Some("build.kn")
     );
 
     let bin = build_package
@@ -160,12 +160,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -231,12 +231,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -314,18 +314,18 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
 let root = b.emit_generated(
-    "src/main.rn",
+    "src/main.kn",
     "fn main() i32 { return 0; }\n"
 );
 b.set_source_root(root);
@@ -398,7 +398,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "kernel"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [resources]
 limine = { path = "vendor/limine" }
@@ -406,7 +406,7 @@ limine = { path = "vendor/limine" }
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -421,7 +421,7 @@ pub fn build(b: &mut builder.Builder) void {
     )
     .unwrap();
     fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(root.join("vendor/limine/cfg/limine.conf"), "TIMEOUT=0\n").unwrap();
 
     let manifest_path = root.join("Craft.toml");
@@ -476,7 +476,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [resources]
 ray = { path = "vendor/ray" }
@@ -484,7 +484,7 @@ ray = { path = "vendor/ray" }
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -501,7 +501,7 @@ pub fn build(b: &mut builder.Builder) void {
     )
     .unwrap();
     fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
         root.join("vendor/ray/src/foo.c"),
         "int ray_foo(void) { return 7; }\n",
@@ -559,22 +559,22 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("templates").join("main.rn"),
+        root.join("templates").join("main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
-let root = b.copy_package_file("templates/main.rn", "src/main.rn");
+let root = b.copy_package_file("templates/main.kn", "src/main.kn");
 b.set_source_root(root);
 }
 "#,
@@ -604,13 +604,13 @@ b.set_source_root(root);
     assert_eq!(
         unit.generated_files[0].origin,
         GeneratedFileOrigin::Copied {
-            source: "templates/main.rn".to_string()
+            source: "templates/main.kn".to_string()
         }
     );
     assert_eq!(unit_nodes.len(), 1);
     assert!(matches!(
         &unit_nodes[0].kind,
-        StagedActionKind::CopyFile { source } if source == "templates/main.rn"
+        StagedActionKind::CopyFile { source } if source == "templates/main.kn"
     ));
     assert_eq!(unit_nodes[0].phase, StagedActionPhase::PreCompile);
     let SourceRootBinding::AbsolutePath(source_root) = &unit.source_root else {
@@ -635,18 +635,18 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
 let helper = b.stage_generated("tmp/value.txt", "41\n");
-let source = b.stage_generated("src/main.rn", "fn main() i32 { return 0; }\n");
+let source = b.stage_generated("src/main.kn", "fn main() i32 { return 0; }\n");
 b.depend(source, helper);
 b.set_source_root_from(source);
 }
@@ -680,13 +680,13 @@ b.set_source_root_from(source);
         .unwrap();
     let source = unit_nodes
         .iter()
-        .find(|action| action.output.ends_with("src/main.rn"))
+        .find(|action| action.output.ends_with("src/main.kn"))
         .unwrap();
     assert_eq!(source.depends_on, vec![helper.id]);
     assert!(matches!(
         &unit.source_root,
         SourceRootBinding::BuildOutput { id, path }
-            if *id == source.id && path.replace('\\', "/").ends_with("src/main.rn")
+            if *id == source.id && path.replace('\\', "/").ends_with("src/main.kn")
     ));
 
     let _ = fs::remove_dir_all(root);
@@ -706,7 +706,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
@@ -716,7 +716,7 @@ root = "src/main.rn"
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -779,7 +779,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
@@ -794,7 +794,7 @@ root = "src/main.rn"
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -856,13 +856,13 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -930,13 +930,13 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1001,13 +1001,13 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1053,17 +1053,17 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/lib.rn"),
+        root.join("src/lib.kn"),
         "pub fn value() i32 { return 0; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1108,17 +1108,17 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/lib.rn"),
+        root.join("src/lib.kn"),
         "pub fn value() i32 { return 0; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1164,22 +1164,22 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/placeholder.rn"),
+        root.join("src/placeholder.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
-let _ = b.emit_generated("src/main.rn", "fn main() i32 { return 0; }\n");
+let _ = b.emit_generated("src/main.kn", "fn main() i32 { return 0; }\n");
 let _ = b.emit_generated("src", "conflict\n");
 }
 "#,
@@ -1219,13 +1219,13 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1270,17 +1270,17 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/placeholder.rn"),
+        root.join("src/placeholder.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1329,22 +1329,22 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/placeholder.rn"),
+        root.join("src/placeholder.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
-b.set_source_root_from("pre|999|/tmp/forged-main.rn");
+b.set_source_root_from("pre|999|/tmp/forged-main.kn");
 }
 "#,
     )
@@ -1385,13 +1385,13 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1449,7 +1449,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [build-dependencies]
 tool = { path = "../tool", export = "tool" }
@@ -1457,7 +1457,7 @@ tool = { path = "../tool", export = "tool" }
     )
     .unwrap();
     fs::write(
-        app_dir.join("build.rn"),
+        app_dir.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1469,7 +1469,7 @@ b.depend(note, kernel);
 "#,
     )
     .unwrap();
-    fs::write(app_dir.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(app_dir.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
         tool_dir.join("Craft.toml"),
         r#"
@@ -1480,12 +1480,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "artifact-note"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        tool_dir.join("src/main.rn"),
+        tool_dir.join("src/main.kn"),
         r#"
 use std.io;
 use base.io.Write;
@@ -1553,12 +1553,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1625,13 +1625,13 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1705,13 +1705,13 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
-    fs::write(app_dir.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(app_dir.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
-        app_dir.join("build.rn"),
+        app_dir.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1781,22 +1781,22 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/lib.rn"),
+        root.join("src/lib.kn"),
         "pub fn value() i32 { return 1; }\n",
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 

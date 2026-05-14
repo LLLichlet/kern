@@ -244,7 +244,7 @@ Use visibility to describe the intended sharing boundary directly:
 - `pub/` for package-internal API
 - `pub..` for parent-module-tree API
 
-Prefer these over needless `init.rn` forwarding layers when the real intent is
+Prefer these over needless `mod.kn` forwarding layers when the real intent is
 simply "visible to this package" or "visible inside this parent module tree".
 
 Choose the narrowest visibility that matches the actual boundary. Do not mark
@@ -553,7 +553,7 @@ learn.
 For wrapped C libraries or generated ABIs, keep the raw layer package-internal
 and build a Kern-facing API by hand:
 
-- generated `raw.rn` or equivalent files should not be the user-facing module
+- generated `raw.kn` or equivalent files should not be the user-facing module
 - resource values should have receiver methods such as `texture.draw_at(...)`,
   `image.resize(...)`, `sound.play()`, or `index.first_child_named(...)`
 - ownership and cleanup should be visible on the value that owns the resource
@@ -566,12 +566,12 @@ layout is owned by a generator:
 ```toml
 [craft.fmt]
 exclude = [
-    "src/raw.rn",
+    "src/raw.kn",
 ]
 
 [craft.style]
 exclude = [
-    "src/raw.rn",
+    "src/raw.kn",
 ]
 ```
 

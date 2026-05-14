@@ -1262,7 +1262,7 @@ mod tests {
         let db = FrontendDatabase::new();
         let mut session = Session::new();
         let path = std::env::temp_dir().join(format!(
-            "kern_frontend_db_{}_override.rn",
+            "kern_frontend_db_{}_override.kn",
             std::process::id()
         ));
 
@@ -1295,7 +1295,7 @@ mod tests {
         let db = FrontendDatabase::new();
         let mut session = Session::new();
         let path =
-            std::env::temp_dir().join(format!("kern_frontend_db_{}_stable.rn", std::process::id()));
+            std::env::temp_dir().join(format!("kern_frontend_db_{}_stable.kn", std::process::id()));
 
         db.set_source_override(path.clone(), "fn main() i32 { return 1; }".to_string());
 
@@ -1320,7 +1320,7 @@ mod tests {
         let mut first_session = Session::new();
         let mut second_session = Session::new();
         let path =
-            std::env::temp_dir().join(format!("kern_frontend_db_{}_rebind.rn", std::process::id()));
+            std::env::temp_dir().join(format!("kern_frontend_db_{}_rebind.kn", std::process::id()));
 
         db.set_source_override(
             path.clone(),
@@ -1363,7 +1363,7 @@ mod tests {
         let mut first_session = Session::new();
         let mut second_session = Session::new();
         let path = std::env::temp_dir().join(format!(
-            "kern_frontend_db_{}_const_generic_rebind.rn",
+            "kern_frontend_db_{}_const_generic_rebind.kn",
             std::process::id()
         ));
 
@@ -1404,7 +1404,7 @@ mod tests {
         let mut first_session = Session::new();
         let mut second_session = Session::new();
         let path = std::env::temp_dir().join(format!(
-            "kern_frontend_db_{}_conditional_prune_stable.rn",
+            "kern_frontend_db_{}_conditional_prune_stable.kn",
             std::process::id()
         ));
 
@@ -1441,7 +1441,7 @@ mod tests {
         let mut disabled_session = Session::new();
         let mut enabled_session = Session::new();
         let path = std::env::temp_dir().join(format!(
-            "kern_frontend_db_{}_conditional_prune_changed.rn",
+            "kern_frontend_db_{}_conditional_prune_changed.kn",
             std::process::id()
         ));
 

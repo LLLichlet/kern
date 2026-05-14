@@ -18,7 +18,7 @@ fn copy_dir_recursive(source: &std::path::Path, destination: &std::path::Path) {
 fn official_library_bundle_resolves_from_external_kernlib_workspace_root() {
     let temp_dir = unique_temp_path("kernc_external_kernlib", "dir");
     let kernlib_root = temp_dir.join("kernlib");
-    let source_path = temp_dir.join("main.rn");
+    let source_path = temp_dir.join("main.kn");
     let object_path = temp_dir.join("main.o");
     fs::create_dir_all(&temp_dir).unwrap();
 
@@ -354,11 +354,11 @@ fn main() i32 {
 fn runtime_entry_does_not_auto_inject_base_module() {
     let temp_dir = unique_temp_path("kernc_rt_without_bundle", "dir");
     let rt_dir = temp_dir.join("rt");
-    let source_path = temp_dir.join("main.rn");
+    let source_path = temp_dir.join("main.kn");
     let object_path = temp_dir.join("main.o");
 
     fs::create_dir_all(&rt_dir).unwrap();
-    fs::write(rt_dir.join("init.rn"), "").unwrap();
+    fs::write(rt_dir.join("mod.kn"), "").unwrap();
     fs::write(
         &source_path,
         r#"
@@ -403,7 +403,7 @@ fn main() i32 {
 
 #[test]
 fn official_rt_links_without_base_or_std_bundle() {
-    let source_path = unique_temp_path("kernc_rt_standalone_bundle_none", "rn");
+    let source_path = unique_temp_path("kernc_rt_standalone_bundle_none", "kn");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_rt_standalone_bundle_none", exe_ext);
 
@@ -474,7 +474,7 @@ fn main() i32 {
 
 #[test]
 fn compiles_std_hello_world_in_compile_only_mode() {
-    let source = unique_temp_path("kernc_std_hello_world", "rn");
+    let source = unique_temp_path("kernc_std_hello_world", "kn");
     let object = unique_temp_path("kernc_std_hello_world", "o");
     fs::write(&source, HOSTED_HELLO_WORLD_SOURCE).unwrap();
 
@@ -510,7 +510,7 @@ fn compiles_std_hello_world_in_compile_only_mode() {
 #[cfg(windows)]
 #[test]
 fn compiles_std_hello_world_to_unicode_object_path() {
-    let source = unique_temp_path("kernc_std_hello_world", "rn");
+    let source = unique_temp_path("kernc_std_hello_world", "kn");
     let object = unique_temp_path("kernc_std_hello_world_\u{4F60}\u{597D}", "o");
     fs::write(&source, HOSTED_HELLO_WORLD_SOURCE).unwrap();
 
@@ -540,7 +540,7 @@ fn compiles_std_hello_world_to_unicode_object_path() {
 
 #[test]
 fn links_compile_only_object_via_link_only_mode() {
-    let source_path = unique_temp_path("kernc_std_link_only", "rn");
+    let source_path = unique_temp_path("kernc_std_link_only", "kn");
     let object_path = unique_temp_path("kernc_std_link_only", "o");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_std_link_only", exe_ext);
@@ -621,7 +621,7 @@ fn compile_only_object_does_not_export_synthesized_symbols() {
         return;
     }
 
-    let source_path = unique_temp_path("kernc_internal_symbols", "rn");
+    let source_path = unique_temp_path("kernc_internal_symbols", "kn");
     let object_path = unique_temp_path("kernc_internal_symbols", "o");
 
     fs::write(

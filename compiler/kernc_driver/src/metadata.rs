@@ -95,7 +95,7 @@ pub fn emit_package_metadata(
         package_name.to_string(),
         package_version.map(ToOwned::to_owned),
         ctx.resolve(root_module.name).to_string(),
-        format!("{}/init.rn", KMETA_SOURCE_ROOT),
+        format!("{}/mod.kn", KMETA_SOURCE_ROOT),
     );
     let emit_result = (|| {
         write_manifest(&staged_root.join(KMETA_MANIFEST_FILE), &manifest)?;
@@ -357,7 +357,7 @@ fn snapshot_path_for_source(
     output_root: &Path,
 ) -> PathBuf {
     if source_path == root_path {
-        return output_root.join(KMETA_SOURCE_ROOT).join("init.rn");
+        return output_root.join(KMETA_SOURCE_ROOT).join("mod.kn");
     }
 
     let relative = source_path.strip_prefix(root_dir).unwrap_or(source_path);
@@ -388,7 +388,7 @@ fn copy_source_snapshot_tree(
             if !path.is_file() {
                 continue;
             }
-            if path.extension().and_then(|ext| ext.to_str()) != Some("rn") {
+            if path.extension().and_then(|ext| ext.to_str()) != Some("kn") {
                 continue;
             }
 
@@ -1111,7 +1111,7 @@ raw = "Line one\nLine two\r\nTabbed\tvalue"
             output_root
                 .join(KMETA_SOURCE_ROOT)
                 .join("old")
-                .join("stale.rn"),
+                .join("stale.kn"),
             "pub fn stale() i32 { return 0; }\n",
         )
         .unwrap();
@@ -1124,7 +1124,7 @@ raw = "Line one\nLine two\r\nTabbed\tvalue"
             staged_root
                 .join(KMETA_SOURCE_ROOT)
                 .join("new")
-                .join("fresh.rn"),
+                .join("fresh.kn"),
             "pub fn fresh() i32 { return 1; }\n",
         )
         .unwrap();
@@ -1143,14 +1143,14 @@ raw = "Line one\nLine two\r\nTabbed\tvalue"
             output_root
                 .join(KMETA_SOURCE_ROOT)
                 .join("new")
-                .join("fresh.rn")
+                .join("fresh.kn")
                 .is_file()
         );
         assert!(
             !output_root
                 .join(KMETA_SOURCE_ROOT)
                 .join("old")
-                .join("stale.rn")
+                .join("stale.kn")
                 .exists()
         );
         assert_eq!(

@@ -791,7 +791,7 @@ impl AnalysisEngine {
         let start = normalized.parent().unwrap_or_else(|| Path::new("."));
 
         for ancestor in start.ancestors() {
-            let candidate = ancestor.join("init.rn");
+            let candidate = ancestor.join("mod.kn");
             if self.analysis_path_exists(&candidate) {
                 return normalize_path(&candidate);
             }

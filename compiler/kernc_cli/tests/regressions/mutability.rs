@@ -833,10 +833,10 @@ fn main() i32 {
 #[test]
 fn allows_private_named_struct_fields_within_defining_module() {
     let output = compile_source_tree(
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 mod data;
 
@@ -846,7 +846,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "data.rn",
+                "data.kn",
                 r#"
 pub struct Bag {
     secret: i32,
@@ -873,10 +873,10 @@ pub fn read_secret() i32 {
 #[test]
 fn rejects_private_named_struct_fields_across_modules() {
     let output = compile_source_tree(
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 mod data;
 
@@ -887,7 +887,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "data.rn",
+                "data.kn",
                 r#"
 pub struct Bag {
     secret: i32,
@@ -921,10 +921,10 @@ pub fn make() Bag {
 fn parent_and_sibling_modules_can_access_pub_super_struct_fields() {
     let output = compile_source_tree_with_args(
         "kernc_pub_super_field_access",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 pub mod left;
 mod right;
@@ -936,7 +936,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "left.rn",
+                "left.kn",
                 r#"
 pub.. struct Bag {
     pub.. shared: i32,
@@ -948,7 +948,7 @@ pub fn make() Bag {
 "#,
             ),
             (
-                "right.rn",
+                "right.kn",
                 r#"
 use ..left.Bag as Bag;
 
@@ -969,10 +969,10 @@ pub fn read() i32 {
 fn grandparent_module_cannot_access_pub_super_struct_fields() {
     let output = compile_source_tree_with_args(
         "kernc_pub_super_field_grandparent_rejected",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 pub mod outer;
 
@@ -983,13 +983,13 @@ fn main() i32 {
 "#,
             ),
             (
-                "outer.rn",
+                "outer.kn",
                 r#"
 pub mod mid;
 "#,
             ),
             (
-                "outer/mid.rn",
+                "outer/mid.kn",
                 r#"
 pub struct Bag {
     pub.. shared: i32,
@@ -1023,10 +1023,10 @@ pub fn make() Bag {
 fn grandparent_module_cannot_initialize_pub_super_struct_fields() {
     let output = compile_source_tree_with_args(
         "kernc_pub_super_field_init_grandparent_rejected",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 pub mod outer;
 
@@ -1037,13 +1037,13 @@ fn main() i32 {
 "#,
             ),
             (
-                "outer.rn",
+                "outer.kn",
                 r#"
 pub mod mid;
 "#,
             ),
             (
-                "outer/mid.rn",
+                "outer/mid.kn",
                 r#"
 pub struct Bag {
     pub.. shared: i32,
@@ -1073,10 +1073,10 @@ pub struct Bag {
 fn sibling_module_can_access_pub_package_struct_fields() {
     let output = compile_source_tree_with_args(
         "kernc_pub_package_field_access",
-        "main.rn",
+        "main.kn",
         &[
             (
-                "main.rn",
+                "main.kn",
                 r#"
 pub mod left;
 mod right;
@@ -1087,7 +1087,7 @@ fn main() i32 {
 "#,
             ),
             (
-                "left.rn",
+                "left.kn",
                 r#"
 pub/ struct Bag {
     pub/ shared: i32,
@@ -1095,7 +1095,7 @@ pub/ struct Bag {
 "#,
             ),
             (
-                "right.rn",
+                "right.kn",
                 r#"
 use ..left.Bag as Bag;
 

@@ -647,7 +647,7 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
         )
         .unwrap();

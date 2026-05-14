@@ -638,7 +638,7 @@ fn discover_build_script(
     workspace_root: &Path,
     package_root: &Path,
 ) -> Result<Option<BuildScriptInput>> {
-    let path = package_root.join("build.rn");
+    let path = package_root.join("build.kn");
     if !path.is_file() {
         return Ok(None);
     }

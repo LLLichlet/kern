@@ -1227,7 +1227,7 @@ mod tests {
         let source = "Device Service";
         let file_id = session
             .source_manager
-            .add_file("doc_test.rn".to_string(), source.to_string());
+            .add_file("doc_test.kn".to_string(), source.to_string());
         let mut ctx = SemaContext::new(&mut session);
 
         let root_name = ctx.intern("root");
@@ -1376,7 +1376,7 @@ mod tests {
         let source = "Device Service";
         let file_id = session
             .source_manager
-            .add_file("doc_test.rn".to_string(), source.to_string());
+            .add_file("doc_test.kn".to_string(), source.to_string());
         let mut ctx = SemaContext::new(&mut session);
 
         let root_name = ctx.intern("root");
@@ -1493,7 +1493,7 @@ mod tests {
         let mut session = Session::new();
         let file_id = session
             .source_manager
-            .add_file("doc_test.rn".to_string(), "Result".to_string());
+            .add_file("doc_test.kn".to_string(), "Result".to_string());
         let mut ctx = SemaContext::new(&mut session);
 
         let root_name = ctx.intern("toml");
@@ -1549,7 +1549,7 @@ mod tests {
         let mut session = Session::new();
         let file_id = session
             .source_manager
-            .add_file("doc_test.rn".to_string(), String::new());
+            .add_file("doc_test.kn".to_string(), String::new());
         let mut ctx = SemaContext::new(&mut session);
         BuiltinInjector::new(&mut ctx).inject();
 
@@ -1611,7 +1611,7 @@ mod tests {
         let source = "i32 *i32 Marker";
         let file_id = session
             .source_manager
-            .add_file("doc_test.rn".to_string(), source.to_string());
+            .add_file("doc_test.kn".to_string(), source.to_string());
         let mut ctx = SemaContext::new(&mut session);
 
         let root_name = ctx.intern("root");
@@ -1727,7 +1727,7 @@ mod tests {
         let mut session = Session::new();
         let file_id = session
             .source_manager
-            .add_file("doc_test.rn".to_string(), "Config bool i64".to_string());
+            .add_file("doc_test.kn".to_string(), "Config bool i64".to_string());
         let mut ctx = SemaContext::new(&mut session);
 
         let root_name = ctx.intern("toml");
@@ -1804,7 +1804,7 @@ mod tests {
         let mut session = Session::new();
         let file_id = session
             .source_manager
-            .add_file("doc_test.rn".to_string(), "Result".to_string());
+            .add_file("doc_test.kn".to_string(), "Result".to_string());
         let mut ctx = SemaContext::new(&mut session);
 
         let root_name = ctx.intern("toml");

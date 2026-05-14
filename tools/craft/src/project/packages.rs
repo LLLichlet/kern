@@ -110,7 +110,7 @@ fn craft_sdk_aliases() -> BTreeMap<String, PathBuf> {
 }
 
 fn script_roots_for_package_root(package_root: &Path) -> Vec<AnalysisScriptRoot> {
-    ["craft.rn", "build.rn"]
+    ["craft.kn", "build.kn"]
         .into_iter()
         .map(|name| AnalysisScriptRoot {
             root: package_root.join(name),
@@ -125,7 +125,7 @@ pub(super) fn workspace_script_roots(manifest_path: &Path) -> Vec<AnalysisScript
     };
 
     vec![AnalysisScriptRoot {
-        root: workspace_root.join("craft.rn"),
+        root: workspace_root.join("craft.kn"),
         module_aliases: craft_sdk_aliases(),
     }]
 }

@@ -36,14 +36,14 @@ get these project files:
 Craft.toml
 Craft.lock
 .gitignore
-src/main.rn
+src/main.kn
 ```
 
 You may also see `.craft/`. This is `craft`'s local derived-state directory for
 locks, caches, build outputs, and analysis state. It is not source code you
 need to maintain by hand.
 
-Replace `src/main.rn` with:
+Replace `src/main.kn` with:
 
 ```kern
 use std.io;
@@ -123,11 +123,11 @@ Use `craft` for normal projects.
 generated steps are involved, then calls the compiler to do the actual work.
 
 `kernc` is the lower-level compile and link driver. Use it when you need exact
-control over one `.rn` file, object files, LLVM IR, module paths, or linker
+control over one `.kn` file, object files, LLVM IR, module paths, or linker
 arguments. For example:
 
 ```sh
-kernc --runtime-entry rt --library-bundle std examples/hello_world.rn -o hello
+kernc --runtime-entry rt --library-bundle std examples/hello_world.kn -o hello
 ./hello
 ```
 

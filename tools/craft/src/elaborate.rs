@@ -205,7 +205,7 @@ fn member_package_id(member: &WorkspaceMember, workspace_root: &Path) -> Result<
 }
 
 fn discover_script(workspace_root: &Path, package_root: &Path) -> Result<Option<ScriptInput>> {
-    let path = package_root.join("craft.rn");
+    let path = package_root.join("craft.kn");
     if !path.is_file() {
         return Ok(None);
     }
@@ -356,7 +356,7 @@ members = ["app", "tool"]
         )
         .unwrap();
         fs::write(
-            root.join("craft.rn"),
+            root.join("craft.kn"),
             "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
@@ -371,7 +371,7 @@ kern = "0.7.6"
         )
         .unwrap();
         fs::write(
-            app_dir.join("craft.rn"),
+            app_dir.join("craft.kn"),
             "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
@@ -404,7 +404,7 @@ kern = "0.7.6"
                 .workspace_script
                 .as_ref()
                 .map(|script| script.relative_path.as_str()),
-            Some("craft.rn")
+            Some("craft.kn")
         );
         assert_eq!(elaboration.package_script_count(), 1);
         assert!(elaboration.packages.iter().any(|pkg| {
@@ -413,7 +413,7 @@ kern = "0.7.6"
                     .script
                     .as_ref()
                     .map(|script| script.relative_path.as_str())
-                    == Some("app/craft.rn")
+                    == Some("app/craft.kn")
         }));
 
         let _ = fs::remove_dir_all(root);
@@ -435,7 +435,7 @@ members = ["app"]
         )
         .unwrap();
         fs::write(
-            root.join("craft.rn"),
+            root.join("craft.kn"),
             r#"
 use craft.plan;
 
@@ -460,7 +460,7 @@ log = { git = "https://example.com/log.git", tag = "v1" }
         )
         .unwrap();
         fs::write(
-            app_dir.join("craft.rn"),
+            app_dir.join("craft.kn"),
             r#"
 use craft.plan;
 
@@ -521,7 +521,7 @@ kern = "0.7.6"
         )
         .unwrap();
         fs::write(
-            root.join("craft.rn"),
+            root.join("craft.kn"),
             "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
@@ -545,7 +545,7 @@ kern = "0.7.6"
                 .script
                 .as_ref()
                 .map(|script| script.relative_path.as_str()),
-            Some("craft.rn")
+            Some("craft.kn")
         );
 
         let _ = fs::remove_dir_all(root);
@@ -566,7 +566,7 @@ members = ["member"]
         )
         .unwrap();
         fs::write(
-            root.join("craft.rn"),
+            root.join("craft.kn"),
             r#"
 use craft.plan;
 
@@ -677,7 +677,7 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [dependencies]
 log = { git = "https://example.com/log.git", version = "1" }
@@ -686,7 +686,7 @@ trace = { git = "https://example.com/trace.git", version = "1" }
         )
         .unwrap();
         fs::write(
-            root.join("craft.rn"),
+            root.join("craft.kn"),
             r#"
 use craft.plan;
 
@@ -694,8 +694,8 @@ pub fn craft(p: &mut plan.Plan) void {
     p.cfg_bool("simd", true);
     p.define_string("abi", "sysv");
     p.define_string("pkg", p.package.name);
-    p.set_lib_root("src/alt_lib.rn");
-    p.add_bin("demo", "src/main.rn");
+    p.set_lib_root("src/alt_lib.kn");
+    p.add_bin("demo", "src/main.kn");
     p.dep_git(plan.DependencyKind.normal, "log", "https://example.com/corp-log.git");
     p.dep_path(plan.DependencyKind.normal, "trace", "vendor/trace");
     p.dep_git(plan.DependencyKind.dev, "insta", "https://example.com/insta.git");
@@ -731,12 +731,12 @@ pub fn craft(p: &mut plan.Plan) void {
             Some(&crate::plan::PlanValue::String("demo".to_string()))
         );
         assert!(package.targets.iter().any(|target| {
-            target.kind == crate::plan::TargetKind::Lib && target.root == "src/alt_lib.rn"
+            target.kind == crate::plan::TargetKind::Lib && target.root == "src/alt_lib.kn"
         }));
         assert!(package.targets.iter().any(|target| {
             target.kind == crate::plan::TargetKind::Bin
                 && target.name.as_deref() == Some("demo")
-                && target.root == "src/main.rn"
+                && target.root == "src/main.kn"
         }));
         let resolved = &elaboration.resolved_graph.packages[0];
         assert!(resolved.dependencies.iter().any(|dep| {
@@ -806,7 +806,7 @@ kern = "0.7.6"
 "#,
         )
         .unwrap();
-        fs::write(app_dir.join("tests/smoke.rn"), "").unwrap();
+        fs::write(app_dir.join("tests/smoke.kn"), "").unwrap();
         fs::write(
             driver_dir.join("Craft.toml"),
             r#"
@@ -817,7 +817,7 @@ kern = "0.7.6"
 "#,
         )
         .unwrap();
-        fs::write(driver_dir.join("tests/pci.rn"), "").unwrap();
+        fs::write(driver_dir.join("tests/pci.kn"), "").unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -851,8 +851,8 @@ kern = "0.7.6"
         assert_eq!(
             test_roots,
             vec![
-                ("app", vec!["tests/smoke.rn"]),
-                ("driver", vec!["tests/pci.rn"])
+                ("app", vec!["tests/smoke.kn"]),
+                ("driver", vec!["tests/pci.kn"])
             ]
         );
 

@@ -631,12 +631,12 @@ fn hover_reuses_docs_from_imported_kmeta_packages() {
             "package_name = \"dep\"\n",
             "package_version = \"0.1.0\"\n",
             "root_module_name = \"dep\"\n",
-            "entry_module_path = \"src/init.rn\"\n",
+            "entry_module_path = \"src/mod.kn\"\n",
         ),
     )
     .unwrap();
     fs::write(
-        dep_meta.join("src/init.rn"),
+        dep_meta.join("src/mod.kn"),
         concat!(
             "/// Imported helper from a kmeta package.\n",
             "///\n",
@@ -648,7 +648,7 @@ fn hover_reuses_docs_from_imported_kmeta_packages() {
     .unwrap();
 
     let app_source = "use dep.{helper};\nfn main() i32 { return helper(); }\n";
-    let app_path = root.join("app.rn");
+    let app_path = root.join("app.kn");
     fs::write(&app_path, app_source).unwrap();
 
     let mut options = CompileOptions {
@@ -1442,7 +1442,7 @@ fn navigation_tracks_impl_methods_spread_across_modules() {
     fs::create_dir_all(&src).unwrap();
 
     fs::write(
-        src.join("init.rn"),
+        src.join("mod.kn"),
         concat!(
             "mod storage;\n",
             "mod view;\n",
@@ -1459,7 +1459,7 @@ fn navigation_tracks_impl_methods_spread_across_modules() {
         "    pub fn local_use_again() i32 { return self.buffer_slot_mut(); }\n",
         "}\n",
     );
-    let storage_path = src.join("storage.rn");
+    let storage_path = src.join("storage.kn");
     fs::write(&storage_path, storage_source).unwrap();
 
     let view_source = concat!(
@@ -1468,7 +1468,7 @@ fn navigation_tracks_impl_methods_spread_across_modules() {
         "    pub fn view_use() i32 { return self.buffer_slot_mut(); }\n",
         "}\n",
     );
-    let view_path = src.join("view.rn");
+    let view_path = src.join("view.kn");
     fs::write(&view_path, view_source).unwrap();
 
     let mut analysis = AnalysisEngine::default();
@@ -2168,7 +2168,7 @@ fn rename_rejects_invalid_identifiers() {
 
 #[test]
 fn byte_offsets_roundtrip_through_utf16_positions() {
-    let file = SourceFile::new(PathBuf::from("utf16.rn"), "a😀b\n".to_string());
+    let file = SourceFile::new(PathBuf::from("utf16.kn"), "a😀b\n".to_string());
     let offset = "a😀".len();
     let position = byte_offset_to_position(&file, offset);
 

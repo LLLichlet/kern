@@ -187,18 +187,18 @@ test("auto-trigger suggest tracks multiline lexical state incrementally", () => 
 });
 
 test("auto-trigger request matching expires and respects document position", () => {
-    const request = createAutoSuggestRequest("file:///main.rn", 3, 12, 100);
+    const request = createAutoSuggestRequest("file:///main.kn", 3, 12, 100);
 
     assert.equal(
-        matchesAutoSuggestRequest(request, "file:///main.rn", 3, 12, 200),
+        matchesAutoSuggestRequest(request, "file:///main.kn", 3, 12, 200),
         true,
     );
     assert.equal(
-        matchesAutoSuggestRequest(request, "file:///main.rn", 4, 12, 200),
+        matchesAutoSuggestRequest(request, "file:///main.kn", 4, 12, 200),
         false,
     );
     assert.equal(
-        matchesAutoSuggestRequest(request, "file:///main.rn", 3, 12, 2000),
+        matchesAutoSuggestRequest(request, "file:///main.kn", 3, 12, 2000),
         false,
     );
 });

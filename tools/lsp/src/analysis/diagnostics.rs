@@ -347,7 +347,7 @@ mod tests {
     fn convert_diagnostic_includes_hints_and_related_information() {
         let mut session = kernc_utils::Session::new();
         let file_id = session.source_manager.add_file(
-            "diag_test.rn".to_string(),
+            "diag_test.kn".to_string(),
             "fn main() void {}\n".to_string(),
         );
         let primary_span = kernc_utils::Span {

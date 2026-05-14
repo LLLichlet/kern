@@ -197,8 +197,8 @@ Closures are common in Kern for:
 
 Read these for examples:
 
-- [`examples/test_closure.rn`](../../../examples/test_closure.rn)
-- [`examples/closure_heap_escape.rn`](../../../examples/closure_heap_escape.rn)
-- [`library/base/option.rn`](../../../library/base/option.rn)
-- [`library/base/result.rn`](../../../library/base/result.rn)
-- [`library/std/fs/dir.rn`](../../../library/std/fs/dir.rn)
+- [`examples/test_closure.kn`](../../../examples/test_closure.kn)
+- [`examples/closure_heap_escape.kn`](../../../examples/closure_heap_escape.kn)
+- [`library/base/option.kn`](../../../library/base/option.kn)
+- [`library/base/result.kn`](../../../library/base/result.kn)
+- [`library/std/fs/dir.kn`](../../../library/std/fs/dir.kn)

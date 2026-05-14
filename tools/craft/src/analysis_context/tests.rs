@@ -34,12 +34,12 @@ experimental = []
 
 [[bin]]
 name = \"app\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 ",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         "\
 use craft.builder;
 
@@ -52,7 +52,7 @@ pub fn build(b: &mut builder.Builder) void {
 ",
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
     let manifest_path = root.join("Craft.toml");
     let manifest = Manifest::load(&manifest_path).unwrap();
@@ -84,7 +84,7 @@ pub fn build(b: &mut builder.Builder) void {
         .unwrap()
         .unwrap();
     let values = context
-        .compile_time_values_for(&manifest_path, &root.join("src/main.rn"), &root)
+        .compile_time_values_for(&manifest_path, &root.join("src/main.kn"), &root)
         .unwrap();
 
     assert_eq!(
@@ -113,11 +113,11 @@ kern = \"0.7.6\"
 
 [[bin]]
 name = \"app\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 ",
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
     let manifest_path = root.join("Craft.toml");
     let manifest = Manifest::load(&manifest_path).unwrap();
@@ -151,7 +151,7 @@ kern = \"0.7.6\"
 
 [[bin]]
 name = \"app\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 ",
     )
     .unwrap();
@@ -177,7 +177,7 @@ kern = \"0.7.6\"
 
 [[bin]]
 name = \"app\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 ",
     )
     .unwrap();

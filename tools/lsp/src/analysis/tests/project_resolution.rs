@@ -23,7 +23,7 @@ version = \"0.1.0\"
 kern = \"{CURRENT_KERN_VERSION}\"
 
 [lib]
-root = \"src/lib.rn\"
+root = \"src/lib.kn\"
 
 [dependencies]
 util = {{ path = \"../util\" }}
@@ -31,8 +31,8 @@ util = {{ path = \"../util\" }}
         ),
     )
     .unwrap();
-    fs::write(app_dir.join("src/lib.rn"), "mod sub;\n").unwrap();
-    fs::write(app_dir.join("src/sub.rn"), "fn local() i32 { return 1; }\n").unwrap();
+    fs::write(app_dir.join("src/lib.kn"), "mod sub;\n").unwrap();
+    fs::write(app_dir.join("src/sub.kn"), "fn local() i32 { return 1; }\n").unwrap();
     fs::write(
         util_dir.join("Craft.toml"),
         format!(
@@ -43,20 +43,20 @@ version = \"0.1.0\"
 kern = \"{CURRENT_KERN_VERSION}\"
 
 [lib]
-root = \"src/lib.rn\"
+root = \"src/lib.kn\"
 "
         ),
     )
     .unwrap();
     fs::write(
-        util_dir.join("src/lib.rn"),
+        util_dir.join("src/lib.kn"),
         "fn helper() i32 { return 1; }\n",
     )
     .unwrap();
 
     let mut analysis = AnalysisEngine::default();
-    let uri = file_path_to_uri(&app_dir.join("src/sub.rn")).unwrap();
-    let source = fs::read_to_string(app_dir.join("src/sub.rn")).unwrap();
+    let uri = file_path_to_uri(&app_dir.join("src/sub.kn")).unwrap();
+    let source = fs::read_to_string(app_dir.join("src/sub.kn")).unwrap();
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -71,7 +71,7 @@ root = \"src/lib.rn\"
 
     assert_eq!(
         super::normalize_path(&resolved.input_file),
-        super::normalize_path(&app_dir.join("src/lib.rn"))
+        super::normalize_path(&app_dir.join("src/lib.kn"))
     );
     assert_eq!(
         resolved.compile_options.root_module_name,
@@ -83,7 +83,7 @@ root = \"src/lib.rn\"
             .module_aliases
             .get("util")
             .map(PathBuf::from),
-        Some(super::normalize_path(&util_dir.join("src/lib.rn")))
+        Some(super::normalize_path(&util_dir.join("src/lib.kn")))
     );
     assert!(resolved.compile_options.module_aliases.contains_key("std"));
 }
@@ -109,21 +109,21 @@ version = \"0.1.0\"
 kern = \"{CURRENT_KERN_VERSION}\"
 
 [lib]
-root = \"src/lib.rn\"
+root = \"src/lib.kn\"
 "
         ),
     )
     .unwrap();
-    fs::write(app_dir.join("src/lib.rn"), "pub fn helper() void {}\n").unwrap();
+    fs::write(app_dir.join("src/lib.kn"), "pub fn helper() void {}\n").unwrap();
     fs::write(
-        app_dir.join("craft.rn"),
+        app_dir.join("craft.kn"),
         "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
     )
     .unwrap();
 
     let mut analysis = AnalysisEngine::default();
-    let uri = file_path_to_uri(&app_dir.join("craft.rn")).unwrap();
-    let source = fs::read_to_string(app_dir.join("craft.rn")).unwrap();
+    let uri = file_path_to_uri(&app_dir.join("craft.kn")).unwrap();
+    let source = fs::read_to_string(app_dir.join("craft.kn")).unwrap();
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -138,7 +138,7 @@ root = \"src/lib.rn\"
 
     assert_eq!(
         super::normalize_path(&resolved.input_file),
-        super::normalize_path(&app_dir.join("craft.rn"))
+        super::normalize_path(&app_dir.join("craft.kn"))
     );
     assert!(
         resolved
@@ -164,20 +164,20 @@ kern = \"{CURRENT_KERN_VERSION}\"
 
 [[bin]]
 name = \"my_app\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 "
         ),
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         "use std.io;\n\nfn main() i32 {\n    \"Hello Kern!\".println();\n    return 0;\n}\n",
     )
     .unwrap();
 
     let mut analysis = AnalysisEngine::default();
-    let uri = file_path_to_uri(&root.join("src/main.rn")).unwrap();
-    let source = fs::read_to_string(root.join("src/main.rn")).unwrap();
+    let uri = file_path_to_uri(&root.join("src/main.kn")).unwrap();
+    let source = fs::read_to_string(root.join("src/main.kn")).unwrap();
 
     let outcome = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -191,7 +191,7 @@ root = \"src/main.rn\"
     let resolved = analysis.resolve_analysis(&uri).unwrap();
     assert_eq!(
         super::normalize_path(&resolved.input_file),
-        super::normalize_path(&root.join("src/main.rn"))
+        super::normalize_path(&root.join("src/main.kn"))
     );
     assert!(resolved.compile_options.module_aliases.contains_key("std"));
 
@@ -220,27 +220,27 @@ kern = \"{CURRENT_KERN_VERSION}\"
 
 [[bin]]
 name = \"kernel\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 "
         ),
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         "pub mod lock;\npub mod mem;\nfn main() i32 { return 0; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("src/lock.rn"),
+        root.join("src/lock.kn"),
         "pub struct SpinLock {};\npub const SPIN_UNLOCKED = SpinLock.{}\n",
     )
     .unwrap();
-    fs::write(root.join("src/mem/init.rn"), "mod bitmap;\n").unwrap();
+    fs::write(root.join("src/mem/mod.kn"), "mod bitmap;\n").unwrap();
     let bitmap_source = "use /lock.{SpinLock, SPIN_UNLOCKED};\n";
-    fs::write(root.join("src/mem/bitmap.rn"), bitmap_source).unwrap();
+    fs::write(root.join("src/mem/bitmap.kn"), bitmap_source).unwrap();
 
     let mut analysis = AnalysisEngine::default();
-    let uri = file_path_to_uri(&root.join("src/mem/bitmap.rn")).unwrap();
+    let uri = file_path_to_uri(&root.join("src/mem/bitmap.kn")).unwrap();
     let outcome = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: uri.clone(),
@@ -253,7 +253,7 @@ root = \"src/main.rn\"
     let resolved = analysis.resolve_analysis(&uri).unwrap();
     assert_eq!(
         super::normalize_path(&resolved.input_file),
-        super::normalize_path(&root.join("src/main.rn"))
+        super::normalize_path(&root.join("src/main.kn"))
     );
 
     let bundle = outcome
@@ -287,13 +287,13 @@ experimental = []
 
 [[bin]]
 name = \"my_app\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 "
         ),
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         "\
 use craft.builder;
 
@@ -307,7 +307,7 @@ pub fn build(b: &mut builder.Builder) void {{
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         "\
 use std.io;
 
@@ -333,8 +333,8 @@ fn main() i32 {
     let mut analysis = AnalysisEngine::new(AnalysisSettings {
         compile_options: options,
     });
-    let uri = file_path_to_uri(&root.join("src/main.rn")).unwrap();
-    let source = fs::read_to_string(root.join("src/main.rn")).unwrap();
+    let uri = file_path_to_uri(&root.join("src/main.kn")).unwrap();
+    let source = fs::read_to_string(root.join("src/main.kn")).unwrap();
 
     let outcome = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -394,13 +394,13 @@ experimental = []
 
 [[bin]]
 name = \"my_app\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 "
         ),
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         "\
 use craft.builder;
 
@@ -414,7 +414,7 @@ pub fn build(b: &mut builder.Builder) void {{
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         "\
 use std.io;
 
@@ -445,8 +445,8 @@ fn main() i32 {
     .unwrap();
 
     let mut analysis = AnalysisEngine::default();
-    let uri = file_path_to_uri(&root.join("src/main.rn")).unwrap();
-    let source = fs::read_to_string(root.join("src/main.rn")).unwrap();
+    let uri = file_path_to_uri(&root.join("src/main.kn")).unwrap();
+    let source = fs::read_to_string(root.join("src/main.kn")).unwrap();
 
     let outcome = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -502,19 +502,19 @@ kern = \"{CURRENT_KERN_VERSION}\"
 
 [[bin]]
 name = \"app\"
-root = \"src/placeholder.rn\"
+root = \"src/placeholder.kn\"
 "
         ),
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         "\
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
     let generated = b.emit_generated(
-        \"src/main.rn\",
+        \"src/main.kn\",
         \"#[if(generated)]\\nfn main() i32 { let _ = ENTRY_KIND; return 0; }\\n\"
     );
     b.set_source_root(generated);
@@ -537,7 +537,7 @@ pub fn build(b: &mut builder.Builder) void {
         .join("bin")
         .join("app")
         .join("src")
-        .join("main.rn");
+        .join("main.kn");
     let project =
         craft::project::AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
     let direct = project.resolve_for_file(&generated_path, &CompileOptions::default());
@@ -612,13 +612,13 @@ kern = \"{CURRENT_KERN_VERSION}\"
 
 [[bin]]
 name = \"app\"
-root = \"src/placeholder.rn\"
+root = \"src/placeholder.kn\"
 "
         ),
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         "\
 mod build_info;
 
@@ -631,14 +631,14 @@ fn main() i32 {
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         "\
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
-    let main = b.stage_copy_package_file(\"src/main.rn\", \"src/main.rn\");
+    let main = b.stage_copy_package_file(\"src/main.kn\", \"src/main.kn\");
     let _ = b.stage_generated(
-        \"src/build_info.rn\",
+        \"src/build_info.kn\",
         \"pub const MAGIC_NUMBER = 42i32;\\n\"
     );
     b.set_source_root_from(main);
@@ -660,18 +660,18 @@ pub fn build(b: &mut builder.Builder) void {
         .join("bin")
         .join("app")
         .join("src")
-        .join("main.rn");
+        .join("main.kn");
     assert!(generated_main.is_file());
     assert!(
         generated_main
             .parent()
             .unwrap()
-            .join("build_info.rn")
+            .join("build_info.kn")
             .is_file()
     );
 
-    let uri = file_path_to_uri(&root.join("src/main.rn")).unwrap();
-    let source = fs::read_to_string(root.join("src/main.rn")).unwrap();
+    let uri = file_path_to_uri(&root.join("src/main.kn")).unwrap();
+    let source = fs::read_to_string(root.join("src/main.kn")).unwrap();
 
     let mut analysis = AnalysisEngine::default();
     let outcome = analysis.open_document(DidOpenTextDocumentParams {
@@ -716,24 +716,24 @@ fn resolve_analysis_prefers_nearest_init_module_root_without_manifest() {
     fs::create_dir_all(&dbg_dir).unwrap();
 
     fs::write(
-        dbg_dir.join("init.rn"),
+        dbg_dir.join("mod.kn"),
         "mod option;\nmod result;\npub use .option.Option;\npub use .result.Result;\n",
     )
     .unwrap();
     fs::write(
-        dbg_dir.join("option.rn"),
+        dbg_dir.join("option.kn"),
         "pub enum Option[T] { Some: T, None }\n",
     )
     .unwrap();
     fs::write(
-        dbg_dir.join("result.rn"),
+        dbg_dir.join("result.kn"),
         "use ..Option;\npub enum Result[T] { Ok: T, Err: Option[T] }\n",
     )
     .unwrap();
 
     let mut analysis = AnalysisEngine::default();
-    let uri = file_path_to_uri(&dbg_dir.join("result.rn")).unwrap();
-    let source = fs::read_to_string(dbg_dir.join("result.rn")).unwrap();
+    let uri = file_path_to_uri(&dbg_dir.join("result.kn")).unwrap();
+    let source = fs::read_to_string(dbg_dir.join("result.kn")).unwrap();
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -748,7 +748,7 @@ fn resolve_analysis_prefers_nearest_init_module_root_without_manifest() {
 
     assert_eq!(
         super::normalize_path(&resolved.input_file),
-        super::normalize_path(&dbg_dir.join("init.rn"))
+        super::normalize_path(&dbg_dir.join("mod.kn"))
     );
 }
 
@@ -759,20 +759,20 @@ fn standalone_submodule_analysis_does_not_treat_parent_import_as_root_error() {
     fs::create_dir_all(&dbg_dir).unwrap();
 
     fs::write(
-        dbg_dir.join("init.rn"),
+        dbg_dir.join("mod.kn"),
         "mod option;\nmod result;\npub use .option.Option;\npub use .result.Result;\n",
     )
     .unwrap();
     fs::write(
-        dbg_dir.join("option.rn"),
+        dbg_dir.join("option.kn"),
         "pub enum Option[T] { Some: T, None }\n",
     )
     .unwrap();
     let result_source = "use ..Option;\npub enum Result[T] { Ok: T, Err: Option[T] }\n";
-    fs::write(dbg_dir.join("result.rn"), result_source).unwrap();
+    fs::write(dbg_dir.join("result.kn"), result_source).unwrap();
 
     let mut analysis = AnalysisEngine::default();
-    let uri = file_path_to_uri(&dbg_dir.join("result.rn")).unwrap();
+    let uri = file_path_to_uri(&dbg_dir.join("result.kn")).unwrap();
     let outcome = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: uri.clone(),

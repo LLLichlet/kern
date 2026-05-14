@@ -19,8 +19,8 @@ A normal executable package might look like:
 hello/
   Craft.toml
   src/
-    main.rn
-    math.rn
+    main.kn
+    math.kn
 ```
 
 `craft init` produces something close to:
@@ -33,11 +33,11 @@ kern = "0.7.6"
 
 [[bin]]
 name = "hello"
-root = "src/main.rn"
+root = "src/main.kn"
 ```
 
-`[[bin]]` declares a binary target, and `root = "src/main.rn"` says that
-`src/main.rn` is the target's root module.
+`[[bin]]` declares a binary target, and `root = "src/main.kn"` says that
+`src/main.kn` is the target's root module.
 
 Most hosted applications do not need an explicit `[runtime]` table. For binary,
 example, and test targets, `craft` defaults to toolchain runtime startup, no
@@ -45,7 +45,7 @@ implicit libc link, and the `std` bundle. Write runtime configuration only when
 you are building a kernel, a freestanding program, a custom startup entry, or a
 package that needs a different library bundle.
 
-`src/main.rn` can declare child modules:
+`src/main.kn` can declare child modules:
 
 ```kern
 mod math;
@@ -59,7 +59,7 @@ fn main() i32 {
 }
 ```
 
-`src/math.rn` is brought into the module tree by `mod math;`:
+`src/math.kn` is brought into the module tree by `mod math;`:
 
 ```kern
 pub/ fn square(value: i32) i32 {
@@ -67,7 +67,7 @@ pub/ fn square(value: i32) i32 {
 }
 ```
 
-`pub/` means package-visible. `main.rn` and `math.rn` are in the same package,
+`pub/` means package-visible. `main.kn` and `math.kn` are in the same package,
 so `main` can call `math.square`; code outside the package cannot treat it as a
 public API.
 
@@ -82,23 +82,23 @@ for package-internal access, and `pub mod name;` for public package API.
 
 The compiler finds module files by fixed rules:
 
-- `name.rn` is a file module.
-- `name/init.rn` is the entry file for a directory module.
+- `name.kn` is a file module.
+- `name/mod.kn` is the entry file for a directory module.
 - `mod name { ... }` is an inline module and does not need an entry file.
 
-So `init.rn` is not an arbitrary name; it is the entry point for a directory
+So `mod.kn` is not an arbitrary name; it is the entry point for a directory
 module. It usually declares further child modules and exposes that directory's
 API.
 
 ```text
 src/
-  main.rn
+  main.kn
   parse/
-    init.rn
-    token.rn
+    mod.kn
+    token.kn
 ```
 
-`src/main.rn`:
+`src/main.kn`:
 
 ```kern
 mod parse;
@@ -108,7 +108,7 @@ fn main() i32 {
 }
 ```
 
-`src/parse/init.rn`:
+`src/parse/mod.kn`:
 
 ```kern
 mod token;
@@ -118,7 +118,7 @@ pub/ fn run(text: &[u8]) i32 {
 }
 ```
 
-`src/parse/token.rn`:
+`src/parse/token.kn`:
 
 ```kern
 pub.. fn count_digits(text: &[u8]) i32 {
@@ -132,7 +132,7 @@ pub.. fn count_digits(text: &[u8]) i32 {
 }
 ```
 
-`pub..` means visible to the parent module tree. `parse/init.rn` can call
+`pub..` means visible to the parent module tree. `parse/mod.kn` can call
 `token.count_digits`, but it does not become public package API.
 
 Inline modules are useful when the child namespace is small enough to keep near
@@ -154,8 +154,8 @@ mod api {
 
 Inline modules are still real module nodes. If an inline module declares a
 file-backed child, that child is resolved below the inline module's logical
-directory. For example, `mod api { mod detail; }` looks for `api/detail.rn` or
-`api/detail/init.rn`.
+directory. For example, `mod api { mod detail; }` looks for `api/detail.kn` or
+`api/detail/mod.kn`.
 
 `mod` is not textual inclusion, and Kern does not need headers or forward
 declarations. The compiler collects the module tree and resolves declarations
@@ -258,7 +258,7 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 ```
 
 The library target name is the package name. Library targets do not own runtime
@@ -269,7 +269,7 @@ Executable target:
 ```toml
 [[bin]]
 name = "tool"
-root = "src/main.rn"
+root = "src/main.kn"
 ```
 
 Examples and tests:
@@ -277,22 +277,22 @@ Examples and tests:
 ```toml
 [example]
 roots = [
-    "examples/smoke.rn",
-    "examples/demo.rn",
+    "examples/smoke.kn",
+    "examples/demo.kn",
 ]
 
 [test]
-roots = ["tests/smoke.rn"]
+roots = ["tests/smoke.kn"]
 ```
 
 Each root becomes an independent target. The name comes from the file name.
-`examples/basics.rn` becomes `--example basics`.
+`examples/basics.kn` becomes `--example basics`.
 
-If `[test].roots` is absent, `craft test` discovers direct `tests/*.rn` files
+If `[test].roots` is absent, `craft test` discovers direct `tests/*.kn` files
 in that package. In a workspace this default is applied per member package;
 the workspace root is not a test package by itself. Write `[test].roots`
 explicitly when you want a different set, including globs such as
-`"integration/*.rn"`. Recursive globs are not test roots; nested files should
+`"integration/*.kn"`. Recursive globs are not test roots; nested files should
 usually be modules declared by a root.
 
 Inside a test root, mark test cases with `#[test]`:
@@ -381,7 +381,7 @@ name = "json"
 publish = true
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 ```
 
 `[workspace.package]` centralizes shared metadata. `version` and `kern` become
@@ -487,10 +487,10 @@ runtime in more detail.
 Kern's standard library is intentionally explicit and low-policy. The source is
 good tutorial material:
 
-- [`library/base/option.rn`](../../../library/base/option.rn): common `?T` methods.
-- [`library/base/result.rn`](../../../library/base/result.rn): common `T!E` methods.
-- [`library/base/coll/iter.rn`](../../../library/base/coll/iter.rn): iterator trait and the model behind `for`.
-- [`library/base/coll/list_impl/init.rn`](../../../library/base/coll/list_impl/init.rn): explicitly allocated growable list.
-- [`library/base/coll/string_impl/init.rn`](../../../library/base/coll/string_impl/init.rn): how `String` is built on `List[u8]`.
-- [`library/std/io/init.rn`](../../../library/std/io/init.rn): `println`, `Printable`, and standard streams.
+- [`library/base/option.kn`](../../../library/base/option.kn): common `?T` methods.
+- [`library/base/result.kn`](../../../library/base/result.kn): common `T!E` methods.
+- [`library/base/coll/iter.kn`](../../../library/base/coll/iter.kn): iterator trait and the model behind `for`.
+- [`library/base/coll/list_impl/mod.kn`](../../../library/base/coll/list_impl/mod.kn): explicitly allocated growable list.
+- [`library/base/coll/string_impl/mod.kn`](../../../library/base/coll/string_impl/mod.kn): how `String` is built on `List[u8]`.
+- [`library/std/io/mod.kn`](../../../library/std/io/mod.kn): `println`, `Printable`, and standard streams.
 - [`library/std/fs/`](../../../library/std/fs/): filesystem APIs through `std.host`.

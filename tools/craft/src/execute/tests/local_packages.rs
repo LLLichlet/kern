@@ -13,13 +13,13 @@ kern = "0.7.6"
 
 [[bin]]
 name = "hello"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 use std.io;
 
@@ -121,7 +121,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 util = { path = "../util" }
@@ -130,7 +130,7 @@ util = { path = "../util" }
     .unwrap();
     fs::create_dir_all(app_dir.join("src")).unwrap();
     fs::write(
-        app_dir.join("src/main.rn"),
+        app_dir.join("src/main.kn"),
         r#"
 fn main() i32 {
 if (util.answer() == 42) {
@@ -151,13 +151,13 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::create_dir_all(util_dir.join("src")).unwrap();
     fs::write(
-        util_dir.join("src/lib.rn"),
+        util_dir.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
 return 42;
@@ -235,7 +235,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 util = { path = "../util" }
@@ -244,7 +244,7 @@ util = { path = "../util" }
     .unwrap();
     fs::create_dir_all(app_dir.join("src")).unwrap();
     fs::write(
-        app_dir.join("src/main.rn"),
+        app_dir.join("src/main.kn"),
         r#"
 fn main() i32 {
     let c = util.WHITE;
@@ -272,13 +272,13 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::create_dir_all(util_dir.join("src")).unwrap();
     fs::write(
-        util_dir.join("src/lib.rn"),
+        util_dir.join("src/lib.kn"),
         r#"
 pub struct Color {
     pub r: u8,
@@ -353,7 +353,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [resources]
 native = { path = "vendor/native" }
@@ -361,7 +361,7 @@ native = { path = "vendor/native" }
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -379,7 +379,7 @@ pub fn build(b: &mut builder.Builder) void {
     .unwrap();
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 extern {
     fn native_add7() i32;
@@ -453,7 +453,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 foo = { path = "../util", export = "util" }
@@ -462,7 +462,7 @@ foo = { path = "../util", export = "util" }
     .unwrap();
     fs::create_dir_all(app_dir.join("src")).unwrap();
     fs::write(
-        app_dir.join("src/main.rn"),
+        app_dir.join("src/main.kn"),
         r#"
 fn main() i32 {
 if (foo.answer() == 42) {
@@ -483,13 +483,13 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::create_dir_all(util_dir.join("src")).unwrap();
     fs::write(
-        util_dir.join("src/lib.rn"),
+        util_dir.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
 return 42;
@@ -546,12 +546,12 @@ libc = false
 bundle = "std"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/lib.rn"),
+        root.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
     return 42;
@@ -608,7 +608,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 util = { path = "../util" }
@@ -617,7 +617,7 @@ util = { path = "../util" }
     .unwrap();
     fs::create_dir_all(app_dir.join("src")).unwrap();
     fs::write(
-        app_dir.join("src/main.rn"),
+        app_dir.join("src/main.kn"),
         r#"
 fn main() i32 {
 if (util.is_truthy("true")) {
@@ -638,13 +638,13 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::create_dir_all(util_dir.join("src")).unwrap();
     fs::write(
-        util_dir.join("src/lib.rn"),
+        util_dir.join("src/lib.kn"),
         r#"
 use base.coll;
 

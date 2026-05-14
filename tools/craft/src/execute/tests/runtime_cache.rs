@@ -19,11 +19,11 @@ kern = "0.7.6"
 
 [[bin]]
 name = "hello"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
         )
         .unwrap();
-        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -86,12 +86,12 @@ opt = {opt}
 
 [[bin]]
 name = "hello"
-root = "src/main.rn"
+root = "src/main.kn"
 "#
             ),
         )
         .unwrap();
-        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -156,12 +156,12 @@ codegen-units = {codegen_units}
 
 [[bin]]
 name = "hello"
-root = "src/main.rn"
+root = "src/main.kn"
 "#
             ),
         )
         .unwrap();
-        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();

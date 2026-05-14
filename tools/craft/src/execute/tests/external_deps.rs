@@ -17,7 +17,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 log = { path = "vendor/log", version = "1" }
@@ -25,7 +25,7 @@ log = { path = "vendor/log", version = "1" }
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
 if (log.answer() == 42) {
@@ -45,12 +45,12 @@ version = "1"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        log_root.join("src/lib.rn"),
+        log_root.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
 return 42;
@@ -94,7 +94,7 @@ version = "1"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
         r#"
 pub fn answer() i32 {
@@ -114,7 +114,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 log = {{ git = "{}", branch = "main", version = "1" }}
@@ -124,7 +124,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
 if (log.answer() == 42) {
@@ -198,14 +198,14 @@ kern = "0.7.6"
 repository = "{}"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
             toml_string_literal(&repo)
         ),
     )
     .unwrap();
     fs::write(
-        json_dir.join("src/lib.rn"),
+        json_dir.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
 return 42;
@@ -234,7 +234,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 json = {{ git = "{}", branch = "main", version = "1" }}
@@ -244,7 +244,7 @@ json = {{ git = "{}", branch = "main", version = "1" }}
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
 if (json.answer() == 42) {
@@ -296,7 +296,7 @@ codegen-units = 2
 lto = "thin"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
         r#"
 pub fn answer() i32 {
@@ -321,7 +321,7 @@ lto = "thin"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 log = {{ git = "{}", branch = "main", version = "1" }}
@@ -331,7 +331,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
 if (log.answer() == 42) {
@@ -415,7 +415,7 @@ codegen-units = 2
 lto = "thin"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
         r#"
 pub fn answer() i32 {
@@ -440,7 +440,7 @@ lto = "thin"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 log = {{ git = "{}", branch = "main", version = "1" }}
@@ -450,7 +450,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
 return log.answer() - 42;
@@ -492,7 +492,7 @@ return log.answer() - 42;
     assert!(first_output.status.success());
 
     fs::write(
-        repo.join("src/lib.rn"),
+        repo.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
 return 43;
@@ -581,7 +581,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 log = { path = "vendor/log", version = "1" }
@@ -589,7 +589,7 @@ log = { path = "vendor/log", version = "1" }
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
 if (log.answer() == 42) {
@@ -609,7 +609,7 @@ version = "1"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [dependencies]
 corelog = { path = "vendor/corelog", version = "1" }
@@ -617,7 +617,7 @@ corelog = { path = "vendor/corelog", version = "1" }
     )
     .unwrap();
     fs::write(
-        log_root.join("src/lib.rn"),
+        log_root.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
 return corelog.base() + 1;
@@ -634,12 +634,12 @@ version = "1"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        corelog_root.join("src/lib.rn"),
+        corelog_root.join("src/lib.kn"),
         r#"
 pub fn base() i32 {
 return 41;
@@ -692,7 +692,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 log = { path = "vendor/log", version = "1" }
@@ -700,7 +700,7 @@ log = { path = "vendor/log", version = "1" }
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
 if (log.answer() == 42) {
@@ -720,7 +720,7 @@ version = "1"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [dependencies]
 corelog = { path = "vendor-nested/corelog", version = "1" }
@@ -728,7 +728,7 @@ corelog = { path = "vendor-nested/corelog", version = "1" }
     )
     .unwrap();
     fs::write(
-        log_root.join("src/lib.rn"),
+        log_root.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
 return corelog.base() + 1;
@@ -745,12 +745,12 @@ version = "1"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        corelog_root.join("src/lib.rn"),
+        corelog_root.join("src/lib.kn"),
         r#"
 pub fn base() i32 {
 return 41;

@@ -14,7 +14,7 @@ libc = false
 bundle = "std"
 
 [lib]
-root = "init.rn"
+root = "mod.kn"
 
 [dependencies]
 base = { workspace = true }

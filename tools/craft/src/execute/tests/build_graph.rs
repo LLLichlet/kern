@@ -13,16 +13,16 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/lib.rn"),
+        root.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
 return 42;
@@ -31,7 +31,7 @@ return 42;
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 use demo.answer;
 
@@ -102,12 +102,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
 return 0;
@@ -151,12 +151,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
 return 0;
@@ -219,12 +219,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
 return 0;
@@ -280,12 +280,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
 return 0;
@@ -343,12 +343,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 mod helper;
 
@@ -359,7 +359,7 @@ return helper.answer();
     )
     .unwrap();
     fs::write(
-        root.join("src/helper.rn"),
+        root.join("src/helper.kn"),
         r#"
 pub/ fn answer() i32 {
 return 0;
@@ -387,7 +387,7 @@ return 0;
     assert_eq!(first.link_actions, 1);
 
     fs::write(
-        root.join("src/helper.rn"),
+        root.join("src/helper.kn"),
         r#"
 pub/ fn answer() i32 {
 return 1;
@@ -421,12 +421,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
 return 0;
@@ -493,7 +493,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 util = { path = "../util" }
@@ -509,12 +509,12 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        app_dir.join("src/main.rn"),
+        app_dir.join("src/main.kn"),
         r#"
 fn main() i32 {
 return util.answer();
@@ -523,7 +523,7 @@ return util.answer();
     )
     .unwrap();
     fs::write(
-        util_dir.join("src/lib.rn"),
+        util_dir.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
 return 41;
@@ -554,7 +554,7 @@ return 41;
     assert_eq!(first.action_cache_stats.link_misses, 1);
 
     fs::write(
-        app_dir.join("src/main.rn"),
+        app_dir.join("src/main.kn"),
         r#"
 fn main() i32 {
 return util.answer() + 1;
@@ -571,7 +571,7 @@ return util.answer() + 1;
     assert_eq!(app_changed.action_cache_stats.link_misses, 1);
 
     fs::write(
-        util_dir.join("src/lib.rn"),
+        util_dir.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
 return 42;
@@ -610,11 +610,11 @@ bundle = "std"
 
 [[bin]]
 name = "hello"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
     let manifest_path = root.join("Craft.toml");
     let manifest = Manifest::load(&manifest_path).unwrap();
@@ -651,7 +651,7 @@ bundle = "std"
 
 [[bin]]
 name = "hello"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
@@ -702,12 +702,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "plain"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        plain_dir.join("src/main.rn"),
+        plain_dir.join("src/main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -721,18 +721,18 @@ kern = "0.7.6"
 
 [[bin]]
 name = "staged"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        staged_dir.join("src/main.rn"),
+        staged_dir.join("src/main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
     fs::write(staged_dir.join("assets/data.txt"), "data\n").unwrap();
     fs::write(
-        staged_dir.join("build.rn"),
+        staged_dir.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -798,12 +798,12 @@ lto = "none"
 
 [[bin]]
 name = "native"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        native_dir.join("src/main.rn"),
+        native_dir.join("src/main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -820,12 +820,12 @@ lto = "thin"
 
 [[bin]]
 name = "thin"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        thin_dir.join("src/main.rn"),
+        thin_dir.join("src/main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -886,12 +886,12 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        util_dir.join("src/lib.rn"),
+        util_dir.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
     return 42;
@@ -908,12 +908,12 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        extra_dir.join("src/lib.rn"),
+        extra_dir.join("src/lib.kn"),
         r#"
 pub fn truth() bool {
     return true;
@@ -930,7 +930,7 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [dependencies]
 util = { path = "../util" }
@@ -938,7 +938,7 @@ util = { path = "../util" }
     )
     .unwrap();
     fs::write(
-        app_dir.join("src/lib.rn"),
+        app_dir.join("src/lib.kn"),
         r#"
 pub fn value() i32 {
     return util.answer();
@@ -1046,12 +1046,12 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        util_dir.join("src/lib.rn"),
+        util_dir.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
     return 42;
@@ -1072,7 +1072,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "{name}"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 util = {{ path = "../util" }}
@@ -1081,7 +1081,7 @@ util = {{ path = "../util" }}
         )
         .unwrap();
         fs::write(
-            dir.join("src/main.rn"),
+            dir.join("src/main.kn"),
             r#"
 fn main() i32 {
     return util.answer() - 42;
@@ -1144,7 +1144,7 @@ lto = "thin"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 util = { path = "../util" }
@@ -1152,7 +1152,7 @@ util = { path = "../util" }
     )
     .unwrap();
     fs::write(
-        app_dir.join("src/main.rn"),
+        app_dir.join("src/main.kn"),
         r#"
 fn main() i32 {
     return util.answer() - 3;
@@ -1174,12 +1174,12 @@ codegen-units = 2
 lto = "thin"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        util_dir.join("src/lib.rn"),
+        util_dir.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
     return foo() + bar();

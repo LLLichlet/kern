@@ -447,5 +447,5 @@ fn classify(state: enum: u32 { Off = 0, On = 1, Error: i32 }) i32 {
 
 For fixed C ABI layout, anonymous structs can also be written as
 `extern struct { ... }`. See
-[`examples/anonymous_aggregates.rn`](../../../examples/anonymous_aggregates.rn)
+[`examples/anonymous_aggregates.kn`](../../../examples/anonymous_aggregates.kn)
 for a fuller layout example.

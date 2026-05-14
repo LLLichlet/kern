@@ -1,13 +1,13 @@
 # Kern VS Code Extension
 
 This extension wires VS Code to `kern-lsp` and provides a baseline editing
-experience for `.rn` source files.
+experience for `.kn` source files.
 
 ## Features
 
-- Kern language registration for `.rn`
+- Kern language registration for `.kn`
 - Kern logo as the bundled language icon
-- optional `Kern Icons` file icon theme for `.rn` files
+- optional `Kern Icons` file icon theme for `.kn` files
 - stdio LSP connection to `kern-lsp`
 - diagnostics, hover, completion, rename, semantic tokens, and code actions
 - a lightweight TextMate grammar and language configuration for editor basics
@@ -40,7 +40,7 @@ without extra manual setup.
 
 For manual syntax-highlighting review, open:
 
-`editors/vscode/testdata/highlighting-showcase.rn`
+`editors/vscode/testdata/highlighting-showcase.kn`
 
 ## Language Server Resolution
 
@@ -83,7 +83,7 @@ JavaScript dependencies. It intentionally excludes `server/` and does not embed
 ## Icons
 
 The extension contributes the Kern logo as the default language icon for `kern`
-documents and also ships a `Kern Icons` file icon theme that maps `.rn` files
+documents and also ships a `Kern Icons` file icon theme that maps `.kn` files
 to the same mark.
 
 The packaged extension also declares the PNG logo as its Marketplace icon, so
@@ -95,7 +95,7 @@ Run `npm run sync:icons` in `editors/vscode/` after updating them to refresh
 `icons/kern.svg` and `icons/kern.png` before packaging or publishing.
 
 If your current file icon theme already overrides language/file icons, switch
-VS Code's File Icon Theme to `Kern Icons` to guarantee that `.rn` files use the
+VS Code's File Icon Theme to `Kern Icons` to guarantee that `.kn` files use the
 bundled logo.
 
 The extension README intentionally does not embed the raw SVG asset. GitHub

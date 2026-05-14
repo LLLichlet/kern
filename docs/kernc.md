@@ -31,7 +31,7 @@ parameters.
 ## Command Synopsis
 
 ```text
-kernc [OPTIONS] [input.rn]
+kernc [OPTIONS] [input.kn]
 ```
 
 The positional source input is required for compile modes and forbidden in link-only mode.
@@ -63,7 +63,7 @@ kernc \
   --runtime-entry rt \
   --runtime-libc no \
   --library-bundle std \
-  src/main.rn \
+  src/main.kn \
   -o app
 ```
 
@@ -77,7 +77,7 @@ kernc -c \
   --runtime-entry rt \
   --runtime-libc no \
   --library-bundle std \
-  src/main.rn \
+  src/main.kn \
   -o app.o
 ```
 
@@ -106,7 +106,7 @@ kernc \
   --runtime-libc no \
   --library-bundle base \
   --entry-symbol _start \
-  src/main.rn \
+  src/main.kn \
   -o kernel.bin
 ```
 
@@ -125,7 +125,7 @@ kernc \
   --entry-symbol _start \
   --link-arg -T \
   --link-arg kernel.ld \
-  src/main.rn \
+  src/main.kn \
   -o kernel.bin
 ```
 
@@ -137,25 +137,25 @@ pass an absolute path instead.
 Build a Kern program with the Kern standard library:
 
 ```bash
-kernc --runtime-entry rt --library-bundle std examples/hello_world.rn -o hello
+kernc --runtime-entry rt --library-bundle std examples/hello_world.kn -o hello
 ```
 
 Compile only and keep the object file:
 
 ```bash
-kernc -c --runtime-entry rt --library-bundle std examples/hello_world.rn -o hello.o
+kernc -c --runtime-entry rt --library-bundle std examples/hello_world.kn -o hello.o
 ```
 
 Inspect raw generated LLVM IR:
 
 ```bash
-kernc --emit-llvm --runtime-entry rt --library-bundle std examples/hello_world.rn
+kernc --emit-llvm --runtime-entry rt --library-bundle std examples/hello_world.kn
 ```
 
 Inspect LLVM IR after target setup and LLVM optimization passes:
 
 ```bash
-kernc --emit-llvm=optimized -O2 --runtime-entry rt --library-bundle std examples/hello_world.rn
+kernc --emit-llvm=optimized -O2 --runtime-entry rt --library-bundle std examples/hello_world.kn
 ```
 
 Compile a C-family source into an object with the resolved SDK C compiler:
@@ -179,7 +179,7 @@ kernc --link-only --link-input hello.o -o hello
 Split compile and link explicitly:
 
 ```bash
-kernc -c --runtime-entry rt --library-bundle std app.rn -o app.o
+kernc -c --runtime-entry rt --library-bundle std app.kn -o app.o
 kernc --link-only --link-input app.o --entry-symbol _start -o app
 ```
 
@@ -187,10 +187,10 @@ kernc --link-only --link-input app.o --entry-symbol _start -o app
 
 ### Source Input
 
-Compile modes accept one positional `.rn` input file:
+Compile modes accept one positional `.kn` input file:
 
 ```bash
-kernc --runtime-entry rt --library-bundle std src/main.rn -o app
+kernc --runtime-entry rt --library-bundle std src/main.kn -o app
 ```
 
 `--link-only` does not accept a source input. Use `--link-input` instead.
@@ -200,7 +200,7 @@ kernc --runtime-entry rt --library-bundle std src/main.rn -o app
 Use `--module-path <name=path>` to map a module root name to a physical path:
 
 ```bash
-kernc --module-path std=./library/std app.rn
+kernc --module-path std=./library/std app.kn
 ```
 
 In a source checkout this path is inside the in-tree `library/` workspace.
@@ -315,7 +315,7 @@ Current explicit boundary:
 Use `--target <triple>` to select a target triple:
 
 ```bash
-kernc --target x86_64-unknown-linux-gnu --runtime-entry rt --library-bundle std app.rn -o app
+kernc --target x86_64-unknown-linux-gnu --runtime-entry rt --library-bundle std app.kn -o app
 ```
 
 The target triple affects:
@@ -430,7 +430,7 @@ Use `--asm-dialect intel` or `--asm-dialect att` to configure inline assembly fo
 Use `--define <key=value>` to feed custom values into compile-time attribute pruning:
 
 ```bash
-kernc --define debug_mode=true --define board=qemu app.rn
+kernc --define debug_mode=true --define board=qemu app.kn
 ```
 
 These values are available to `#[if(...)]` and `#![if(...)]` conditions handled by the frontend pruning pass.
@@ -489,7 +489,7 @@ By default Kern links through the active SDK/toolchain `clang`. Use
 `--link-driver <cmd>` to explicitly select an external linker driver command:
 
 ```bash
-kernc --link-driver clang --runtime-entry rt --library-bundle std app.rn -o app
+kernc --link-driver clang --runtime-entry rt --library-bundle std app.kn -o app
 ```
 
 ### Additional Link Inputs
@@ -564,7 +564,7 @@ build tooling.
 Use compile-and-link directly:
 
 ```bash
-kernc --runtime-entry rt --library-bundle std app.rn -o app
+kernc --runtime-entry rt --library-bundle std app.kn -o app
 ```
 
 ### Build-System Integration
@@ -572,7 +572,7 @@ kernc --runtime-entry rt --library-bundle std app.rn -o app
 Split the pipeline explicitly:
 
 ```bash
-kernc -c --target x86_64-unknown-linux-gnu app.rn -o app.o
+kernc -c --target x86_64-unknown-linux-gnu app.kn -o app.o
 kernc --link-only --link-input app.o --entry-symbol boot_main --link-arg ... -o app
 ```
 

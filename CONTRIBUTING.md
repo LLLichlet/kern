@@ -31,7 +31,7 @@ Before submitting a Pull Request, run the narrowest tests that cover the area yo
 
 The active compiler regression suite is centered on the `kernc_cli` integration tests:
 1. **Rust unit tests:** Kept close to the implementation inside the relevant `compiler/kernc_*` crate.
-2. **CLI integration tests:** Located in [`compiler/kernc_cli/tests/`](compiler/kernc_cli/tests/). These tests compile and, where needed, execute temporary `.rn` programs against the real `kernc` binary.
+2. **CLI integration tests:** Located in [`compiler/kernc_cli/tests/`](compiler/kernc_cli/tests/). These tests compile and, where needed, execute temporary `.kn` programs against the real `kernc` binary.
 
 For the full `kernc_cli` integration suite:
 

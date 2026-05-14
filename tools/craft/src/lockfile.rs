@@ -180,7 +180,7 @@ shared = { git = "https://example.com/shared.git", branch = "stable", version = 
         )
         .unwrap();
         fs::write(
-            root.join("craft.rn"),
+            root.join("craft.kn"),
             "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
@@ -194,7 +194,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 util = { path = "../util" }
@@ -206,7 +206,7 @@ limine = { git = "https://example.com/limine.git", branch = "main" }
         )
         .unwrap();
         fs::write(
-            app_dir.join("craft.rn"),
+            app_dir.join("craft.kn"),
             r#"
 use craft.plan;
 
@@ -252,8 +252,8 @@ kern = "0.7.6"
             rendered.contains("package = \"app 0.1.0 workspace-member:app\"")
                 && rendered.contains("kind = \"bin\"")
         );
-        assert!(rendered.contains("workspace-script = \"craft.rn\""));
-        assert!(rendered.contains("craft-script = \"app/craft.rn\""));
+        assert!(rendered.contains("workspace-script = \"craft.kn\""));
+        assert!(rendered.contains("craft-script = \"app/craft.kn\""));
         assert!(rendered.contains("name = \"limine\""));
         assert!(rendered.contains("source-locator = \"https://example.com/limine.git\""));
         assert!(rendered.contains("source-selector = \"branch:main\""));

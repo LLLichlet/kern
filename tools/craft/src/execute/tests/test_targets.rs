@@ -13,12 +13,12 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["tests/smoke.rn"]
+roots = ["tests/smoke.kn"]
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("tests/smoke.rn"),
+        root.join("tests/smoke.kn"),
         r#"
 #[test]
 fn main() i32 {
@@ -67,12 +67,12 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["tests/alpha.rn", "tests/beta.rn", "tests/gamma.rn"]
+roots = ["tests/alpha.kn", "tests/beta.kn", "tests/gamma.kn"]
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("tests/alpha.rn"),
+        root.join("tests/alpha.kn"),
         r#"
 #[test]
 fn main() i32 {
@@ -82,7 +82,7 @@ return 1;
     )
     .unwrap();
     fs::write(
-        root.join("tests/beta.rn"),
+        root.join("tests/beta.kn"),
         r#"
 #[test]
 fn main() i32 {
@@ -92,7 +92,7 @@ return 0;
     )
     .unwrap();
     fs::write(
-        root.join("tests/gamma.rn"),
+        root.join("tests/gamma.kn"),
         r#"
 #[test]
 fn main() i32 {
@@ -154,12 +154,12 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["tests/smoke.rn"]
+roots = ["tests/smoke.kn"]
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("tests/smoke.rn"),
+        root.join("tests/smoke.kn"),
         r#"
 #[test]
 fn alpha() i32 {
@@ -240,12 +240,12 @@ opt = 3
 codegen-units = 2
 
 [test]
-roots = ["tests/smoke.rn"]
+roots = ["tests/smoke.kn"]
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("tests/smoke.rn"),
+        root.join("tests/smoke.kn"),
         r#"
 #[test]
 fn main() i32 {
@@ -297,15 +297,15 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [test]
-roots = ["tests/smoke.rn"]
+roots = ["tests/smoke.kn"]
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/lib.rn"),
+        root.join("src/lib.kn"),
         r#"
 pub fn answer() i32 {
 return 42;
@@ -314,7 +314,7 @@ return 42;
     )
     .unwrap();
     fs::write(
-        root.join("tests/smoke.rn"),
+        root.join("tests/smoke.kn"),
         r#"
 use demo.answer;
 
@@ -372,12 +372,12 @@ libc = false
 bundle = "base"
 
 [test]
-roots = ["tests/smoke.rn"]
+roots = ["tests/smoke.kn"]
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("tests/smoke.rn"),
+        root.join("tests/smoke.kn"),
         r#"
 #[test]
 fn main() i32 {
@@ -436,13 +436,13 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["tests/cwd.rn"]
+roots = ["tests/cwd.kn"]
 "#,
     )
     .unwrap();
     fs::write(app_dir.join("fixtures/ok.txt"), "ok\n").unwrap();
     fs::write(
-        app_dir.join("tests/cwd.rn"),
+        app_dir.join("tests/cwd.kn"),
         r#"
 use std.fs;
 use base.mem.alloc.{Allocator, gpa};
@@ -521,12 +521,12 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["tests/env.rn"]
+roots = ["tests/env.kn"]
 "#,
     )
     .unwrap();
     fs::write(
-        app_dir.join("tests/env.rn"),
+        app_dir.join("tests/env.kn"),
         r#"
 use std.env;
 use base.mem.alloc.{Allocator, gpa};
@@ -608,12 +608,12 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["tests/env.rn"]
+roots = ["tests/env.kn"]
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("tests/env.rn"),
+        root.join("tests/env.kn"),
         r#"
 use std.env;
 use std.fs;

@@ -19,7 +19,7 @@ fn direct_source_build_defaults_to_std_rt_and_source_stem_output() {
     let temp_dir = unique_temp_path("kernc_direct_defaults", "dir");
     fs::create_dir_all(&temp_dir).unwrap();
 
-    let source = temp_dir.join("hello_world.rn");
+    let source = temp_dir.join("hello_world.kn");
     let expected_output = temp_dir.join(format!("hello_world{}", std::env::consts::EXE_SUFFIX));
     fs::write(&source, HOSTED_HELLO_WORLD_SOURCE).unwrap();
     let source_arg = source.to_string_lossy().into_owned();
@@ -103,7 +103,7 @@ fn main(argc: i32, argv: &&u8) i32 {
 
 #[test]
 fn links_hosted_program_with_std_and_crt_startup() {
-    let source_path = unique_temp_path("kernc_std_hosted", "rn");
+    let source_path = unique_temp_path("kernc_std_hosted", "kn");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_std_hosted", exe_ext);
 
@@ -165,8 +165,8 @@ fn runs_hosted_program_using_export_name_slice_abi_without_main_special_casing()
     let root = unique_temp_path("kernc_std_hosted_extern_slice", "dir");
     fs::create_dir_all(&root).unwrap();
 
-    let main_source = root.join("main.rn");
-    let bridge_source = root.join("bridge_mod.rn");
+    let main_source = root.join("main.kn");
+    let bridge_source = root.join("bridge_mod.kn");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_std_hosted_extern_slice", exe_ext);
 
@@ -262,7 +262,7 @@ extern fn bridge_impl(args: &[&[u8]]) i32 {
 
 #[test]
 fn custom_defines_are_available_as_compile_time_constants() {
-    let source_path = unique_temp_path("kernc_custom_define_const", "rn");
+    let source_path = unique_temp_path("kernc_custom_define_const", "kn");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_custom_define_const", exe_ext);
 
@@ -318,7 +318,7 @@ fn links_windows_rt_program_with_std_bundle() {
         return;
     }
 
-    let source = unique_temp_path("kernc_std_windows_rt", "rn");
+    let source = unique_temp_path("kernc_std_windows_rt", "kn");
     let executable_path = unique_temp_path("kernc_std_windows_rt", "exe");
     fs::write(&source, HOSTED_HELLO_WORLD_SOURCE).unwrap();
 
@@ -538,7 +538,7 @@ fn hosted_minimal_program_does_not_export_rt_memory_symbols() {
         return;
     }
 
-    let source_path = unique_temp_path("kernc_std_hosted_no_rt_mem", "rn");
+    let source_path = unique_temp_path("kernc_std_hosted_no_rt_mem", "kn");
     let object_path = unique_temp_path("kernc_std_hosted_no_rt_mem", "o");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_std_hosted_no_rt_mem", exe_ext);
@@ -862,7 +862,7 @@ extern fn start() void {
 
 #[test]
 fn runs_hosted_program_using_std_env_get() {
-    let source_path = unique_temp_path("kernc_std_env", "rn");
+    let source_path = unique_temp_path("kernc_std_env", "kn");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_std_env", exe_ext);
 
@@ -1007,7 +1007,7 @@ fn main() i32 {
 
 #[test]
 fn runs_rt_startup_program_using_std_env_get() {
-    let source_path = unique_temp_path("kernc_rt_std_env", "rn");
+    let source_path = unique_temp_path("kernc_rt_std_env", "kn");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_rt_std_env", exe_ext);
 

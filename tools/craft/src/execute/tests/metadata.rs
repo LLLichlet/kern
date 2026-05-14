@@ -12,7 +12,7 @@ kind = "source_snapshot"
 package_name = "other"
 package_version = "2.0.0"
 root_module_name = "other"
-entry_module_path = "src/init.rn"
+entry_module_path = "src/mod.kn"
 "#,
     )
     .unwrap();

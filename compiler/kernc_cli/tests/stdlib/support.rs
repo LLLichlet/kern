@@ -211,7 +211,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&run_output.stderr);
     assert!(
-        stderr.contains(".rn:") && stderr.contains("test failed: expected condition to be true"),
+        stderr.contains(".kn:") && stderr.contains("test failed: expected condition to be true"),
         "unexpected stderr:\n{}",
         stderr
     );

@@ -243,7 +243,7 @@ pub(super) fn build_std_package(
     let library_workspace_manifest = library_workspace_root.join("Craft.toml");
     let std_root = official_library_package_root(&library_workspace_root, "std");
     let std_manifest = official_library_package_manifest(&library_workspace_root, "std");
-    let source_path = std_root.join("init.rn");
+    let source_path = std_root.join("mod.kn");
     if !source_path.is_file() {
         return Err(Error::Execution(format!(
             "standard library root `{}` is missing",
@@ -441,7 +441,7 @@ pub(super) fn build_rt_package(
     let library_workspace_manifest = library_workspace_root.join("Craft.toml");
     let rt_root = official_library_package_root(&library_workspace_root, "rt");
     let rt_manifest = official_library_package_manifest(&library_workspace_root, "rt");
-    let source_path = rt_root.join("init.rn");
+    let source_path = rt_root.join("mod.kn");
     if !source_path.is_file() {
         return Err(Error::Execution(format!(
             "rt library root `{}` is missing",
@@ -565,7 +565,7 @@ pub(super) fn build_base_package(
     let library_workspace_manifest = library_workspace_root.join("Craft.toml");
     let base_root = official_library_package_root(&library_workspace_root, "base");
     let base_manifest = official_library_package_manifest(&library_workspace_root, "base");
-    let source_path = base_root.join("init.rn");
+    let source_path = base_root.join("mod.kn");
     if !source_path.is_file() {
         return Err(Error::Execution(format!(
             "base library root `{}` is missing",
@@ -694,7 +694,7 @@ pub(super) fn build_rt_entry_package(
     let library_workspace_root = official_library_workspace_root();
     let library_workspace_manifest = library_workspace_root.join("Craft.toml");
     let rt_manifest = official_library_package_manifest(&library_workspace_root, "rt");
-    let source_path = official_library_package_root(&library_workspace_root, "rt").join("entry.rn");
+    let source_path = official_library_package_root(&library_workspace_root, "rt").join("entry.kn");
     if !source_path.is_file() {
         return Err(Error::Execution(format!(
             "rt entry source `{}` is missing",

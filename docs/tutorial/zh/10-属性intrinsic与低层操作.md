@@ -365,4 +365,4 @@ fn syscall1_raw(sys_num: usize, arg1: usize) isize {
 
 `@asm` 的适用边界很窄：CPU 指令、特殊寄存器、系统调用入口、启动代码 glue。普通内存复制、原子、SIMD、字节序和位操作优先使用对应 intrinsic，因为编译器能理解这些操作并继续优化。
 
-继续深入时，可以阅读 [`design.md`](../../design.md) 的 attributes、inline assembly 和 compiler intrinsics 章节。标准库里的 [`library/std/host/os/linux.rn`](../../../library/std/host/os/linux.rn)、[`library/base/sync/init.rn`](../../../library/base/sync/init.rn) 也很适合配合阅读。
+继续深入时，可以阅读 [`design.md`](../../design.md) 的 attributes、inline assembly 和 compiler intrinsics 章节。标准库里的 [`library/std/host/os/linux.kn`](../../../library/std/host/os/linux.kn)、[`library/base/sync/mod.kn`](../../../library/base/sync/mod.kn) 也很适合配合阅读。

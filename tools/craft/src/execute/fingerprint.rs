@@ -284,7 +284,7 @@ mod tests {
             target_name: None,
             artifact_name: "demo".to_string(),
             generated_root_path: PathBuf::from("build/gen/demo"),
-            source_input: CompileSourceInput::AbsolutePath(PathBuf::from("src/lib.rn")),
+            source_input: CompileSourceInput::AbsolutePath(PathBuf::from("src/lib.kn")),
             metadata_path: None,
             test_metadata_path: None,
             object_path: PathBuf::from("build/demo.o"),

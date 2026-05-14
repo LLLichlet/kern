@@ -7,15 +7,15 @@ test("diagnostic buffer only flushes the latest payload for a document", async (
     const flushed: Array<{ uri: string; diagnostics: readonly string[] }> = [];
 
     buffer.schedule(
-        "file:///demo.rn",
-        { uri: "file:///demo.rn", diagnostics: ["old"] },
+        "file:///demo.kn",
+        { uri: "file:///demo.kn", diagnostics: ["old"] },
         (payload) => {
             flushed.push(payload);
         },
     );
     buffer.schedule(
-        "file:///demo.rn",
-        { uri: "file:///demo.rn", diagnostics: ["new"] },
+        "file:///demo.kn",
+        { uri: "file:///demo.kn", diagnostics: ["new"] },
         (payload) => {
             flushed.push(payload);
         },
@@ -24,7 +24,7 @@ test("diagnostic buffer only flushes the latest payload for a document", async (
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     assert.deepEqual(flushed, [
-        { uri: "file:///demo.rn", diagnostics: ["new"] },
+        { uri: "file:///demo.kn", diagnostics: ["new"] },
     ]);
 });
 
@@ -33,8 +33,8 @@ test("diagnostic buffer can flush pending diagnostics eagerly", () => {
     const flushed: Array<{ uri: string; diagnostics: readonly string[] }> = [];
 
     buffer.schedule(
-        "file:///demo.rn",
-        { uri: "file:///demo.rn", diagnostics: ["ready"] },
+        "file:///demo.kn",
+        { uri: "file:///demo.kn", diagnostics: ["ready"] },
         (payload) => {
             flushed.push(payload);
         },
@@ -45,6 +45,6 @@ test("diagnostic buffer can flush pending diagnostics eagerly", () => {
     });
 
     assert.deepEqual(flushed, [
-        { uri: "file:///demo.rn", diagnostics: ["ready"] },
+        { uri: "file:///demo.kn", diagnostics: ["ready"] },
     ]);
 });

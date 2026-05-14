@@ -636,12 +636,12 @@ fn body_only_change_recomputes_dead_store_warnings() {
 
 #[test]
 fn computes_cleared_uris() {
-    let previous = BTreeSet::from(["file:///one.rn".to_string(), "file:///two.rn".to_string()]);
+    let previous = BTreeSet::from(["file:///one.kn".to_string(), "file:///two.kn".to_string()]);
     let current = vec![super::DiagnosticBundle {
-        uri: "file:///one.rn".to_string(),
+        uri: "file:///one.kn".to_string(),
         diagnostics: Vec::new(),
     }];
 
     let cleared = cleared_uris(&previous, &current);
-    assert_eq!(cleared, vec!["file:///two.rn".to_string()]);
+    assert_eq!(cleared, vec!["file:///two.kn".to_string()]);
 }

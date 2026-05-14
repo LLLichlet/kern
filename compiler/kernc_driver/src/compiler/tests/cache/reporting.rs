@@ -11,7 +11,7 @@ fn shared_incremental_state_reuses_frontend_cache_across_output_variants() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let options = CompileOptions {
@@ -73,7 +73,7 @@ fn custom_runtime_entry_define_does_not_enable_program_entry_mode() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let source = root.join("main.rn");
+    let source = root.join("main.kn");
     let object = root.join("main.o");
     fs::write(
         &source,
@@ -121,7 +121,7 @@ fn compile_report_exposes_cache_hits_and_frontend_parse_deltas() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let object = root.join("main.o");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
@@ -170,7 +170,7 @@ fn analyze_only_skips_object_emission() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let source = root.join("main.rn");
+    let source = root.join("main.kn");
     let object = root.join("main.o");
     fs::write(&source, "fn main() i32 { return 1; }").unwrap();
 
@@ -201,7 +201,7 @@ fn analyze_only_still_emits_metadata() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let source = root.join("lib.rn");
+    let source = root.join("lib.kn");
     let object = root.join("lib.o");
     let metadata = root.join("meta");
     fs::write(&source, "pub fn answer() i32 { return 42; }").unwrap();
@@ -240,7 +240,7 @@ fn analyze_only_reports_semantic_errors() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let source = root.join("main.rn");
+    let source = root.join("main.kn");
     let object = root.join("main.o");
     fs::write(&source, "fn main() i32 { return missing_symbol; }").unwrap();
 
@@ -272,7 +272,7 @@ fn compile_report_exposes_mir_workload_stats() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let object = root.join("main.o");
     fs::write(
         &main,
@@ -322,7 +322,7 @@ fn compile_report_only_collects_codegen_diagnostics_when_requested() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let object = root.join("main.o");
     fs::write(&main, "fn main() i32 { return 1; }\n").unwrap();
 

@@ -363,7 +363,7 @@ fn resolve_test_targets(
             .map(|target| target.root.as_str())
             .collect()
     } else {
-        vec!["tests/*.rn"]
+        vec!["tests/*.kn"]
     };
 
     let mut targets = Vec::new();
@@ -391,17 +391,17 @@ fn expand_test_root_glob(
     package_root: &Path,
     pattern: &str,
 ) -> Result<Vec<crate::manifest::NamedTarget>> {
-    let Some(prefix) = pattern.strip_suffix("*.rn") else {
+    let Some(prefix) = pattern.strip_suffix("*.kn") else {
         return Err(Error::Validation {
             path: manifest_path.to_path_buf(),
-            message: format!("[test].roots supports only direct `*.rn` globs, found `{pattern}`"),
+            message: format!("[test].roots supports only direct `*.kn` globs, found `{pattern}`"),
         });
     };
     if contains_glob_pattern(prefix) {
         return Err(Error::Validation {
             path: manifest_path.to_path_buf(),
             message: format!(
-                "[test].roots supports only one direct `*.rn` glob segment, found `{pattern}`"
+                "[test].roots supports only one direct `*.kn` glob segment, found `{pattern}`"
             ),
         });
     }
@@ -430,7 +430,7 @@ fn expand_test_root_glob(
             continue;
         }
         let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("rn") {
+        if path.extension().and_then(|ext| ext.to_str()) != Some("kn") {
             continue;
         }
         let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
@@ -522,17 +522,17 @@ kern = "0.7.6"
 publish = false
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [test]
-roots = ["tests/smoke.rn"]
+roots = ["tests/smoke.kn"]
 
 [example]
-roots = ["examples/hello.rn"]
+roots = ["examples/hello.kn"]
 
 [resources]
 limine = { path = "vendor/limine" }
@@ -557,22 +557,22 @@ limine = { path = "vendor/limine" }
         assert!(
             plan.targets
                 .iter()
-                .any(|target| target.kind == TargetKind::Lib && target.root == "src/lib.rn")
+                .any(|target| target.kind == TargetKind::Lib && target.root == "src/lib.kn")
         );
         assert!(plan.targets.iter().any(|target| {
             target.kind == TargetKind::Bin
                 && target.name.as_deref() == Some("demo")
-                && target.root == "src/main.rn"
+                && target.root == "src/main.kn"
         }));
         assert!(plan.targets.iter().any(|target| {
             target.kind == TargetKind::Test
                 && target.name.as_deref() == Some("smoke")
-                && target.root == "tests/smoke.rn"
+                && target.root == "tests/smoke.kn"
         }));
         assert!(plan.targets.iter().any(|target| {
             target.kind == TargetKind::Example
                 && target.name.as_deref() == Some("hello")
-                && target.root == "examples/hello.rn"
+                && target.root == "examples/hello.kn"
         }));
     }
 
@@ -595,10 +595,10 @@ kern = "0.7.6"
         plan.set_cfg_string("abi", "sysv").unwrap();
         plan.set_define_bool("aggressive_checks", false).unwrap();
         plan.set_define_string("mode", "strict").unwrap();
-        plan.set_lib_root("src/lib.rn").unwrap();
-        plan.add_named_target(TargetKind::Bin, "demo", "src/main.rn")
+        plan.set_lib_root("src/lib.kn").unwrap();
+        plan.add_named_target(TargetKind::Bin, "demo", "src/main.kn")
             .unwrap();
-        plan.add_test_target("tests/smoke.rn").unwrap();
+        plan.add_test_target("tests/smoke.kn").unwrap();
 
         assert_eq!(plan.cfg.get("simd"), Some(&PlanValue::Bool(true)));
         assert_eq!(
@@ -614,8 +614,8 @@ kern = "0.7.6"
             Some(&PlanValue::String("strict".to_string()))
         );
         assert_eq!(plan.target_count(), 3);
-        assert!(plan.remove_test_target("tests/smoke.rn"));
-        assert!(!plan.remove_test_target("tests/smoke.rn"));
+        assert!(plan.remove_test_target("tests/smoke.kn"));
+        assert!(!plan.remove_test_target("tests/smoke.kn"));
         assert!(plan.remove_target(TargetKind::Bin, Some("demo")));
         assert_eq!(plan.target_count(), 1);
         assert!(!plan.remove_target(TargetKind::Bin, Some("demo")));
@@ -626,10 +626,10 @@ kern = "0.7.6"
         let root = temp_dir("craft-plan-default-tests");
         fs::create_dir_all(root.join("tests/parser")).unwrap();
         fs::write(root.join("Craft.toml"), "").unwrap();
-        fs::write(root.join("tests/alpha.rn"), "").unwrap();
-        fs::write(root.join("tests/beta.rn"), "").unwrap();
+        fs::write(root.join("tests/alpha.kn"), "").unwrap();
+        fs::write(root.join("tests/beta.kn"), "").unwrap();
         fs::write(root.join("tests/helper.txt"), "").unwrap();
-        fs::write(root.join("tests/parser/detail.rn"), "").unwrap();
+        fs::write(root.join("tests/parser/detail.kn"), "").unwrap();
 
         let manifest = Manifest::parse(
             r#"
@@ -653,8 +653,8 @@ kern = "0.7.6"
         assert_eq!(
             tests,
             vec![
-                (Some("alpha"), "tests/alpha.rn"),
-                (Some("beta"), "tests/beta.rn"),
+                (Some("alpha"), "tests/alpha.kn"),
+                (Some("beta"), "tests/beta.kn"),
             ]
         );
 
@@ -666,7 +666,7 @@ kern = "0.7.6"
         let root = temp_dir("craft-plan-empty-tests");
         fs::create_dir_all(root.join("tests")).unwrap();
         fs::write(root.join("Craft.toml"), "").unwrap();
-        fs::write(root.join("tests/smoke.rn"), "").unwrap();
+        fs::write(root.join("tests/smoke.kn"), "").unwrap();
 
         let manifest = Manifest::parse(
             r#"
@@ -698,8 +698,8 @@ roots = []
         let root = temp_dir("craft-plan-glob-tests");
         fs::create_dir_all(root.join("integration")).unwrap();
         fs::write(root.join("Craft.toml"), "").unwrap();
-        fs::write(root.join("integration/boot.rn"), "").unwrap();
-        fs::write(root.join("integration/pci.rn"), "").unwrap();
+        fs::write(root.join("integration/boot.kn"), "").unwrap();
+        fs::write(root.join("integration/pci.kn"), "").unwrap();
 
         let manifest = Manifest::parse(
             r#"
@@ -709,7 +709,7 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["integration/*.rn"]
+roots = ["integration/*.kn"]
 "#,
             &root.join("Craft.toml"),
         )
@@ -726,8 +726,8 @@ roots = ["integration/*.rn"]
         assert_eq!(
             tests,
             vec![
-                (Some("boot"), "integration/boot.rn"),
-                (Some("pci"), "integration/pci.rn"),
+                (Some("boot"), "integration/boot.kn"),
+                (Some("pci"), "integration/pci.kn"),
             ]
         );
 
@@ -740,8 +740,8 @@ roots = ["integration/*.rn"]
         fs::create_dir_all(root.join("tests")).unwrap();
         fs::create_dir_all(root.join("integration")).unwrap();
         fs::write(root.join("Craft.toml"), "").unwrap();
-        fs::write(root.join("tests/parser.rn"), "").unwrap();
-        fs::write(root.join("integration/boot.rn"), "").unwrap();
+        fs::write(root.join("tests/parser.kn"), "").unwrap();
+        fs::write(root.join("integration/boot.kn"), "").unwrap();
 
         let manifest = Manifest::parse(
             r#"
@@ -751,7 +751,7 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["tests/*.rn", "integration/*.rn"]
+roots = ["tests/*.kn", "integration/*.kn"]
 "#,
             &root.join("Craft.toml"),
         )
@@ -768,8 +768,8 @@ roots = ["tests/*.rn", "integration/*.rn"]
         assert_eq!(
             tests,
             vec![
-                (Some("parser"), "tests/parser.rn"),
-                (Some("boot"), "integration/boot.rn"),
+                (Some("parser"), "tests/parser.kn"),
+                (Some("boot"), "integration/boot.kn"),
             ]
         );
 
@@ -788,7 +788,7 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["tests/**/*.rn"]
+roots = ["tests/**/*.kn"]
 "#,
             &root.join("Craft.toml"),
         )

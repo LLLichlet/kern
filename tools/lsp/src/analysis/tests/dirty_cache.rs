@@ -7,18 +7,18 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
     fs::create_dir_all(&dbg_dir).unwrap();
 
     fs::write(
-        dbg_dir.join("init.rn"),
+        dbg_dir.join("mod.kn"),
         "mod option;\nmod result;\npub use .option.Option;\npub use .result.Result;\n",
     )
     .unwrap();
     let option_source = "pub enum Option[T] { Some: T, None }\n";
-    fs::write(dbg_dir.join("option.rn"), option_source).unwrap();
+    fs::write(dbg_dir.join("option.kn"), option_source).unwrap();
     let result_source = "use ..Option;\npub enum Result[T] { Ok: T, Err: Option[T] }\n";
-    fs::write(dbg_dir.join("result.rn"), result_source).unwrap();
+    fs::write(dbg_dir.join("result.kn"), result_source).unwrap();
 
     let mut analysis = AnalysisEngine::default();
-    let result_uri = file_path_to_uri(&dbg_dir.join("result.rn")).unwrap();
-    let option_uri = file_path_to_uri(&dbg_dir.join("option.rn")).unwrap();
+    let result_uri = file_path_to_uri(&dbg_dir.join("result.kn")).unwrap();
+    let option_uri = file_path_to_uri(&dbg_dir.join("option.kn")).unwrap();
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -81,12 +81,12 @@ kern = "{CURRENT_KERN_VERSION}"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 "#
         ),
     )
     .unwrap();
-    let path = src.join("main.rn");
+    let path = src.join("main.kn");
     fs::write(&path, clean).unwrap();
     let uri = file_path_to_uri(&path).unwrap();
     let mut analysis = AnalysisEngine::default();
@@ -493,15 +493,15 @@ version = "0.1.0"
 kern = "{CURRENT_KERN_VERSION}"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#
         ),
     )
     .unwrap();
     let lib_source = "pub fn helper() i32 { return 1; }\n";
-    let lib_path = root.join("src/lib.rn");
+    let lib_path = root.join("src/lib.kn");
     fs::write(&lib_path, lib_source).unwrap();
-    let example_path = root.join("examples/new_window.rn");
+    let example_path = root.join("examples/new_window.kn");
     let example_source = "fn main() i32 { return 0; }\n";
 
     let mut analysis = AnalysisEngine::default();
@@ -555,11 +555,11 @@ version = "0.1.0"
 kern = "{CURRENT_KERN_VERSION}"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 "#
         ),
     )
@@ -567,8 +567,8 @@ root = "src/main.rn"
     let lib_source = "pub struct Bitmap {};\npub fn make() Bitmap { return Bitmap.{} }\n";
     let main_source = "fn main() i32 { return 0; }\n";
     let dirty_main_source = "fn main() i32 {\n    return 0;\n}\n";
-    let lib_path = root.join("src/lib.rn");
-    let main_path = root.join("src/main.rn");
+    let lib_path = root.join("src/lib.kn");
+    let main_path = root.join("src/main.kn");
     fs::write(&lib_path, lib_source).unwrap();
     fs::write(&main_path, main_source).unwrap();
 
@@ -700,18 +700,18 @@ fn opening_clean_sibling_document_keeps_cached_artifact() {
     fs::create_dir_all(&dbg_dir).unwrap();
 
     fs::write(
-        dbg_dir.join("init.rn"),
+        dbg_dir.join("mod.kn"),
         "mod option;\nmod result;\npub use .option.Option;\npub use .result.Result;\n",
     )
     .unwrap();
     let option_source = "pub enum Option[T] { Some: T, None }\n";
-    fs::write(dbg_dir.join("option.rn"), option_source).unwrap();
+    fs::write(dbg_dir.join("option.kn"), option_source).unwrap();
     let result_source = "use ..Option;\npub enum Result[T] { Ok: T, Err: Option[T] }\n";
-    fs::write(dbg_dir.join("result.rn"), result_source).unwrap();
+    fs::write(dbg_dir.join("result.kn"), result_source).unwrap();
 
     let mut analysis = AnalysisEngine::default();
-    let result_uri = file_path_to_uri(&dbg_dir.join("result.rn")).unwrap();
-    let option_uri = file_path_to_uri(&dbg_dir.join("option.rn")).unwrap();
+    let result_uri = file_path_to_uri(&dbg_dir.join("result.kn")).unwrap();
+    let option_uri = file_path_to_uri(&dbg_dir.join("option.kn")).unwrap();
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -953,20 +953,20 @@ fn structural_dirty_edit_falls_back_to_dirty_structure_analysis() {
 #[test]
 fn function_body_fast_path_preserves_clean_sibling_diagnostics() {
     let root = unique_temp_dir("analysis_fast_path_preserve_sibling");
-    fs::write(root.join("init.rn"), "mod good;\nmod bad;\n").unwrap();
-    fs::write(root.join("good.rn"), "fn main() i32 { return 1i32; }\n").unwrap();
-    fs::write(root.join("bad.rn"), "fn broken() i32 { return missing; }\n").unwrap();
+    fs::write(root.join("mod.kn"), "mod good;\nmod bad;\n").unwrap();
+    fs::write(root.join("good.kn"), "fn main() i32 { return 1i32; }\n").unwrap();
+    fs::write(root.join("bad.kn"), "fn broken() i32 { return missing; }\n").unwrap();
 
     let mut analysis = AnalysisEngine::default();
-    let good_uri = file_path_to_uri(&root.join("good.rn")).unwrap();
-    let bad_uri = file_path_to_uri(&root.join("bad.rn")).unwrap();
+    let good_uri = file_path_to_uri(&root.join("good.kn")).unwrap();
+    let bad_uri = file_path_to_uri(&root.join("bad.kn")).unwrap();
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: bad_uri.clone(),
             _language_id: "kern".to_string(),
             version: 1,
-            text: fs::read_to_string(root.join("bad.rn")).unwrap(),
+            text: fs::read_to_string(root.join("bad.kn")).unwrap(),
         },
     });
     let _ = analysis.open_document(DidOpenTextDocumentParams {
@@ -974,7 +974,7 @@ fn function_body_fast_path_preserves_clean_sibling_diagnostics() {
             uri: good_uri.clone(),
             _language_id: "kern".to_string(),
             version: 1,
-            text: fs::read_to_string(root.join("good.rn")).unwrap(),
+            text: fs::read_to_string(root.join("good.kn")).unwrap(),
         },
     });
     let _ = analysis

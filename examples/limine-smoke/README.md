@@ -8,7 +8,7 @@ The resource is currently pinned to Limine `v11.4.0-binary`.
 Current scope:
 
 - a freestanding `_start` kernel that prints one boot line and then halts forever
-- a package-local linker script wired through `build.rn`
+- a package-local linker script wired through `build.kn`
 - a staged `iso-root/` tree built entirely from ordinary copy primitives
 - a `build-dependency` host tool that turns that tree into `limine-smoke.iso`
 - a minimal debugcon/serial message so QEMU boot verification has a concrete success signal
@@ -72,8 +72,8 @@ timeout 10s qemu-system-x86_64 \
 What this proves today:
 
 - `craft` can fetch/materialize real non-package resources
-- `build.rn` can compose a bootable directory tree and a final ISO from small orthogonal primitives
-- `build-dependencies` can expose explicit host tools for post-link packaging without turning `build.rn` into a shell escape hatch
+- `build.kn` can compose a bootable directory tree and a final ISO from small orthogonal primitives
+- `build-dependencies` can expose explicit host tools for post-link packaging without turning `build.kn` into a shell escape hatch
 - a freestanding kernel package can consume that flow without shell hooks or
   hidden pre-build side effects
 - `link_arg_path(...)` edits really invalidate the link step

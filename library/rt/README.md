@@ -8,11 +8,11 @@ implementation is linked.
 
 ## Current Layout
 
-- `init.rn`: root wiring for the `rt` layer
-- `entry.rn`: platform-specific process entry shims and the handoff to
+- `mod.kn`: root wiring for the `rt` layer
+- `entry.kn`: platform-specific process entry shims and the handoff to
   `__kern_main_adapter`
-- `memory_fallbacks.rn`: `memcpy`/`memmove`/`memset` fallback implementations
-- `math_fallbacks.rn`: compiler-required math fallbacks when libc is absent
+- `memory_fallbacks.kn`: `memcpy`/`memmove`/`memset` fallback implementations
+- `math_fallbacks.kn`: compiler-required math fallbacks when libc is absent
 
 ## Boundaries
 

@@ -30,7 +30,7 @@
     "onLanguage:kern",
     "onCommand:kern.restartLanguageServer",
     "onCommand:kern.showLanguageServerOutput",
-    "workspaceContains:**/*.rn"
+    "workspaceContains:**/*.kn"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -52,7 +52,7 @@
           "kern"
         ],
         "extensions": [
-          ".rn"
+          ".kn"
         ],
         "configuration": "./language-configuration.json",
         "icon": {

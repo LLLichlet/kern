@@ -367,9 +367,9 @@ dynamic interface values.
 
 To study Kern's trait style, start with:
 
-- [`library/base/io/traits.rn`](../../../library/base/io/traits.rn): `Read`, `Write`, `Formatable`.
-- [`library/std/io/init.rn`](../../../library/std/io/init.rn): `Printable` and `println`.
-- [`library/base/cmp/init.rn`](../../../library/base/cmp/init.rn): `Comparable`, `Ord`.
-- [`library/base/hash/init.rn`](../../../library/base/hash/init.rn): `Hash`.
-- [`library/base/coll/ranges.rn`](../../../library/base/coll/ranges.rn): marker and capability traits in numeric generics.
-- [`library/base/coll/slice/query.rn`](../../../library/base/coll/slice/query.rn): generic slice methods and trait impls.
+- [`library/base/io/traits.kn`](../../../library/base/io/traits.kn): `Read`, `Write`, `Formatable`.
+- [`library/std/io/mod.kn`](../../../library/std/io/mod.kn): `Printable` and `println`.
+- [`library/base/cmp/mod.kn`](../../../library/base/cmp/mod.kn): `Comparable`, `Ord`.
+- [`library/base/hash/mod.kn`](../../../library/base/hash/mod.kn): `Hash`.
+- [`library/base/coll/ranges.kn`](../../../library/base/coll/ranges.kn): marker and capability traits in numeric generics.
+- [`library/base/coll/slice/query.kn`](../../../library/base/coll/slice/query.kn): generic slice methods and trait impls.

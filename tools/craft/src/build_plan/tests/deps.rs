@@ -29,7 +29,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 util = { path = "../util" }
@@ -46,7 +46,7 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
@@ -59,12 +59,12 @@ version = "1"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        log_dir.join("src/lib.rn"),
+        log_dir.join("src/lib.kn"),
         "pub fn answer() i32 { return 42; }\n",
     )
     .unwrap();
@@ -145,7 +145,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 util = { path = "../util" }
@@ -166,7 +166,7 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
@@ -179,12 +179,12 @@ version = "1"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        log_dir.join("src/lib.rn"),
+        log_dir.join("src/lib.kn"),
         "pub fn answer() i32 { return 42; }\n",
     )
     .unwrap();
@@ -197,12 +197,12 @@ version = "1"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        cc_dir.join("src/lib.rn"),
+        cc_dir.join("src/lib.kn"),
         "pub fn tool() i32 { return 1; }\n",
     )
     .unwrap();
@@ -282,7 +282,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [build-dependencies]
 codegen = { path = "../tool", export = "tool" }
@@ -290,7 +290,7 @@ codegen = { path = "../tool", export = "tool" }
     )
     .unwrap();
     fs::write(
-        app_dir.join("build.rn"),
+        app_dir.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -310,7 +310,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "codegen"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
@@ -399,7 +399,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [build-dependencies]
 tools = { path = "../tool", export = "tool" }
@@ -407,7 +407,7 @@ tools = { path = "../tool", export = "tool" }
     )
     .unwrap();
     fs::write(
-        app_dir.join("build.rn"),
+        app_dir.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -427,11 +427,11 @@ kern = "0.7.6"
 
 [[bin]]
 name = "alpha"
-root = "src/alpha.rn"
+root = "src/alpha.kn"
 
 [[bin]]
 name = "beta"
-root = "src/beta.rn"
+root = "src/beta.kn"
 "#,
     )
     .unwrap();
@@ -504,7 +504,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [build-dependencies]
 codegen = { path = "vendor/codegen", version = "1" }
@@ -512,7 +512,7 @@ codegen = { path = "vendor/codegen", version = "1" }
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -532,7 +532,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "codegen"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
@@ -612,7 +612,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [dependencies]
 foo = { path = "../util", export = "util" }
@@ -628,7 +628,7 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 "#,
     )
     .unwrap();

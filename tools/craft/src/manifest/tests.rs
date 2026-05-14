@@ -17,17 +17,17 @@ readme = "README.md"
 repository = "https://example.com/demo"
 
 [lib]
-root = "src/lib.rn"
+root = "src/lib.kn"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [test]
-roots = ["tests/smoke.rn", "tests/env.rn"]
+roots = ["tests/smoke.kn", "tests/env.kn"]
 
 [example]
-roots = ["examples/hello.rn"]
+roots = ["examples/hello.kn"]
 
 [dependencies]
 alloc = { path = "../alloc", features = ["arena"] }
@@ -760,7 +760,7 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["tests/smoke.rn", "alt/smoke.rn"]
+roots = ["tests/smoke.kn", "alt/smoke.kn"]
 "#,
         std::path::Path::new("Craft.toml"),
     )
@@ -807,7 +807,7 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [test]
-roots = ["tests/*.rn", "integration/*.rn"]
+roots = ["tests/*.kn", "integration/*.kn"]
 "#,
         std::path::Path::new("Craft.toml"),
     )
@@ -829,7 +829,7 @@ version = "0.1.0"
 kern = "0.7.6"
 
 [example]
-roots = ["examples/*.rn"]
+roots = ["examples/*.kn"]
 "#,
         std::path::Path::new("Craft.toml"),
     )
@@ -849,7 +849,7 @@ kern = "0.7.6"
 
 [[test]]
 name = "smoke"
-root = "tests/smoke.rn"
+root = "tests/smoke.kn"
 "#,
         std::path::Path::new("Craft.toml"),
     )
@@ -872,7 +872,7 @@ kern = "0.7.6"
 
 [[example]]
 name = "hello"
-root = "examples/hello.rn"
+root = "examples/hello.kn"
 "#,
         std::path::Path::new("Craft.toml"),
     )

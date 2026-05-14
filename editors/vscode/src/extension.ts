@@ -545,11 +545,11 @@ function runCraftCheck(
 
 function createLanguageServerWatchers(): vscode.FileSystemWatcher[] {
     return [
-        vscode.workspace.createFileSystemWatcher("**/*.rn"),
+        vscode.workspace.createFileSystemWatcher("**/*.kn"),
         vscode.workspace.createFileSystemWatcher("**/Craft.toml"),
         vscode.workspace.createFileSystemWatcher("**/.craft/analysis.toml"),
-        vscode.workspace.createFileSystemWatcher("**/craft.rn"),
-        vscode.workspace.createFileSystemWatcher("**/build.rn"),
+        vscode.workspace.createFileSystemWatcher("**/craft.kn"),
+        vscode.workspace.createFileSystemWatcher("**/build.kn"),
     ];
 }
 

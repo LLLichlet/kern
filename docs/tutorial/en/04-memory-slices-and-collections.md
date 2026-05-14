@@ -305,8 +305,8 @@ This differs from C++ RAII: release is not automatically tied to object
 lifetime. The common Kern style is to keep the resource value in the current
 scope and register cleanup with `defer` next to acquisition.
 
-See [`examples/collections.rn`](../../../examples/collections.rn) and
-[`examples/string.rn`](../../../examples/string.rn) for fuller examples.
+See [`examples/collections.kn`](../../../examples/collections.kn) and
+[`examples/string.kn`](../../../examples/string.kn) for fuller examples.
 
 ## File I/O
 

@@ -404,9 +404,9 @@ impl Default for CompileOptions {
 
 fn official_library_workspace_is_present(path: &Path) -> bool {
     path.join("Craft.toml").is_file()
-        && path.join("base").join("init.rn").is_file()
-        && path.join("std").join("init.rn").is_file()
-        && path.join("rt").join("init.rn").is_file()
+        && path.join("base").join("mod.kn").is_file()
+        && path.join("std").join("mod.kn").is_file()
+        && path.join("rt").join("mod.kn").is_file()
 }
 
 fn official_library_workspace_error(path: &Path) -> String {
@@ -668,9 +668,9 @@ mod tests {
 
     fn write_minimal_library_workspace(root: &Path) {
         write_file(&root.join("Craft.toml"));
-        write_file(&root.join("base").join("init.rn"));
-        write_file(&root.join("std").join("init.rn"));
-        write_file(&root.join("rt").join("init.rn"));
+        write_file(&root.join("base").join("mod.kn"));
+        write_file(&root.join("std").join("mod.kn"));
+        write_file(&root.join("rt").join("mod.kn"));
     }
 
     #[test]

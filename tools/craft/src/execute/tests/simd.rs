@@ -17,12 +17,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "simd_probe"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
     let v = u8x16.{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
@@ -111,12 +111,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "simd_probe"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 fn main() i32 {
     let v = u8x16.{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };

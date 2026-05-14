@@ -68,14 +68,14 @@ version = \"0.1.0\"
 kern = \"0.7.6\"
 
 [lib]
-root = \"src/lib.rn\"
+root = \"src/lib.kn\"
 
 [dependencies]
 util = { path = \"../util\" }
 ",
     )
     .unwrap();
-    fs::write(app_dir.join("src/lib.rn"), "use util;\n").unwrap();
+    fs::write(app_dir.join("src/lib.kn"), "use util;\n").unwrap();
     fs::write(
         util_dir.join("Craft.toml"),
         "\
@@ -85,23 +85,23 @@ version = \"0.1.0\"
 kern = \"0.7.6\"
 
 [lib]
-root = \"src/lib.rn\"
+root = \"src/lib.kn\"
 ",
     )
     .unwrap();
     fs::write(
-        util_dir.join("src/lib.rn"),
+        util_dir.join("src/lib.kn"),
         "fn helper() i32 { return 1; }\n",
     )
     .unwrap();
 
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
     let resolved =
-        project.resolve_for_file(&app_dir.join("src/lib.rn"), &CompileOptions::default());
+        project.resolve_for_file(&app_dir.join("src/lib.kn"), &CompileOptions::default());
 
     assert_eq!(
         normalize_test_path(&resolved.input_file),
-        normalize_test_path(&app_dir.join("src/lib.rn"))
+        normalize_test_path(&app_dir.join("src/lib.kn"))
     );
     assert_eq!(
         resolved.compile_options.root_module_name,
@@ -113,7 +113,7 @@ root = \"src/lib.rn\"
             .module_aliases
             .get("util")
             .and_then(|path| normalize_test_optional_path(Some(path))),
-        Some(normalize_test_path(&util_dir.join("src/lib.rn")))
+        Some(normalize_test_path(&util_dir.join("src/lib.kn")))
     );
 }
 
@@ -131,23 +131,23 @@ version = \"0.1.0\"
 kern = \"0.7.6\"
 
 [lib]
-root = \"src/lib.rn\"
+root = \"src/lib.kn\"
 
 [[bin]]
 name = \"demo\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 ",
     )
     .unwrap();
     fs::write(
-        root.join("src/lib.rn"),
+        root.join("src/lib.kn"),
         "pub fn helper() i32 { return 1; }\n",
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "use demo.helper;\n").unwrap();
+    fs::write(root.join("src/main.kn"), "use demo.helper;\n").unwrap();
 
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
-    let resolved = project.resolve_for_file(&root.join("src/main.rn"), &CompileOptions::default());
+    let resolved = project.resolve_for_file(&root.join("src/main.kn"), &CompileOptions::default());
 
     assert_eq!(
         resolved
@@ -155,7 +155,7 @@ root = \"src/main.rn\"
             .module_aliases
             .get("demo")
             .and_then(|path| normalize_test_optional_path(Some(path))),
-        Some(normalize_test_path(&root.join("src/lib.rn")))
+        Some(normalize_test_path(&root.join("src/lib.kn")))
     );
 }
 
@@ -173,20 +173,20 @@ kern = \"0.7.6\"
 
 [[bin]]
 name = \"demo\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 ",
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
     let clone = project.clone();
 
-    let _ = project.resolve_for_file(&root.join("src/main.rn"), &CompileOptions::default());
+    let _ = project.resolve_for_file(&root.join("src/main.kn"), &CompileOptions::default());
     assert_eq!(project.cached_build_plan_count(), 1);
     assert_eq!(clone.cached_build_plan_count(), 1);
 
-    let _ = clone.resolve_for_file(&root.join("src/main.rn"), &CompileOptions::default());
+    let _ = clone.resolve_for_file(&root.join("src/main.kn"), &CompileOptions::default());
     assert_eq!(project.cached_build_plan_count(), 1);
     assert_eq!(clone.cached_build_plan_count(), 1);
 }
@@ -209,14 +209,14 @@ version = \"0.1.0\"
 kern = \"0.7.6\"
 
 [lib]
-root = \"src/lib.rn\"
+root = \"src/lib.kn\"
 
 [dependencies]
 util = { path = \"../deps/util\" }
 ",
     )
     .unwrap();
-    fs::write(app_dir.join("src/lib.rn"), "use util;\n").unwrap();
+    fs::write(app_dir.join("src/lib.kn"), "use util;\n").unwrap();
     fs::write(
         util_dir.join("Craft.toml"),
         "\
@@ -226,19 +226,19 @@ version = \"0.1.0\"
 kern = \"0.7.6\"
 
 [lib]
-root = \"src/lib.rn\"
+root = \"src/lib.kn\"
 ",
     )
     .unwrap();
     fs::write(
-        util_dir.join("src/lib.rn"),
+        util_dir.join("src/lib.kn"),
         "pub fn helper() i32 { return 1; }\n",
     )
     .unwrap();
 
     let project = AnalysisProject::load_from_manifest(&app_dir.join("Craft.toml")).unwrap();
     let resolved =
-        project.resolve_for_file(&app_dir.join("src/lib.rn"), &CompileOptions::default());
+        project.resolve_for_file(&app_dir.join("src/lib.kn"), &CompileOptions::default());
 
     assert_eq!(
         resolved
@@ -246,7 +246,7 @@ root = \"src/lib.rn\"
             .module_aliases
             .get("util")
             .and_then(|path| normalize_test_optional_path(Some(path))),
-        Some(normalize_test_path(&util_dir.join("src/lib.rn")))
+        Some(normalize_test_path(&util_dir.join("src/lib.kn")))
     );
 }
 
@@ -269,18 +269,18 @@ libc = false
 bundle = \"base\"
 
 [lib]
-root = \"src/lib.rn\"
+root = \"src/lib.kn\"
 ",
     )
     .unwrap();
     fs::write(
-        root.join("src/lib.rn"),
+        root.join("src/lib.kn"),
         "pub fn answer() i32 { return 42; }\n",
     )
     .unwrap();
 
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
-    let resolved = project.resolve_for_file(&root.join("src/lib.rn"), &CompileOptions::default());
+    let resolved = project.resolve_for_file(&root.join("src/lib.kn"), &CompileOptions::default());
 
     assert_eq!(resolved.compile_options.runtime_entry, RuntimeEntry::None);
     assert!(!resolved.compile_options.runtime_libc);
@@ -302,26 +302,26 @@ version = \"0.1.0\"
 kern = \"0.7.6\"
 
 [lib]
-root = \"src/lib.rn\"
+root = \"src/lib.kn\"
 ",
     )
     .unwrap();
-    fs::write(root.join("src/lib.rn"), "pub fn helper() void {}\n").unwrap();
+    fs::write(root.join("src/lib.kn"), "pub fn helper() void {}\n").unwrap();
     fs::write(
-        root.join("examples/new_window.rn"),
+        root.join("examples/new_window.kn"),
         "fn local_example() i32 { return 0; }\n",
     )
     .unwrap();
 
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
     let resolved = project.resolve_for_file(
-        &root.join("examples/new_window.rn"),
+        &root.join("examples/new_window.kn"),
         &CompileOptions::default(),
     );
 
     assert_eq!(
         normalize_test_path(&resolved.input_file),
-        normalize_test_path(&root.join("examples/new_window.rn"))
+        normalize_test_path(&root.join("examples/new_window.kn"))
     );
     assert_eq!(resolved.compile_options.root_module_name, None);
 }
@@ -345,15 +345,15 @@ libc = false
 bundle = \"base\"
 
 [test]
-roots = [\"tests/smoke.rn\"]
+roots = [\"tests/smoke.kn\"]
 ",
     )
     .unwrap();
-    fs::write(root.join("tests/smoke.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("tests/smoke.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
     let resolved =
-        project.resolve_for_file(&root.join("tests/smoke.rn"), &CompileOptions::default());
+        project.resolve_for_file(&root.join("tests/smoke.kn"), &CompileOptions::default());
 
     assert_eq!(resolved.compile_options.runtime_entry, RuntimeEntry::Rt);
     assert!(!resolved.compile_options.runtime_libc);
@@ -380,28 +380,28 @@ version = \"0.1.0\"
 kern = \"0.7.6\"
 
 [lib]
-root = \"src/lib.rn\"
+root = \"src/lib.kn\"
 
 [[bin]]
 name = \"demo\"
-root = \"src/demo.rn\"
+root = \"src/demo.kn\"
 ",
     )
     .unwrap();
     fs::write(
-        app_dir.join("src/lib.rn"),
+        app_dir.join("src/lib.kn"),
         "fn helper() i32 { return 1; }\n",
     )
     .unwrap();
-    fs::write(app_dir.join("src/demo.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(app_dir.join("src/demo.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
     let resolved =
-        project.resolve_for_file(&app_dir.join("src/demo.rn"), &CompileOptions::default());
+        project.resolve_for_file(&app_dir.join("src/demo.kn"), &CompileOptions::default());
 
     assert_eq!(
         normalize_test_path(&resolved.input_file),
-        normalize_test_path(&app_dir.join("src/demo.rn"))
+        normalize_test_path(&app_dir.join("src/demo.kn"))
     );
     assert_eq!(resolved.compile_options.root_module_name, None);
 }
@@ -426,39 +426,39 @@ version = \"0.1.0\"
 kern = \"0.7.6\"
 
 [lib]
-root = \"src/lib.rn\"
+root = \"src/lib.kn\"
 
 [[bin]]
 name = \"demo\"
-root = \"src/demo.rn\"
+root = \"src/demo.kn\"
 ",
     )
     .unwrap();
     fs::write(
-        app_dir.join("src/lib.rn"),
+        app_dir.join("src/lib.kn"),
         "fn helper() i32 { return 1; }\n",
     )
     .unwrap();
     fs::write(
-        app_dir.join("src/demo.rn"),
+        app_dir.join("src/demo.kn"),
         "mod extra;\nfn main() i32 { return extra::run(); }\n",
     )
     .unwrap();
     fs::write(
-        app_dir.join("src/demo/extra.rn"),
+        app_dir.join("src/demo/extra.kn"),
         "pub fn run() i32 { return 0; }\n",
     )
     .unwrap();
 
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
     let resolved = project.resolve_for_file(
-        &app_dir.join(Path::new("src/demo/extra.rn")),
+        &app_dir.join(Path::new("src/demo/extra.kn")),
         &CompileOptions::default(),
     );
 
     assert_eq!(
         normalize_test_path(&resolved.input_file),
-        normalize_test_path(&app_dir.join("src/demo.rn"))
+        normalize_test_path(&app_dir.join("src/demo.kn"))
     );
     assert_eq!(resolved.compile_options.root_module_name, None);
 }
@@ -483,23 +483,23 @@ version = \"0.1.0\"
 kern = \"0.7.6\"
 
 [lib]
-root = \"src/lib.rn\"
+root = \"src/lib.kn\"
 ",
     )
     .unwrap();
-    fs::write(app_dir.join("src/lib.rn"), "pub fn helper() void {}\n").unwrap();
+    fs::write(app_dir.join("src/lib.kn"), "pub fn helper() void {}\n").unwrap();
     fs::write(
-        app_dir.join("craft.rn"),
+        app_dir.join("craft.kn"),
         "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
     )
     .unwrap();
 
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
-    let resolved = project.resolve_for_file(&app_dir.join("craft.rn"), &CompileOptions::default());
+    let resolved = project.resolve_for_file(&app_dir.join("craft.kn"), &CompileOptions::default());
 
     assert_eq!(
         normalize_test_path(&resolved.input_file),
-        normalize_test_path(&app_dir.join("craft.rn"))
+        normalize_test_path(&app_dir.join("craft.kn"))
     );
     assert_eq!(
         resolved
@@ -523,7 +523,7 @@ fn resolves_workspace_craft_script_with_sdk_alias() {
     )
     .unwrap();
     fs::write(
-        root.join("craft.rn"),
+        root.join("craft.kn"),
         "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
     )
     .unwrap();
@@ -537,22 +537,22 @@ kern = \"0.7.6\"
 
 [[bin]]
 name = \"app\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 ",
     )
     .unwrap();
     fs::write(
-        root.join("app/src/main.rn"),
+        root.join("app/src/main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
 
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
-    let resolved = project.resolve_for_file(&root.join("craft.rn"), &CompileOptions::default());
+    let resolved = project.resolve_for_file(&root.join("craft.kn"), &CompileOptions::default());
 
     assert_eq!(
         normalize_test_path(&resolved.input_file),
-        normalize_test_path(&root.join("craft.rn"))
+        normalize_test_path(&root.join("craft.kn"))
     );
     assert_eq!(
         resolved
@@ -582,12 +582,12 @@ experimental = []
 
 [[bin]]
 name = \"app\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 ",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         "\
 use craft.builder;
 
@@ -600,12 +600,12 @@ pub fn build(b: &mut builder.Builder) void {
 ",
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
     let mut options = CompileOptions::default();
     options.craft_features.push("experimental".to_string());
-    let resolved = project.resolve_for_file(&root.join("src/main.rn"), &options);
+    let resolved = project.resolve_for_file(&root.join("src/main.kn"), &options);
 
     let defines = &resolved.compile_options.custom_defines;
     let collected = defines
@@ -640,12 +640,12 @@ experimental = []
 
 [[bin]]
 name = \"app\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 ",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         "\
 use craft.builder;
 
@@ -658,7 +658,7 @@ pub fn build(b: &mut builder.Builder) void {
 ",
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
     let manifest_path = root.join("Craft.toml");
     let manifest = Manifest::load(&manifest_path).unwrap();
@@ -679,7 +679,7 @@ pub fn build(b: &mut builder.Builder) void {
         .unwrap();
 
     let project = AnalysisProject::load_from_manifest(&manifest_path).unwrap();
-    let resolved = project.resolve_for_file(&root.join("src/main.rn"), &CompileOptions::default());
+    let resolved = project.resolve_for_file(&root.join("src/main.kn"), &CompileOptions::default());
     let defines = resolved
         .compile_options
         .custom_defines
@@ -711,18 +711,18 @@ kern = \"0.7.6\"
 
 [[bin]]
 name = \"app\"
-root = \"src/placeholder.rn\"
+root = \"src/placeholder.kn\"
 ",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         "\
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
     let generated = b.emit_generated(
-        \"src/main.rn\",
+        \"src/main.kn\",
         \"fn main() i32 { return 0; }\\n\"
     );
     b.set_source_root(generated);
@@ -794,24 +794,24 @@ kern = \"0.7.6\"
 
 [[bin]]
 name = \"app\"
-root = \"src/placeholder.rn\"
+root = \"src/placeholder.kn\"
 ",
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         "mod build_info;\nfn main() i32 { let _ = build_info.MAGIC_NUMBER; return 0; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         "\
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
-    let main = b.stage_copy_package_file(\"src/main.rn\", \"src/main.rn\");
+    let main = b.stage_copy_package_file(\"src/main.kn\", \"src/main.kn\");
     let _ = b.stage_generated(
-        \"src/build_info.rn\",
+        \"src/build_info.kn\",
         \"pub const MAGIC_NUMBER = 42i32;\\n\"
     );
     b.set_source_root_from(main);
@@ -824,7 +824,7 @@ pub fn build(b: &mut builder.Builder) void {
     analysis_context::sync_project_analysis_context(&root.join("Craft.toml"), true, &[]).unwrap();
 
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
-    let resolved = project.resolve_for_file(&root.join("src/main.rn"), &CompileOptions::default());
+    let resolved = project.resolve_for_file(&root.join("src/main.kn"), &CompileOptions::default());
     let generated_main = root
         .join(".craft")
         .join("build")
@@ -835,8 +835,8 @@ pub fn build(b: &mut builder.Builder) void {
         .join("bin")
         .join("app")
         .join("src")
-        .join("main.rn");
-    let generated_info = generated_main.parent().unwrap().join("build_info.rn");
+        .join("main.kn");
+    let generated_info = generated_main.parent().unwrap().join("build_info.kn");
 
     assert_eq!(
         normalize_test_path(&resolved.input_file),
@@ -844,7 +844,7 @@ pub fn build(b: &mut builder.Builder) void {
     );
     let normalized_aliases = normalize_test_alias_map(&resolved.source_path_aliases);
     assert_eq!(
-        normalized_aliases.get(&normalize_test_path(&root.join("src/main.rn"))),
+        normalized_aliases.get(&normalize_test_path(&root.join("src/main.kn"))),
         Some(&normalize_test_path(&generated_main))
     );
     assert!(generated_info.is_file());
@@ -877,12 +877,12 @@ stable = []
 
 [[bin]]
 name = \"app\"
-root = \"src/main.rn\"
+root = \"src/main.kn\"
 ",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         "\
 use craft.builder;
 
@@ -897,7 +897,7 @@ pub fn build(b: &mut builder.Builder) void {
 ",
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
     analysis_context::sync_project_analysis_context(
         &root.join("Craft.toml"),
@@ -909,7 +909,7 @@ pub fn build(b: &mut builder.Builder) void {
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
     let mut options = CompileOptions::default();
     options.craft_features.push("stable".to_string());
-    let resolved = project.resolve_for_file(&root.join("src/main.rn"), &options);
+    let resolved = project.resolve_for_file(&root.join("src/main.kn"), &options);
     let defines = resolved
         .compile_options
         .custom_defines
@@ -945,7 +945,7 @@ kern = \"0.7.6\"
         .join("bin")
         .join("app")
         .join("src")
-        .join("main.rn");
+        .join("main.kn");
 
     let manifest = super::resolve_project_manifest_path(Some(&generated_path)).unwrap();
     assert_eq!(

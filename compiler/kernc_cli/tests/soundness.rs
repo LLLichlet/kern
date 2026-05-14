@@ -270,7 +270,7 @@ fn run_known_bug_timeout_cases(paths: &[PathBuf]) {
 
 fn run_reject_tree_cases(paths: &[PathBuf]) {
     for path in paths {
-        let case = parse_case(&path.join("main.rn"));
+        let case = parse_case(&path.join("main.kn"));
         let output = compile_case_tree_output(path, &case);
         assert!(
             !output.status.success(),
@@ -312,7 +312,7 @@ fn run_run_pass_cases(paths: &[PathBuf]) {
 
 fn run_tree_run_pass_cases(paths: &[PathBuf]) {
     for path in paths {
-        let case = parse_case(&path.join("main.rn"));
+        let case = parse_case(&path.join("main.kn"));
         let output = build_and_run_case_tree_output(path, &case);
         let expected_exit = case.exit_code.unwrap_or(0);
 
@@ -349,7 +349,7 @@ fn case_dirs_in(kind: &str) -> Vec<PathBuf> {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() && path.join("main.rn").is_file() {
+        if path.is_dir() && path.join("main.kn").is_file() {
             out.push(path);
         }
     }
@@ -365,7 +365,7 @@ fn collect_case_paths(root: &Path, out: &mut Vec<PathBuf>) {
         let path = entry.path();
         if path.is_dir() {
             collect_case_paths(&path, out);
-        } else if path.extension().is_some_and(|ext| ext == "rn") {
+        } else if path.extension().is_some_and(|ext| ext == "kn") {
             out.push(path);
         }
     }
@@ -401,7 +401,7 @@ fn compile_case_tree_output(case_root: &Path, case: &SoundnessCase) -> Output {
     let temp_dir = unique_temp_path("kernc_soundness_tree", "dir");
     copy_case_tree(case_root, &temp_dir);
 
-    let main = temp_dir.join("main.rn");
+    let main = temp_dir.join("main.kn");
     let output_path = unique_temp_path("kernc_soundness_tree", executable_extension());
 
     let mut args: Vec<String> = case.compile_args.clone();
@@ -447,7 +447,7 @@ fn build_and_run_case_tree_output(case_root: &Path, case: &SoundnessCase) -> Out
     let temp_dir = unique_temp_path("kernc_soundness_tree_run", "dir");
     copy_case_tree(case_root, &temp_dir);
 
-    let main = temp_dir.join("main.rn");
+    let main = temp_dir.join("main.kn");
     let output_path = unique_temp_path("kernc_soundness_tree_run", executable_extension());
 
     let mut args: Vec<String> = case.compile_args.clone();
@@ -523,7 +523,7 @@ fn compile_source_with_args_timeout(
     extra_args: &[&str],
     timeout: Duration,
 ) -> TimedCompileResult {
-    let source_path = unique_temp_path(prefix, "rn");
+    let source_path = unique_temp_path(prefix, "kn");
     let object_path = unique_temp_path(prefix, "o");
     fs::write(&source_path, source).unwrap();
 
@@ -550,7 +550,7 @@ fn build_and_run_with_timeout(
     compile_args: &[&str],
     timeout: Duration,
 ) -> Output {
-    let source_path = unique_temp_path(prefix, "rn");
+    let source_path = unique_temp_path(prefix, "kn");
     let executable_path = unique_temp_path(prefix, executable_extension());
     fs::write(&source_path, source).unwrap();
 
@@ -665,10 +665,10 @@ fn compile_interface_package(
     timeout_ms: Option<u64>,
     case_root: &Path,
 ) {
-    let entry = source_root.join("init.rn");
+    let entry = source_root.join("mod.kn");
     assert!(
         entry.is_file(),
-        "interface package root {} is missing init.rn",
+        "interface package root {} is missing mod.kn",
         source_root.display()
     );
     fs::create_dir_all(metadata_root).unwrap_or_else(|err| {

@@ -184,7 +184,7 @@ fn prepare_dist_dir(
         copy_dir_recursive(&source, &dist_dir.join("lib").join("kern").join(layer))?;
     }
     let craft_sdk = root.join("tools").join("craft").join("sdk");
-    if !craft_sdk.join("init.rn").is_file() {
+    if !craft_sdk.join("mod.kn").is_file() {
         return Err(OpsError::new(format!(
             "expected craft SDK `{}`",
             craft_sdk.display()
@@ -241,8 +241,8 @@ mod tests {
             "toolchain-dist/*",
             "toolchain-dist/kern.tar.gz"
         ));
-        assert!(wildcard_match("a/b/*.rn", "a/b/test.rn"));
-        assert!(!wildcard_match("a/b/*.rn", "a/c/test.rn"));
+        assert!(wildcard_match("a/b/*.kn", "a/b/test.kn"));
+        assert!(!wildcard_match("a/b/*.kn", "a/c/test.kn"));
         assert!(!wildcard_match(
             "toolchain-dist/*",
             "toolchain-dist/nested/kern.tar.gz"

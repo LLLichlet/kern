@@ -513,7 +513,7 @@ mod tests {
             Some(CliAction::Help(HelpTopic::Overview))
         ));
         assert!(matches!(
-            parse_help_request(&["hello.rn".to_string(), "--help".to_string()]),
+            parse_help_request(&["hello.kn".to_string(), "--help".to_string()]),
             Some(CliAction::Help(HelpTopic::Overview))
         ));
     }
@@ -569,12 +569,12 @@ mod tests {
     #[test]
     fn defaults_linked_output_name_to_source_stem() {
         assert_eq!(
-            default_executable_output_name(Some("examples/hello_world.rn")),
+            default_executable_output_name(Some("examples/hello_world.kn")),
             format!("hello_world{}", std::env::consts::EXE_SUFFIX)
         );
 
         let mut options = CompileOptions {
-            input_file: Some("examples/hello_world.rn".to_string()),
+            input_file: Some("examples/hello_world.kn".to_string()),
             output_file: String::new(),
             driver_mode: DriverMode::CompileAndLink,
             ..CompileOptions::default()

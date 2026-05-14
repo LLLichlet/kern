@@ -11,7 +11,7 @@ fn compile_only_merges_multiple_codegen_units_into_a_linkable_object() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let object = root.join("main.o");
     let executable = root.join("main.out");
     fs::write(
@@ -74,7 +74,7 @@ fn compile_only_full_lto_merges_multiple_codegen_units_into_a_linkable_object() 
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let object = root.join("main.o");
     let executable = root.join("main.out");
     fs::write(
@@ -138,7 +138,7 @@ fn compile_report_does_not_enable_summary_imports_without_thin_lto() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let object = root.join("main.o");
     fs::write(
         &main,
@@ -199,7 +199,7 @@ fn compile_report_exposes_import_plan_stats_for_thin_lto_summary_imports() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let object = root.join("main.o");
     fs::write(
         &main,
@@ -268,7 +268,7 @@ fn compile_only_thin_lto_bitcode_preserves_prelink_inputs() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let object = root.join("main.o");
     fs::write(
         &main,
@@ -336,7 +336,7 @@ fn compile_only_thin_lto_object_preserves_native_linker_inputs() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let object = root.join("main.o");
     fs::write(
         &main,
@@ -407,7 +407,7 @@ fn compile_and_link_thin_lto_multi_cgu_produces_runnable_binary() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let executable = root.join("main.out");
     fs::write(
         &main,
@@ -473,7 +473,7 @@ fn compile_only_preserve_objects_falls_back_when_program_has_single_external_roo
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let object = root.join("main.o");
     let object_dir = root.join("main.o.d");
     let executable = root.join("main.out");
@@ -554,7 +554,7 @@ fn compile_only_preserve_objects_keeps_base_runtime_generic_definitions() {
     let object = root.join("base.o");
     let metadata = root.join("base-meta");
     let base_root = kernc_utils::config::resolve_base_path();
-    let source = base_root.join("init.rn");
+    let source = base_root.join("mod.kn");
 
     let mut options = CompileOptions {
         input_file: Some(source.to_string_lossy().to_string()),

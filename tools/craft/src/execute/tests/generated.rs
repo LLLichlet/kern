@@ -14,18 +14,18 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
 let path = b.emit_generated(
-    "src/main.rn",
+    "src/main.kn",
     "fn main() i32 { return 0; }\n"
 );
 b.set_source_root(path);
@@ -74,22 +74,22 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("templates").join("main.rn"),
+        root.join("templates").join("main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
-let path = b.copy_package_file("templates/main.rn", "src/main.rn");
+let path = b.copy_package_file("templates/main.kn", "src/main.kn");
 b.set_source_root(path);
 }
 "#,
@@ -135,27 +135,27 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src").join("placeholder.rn"),
+        root.join("src").join("placeholder.kn"),
         "fn main() i32 { return 1; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
 let main = b.emit_generated(
-    "src/main.rn",
+    "src/main.kn",
     "mod helper;\nfn main() i32 { return helper.answer(); }\n"
 );
 let _ = b.emit_generated(
-    "src/helper.rn",
+    "src/helper.kn",
     "pub/ fn answer() i32 { return 0; }\n"
 );
 b.set_source_root(main);
@@ -187,7 +187,7 @@ b.set_source_root(main);
     let helper_path = compile_action
         .generated_root_path
         .join("src")
-        .join("helper.rn");
+        .join("helper.kn");
     let helper_state = crate::build_state::action_state_path(&helper_path);
 
     let first = build(&build_plan, &action_plan).unwrap();
@@ -196,13 +196,13 @@ b.set_source_root(main);
     assert!(helper_state.is_file());
 
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
 let main = b.emit_generated(
-    "src/main.rn",
+    "src/main.kn",
     "mod helper;\nfn main() i32 { return helper.answer(); }\n"
 );
 b.set_source_root(main);
@@ -247,27 +247,27 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src").join("placeholder.rn"),
+        root.join("src").join("placeholder.kn"),
         "fn main() i32 { return 1; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
 let main = b.emit_generated(
-    "src/main.rn",
+    "src/main.kn",
     "mod helper;\nfn main() i32 { return helper.answer(); }\n"
 );
 let _ = b.emit_generated(
-    "src/helper.rn",
+    "src/helper.kn",
     "pub/ fn answer() i32 { return 0; }\n"
 );
 b.set_source_root(main);
@@ -306,7 +306,7 @@ b.set_source_root(main);
     let helper_path = compile_action
         .generated_root_path
         .join("src")
-        .join("helper.rn");
+        .join("helper.kn");
     let helper_state = crate::build_state::action_state_path(&helper_path);
 
     let first = build(&build_plan, &action_plan).unwrap();
@@ -342,27 +342,27 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src").join("placeholder.rn"),
+        root.join("src").join("placeholder.kn"),
         "fn main() i32 { return 1; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
 let main = b.emit_generated(
-    "src/main.rn",
+    "src/main.kn",
     "mod helper;\nfn main() i32 { return helper.answer(); }\n"
 );
 let _ = b.emit_generated(
-    "src/helper.rn",
+    "src/helper.kn",
     "pub/ fn answer() i32 { return 0; }\n"
 );
 b.set_source_root(main);
@@ -401,7 +401,7 @@ b.set_source_root(main);
     let helper_path = compile_action
         .generated_root_path
         .join("src")
-        .join("helper.rn");
+        .join("helper.kn");
     let helper_state = crate::build_state::action_state_path(&helper_path);
 
     let first = build(&build_plan, &action_plan).unwrap();
@@ -440,12 +440,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src").join("main.rn"),
+        root.join("src").join("main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -455,7 +455,7 @@ root = "src/main.rn"
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -517,12 +517,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src").join("main.rn"),
+        root.join("src").join("main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -532,7 +532,7 @@ root = "src/main.rn"
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -578,7 +578,7 @@ let _ = b.emit_artifact_file("notes/old.txt", "old\n");
     assert!(old_bundle_state.is_file());
 
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -640,12 +640,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src").join("main.rn"),
+        root.join("src").join("main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -660,7 +660,7 @@ root = "src/main.rn"
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -703,7 +703,7 @@ let _ = b.emit_artifact_file("notes/old.txt", "old\n");
     assert!(old_note.is_file());
 
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -754,12 +754,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src").join("main.rn"),
+        root.join("src").join("main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -769,7 +769,7 @@ root = "src/main.rn"
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -848,12 +848,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src").join("main.rn"),
+        root.join("src").join("main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -868,7 +868,7 @@ root = "src/main.rn"
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -914,12 +914,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src").join("main.rn"),
+        root.join("src").join("main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
@@ -934,7 +934,7 @@ root = "src/main.rn"
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1003,17 +1003,17 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src").join("main.rn"),
+        root.join("src").join("main.kn"),
         "fn main() i32 { return 0; }\n",
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1091,7 +1091,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 
 [build-dependencies]
 codegen = { path = "../tool", export = "tool" }
@@ -1099,12 +1099,12 @@ codegen = { path = "../tool", export = "tool" }
     )
     .unwrap();
     fs::write(
-        app_dir.join("build.rn"),
+        app_dir.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
-let generated = b.emit_generated_from_tool("codegen", "codegen", "src/main.rn", .{});
+let generated = b.emit_generated_from_tool("codegen", "codegen", "src/main.kn", .{});
 b.set_source_root(generated);
 b.define_string("tool_path", b.tool_path("codegen", "codegen"));
 }
@@ -1121,12 +1121,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "codegen"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        tool_dir.join("src").join("main.rn"),
+        tool_dir.join("src").join("main.kn"),
         r#"
 use std.io;
 use base.io.Write;
@@ -1206,7 +1206,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 
 [build-dependencies]
 codegen = { path = "../tool", export = "tool" }
@@ -1214,12 +1214,12 @@ codegen = { path = "../tool", export = "tool" }
     )
     .unwrap();
     fs::write(
-        app_dir.join("build.rn"),
+        app_dir.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
-let generated = b.emit_generated_from_tool("codegen", "codegen", "src/main.rn", .{});
+let generated = b.emit_generated_from_tool("codegen", "codegen", "src/main.kn", .{});
 b.set_source_root(generated);
 }
 "#,
@@ -1235,12 +1235,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "codegen"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        tool_dir.join("src").join("main.rn"),
+        tool_dir.join("src").join("main.kn"),
         r#"
 mod helper;
 use std.io;
@@ -1256,7 +1256,7 @@ return 0;
     )
     .unwrap();
     fs::write(
-        tool_dir.join("src").join("helper.rn"),
+        tool_dir.join("src").join("helper.kn"),
         r#"
 use base.io.Write;
 
@@ -1289,7 +1289,7 @@ let _ = writer.write("fn main() i32 { return 0; }\n");
             action.domain == crate::graph::BuildDomain::Target && action.package_id.name == "app"
         })
         .unwrap();
-    let generated_source = app_action.generated_root_path.join("src").join("main.rn");
+    let generated_source = app_action.generated_root_path.join("src").join("main.kn");
 
     let first = build(&build_plan, &action_plan).unwrap();
     assert!(first.compile_actions >= 2);
@@ -1301,7 +1301,7 @@ let _ = writer.write("fn main() i32 { return 0; }\n");
     );
 
     fs::write(
-        tool_dir.join("src").join("helper.rn"),
+        tool_dir.join("src").join("helper.kn"),
         r#"
 use base.io.Write;
 
@@ -1351,7 +1351,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 
 [build-dependencies]
 codegen = { path = "../tool", export = "tool" }
@@ -1359,12 +1359,12 @@ codegen = { path = "../tool", export = "tool" }
     )
     .unwrap();
     fs::write(
-        app_dir.join("build.rn"),
+        app_dir.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
-let generated = b.emit_generated_from_tool("codegen", "codegen", "src/main.rn", .{});
+let generated = b.emit_generated_from_tool("codegen", "codegen", "src/main.kn", .{});
 b.set_source_root(generated);
 }
 "#,
@@ -1380,12 +1380,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "codegen"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        tool_dir.join("src").join("main.rn"),
+        tool_dir.join("src").join("main.kn"),
         r#"
 use std.io;
 use base.io.Write;
@@ -1447,18 +1447,18 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
-let helper = b.stage_generated("tmp/main.template.rn", "fn main() i32 { return 0; }\n");
-let source = b.stage_copy_output(helper, "src/main.rn");
+let helper = b.stage_generated("tmp/main.template.kn", "fn main() i32 { return 0; }\n");
+let source = b.stage_copy_output(helper, "src/main.kn");
 b.set_source_root_from(source);
 }
 "#,
@@ -1511,7 +1511,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 
 [build-dependencies]
 codegen = { path = "vendor/codegen", version = "1" }
@@ -1519,12 +1519,12 @@ codegen = { path = "vendor/codegen", version = "1" }
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
-let generated = b.emit_generated_from_tool("codegen", "codegen", "src/main.rn", .{});
+let generated = b.emit_generated_from_tool("codegen", "codegen", "src/main.kn", .{});
 b.set_source_root(generated);
 }
 "#,
@@ -1540,12 +1540,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "codegen"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        tool_root.join("src").join("main.rn"),
+        tool_root.join("src").join("main.kn"),
         r#"
 use std.io;
 use base.io.Write;
@@ -1618,7 +1618,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [build-dependencies]
 tool = { path = "../tool", export = "tool" }
@@ -1626,7 +1626,7 @@ tool = { path = "../tool", export = "tool" }
     )
     .unwrap();
     fs::write(
-        app_dir.join("build.rn"),
+        app_dir.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1638,7 +1638,7 @@ b.depend(note, bundle);
 "#,
     )
     .unwrap();
-    fs::write(app_dir.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(app_dir.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
         tool_dir.join("Craft.toml"),
         r#"
@@ -1649,12 +1649,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "artifact-note"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        tool_dir.join("src/main.rn"),
+        tool_dir.join("src/main.kn"),
         r#"
 use std.io;
 use base.io.Write;
@@ -1742,7 +1742,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [build-dependencies]
 tool = { path = "../tool", export = "tool" }
@@ -1750,7 +1750,7 @@ tool = { path = "../tool", export = "tool" }
     )
     .unwrap();
     fs::write(
-        app_dir.join("build.rn"),
+        app_dir.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1767,7 +1767,7 @@ b.depend(note, bundle);
 "#,
     )
     .unwrap();
-    fs::write(app_dir.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(app_dir.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(app_dir.join("assets").join("message.txt"), "alpha\n").unwrap();
     fs::write(
         tool_dir.join("Craft.toml"),
@@ -1779,12 +1779,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "artifact-note"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        tool_dir.join("src/main.rn"),
+        tool_dir.join("src/main.kn"),
         r#"
 use base.mem.alloc.gpa;
 use std.fs;
@@ -1876,7 +1876,7 @@ kern = "0.7.6"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 
 [build-dependencies]
 tool = { path = "../tool", export = "tool" }
@@ -1884,7 +1884,7 @@ tool = { path = "../tool", export = "tool" }
     )
     .unwrap();
     fs::write(
-        app_dir.join("build.rn"),
+        app_dir.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1894,7 +1894,7 @@ let _ = b.stage_artifact_file_from_tool("tool", "artifact-note", "notes/build.tx
 "#,
     )
     .unwrap();
-    fs::write(app_dir.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(app_dir.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
         tool_dir.join("Craft.toml"),
         r#"
@@ -1905,12 +1905,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "artifact-note"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        tool_dir.join("src/main.rn"),
+        tool_dir.join("src/main.kn"),
         r#"
 use std.io;
 use base.io.Write;
@@ -1991,29 +1991,29 @@ bundle = "std"
 
 [[bin]]
 name = "app"
-root = "src/placeholder.rn"
+root = "src/placeholder.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        app_dir.join("build.rn"),
+        app_dir.join("build.kn"),
         r#"
 use craft.builder;
 
 pub fn build(b: &mut builder.Builder) void {
 let _ = b;
-b.set_source_root("src/real_main.rn");
+b.set_source_root("src/real_main.kn");
 }
 "#,
     )
     .unwrap();
     fs::write(
-        app_dir.join("src/placeholder.rn"),
+        app_dir.join("src/placeholder.kn"),
         "fn main() i32 { return 1; }\n",
     )
     .unwrap();
     fs::write(
-        app_dir.join("src/real_main.rn"),
+        app_dir.join("src/real_main.kn"),
         r#"
 use std.io;
 
@@ -2053,7 +2053,7 @@ fn main() i32 {
     let crate::build_plan::SourceRootBinding::PackagePath(source_root) = &unit.source_root else {
         panic!("expected relative source root to remain package-relative");
     };
-    assert_eq!(source_root, "src/real_main.rn");
+    assert_eq!(source_root, "src/real_main.kn");
 
     let summary = run(&build_plan, &action_plan, unit).unwrap();
     assert!(summary.executable.is_file());

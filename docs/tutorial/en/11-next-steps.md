@@ -8,11 +8,11 @@ After the tour, choose the next path based on what you want to build.
 
 Suggested reading order:
 
-1. [`examples/basics.rn`](../../../examples/basics.rn)
-2. [`examples/control_flow.rn`](../../../examples/control_flow.rn)
-3. [`examples/slices_and_iterators.rn`](../../../examples/slices_and_iterators.rn)
-4. [`examples/anonymous_aggregates.rn`](../../../examples/anonymous_aggregates.rn)
-5. [`examples/test_closure.rn`](../../../examples/test_closure.rn)
+1. [`examples/basics.kn`](../../../examples/basics.kn)
+2. [`examples/control_flow.kn`](../../../examples/control_flow.kn)
+3. [`examples/slices_and_iterators.kn`](../../../examples/slices_and_iterators.kn)
+4. [`examples/anonymous_aggregates.kn`](../../../examples/anonymous_aggregates.kn)
+5. [`examples/test_closure.kn`](../../../examples/test_closure.kn)
 
 Then read [`design.md`](../../design.md). It is the main public reference for
 current syntax and semantics.
@@ -21,25 +21,25 @@ current syntax and semantics.
 
 Focus on:
 
-- [`std.io`](../../../library/std/io/init.rn): stdout, stderr, and `Printable`.
+- [`std.io`](../../../library/std/io/mod.kn): stdout, stderr, and `Printable`.
 - [`std.fs`](../../../library/std/fs): paths, files, and directories.
 - [`std.proc`](../../../library/std/proc): arguments, process information, and shell capture.
 - [`std.env`](../../../library/std/env): environment variables.
-- [`std.time`](../../../library/std/time/init.rn): time and sleep.
+- [`std.time`](../../../library/std/time/mod.kn): time and sleep.
 
 Examples:
 
-- [`examples/io_and_files.rn`](../../../examples/io_and_files.rn)
-- [`examples/collections.rn`](../../../examples/collections.rn)
+- [`examples/io_and_files.kn`](../../../examples/io_and_files.kn)
+- [`examples/collections.kn`](../../../examples/collections.kn)
 
 ## Write Containers, Parsers, Or Libraries
 
 Focus on `base`:
 
-- [`base.coll`](../../../library/base/coll/init.rn): `List`, `String`, `Map`, `Tree`, ranges, and slice helpers.
-- [`base.mem.alloc`](../../../library/base/mem/alloc/init.rn): allocator traits, GPA, and arena.
-- [`base.io`](../../../library/base/io/init.rn): `Read`, `Write`, `Formatable`, and formatting.
-- [`base.num`](../../../library/base/num/init.rn): numeric constants and parsing.
+- [`base.coll`](../../../library/base/coll/mod.kn): `List`, `String`, `Map`, `Tree`, ranges, and slice helpers.
+- [`base.mem.alloc`](../../../library/base/mem/alloc/mod.kn): allocator traits, GPA, and arena.
+- [`base.io`](../../../library/base/io/mod.kn): `Read`, `Write`, `Formatable`, and formatting.
+- [`base.num`](../../../library/base/num/mod.kn): numeric constants and parsing.
 
 Larger packages in the Kern ecosystem, such as JSON or bit-level I/O libraries,
 should follow the same `base` boundaries: allocator policy stays explicit,

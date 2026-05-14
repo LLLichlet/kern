@@ -69,7 +69,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let filename = path
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or("unknown.rn")
+            .unwrap_or("unknown.kn")
             .to_string();
         let directory = path
             .parent()
@@ -210,7 +210,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             state.primary_file = Some(file);
             file
         } else {
-            let file = state.builder.create_file("unknown.rn", ".");
+            let file = state.builder.create_file("unknown.kn", ".");
             state.primary_file = Some(file);
             file
         };

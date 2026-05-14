@@ -11,7 +11,7 @@ fn structure_cache_reuses_loaded_frontend_modules_until_input_changes() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
@@ -54,7 +54,7 @@ fn analyze_structure_reuses_clean_typed_structure_for_body_only_overrides() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
@@ -102,7 +102,7 @@ fn analyze_structure_does_not_reuse_clean_typed_structure_for_surface_changes() 
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
@@ -138,7 +138,7 @@ fn parse_modules_reuses_cached_structure_without_extra_frontend_parse() {
             .as_nanos()
     ));
     fs::create_dir_all(&root).unwrap();
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     fs::write(&main, "fn main() i32 { return 1; }").unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
@@ -172,15 +172,15 @@ fn analyze_structure_only_loads_referenced_alias_roots() {
     ));
     fs::create_dir_all(&root).unwrap();
 
-    let main = root.join("main.rn");
+    let main = root.join("main.kn");
     let foo = root.join("foo");
     let bar = root.join("bar");
     fs::create_dir_all(&foo).unwrap();
     fs::create_dir_all(&bar).unwrap();
 
     fs::write(&main, "use foo.answer;\nfn main() i32 { return answer; }\n").unwrap();
-    fs::write(foo.join("init.rn"), "pub const answer = 7;\n").unwrap();
-    fs::write(bar.join("init.rn"), "pub const unused = 9;\n").unwrap();
+    fs::write(foo.join("mod.kn"), "pub const answer = 7;\n").unwrap();
+    fs::write(bar.join("mod.kn"), "pub const unused = 9;\n").unwrap();
 
     let mut options = CompileOptions::default();
     options

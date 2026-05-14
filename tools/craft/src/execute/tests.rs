@@ -268,12 +268,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "hello"
-root = "src/main.rn"
+root = "src/main.kn"
 "#
         ),
     )
     .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() i32 { return 0; }\n").unwrap();
 
     let manifest_path = root.join("Craft.toml");
     let manifest = Manifest::load(&manifest_path).unwrap();
@@ -345,12 +345,12 @@ bundle = "base"
 
 [[bin]]
 name = "kernel"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 #[export_name("_start")]
 fn kmain() void {
@@ -407,12 +407,12 @@ kern = "0.7.6"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 struct FramebufferRequest {
     response: *u8,
@@ -445,7 +445,7 @@ fn main() i32 {
     assert!(
         err.to_string().contains(&format!(
             "compile failed for `{}`",
-            root.join("src/main.rn").display()
+            root.join("src/main.kn").display()
         )),
         "unexpected error: {err}"
     );
@@ -477,12 +477,12 @@ bundle = "base"
 
 [[bin]]
 name = "kernel"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -507,7 +507,7 @@ SECTIONS {
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 #[export_name("_start")]
 fn kmain() void {
@@ -574,12 +574,12 @@ bundle = "base"
 
 [[bin]]
 name = "kernel"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -604,7 +604,7 @@ SECTIONS {
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 #[export_name("_start")]
 fn kmain() void {
@@ -681,12 +681,12 @@ bundle = "std"
 
 [[bin]]
 name = "native"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -698,7 +698,7 @@ pub fn build(b: &mut builder.Builder) void {
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 use std.io;
 
@@ -775,12 +775,12 @@ bundle = "std"
 
 [[bin]]
 name = "native"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r##"
 use craft.builder;
 
@@ -818,7 +818,7 @@ int ext_add(int lhs, int rhs) {
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 use std.io;
 
@@ -910,12 +910,12 @@ bundle = "std"
 
 [[bin]]
 name = "native"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -927,7 +927,7 @@ pub fn build(b: &mut builder.Builder) void {
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 use std.io;
 
@@ -1028,12 +1028,12 @@ bundle = "std"
 
 [[bin]]
 name = "app"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        app_dir.join("build.rn"),
+        app_dir.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1045,7 +1045,7 @@ pub fn build(b: &mut builder.Builder) void {
     )
     .unwrap();
     fs::write(
-        app_dir.join("src/main.rn"),
+        app_dir.join("src/main.kn"),
         r#"
 use std.io;
 
@@ -1139,12 +1139,12 @@ bundle = "std"
 
 [[bin]]
 name = "demo"
-root = "src/main.rn"
+root = "src/main.kn"
 "#,
     )
     .unwrap();
     fs::write(
-        root.join("build.rn"),
+        root.join("build.kn"),
         r#"
 use craft.builder;
 
@@ -1157,7 +1157,7 @@ pub fn build(b: &mut builder.Builder) void {
     )
     .unwrap();
     fs::write(
-        root.join("src/main.rn"),
+        root.join("src/main.kn"),
         r#"
 extern {
     fn craft_appears_value() i32;
@@ -1221,7 +1221,7 @@ fn init_git_package(repo: &Path, manifest: &str, lib_source: &str) {
     fs::create_dir_all(repo.join("src")).unwrap();
     let manifest = add_repository_to_manifest(manifest, repo);
     fs::write(repo.join("Craft.toml"), manifest).unwrap();
-    fs::write(repo.join("src/lib.rn"), lib_source).unwrap();
+    fs::write(repo.join("src/lib.kn"), lib_source).unwrap();
     write_publish_artifacts(repo);
     run_git(repo, ["init", "--initial-branch=main"]);
     run_git(repo, ["config", "user.name", "Craft Tests"]);

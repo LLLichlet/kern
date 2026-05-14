@@ -21,8 +21,8 @@ pub fn version_text() -> String {
 fn overview_doc(program_name: &str) -> HelpDoc {
     HelpDoc::new(version_text())
         .summary("Compile Kern source files, emit LLVM IR, or drive the final system link step")
-        .usage(format!("{program_name} [OPTIONS] <input.rn>"))
-        .usage(format!("{program_name} -c [OPTIONS] <input.rn>"))
+        .usage(format!("{program_name} [OPTIONS] <input.kn>"))
+        .usage(format!("{program_name} -c [OPTIONS] <input.kn>"))
         .usage(format!("{program_name} --cc [OPTIONS] <input.c>"))
         .usage(format!("{program_name} --link-only [OPTIONS]"))
         .usage(format!("{program_name} help all"))
@@ -101,15 +101,15 @@ fn overview_doc(program_name: &str) -> HelpDoc {
                 .entry("help all", "Show the full option reference"),
         )
         .example(
-            format!("{program_name} hello.rn -o hello"),
+            format!("{program_name} hello.kn -o hello"),
             "Compile and link an executable",
         )
         .example(
-            format!("{program_name} -c kernel/init.rn -O2 -g"),
+            format!("{program_name} -c kernel/mod.kn -O2 -g"),
             "Compile only and leave the final link to another step",
         )
         .example(
-            format!("{program_name} --emit-llvm=optimized hello.rn"),
+            format!("{program_name} --emit-llvm=optimized hello.kn"),
             "Inspect optimized LLVM IR",
         )
         .note("Use `kernc help all` for the full codegen, linker, and metadata option reference.")
@@ -118,8 +118,8 @@ fn overview_doc(program_name: &str) -> HelpDoc {
 fn all_doc(program_name: &str) -> HelpDoc {
     HelpDoc::new(format!("{} full help", version_text()))
         .summary("Complete option reference for the Kern compiler driver")
-        .usage(format!("{program_name} [OPTIONS] <input.rn>"))
-        .usage(format!("{program_name} -c [OPTIONS] <input.rn>"))
+        .usage(format!("{program_name} [OPTIONS] <input.kn>"))
+        .usage(format!("{program_name} -c [OPTIONS] <input.kn>"))
         .usage(format!("{program_name} --cc [OPTIONS] <input.c>"))
         .usage(format!("{program_name} --link-only [OPTIONS]"))
         .section(
@@ -242,7 +242,7 @@ fn all_doc(program_name: &str) -> HelpDoc {
                 .entry("help all", "Show this full help view"),
         )
         .example(
-            format!("{program_name} hello.rn -o hello"),
+            format!("{program_name} hello.kn -o hello"),
             "Compile and link an executable",
         )
         .example(
@@ -250,7 +250,7 @@ fn all_doc(program_name: &str) -> HelpDoc {
             "Run only the final link step",
         )
         .example(
-            format!("{program_name} --module-path std=./library/std main.rn"),
+            format!("{program_name} --module-path std=./library/std main.kn"),
             "Build with an explicit source module alias",
         )
 }

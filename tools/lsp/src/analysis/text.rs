@@ -313,7 +313,7 @@ fn sanitize_untitled_name(name: &str) -> String {
         sanitized.push_str("untitled");
     }
     if !sanitized.contains('.') {
-        sanitized.push_str(".rn");
+        sanitized.push_str(".kn");
     }
     sanitized
 }

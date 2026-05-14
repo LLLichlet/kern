@@ -210,7 +210,7 @@ fn collect_kern_source_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()>
             collect_kern_source_files(&path, files)?;
             continue;
         }
-        if file_type.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("rn") {
+        if file_type.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("kn") {
             files.push(path);
         }
     }
@@ -1178,7 +1178,7 @@ mod tests {
         );
         let diagnostics = collect_format_diagnostics(
             Path::new("."),
-            Path::new("src/lib.rn"),
+            Path::new("src/lib.kn"),
             &formatted,
             &FormatConfig {
                 line_width: 60,
@@ -1187,7 +1187,7 @@ mod tests {
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].path, Path::new("src/lib.rn"));
+        assert_eq!(diagnostics[0].path, Path::new("src/lib.kn"));
         assert_eq!(diagnostics[0].line, 2);
         assert_eq!(diagnostics[0].limit, 60);
     }
@@ -1199,7 +1199,7 @@ mod tests {
             ..FormatConfig::default()
         };
 
-        assert!(!config.path_in_scope(Path::new("src/generated/bindings.rn")));
-        assert!(config.path_in_scope(Path::new("src/lib.rn")));
+        assert!(!config.path_in_scope(Path::new("src/generated/bindings.kn")));
+        assert!(config.path_in_scope(Path::new("src/lib.kn")));
     }
 }

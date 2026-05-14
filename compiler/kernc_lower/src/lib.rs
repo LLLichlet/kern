@@ -11,8 +11,8 @@ use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, EnumDef, FunctionDef, Visibility};
 use kernc_sema::scope::ScopeId;
 use kernc_sema::ty::{
-    ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg, Substituter, TypeId,
-    TypeKind,
+    ConstExprKind, ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg,
+    Substituter, TypeId, TypeKind,
 };
 use kernc_utils::{NodeId, Span, SymbolId};
 
@@ -801,6 +801,36 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 self.instantiate_anon_enum(enum_ty);
             }
             _ => {}
+        }
+    }
+
+    pub(crate) fn track_pure_enum_repr_in_const_generic(&mut self, value: ConstGeneric) {
+        match value {
+            ConstGeneric::Value(value) => self.track_pure_enum_repr_in_type(value.ty),
+            ConstGeneric::Param(_, ty) => self.track_pure_enum_repr_in_type(ty),
+            ConstGeneric::Expr(expr_id) => {
+                let expr = *self.ctx.type_registry.const_expr(expr_id);
+                match expr {
+                    ConstExprKind::Unary { expr, ty, .. }
+                    | ConstExprKind::Cast { expr, ty } => {
+                        self.track_pure_enum_repr_in_const_generic(expr);
+                        self.track_pure_enum_repr_in_type(ty);
+                    }
+                    ConstExprKind::Binary { lhs, rhs, ty, .. } => {
+                        self.track_pure_enum_repr_in_const_generic(lhs);
+                        self.track_pure_enum_repr_in_const_generic(rhs);
+                        self.track_pure_enum_repr_in_type(ty);
+                    }
+                }
+            }
+            ConstGeneric::Error => {}
+        }
+    }
+
+    pub(crate) fn track_pure_enum_repr_in_generic_arg(&mut self, arg: GenericArg) {
+        match arg {
+            GenericArg::Type(ty) => self.track_pure_enum_repr_in_type(ty),
+            GenericArg::Const(value) => self.track_pure_enum_repr_in_const_generic(value),
         }
     }
 

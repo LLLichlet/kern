@@ -63,6 +63,35 @@ fn main() i32 {
 }
 
 #[test]
+fn compiles_extern_enum_const_generic_wrappers() {
+    let output = compile_source_with_args(
+        r#"
+use sync.{MemOrder, atomic, ACQUIRE, RELEASE};
+
+fn load_acquire(cell: &sync.Atomic[usize]) usize {
+    return cell.load[ACQUIRE]();
+}
+
+fn main() i32 {
+    let mut cell = atomic[usize](7);
+    cell..&.store[RELEASE](9);
+    let value = load_acquire(cell.&);
+    if (value != 9) return 1;
+    return 0;
+}
+"#,
+        &["--module-path", "sync=library/base/sync"],
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn emits_weak_cmpxchg_for_atomic_cas_weak() {
     let output = emit_llvm_ir_with_args(
         r#"

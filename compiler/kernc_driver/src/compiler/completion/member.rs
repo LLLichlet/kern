@@ -47,17 +47,16 @@ impl CompilerDriver {
                 }
                 member_env.truncate(previous_env_len);
             }
-            ast::DeclKind::Var { value, .. } => {
-                if let Some(value) = value {
-                    self.collect_member_completion_items_in_expr(
-                        member_query,
-                        module_id,
-                        value,
-                        member_env,
-                        member_items_by_span,
-                    );
-                }
-            }
+            ast::DeclKind::Var {
+                value: Some(value), ..
+            } => self.collect_member_completion_items_in_expr(
+                member_query,
+                module_id,
+                value,
+                member_env,
+                member_items_by_span,
+            ),
+            ast::DeclKind::Var { value: None, .. } => {}
             ast::DeclKind::ExternBlock { decls, .. } => {
                 for child in decls {
                     self.collect_member_completion_items_in_decl(
@@ -349,17 +348,14 @@ impl CompilerDriver {
                         member_items_by_span,
                     );
                     for pattern in &arm.patterns {
-                        match &pattern.kind {
-                            ast::MatchPatternKind::Value(value) => {
-                                self.collect_member_completion_items_in_expr(
-                                    member_query,
-                                    module_id,
-                                    value,
-                                    member_env,
-                                    member_items_by_span,
-                                );
-                            }
-                            _ => {}
+                        if let ast::MatchPatternKind::Value(value) = &pattern.kind {
+                            self.collect_member_completion_items_in_expr(
+                                member_query,
+                                module_id,
+                                value,
+                                member_env,
+                                member_items_by_span,
+                            );
                         }
                     }
                 }

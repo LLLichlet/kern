@@ -504,15 +504,14 @@ impl CompilerDriver {
             }
         }
         components.reverse();
-        if !components.is_empty() {
-            if let Some(root_module_id) = ctx.root_module()
-                && matches!(
-                    ctx.defs.get(root_module_id.0 as usize),
-                    Some(Def::Module(root)) if components.first().is_some_and(|name| name == ctx.resolve(root.name))
-                )
-            {
-                components.remove(0);
-            }
+        if !components.is_empty()
+            && let Some(root_module_id) = ctx.root_module()
+            && matches!(
+                ctx.defs.get(root_module_id.0 as usize),
+                Some(Def::Module(root)) if components.first().is_some_and(|name| name == ctx.resolve(root.name))
+            )
+        {
+            components.remove(0);
         }
         components.push(ctx.resolve(function.name).to_string());
         components.join("::")

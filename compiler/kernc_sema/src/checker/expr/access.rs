@@ -17,6 +17,16 @@ pub(super) struct ResolvedPatternField {
     definition_span: Option<Span>,
 }
 
+pub(crate) struct LetCheckInput<'a> {
+    pub(crate) node_id: NodeId,
+    pub(crate) pattern: &'a ast::LetPattern,
+    pub(crate) type_node: Option<&'a ast::TypeNode>,
+    pub(crate) init: &'a Expr,
+    pub(crate) else_clause: Option<&'a ast::LetElseClause>,
+    pub(crate) expected_ty: Option<TypeId>,
+    pub(crate) span: Span,
+}
+
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub(crate) fn resolve_namespace_expr(&mut self, expr: &Expr) -> Option<TypeId> {
         let ty = match &expr.kind {
@@ -899,16 +909,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    pub(crate) fn check_let(
-        &mut self,
-        node_id: NodeId,
-        pattern: &ast::LetPattern,
-        type_node: Option<&ast::TypeNode>,
-        init: &Expr,
-        else_clause: Option<&ast::LetElseClause>,
-        expected_ty: Option<TypeId>,
-        span: Span,
-    ) -> TypeId {
+    pub(crate) fn check_let(&mut self, input: LetCheckInput<'_>) -> TypeId {
+        let LetCheckInput {
+            node_id,
+            pattern,
+            type_node,
+            init,
+            else_clause,
+            expected_ty,
+            span,
+        } = input;
         let annotated_ty = type_node.map(|ty| self.evaluate_dynamic_typeof(ty));
         let init_expected = annotated_ty.or(expected_ty);
         let init_ty = self.check_expr(init, init_expected);

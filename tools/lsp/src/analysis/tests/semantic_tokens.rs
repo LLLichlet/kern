@@ -478,11 +478,7 @@ fn semantic_tokens_classify_imported_function_references_in_submodules() {
     let dbg_dir = root.join("dbg");
     fs::create_dir_all(&dbg_dir).unwrap();
 
-    fs::write(
-        dbg_dir.join("mod.kn"),
-        "pub mod helper;\nmod use_helper;\n",
-    )
-    .unwrap();
+    fs::write(dbg_dir.join("mod.kn"), "pub mod helper;\nmod use_helper;\n").unwrap();
     fs::write(
         dbg_dir.join("helper.kn"),
         "pub fn helper() i32 { return 1; }\n",

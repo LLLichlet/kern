@@ -27,6 +27,16 @@ struct ModuleLoadTimings {
     resolve_submodule_paths: Duration,
 }
 
+struct InlineModuleInput<'a> {
+    decl: &'a ast::Decl,
+    decls: &'a [ast::Decl],
+    parent: Option<DefId>,
+    dir_path: PathBuf,
+    file_id: kernc_utils::FileId,
+    parent_path: &'a str,
+    is_imported: bool,
+}
+
 pub struct ModuleLoader<'a, 'ctx> {
     pub ctx: &'a mut SemaContext<'ctx>,
     // Prevent import cycles: physical absolute path -> module ID.
@@ -1107,8 +1117,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         self.ctx.scopes.exit_scope();
 
         let is_mod_entry = abs_path.file_name().and_then(|n| n.to_str()) == Some("mod.kn");
-        let dir_path =
-            self.module_child_anchor_dir(&source_dir_path, name, parent, is_mod_entry);
+        let dir_path = self.module_child_anchor_dir(&source_dir_path, name, parent, is_mod_entry);
 
         let dummy_def = ModuleDef {
             id: mod_id,
@@ -1134,15 +1143,15 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         for decl in &ast.decls {
             if let ast::DeclKind::Mod { decls } = &decl.kind {
                 let sub_id = match decls {
-                    Some(decls) => self.load_inline_module(
+                    Some(decls) => self.load_inline_module(InlineModuleInput {
                         decl,
                         decls,
-                        Some(mod_id),
-                        dir_path.clone(),
+                        parent: Some(mod_id),
+                        dir_path: dir_path.clone(),
                         file_id,
-                        &module_path,
+                        parent_path: &module_path,
                         is_imported,
-                    ),
+                    }),
                     None => {
                         let resolve_started = Instant::now();
                         let resolved = self.resolve_submodule_path(&dir_path, decl);
@@ -1174,16 +1183,16 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         Some(mod_id)
     }
 
-    fn load_inline_module(
-        &mut self,
-        decl: &ast::Decl,
-        decls: &[ast::Decl],
-        parent: Option<DefId>,
-        dir_path: PathBuf,
-        file_id: kernc_utils::FileId,
-        parent_path: &str,
-        is_imported: bool,
-    ) -> Option<DefId> {
+    fn load_inline_module(&mut self, input: InlineModuleInput<'_>) -> Option<DefId> {
+        let InlineModuleInput {
+            decl,
+            decls,
+            parent,
+            dir_path,
+            file_id,
+            parent_path,
+            is_imported,
+        } = input;
         let mod_id = self.ctx.defs.next_id();
         let scope_id = self.ctx.scopes.enter_scope();
         self.ctx.scopes.exit_scope();
@@ -1211,15 +1220,15 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         for child in decls {
             if let ast::DeclKind::Mod { decls } = &child.kind {
                 let sub_id = match decls {
-                    Some(decls) => self.load_inline_module(
-                        child,
+                    Some(decls) => self.load_inline_module(InlineModuleInput {
+                        decl: child,
                         decls,
-                        Some(mod_id),
-                        module_dir_path.clone(),
+                        parent: Some(mod_id),
+                        dir_path: module_dir_path.clone(),
                         file_id,
-                        &module_path,
+                        parent_path: &module_path,
                         is_imported,
-                    ),
+                    }),
                     None => {
                         let resolve_started = Instant::now();
                         let resolved = self.resolve_submodule_path(&module_dir_path, child);

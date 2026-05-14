@@ -983,7 +983,7 @@ mod tests {
     use crate::lockfile;
     use crate::manifest::Manifest;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1677,7 +1677,7 @@ root = "src/lib.kn"
         run_git(repo, ["commit", "-m", "update"]).unwrap();
     }
 
-    fn write_publish_artifacts(repo: &PathBuf) {
+    fn write_publish_artifacts(repo: &Path) {
         let manifest_path = repo.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let elaboration = plan(

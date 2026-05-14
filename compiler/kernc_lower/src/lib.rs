@@ -11,8 +11,8 @@ use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, EnumDef, FunctionDef, Visibility};
 use kernc_sema::scope::ScopeId;
 use kernc_sema::ty::{
-    ConstExprKind, ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg,
-    Substituter, TypeId, TypeKind,
+    ConstExprKind, ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg, Substituter,
+    TypeId, TypeKind,
 };
 use kernc_utils::{NodeId, Span, SymbolId};
 
@@ -548,16 +548,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             actions.push(LowerRootAction::InstantiateFunction(id));
                         }
                     }
-                    Def::Global(g) => {
+                    Def::Global(g)
                         if g.is_static
                             && !g.is_imported
                             && this
                                 .reachable_module_items
                                 .as_ref()
-                                .is_none_or(|reachable| reachable.contains(&id))
-                        {
-                            actions.push(LowerRootAction::LowerGlobal(id));
-                        }
+                                .is_none_or(|reachable| reachable.contains(&id)) =>
+                    {
+                        actions.push(LowerRootAction::LowerGlobal(id));
                     }
                     _ => {}
                 }
@@ -811,8 +810,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ConstGeneric::Expr(expr_id) => {
                 let expr = *self.ctx.type_registry.const_expr(expr_id);
                 match expr {
-                    ConstExprKind::Unary { expr, ty, .. }
-                    | ConstExprKind::Cast { expr, ty } => {
+                    ConstExprKind::Unary { expr, ty, .. } | ConstExprKind::Cast { expr, ty } => {
                         self.track_pure_enum_repr_in_const_generic(expr);
                         self.track_pure_enum_repr_in_type(ty);
                     }

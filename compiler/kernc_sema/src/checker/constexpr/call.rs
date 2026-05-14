@@ -153,7 +153,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             None => (vec![TypeId::ERROR; func.params.len()], TypeId::ERROR),
         };
         let fn_frame = self.enter_function_frame(return_ty, !func.generics.is_empty());
-        for ((param, value), param_ty) in func.params.iter().zip(arg_values.into_iter()).zip(
+        for ((param, value), param_ty) in func.params.iter().zip(arg_values).zip(
             param_tys
                 .into_iter()
                 .chain(std::iter::repeat(TypeId::ERROR)),

@@ -493,48 +493,44 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 };
 
                 match intrinsic_name {
-                    "@simdReduceAdd" | "@simdReduceMul" => {
+                    "@simdReduceAdd" | "@simdReduceMul"
                         if !self.ctx.type_registry.is_integer(elem_ty)
-                            && !self.ctx.type_registry.is_float(elem_ty)
-                        {
-                            self.ctx
-                                .struct_error(
-                                    args[0].span,
-                                    format!(
-                                        "`{}` requires integer or floating-point SIMD lanes",
-                                        intrinsic_name
-                                    ),
-                                )
-                                .emit();
-                        }
+                            && !self.ctx.type_registry.is_float(elem_ty) =>
+                    {
+                        self.ctx
+                            .struct_error(
+                                args[0].span,
+                                format!(
+                                    "`{}` requires integer or floating-point SIMD lanes",
+                                    intrinsic_name
+                                ),
+                            )
+                            .emit();
                     }
-                    "@simdReduceAnd" | "@simdReduceOr" | "@simdReduceXor" => {
-                        if !self.ctx.type_registry.is_integer(elem_ty) && elem_ty != TypeId::BOOL {
-                            self.ctx
-                                .struct_error(
-                                    args[0].span,
-                                    format!(
-                                        "`{}` requires integer or `boolxN` lanes",
-                                        intrinsic_name
-                                    ),
-                                )
-                                .emit();
-                        }
-                    }
-                    "@simdReduceMin" | "@simdReduceMax" => {
+                    "@simdReduceAnd" | "@simdReduceOr" | "@simdReduceXor"
                         if !self.ctx.type_registry.is_integer(elem_ty)
-                            && !self.ctx.type_registry.is_float(elem_ty)
-                        {
-                            self.ctx
-                                .struct_error(
-                                    args[0].span,
-                                    format!(
-                                        "`{}` requires integer or floating-point SIMD lanes",
-                                        intrinsic_name
-                                    ),
-                                )
-                                .emit();
-                        }
+                            && elem_ty != TypeId::BOOL =>
+                    {
+                        self.ctx
+                            .struct_error(
+                                args[0].span,
+                                format!("`{}` requires integer or `boolxN` lanes", intrinsic_name),
+                            )
+                            .emit();
+                    }
+                    "@simdReduceMin" | "@simdReduceMax"
+                        if !self.ctx.type_registry.is_integer(elem_ty)
+                            && !self.ctx.type_registry.is_float(elem_ty) =>
+                    {
+                        self.ctx
+                            .struct_error(
+                                args[0].span,
+                                format!(
+                                    "`{}` requires integer or floating-point SIMD lanes",
+                                    intrinsic_name
+                                ),
+                            )
+                            .emit();
                     }
                     _ => {}
                 }

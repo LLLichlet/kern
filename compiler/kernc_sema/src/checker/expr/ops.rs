@@ -4,6 +4,16 @@ use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{AssignmentOperator, BinaryOperator, Expr, ExprKind, UnaryOperator};
 use kernc_utils::{DiagnosticCode, NodeId, Span};
 
+struct BuiltinBinaryTraitInput<'a> {
+    binary_expr_id: NodeId,
+    lhs: &'a Expr,
+    rhs: &'a Expr,
+    lhs_ty: TypeId,
+    rhs_ty: TypeId,
+    op: BinaryOperator,
+    expected_ty: Option<TypeId>,
+}
+
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn alloc_type_var(&mut self, kind: Option<NumericInferenceKind>) -> TypeId {
         let vid = self.type_vars.len() as u32;
@@ -304,16 +314,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn require_builtin_binary_trait(
-        &mut self,
-        binary_expr_id: NodeId,
-        lhs: &Expr,
-        rhs: &Expr,
-        lhs_ty: TypeId,
-        rhs_ty: TypeId,
-        op: BinaryOperator,
-        expected_ty: Option<TypeId>,
-    ) -> TypeId {
+    fn require_builtin_binary_trait(&mut self, input: BuiltinBinaryTraitInput<'_>) -> TypeId {
+        let BuiltinBinaryTraitInput {
+            binary_expr_id,
+            lhs,
+            rhs,
+            lhs_ty,
+            rhs_ty,
+            op,
+            expected_ty,
+        } = input;
         let Some((trait_name, returns_bool)) = self.builtin_binary_trait_name(op) else {
             self.ctx.emit_ice(
                 lhs.span,
@@ -612,15 +622,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return l_norm;
                 }
 
-                self.require_builtin_binary_trait(
+                self.require_builtin_binary_trait(BuiltinBinaryTraitInput {
                     binary_expr_id,
                     lhs,
                     rhs,
-                    l_norm,
-                    r_norm,
+                    lhs_ty: l_norm,
+                    rhs_ty: r_norm,
                     op,
                     expected_ty,
-                )
+                })
             }
             Multiply | Divide | Modulo => {
                 if is_l_ptr || is_r_ptr {
@@ -649,15 +659,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return l_norm;
                 }
 
-                self.require_builtin_binary_trait(
+                self.require_builtin_binary_trait(BuiltinBinaryTraitInput {
                     binary_expr_id,
                     lhs,
                     rhs,
-                    l_norm,
-                    r_norm,
+                    lhs_ty: l_norm,
+                    rhs_ty: r_norm,
                     op,
                     expected_ty,
-                )
+                })
             }
             Equal | NotEqual => {
                 // Allow `void == void`; constexpr will fold it to `true`.
@@ -671,15 +681,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return TypeId::BOOL;
                 }
 
-                self.require_builtin_binary_trait(
+                self.require_builtin_binary_trait(BuiltinBinaryTraitInput {
                     binary_expr_id,
                     lhs,
                     rhs,
-                    l_norm,
-                    r_norm,
+                    lhs_ty: l_norm,
+                    rhs_ty: r_norm,
                     op,
                     expected_ty,
-                )
+                })
             }
             LessThan | GreaterThan | LessOrEqual | GreaterOrEqual => {
                 // Ordering comparisons on `void` are never valid.
@@ -703,15 +713,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return TypeId::BOOL;
                 }
 
-                self.require_builtin_binary_trait(
+                self.require_builtin_binary_trait(BuiltinBinaryTraitInput {
                     binary_expr_id,
                     lhs,
                     rhs,
-                    l_norm,
-                    r_norm,
+                    lhs_ty: l_norm,
+                    rhs_ty: r_norm,
                     op,
                     expected_ty,
-                )
+                })
             }
             LogicalAnd | LogicalOr => {
                 self.check_coercion(lhs, TypeId::BOOL, l_norm);
@@ -739,15 +749,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return l_norm;
                 }
 
-                self.require_builtin_binary_trait(
+                self.require_builtin_binary_trait(BuiltinBinaryTraitInput {
                     binary_expr_id,
                     lhs,
                     rhs,
-                    l_norm,
-                    r_norm,
+                    lhs_ty: l_norm,
+                    rhs_ty: r_norm,
                     op,
                     expected_ty,
-                )
+                })
             }
         }
     }

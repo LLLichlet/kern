@@ -1,5 +1,15 @@
 use super::*;
 
+pub(super) struct IntrinsicCallLowering<'a> {
+    pub(super) fn_id: DefId,
+    pub(super) callee_ty: TypeId,
+    pub(super) result_ty: TypeId,
+    pub(super) args: &'a [Expr],
+    pub(super) arg_masts: &'a mut Vec<MastExpr>,
+    pub(super) subst_map: &'a HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+    pub(super) span: Span,
+}
+
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(super) fn lower_builtin_operator_intrinsic(
         &mut self,
@@ -123,14 +133,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     pub(super) fn lower_intrinsic_call(
         &mut self,
-        fn_id: DefId,
-        callee_ty: TypeId,
-        result_ty: TypeId,
-        args: &[Expr],
-        arg_masts: &mut Vec<MastExpr>,
-        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
-        span: Span,
+        input: IntrinsicCallLowering<'_>,
     ) -> Option<MastExprKind> {
+        let IntrinsicCallLowering {
+            fn_id,
+            callee_ty,
+            result_ty,
+            args,
+            arg_masts,
+            subst_map,
+            span,
+        } = input;
         let (is_intrinsic, name_id) = match &self.ctx.defs[fn_id.0 as usize] {
             Def::Function(f) => (f.is_intrinsic, f.name),
             _ => return None,

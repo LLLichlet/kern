@@ -26,6 +26,33 @@ struct AliasCollectSpec<'a> {
     target: &'a ast::TypeNode,
 }
 
+struct GlobalCollectSpec<'a> {
+    vis: Visibility,
+    is_extern: bool,
+    type_node: Option<&'a ast::TypeNode>,
+    value: Option<&'a ast::Expr>,
+    is_static: bool,
+    is_mut: bool,
+}
+
+struct EnumCollectSpec<'a> {
+    vis: Visibility,
+    generics: &'a [ast::GenericParam],
+    where_clauses: &'a [ast::WhereClause],
+    backing_type: &'a Option<Box<ast::TypeNode>>,
+    variants: &'a [ast::EnumVariant],
+    is_extern: bool,
+}
+
+struct TraitCollectSpec<'a> {
+    vis: Visibility,
+    generics: &'a [ast::GenericParam],
+    where_clauses: &'a [ast::WhereClause],
+    supertraits: &'a [ast::TypeNode],
+    assoc_types: &'a [ast::AssociatedTypeDecl],
+    methods: &'a [ast::TraitMethodDef],
+}
+
 struct OwnedDeclHeader {
     node_id: NodeId,
     span: Span,
@@ -339,12 +366,14 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 is_mut,
             } => self.collect_global(
                 decl,
-                vis,
-                force_extern || *is_extern,
-                type_node.as_ref(),
-                value.as_ref(),
-                *is_static,
-                *is_mut,
+                GlobalCollectSpec {
+                    vis,
+                    is_extern: force_extern || *is_extern,
+                    type_node: type_node.as_deref(),
+                    value: value.as_ref(),
+                    is_static: *is_static,
+                    is_mut: *is_mut,
+                },
             ),
             DeclKind::TypeAlias {
                 generics,
@@ -393,12 +422,14 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 is_extern,
             } => self.collect_enum_decl(
                 decl,
-                vis,
-                generics,
-                where_clauses,
-                backing_type,
-                variants,
-                force_extern || *is_extern,
+                EnumCollectSpec {
+                    vis,
+                    generics,
+                    where_clauses,
+                    backing_type,
+                    variants,
+                    is_extern: force_extern || *is_extern,
+                },
             ),
             DeclKind::Trait {
                 generics,
@@ -408,12 +439,14 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 methods,
             } => self.collect_trait_decl(
                 decl,
-                vis,
-                generics,
-                where_clauses,
-                supertraits,
-                assoc_types,
-                methods,
+                TraitCollectSpec {
+                    vis,
+                    generics,
+                    where_clauses,
+                    supertraits,
+                    assoc_types,
+                    methods,
+                },
             ),
             DeclKind::Impl {
                 generics,
@@ -798,28 +831,19 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         Some(def_id)
     }
 
-    fn collect_global(
-        &mut self,
-        decl: &Decl,
-        vis: Visibility,
-        is_extern: bool,
-        type_node: Option<&Box<ast::TypeNode>>,
-        value: Option<&ast::Expr>,
-        is_static: bool,
-        is_mut: bool,
-    ) -> Option<DefId> {
+    fn collect_global(&mut self, decl: &Decl, spec: GlobalCollectSpec<'_>) -> Option<DefId> {
         let def_id = self.ctx.add_def_with(|def_id| {
             Def::Global(GlobalDef {
                 id: def_id,
                 name: decl.name,
-                vis,
+                vis: spec.vis,
                 parent: self.current_module,
                 is_imported: self.current_module_imported,
-                type_node: type_node.cloned(),
-                value: value.cloned(),
-                is_static,
-                is_extern,
-                is_mut,
+                type_node: spec.type_node.cloned().map(Box::new),
+                value: spec.value.cloned(),
+                is_static: spec.is_static,
+                is_extern: spec.is_extern,
+                is_mut: spec.is_mut,
                 span: decl.span,
                 docs: Self::clone_docs_if_present(&decl.docs),
                 attributes: decl.attributes.clone(),
@@ -828,7 +852,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
 
-        let sym_kind = if is_static {
+        let sym_kind = if spec.is_static {
             SymbolKind::Static
         } else {
             SymbolKind::Const
@@ -839,8 +863,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             node_id: decl.id,
             def_id: Some(def_id),
             span: decl.name_span,
-            vis,
-            is_mut,
+            vis: spec.vis,
+            is_mut: spec.is_mut,
         });
 
         Some(def_id)
@@ -996,27 +1020,18 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         Some(def_id)
     }
 
-    fn collect_enum_decl(
-        &mut self,
-        decl: &Decl,
-        vis: Visibility,
-        generics: &[ast::GenericParam],
-        where_clauses: &[ast::WhereClause],
-        backing_type: &Option<Box<ast::TypeNode>>,
-        variants: &[ast::EnumVariant],
-        is_extern: bool,
-    ) -> Option<DefId> {
+    fn collect_enum_decl(&mut self, decl: &Decl, spec: EnumCollectSpec<'_>) -> Option<DefId> {
         let def_id = self.ctx.add_def_with(|def_id| {
             Def::Enum(EnumDef {
                 id: def_id,
                 name: decl.name,
-                vis,
+                vis: spec.vis,
                 is_imported: self.current_module_imported,
-                is_extern,
-                generics: generics.to_vec(),
-                where_clauses: where_clauses.to_vec(),
-                backing_type: backing_type.clone(),
-                variants: variants.to_vec(),
+                is_extern: spec.is_extern,
+                generics: spec.generics.to_vec(),
+                where_clauses: spec.where_clauses.to_vec(),
+                backing_type: spec.backing_type.clone(),
+                variants: spec.variants.to_vec(),
                 span: decl.span,
                 docs: Self::clone_docs_if_present(&decl.docs),
             })
@@ -1027,30 +1042,21 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             SymbolKind::Enum,
             decl.id,
             decl.name_span,
-            vis,
+            spec.vis,
         );
         Some(def_id)
     }
 
-    fn collect_trait_decl(
-        &mut self,
-        decl: &Decl,
-        vis: Visibility,
-        generics: &[ast::GenericParam],
-        where_clauses: &[ast::WhereClause],
-        supertraits: &[ast::TypeNode],
-        assoc_types: &[ast::AssociatedTypeDecl],
-        methods: &[ast::TraitMethodDef],
-    ) -> Option<DefId> {
+    fn collect_trait_decl(&mut self, decl: &Decl, spec: TraitCollectSpec<'_>) -> Option<DefId> {
         let def_id = self.ctx.add_def_with(|def_id| {
             Def::Trait(TraitDef {
                 id: def_id,
                 name: decl.name,
-                vis,
+                vis: spec.vis,
                 is_imported: self.current_module_imported,
-                generics: generics.to_vec(),
-                where_clauses: where_clauses.to_vec(),
-                supertraits: supertraits.to_vec(),
+                generics: spec.generics.to_vec(),
+                where_clauses: spec.where_clauses.to_vec(),
+                supertraits: spec.supertraits.to_vec(),
                 assoc_types: Vec::new(),
                 methods: Vec::new(),
                 resolved_methods: Vec::new(),
@@ -1062,8 +1068,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         });
         self.ctx
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
-        let assoc_type_ids = self.collect_trait_assoc_types(def_id, assoc_types);
-        let method_defs = self.collect_trait_methods(def_id, generics, methods);
+        let assoc_type_ids = self.collect_trait_assoc_types(def_id, spec.assoc_types);
+        let method_defs = self.collect_trait_methods(def_id, spec.generics, spec.methods);
         if let Def::Trait(trait_def) = &mut self.ctx.defs[def_id.0 as usize] {
             trait_def.assoc_types = assoc_type_ids;
             trait_def.methods = method_defs;
@@ -1074,7 +1080,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             node_id: decl.id,
             def_id: Some(def_id),
             span: decl.name_span,
-            vis,
+            vis: spec.vis,
             is_mut: false,
         });
         Some(def_id)

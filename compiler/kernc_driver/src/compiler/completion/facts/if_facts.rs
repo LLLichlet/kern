@@ -183,10 +183,7 @@ fn collect_match_pattern_if_completion_facts(
     pattern: &ast::MatchPattern,
     if_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionIfFacts>,
 ) {
-    match &pattern.kind {
-        ast::MatchPatternKind::Value(value) => {
-            collect_expr_if_completion_facts(value, if_facts_by_span);
-        }
-        _ => {}
+    if let ast::MatchPatternKind::Value(value) = &pattern.kind {
+        collect_expr_if_completion_facts(value, if_facts_by_span);
     }
 }

@@ -1,5 +1,15 @@
 use super::*;
 
+struct UserPatternPlanInput<'a> {
+    span: Span,
+    value: &'a Expr,
+    target_expr: &'a MastExpr,
+    target_ty: TypeId,
+    bind_ty: TypeId,
+    subst_map: &'a HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+    bindings: &'a mut Vec<PatternBindingPlan>,
+}
+
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(super) fn is_ignored_binding(&self, name: SymbolId) -> bool {
         self.ctx.resolve(name) == "_"
@@ -350,14 +360,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     fn collect_user_pattern_plan(
         &mut self,
-        span: Span,
-        value: &Expr,
-        target_expr: &MastExpr,
-        target_ty: TypeId,
-        bind_ty: TypeId,
-        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
-        bindings: &mut Vec<PatternBindingPlan>,
+        input: UserPatternPlanInput<'_>,
     ) -> (Vec<MastStmt>, MastExpr) {
+        let UserPatternPlanInput {
+            span,
+            value,
+            target_expr,
+            target_ty,
+            bind_ty,
+            subst_map,
+            bindings,
+        } = input;
         let apply_result =
             self.lower_user_pattern_apply(span, value, target_expr, target_ty, bind_ty, subst_map);
         let (matched_let, matched_expr) =
@@ -932,15 +945,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 self.measure_phase("              lower_match_pattern_value", |this| {
                     if let Some(bind_ty) = this.ctx.match_value_pattern_bind_ty(value.id) {
                         let mut bindings = Vec::new();
-                        let (prelude, cond) = this.collect_user_pattern_plan(
-                            pattern.span,
-                            value,
-                            match_context.target_var_expr,
-                            match_context.target_ty,
-                            bind_ty,
-                            match_context.subst_map,
-                            &mut bindings,
-                        );
+                        let (prelude, cond) =
+                            this.collect_user_pattern_plan(UserPatternPlanInput {
+                                span: pattern.span,
+                                value,
+                                target_expr: match_context.target_var_expr,
+                                target_ty: match_context.target_ty,
+                                bind_ty,
+                                subst_map: match_context.subst_map,
+                                bindings: &mut bindings,
+                            });
                         return (prelude, cond, bindings);
                     }
 

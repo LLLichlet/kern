@@ -628,15 +628,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn lower_plain_fn_call(&mut self, mut call: PlainFnCallLowering<'_>) -> MastExprKind {
         if let Some(intrinsic) =
             self.measure_phase("              lower_call_plain_intrinsic", |this| {
-                this.lower_intrinsic_call(
-                    call.fn_id,
-                    call.callee_mast.ty,
-                    call.result_ty,
-                    call.args,
-                    &mut call.arg_masts,
-                    call.subst_map,
-                    call.span,
-                )
+                this.lower_intrinsic_call(super::intrinsic::IntrinsicCallLowering {
+                    fn_id: call.fn_id,
+                    callee_ty: call.callee_mast.ty,
+                    result_ty: call.result_ty,
+                    args: call.args,
+                    arg_masts: &mut call.arg_masts,
+                    subst_map: call.subst_map,
+                    span: call.span,
+                })
             })
         {
             return intrinsic;

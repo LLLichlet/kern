@@ -333,14 +333,11 @@ fn collect_match_pattern_closure_completion_facts(
     closure_binding_items_by_body_span: &BTreeMap<kernc_utils::Span, Vec<AnalysisCompletionItem>>,
     closure_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionClosureFacts>,
 ) {
-    match &pattern.kind {
-        ast::MatchPatternKind::Value(value) => {
-            collect_expr_closure_completion_facts(
-                value,
-                closure_binding_items_by_body_span,
-                closure_facts_by_span,
-            );
-        }
-        _ => {}
+    if let ast::MatchPatternKind::Value(value) = &pattern.kind {
+        collect_expr_closure_completion_facts(
+            value,
+            closure_binding_items_by_body_span,
+            closure_facts_by_span,
+        );
     }
 }

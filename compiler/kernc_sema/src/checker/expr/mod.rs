@@ -20,6 +20,8 @@ mod control;
 mod literal;
 mod ops;
 
+use access::LetCheckInput;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NumericInferenceKind {
     IntLiteral,
@@ -1618,15 +1620,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 else_clause,
             } => {
                 let started = self.timing_start();
-                let ty = self.check_let(
-                    expr.id,
+                let ty = self.check_let(LetCheckInput {
+                    node_id: expr.id,
                     pattern,
-                    type_node.as_deref(),
+                    type_node: type_node.as_deref(),
                     init,
-                    else_clause.as_ref(),
+                    else_clause: else_clause.as_ref(),
                     expected_ty,
-                    expr.span,
-                );
+                    span: expr.span,
+                });
                 self.record_expr_timing(started, |stats, elapsed| stats.bindings += elapsed);
                 ty
             }

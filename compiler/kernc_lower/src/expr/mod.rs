@@ -195,10 +195,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 })
             }
 
-            ExprKind::Binary { lhs, op, rhs } => self
-                .measure_phase("        lower_expr_ops", |this| {
-                    this.lower_binary(expr.id, lhs, *op, rhs, subst_map, concrete_ty, expr.span)
-                }),
+            ExprKind::Binary { lhs, op, rhs } => {
+                self.measure_phase("        lower_expr_ops", |this| {
+                    this.lower_binary(ops::BinaryLowerInput {
+                        binary_expr_id: expr.id,
+                        lhs,
+                        op: *op,
+                        rhs,
+                        subst_map,
+                        result_ty: concrete_ty,
+                        span: expr.span,
+                    })
+                })
+            }
             ExprKind::Range {
                 start,
                 end,

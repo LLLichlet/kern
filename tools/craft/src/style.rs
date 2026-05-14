@@ -748,6 +748,8 @@ mod tests {
     use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    const TEST_KERN_VERSION: &str = "0.7.6";
+
     fn temp_dir(prefix: &str) -> std::path::PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -914,15 +916,17 @@ fn demo() void {
     value.should_ok().sum(@loc(), t).name.eq("root").should();
 }
 "#;
-        let mut manifest = Manifest::default();
-        manifest.craft = Some(CraftConfig {
-            style: Some(CraftStyleConfig {
-                suggestions: Some(CraftStyleSuggestionLevel::Warn),
-                disabled_rules: vec!["long-postfix-chain".to_string()],
-                exclude: Vec::new(),
+        let mut manifest = Manifest {
+            craft: Some(CraftConfig {
+                style: Some(CraftStyleConfig {
+                    suggestions: Some(CraftStyleSuggestionLevel::Warn),
+                    disabled_rules: vec!["long-postfix-chain".to_string()],
+                    exclude: Vec::new(),
+                }),
+                ..CraftConfig::default()
             }),
-            ..CraftConfig::default()
-        });
+            ..Manifest::default()
+        };
         let config = StyleConfig::from_manifest(&manifest);
         assert_eq!(config.suggestion_severity, SuggestionSeverity::Warn);
 
@@ -1003,7 +1007,7 @@ fn demo() void {
         fs::create_dir_all(root.join("member").join("src")).unwrap();
         fs::write(
             root.join("member").join("Craft.toml"),
-            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nkern = \"0.7.0\"\n",
+            format!("[package]\nname = \"member\"\nversion = \"0.1.0\"\nkern = \"{TEST_KERN_VERSION}\"\n"),
         )
         .unwrap();
         fs::write(
@@ -1017,7 +1021,7 @@ fn demo() void {
             package: Some(Package {
                 name: "member".to_string(),
                 version: "0.1.0".to_string(),
-                kern: "0.7.0".to_string(),
+                kern: TEST_KERN_VERSION.to_string(),
                 ..Package::default()
             }),
             ..Manifest::default()

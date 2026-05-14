@@ -7,6 +7,16 @@ use kernc_sema::def::Def;
 use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{NodeId, Span, SymbolId};
 
+pub(crate) struct BinaryLowerInput<'a> {
+    pub(crate) binary_expr_id: NodeId,
+    pub(crate) lhs: &'a Expr,
+    pub(crate) op: ast::BinaryOperator,
+    pub(crate) rhs: &'a Expr,
+    pub(crate) subst_map: &'a HashMap<SymbolId, GenericArg>,
+    pub(crate) result_ty: TypeId,
+    pub(crate) span: Span,
+}
+
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn has_builtin_simd_binary_fast_path(
         &mut self,
@@ -362,16 +372,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         .kind
     }
 
-    pub(crate) fn lower_binary(
-        &mut self,
-        binary_expr_id: NodeId,
-        lhs: &Expr,
-        op: ast::BinaryOperator,
-        rhs: &Expr,
-        subst_map: &HashMap<SymbolId, GenericArg>,
-        result_ty: TypeId,
-        span: Span,
-    ) -> MastExprKind {
+    pub(crate) fn lower_binary(&mut self, input: BinaryLowerInput<'_>) -> MastExprKind {
+        let BinaryLowerInput {
+            binary_expr_id,
+            lhs,
+            op,
+            rhs,
+            subst_map,
+            result_ty,
+            span,
+        } = input;
         if op == ast::BinaryOperator::LogicalAnd {
             let l = self.lower_expr(lhs, subst_map, Some(TypeId::BOOL));
             let r = self.lower_expr(rhs, subst_map, Some(TypeId::BOOL));

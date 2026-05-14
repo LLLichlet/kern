@@ -163,11 +163,10 @@ fn sanitize_lock_component(value: &str) -> String {
 
 fn reclaim_stale_lock(path: &Path) -> Result<bool> {
     match read_lock_owner(path)? {
-        Some(owner) => {
-            if lock_owner_is_alive(owner) {
-                return Ok(false);
-            }
+        Some(owner) if lock_owner_is_alive(owner) => {
+            return Ok(false);
         }
+        Some(_) => {}
         None if !invalid_lock_metadata_is_stale(path)? => {
             return Ok(false);
         }

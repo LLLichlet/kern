@@ -830,11 +830,10 @@ fn render_progress_line(
 ) -> String {
     let total_steps = snapshot.total_steps();
     let completed_steps = snapshot.completed_steps().min(total_steps);
-    let percent = if total_steps == 0 {
-        0
-    } else {
-        completed_steps.saturating_mul(100) / total_steps
-    };
+    let percent = completed_steps
+        .saturating_mul(100)
+        .checked_div(total_steps)
+        .unwrap_or(0);
     let bar = render_progress_bar(completed_steps, total_steps, progress_bar_width(columns));
     let mut segments = Vec::new();
     segments.push(format_phase_progress(&snapshot));

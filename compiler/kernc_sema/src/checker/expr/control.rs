@@ -1302,13 +1302,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let [candidate] = candidates.as_slice() else {
             return None;
         };
-        let Some(impl_trait_ty) = crate::query::instantiate_impl_trait_ty(
+        let impl_trait_ty = crate::query::instantiate_impl_trait_ty(
             self.ctx,
             candidate.impl_id,
             &candidate.impl_args,
-        ) else {
-            return None;
-        };
+        )?;
         let TypeKind::TraitObject(_, impl_args, assoc_bindings) = self
             .ctx
             .type_registry
@@ -1380,9 +1378,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return Some(TypeId::ERROR);
         }
 
-        let Some(bind_ty) = self.pattern_trait_bind_ty(pattern_ty, target_ty) else {
-            return None;
-        };
+        let bind_ty = self.pattern_trait_bind_ty(pattern_ty, target_ty)?;
 
         self.ctx.set_match_value_pattern_bind_ty(value.id, bind_ty);
         Some(bind_ty)

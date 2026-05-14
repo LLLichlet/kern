@@ -187,27 +187,23 @@ impl Lockfile {
             validate_target_kind(path, "[[dependency]].target", &dependency.target_kind)?;
             validate_non_empty(path, "[[dependency]].target-id", &dependency.target_id)?;
             match dependency.target_kind.as_str() {
-                "local" => {
-                    if !package_ids.contains(dependency.target_id.as_str()) {
-                        return Err(Error::LockfileValidation {
-                            path: path.to_path_buf(),
-                            message: format!(
-                                "[[dependency]] references unknown local target id `{}`",
-                                dependency.target_id
-                            ),
-                        });
-                    }
+                "local" if !package_ids.contains(dependency.target_id.as_str()) => {
+                    return Err(Error::LockfileValidation {
+                        path: path.to_path_buf(),
+                        message: format!(
+                            "[[dependency]] references unknown local target id `{}`",
+                            dependency.target_id
+                        ),
+                    });
                 }
-                "external" => {
-                    if !external_ids.contains(dependency.target_id.as_str()) {
-                        return Err(Error::LockfileValidation {
-                            path: path.to_path_buf(),
-                            message: format!(
-                                "[[dependency]] references unknown external target id `{}`",
-                                dependency.target_id
-                            ),
-                        });
-                    }
+                "external" if !external_ids.contains(dependency.target_id.as_str()) => {
+                    return Err(Error::LockfileValidation {
+                        path: path.to_path_buf(),
+                        message: format!(
+                            "[[dependency]] references unknown external target id `{}`",
+                            dependency.target_id
+                        ),
+                    });
                 }
                 _ => {}
             }

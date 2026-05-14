@@ -851,10 +851,10 @@ impl<'a> Parser<'a> {
             TokenType::Identifier => {
                 if let Some((index, segments)) = self.lookahead_type_path_end(start) {
                     match self.stream.peek_tag_nth(index) {
-                        TokenType::Dot => {
-                            if self.stream.peek_tag_nth(index + 1) == TokenType::Identifier {
-                                return Some(index + 2);
-                            }
+                        TokenType::Dot
+                            if self.stream.peek_tag_nth(index + 1) == TokenType::Identifier =>
+                        {
+                            return Some(index + 2);
                         }
                         TokenType::DotLBrace => {
                             return self.lookahead_destructure_pattern_end(index + 1);

@@ -342,14 +342,11 @@ fn collect_match_pattern_match_completion_facts(
     match_arm_binding_items_by_span: &BTreeMap<kernc_utils::Span, Vec<AnalysisCompletionItem>>,
     match_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionMatchFacts>,
 ) {
-    match &pattern.kind {
-        ast::MatchPatternKind::Value(value) => {
-            collect_expr_match_completion_facts(
-                value,
-                match_arm_binding_items_by_span,
-                match_facts_by_span,
-            );
-        }
-        _ => {}
+    if let ast::MatchPatternKind::Value(value) = &pattern.kind {
+        collect_expr_match_completion_facts(
+            value,
+            match_arm_binding_items_by_span,
+            match_facts_by_span,
+        );
     }
 }

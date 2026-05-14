@@ -720,82 +720,6 @@ fn token_lexeme(token: Token) -> Lexeme {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn lexeme_tags(source: &str) -> Vec<LexemeType> {
-        let mut tokenizer = Tokenizer::new(source, FileId(0));
-        let mut tags = Vec::new();
-        loop {
-            let lexeme = tokenizer.next_lexeme();
-            tags.push(lexeme.tag);
-            if matches!(lexeme.tag, LexemeType::Token(TokenType::Eof)) {
-                break;
-            }
-        }
-        tags
-    }
-
-    fn token_tags(source: &str) -> Vec<TokenType> {
-        let mut tokenizer = Tokenizer::new(source, FileId(0));
-        let mut tags = Vec::new();
-        loop {
-            let token = tokenizer.next_token();
-            tags.push(token.tag);
-            if token.tag == TokenType::Eof {
-                break;
-            }
-        }
-        tags
-    }
-
-    #[test]
-    fn next_lexeme_keeps_normal_comments_as_trivia() {
-        assert_eq!(
-            lexeme_tags("value // line\n/* block */ next"),
-            vec![
-                LexemeType::Token(TokenType::Identifier),
-                LexemeType::Whitespace,
-                LexemeType::LineComment,
-                LexemeType::Whitespace,
-                LexemeType::BlockComment,
-                LexemeType::Whitespace,
-                LexemeType::Token(TokenType::Identifier),
-                LexemeType::Token(TokenType::Eof),
-            ]
-        );
-    }
-
-    #[test]
-    fn next_token_still_skips_normal_comments_but_keeps_doc_comments() {
-        assert_eq!(
-            token_tags("value // line\n/// doc\n//! inner\n/* block */ next"),
-            vec![
-                TokenType::Identifier,
-                TokenType::DocCommentOuter,
-                TokenType::DocCommentInner,
-                TokenType::Identifier,
-                TokenType::Eof,
-            ]
-        );
-    }
-
-    #[test]
-    fn next_lexeme_reports_unterminated_block_comment_as_lex_error() {
-        let tags = lexeme_tags("value /* unterminated");
-        assert!(matches!(
-            tags.as_slice(),
-            [
-                LexemeType::Token(TokenType::Identifier),
-                LexemeType::Whitespace,
-                LexemeType::Token(TokenType::LexError("Unterminated multi-line comment")),
-                LexemeType::Token(TokenType::Eof),
-            ]
-        ));
-    }
-}
-
 // === Character classification helpers ===
 
 fn is_alpha_numeric(c: u8) -> bool {
@@ -885,5 +809,81 @@ fn resolve_keyword(text: &[u8]) -> TokenType {
         b"void" => TokenType::Void,
         b"Fn" => TokenType::CapitalFn,
         _ => TokenType::Identifier,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lexeme_tags(source: &str) -> Vec<LexemeType> {
+        let mut tokenizer = Tokenizer::new(source, FileId(0));
+        let mut tags = Vec::new();
+        loop {
+            let lexeme = tokenizer.next_lexeme();
+            tags.push(lexeme.tag);
+            if matches!(lexeme.tag, LexemeType::Token(TokenType::Eof)) {
+                break;
+            }
+        }
+        tags
+    }
+
+    fn token_tags(source: &str) -> Vec<TokenType> {
+        let mut tokenizer = Tokenizer::new(source, FileId(0));
+        let mut tags = Vec::new();
+        loop {
+            let token = tokenizer.next_token();
+            tags.push(token.tag);
+            if token.tag == TokenType::Eof {
+                break;
+            }
+        }
+        tags
+    }
+
+    #[test]
+    fn next_lexeme_keeps_normal_comments_as_trivia() {
+        assert_eq!(
+            lexeme_tags("value // line\n/* block */ next"),
+            vec![
+                LexemeType::Token(TokenType::Identifier),
+                LexemeType::Whitespace,
+                LexemeType::LineComment,
+                LexemeType::Whitespace,
+                LexemeType::BlockComment,
+                LexemeType::Whitespace,
+                LexemeType::Token(TokenType::Identifier),
+                LexemeType::Token(TokenType::Eof),
+            ]
+        );
+    }
+
+    #[test]
+    fn next_token_still_skips_normal_comments_but_keeps_doc_comments() {
+        assert_eq!(
+            token_tags("value // line\n/// doc\n//! inner\n/* block */ next"),
+            vec![
+                TokenType::Identifier,
+                TokenType::DocCommentOuter,
+                TokenType::DocCommentInner,
+                TokenType::Identifier,
+                TokenType::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn next_lexeme_reports_unterminated_block_comment_as_lex_error() {
+        let tags = lexeme_tags("value /* unterminated");
+        assert!(matches!(
+            tags.as_slice(),
+            [
+                LexemeType::Token(TokenType::Identifier),
+                LexemeType::Whitespace,
+                LexemeType::Token(TokenType::LexError("Unterminated multi-line comment")),
+                LexemeType::Token(TokenType::Eof),
+            ]
+        ));
     }
 }

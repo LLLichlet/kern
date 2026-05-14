@@ -281,11 +281,11 @@ fn format_line(line: &str, config: &FormatConfig) -> String {
         &format_call_arguments(
             &format_function_parameters(
                 &format_boolean_chain(&format_grouped_use(line, config), config),
-                &config,
+                config,
             ),
-            &config,
+            config,
         ),
-        &config,
+        config,
     )
 }
 
@@ -674,7 +674,7 @@ fn find_top_level_assignment(input: &str) -> Option<usize> {
         }
 
         let prev = previous_byte(input, index);
-        let next = input[index + 1..].as_bytes().first().copied();
+        let next = input.as_bytes()[index + 1..].first().copied();
         if matches!(prev, Some(b'=' | b'!' | b'<' | b'>' | b'-')) || next == Some(b'=') {
             continue;
         }
@@ -763,7 +763,7 @@ fn postfix_operator_len(input: &str) -> Option<usize> {
 fn parse_postfix_segment(input: &str, operator_start: usize, operator_len: usize) -> Option<usize> {
     let ident_start = operator_start + operator_len;
     let ident_end = parse_ident(input, ident_start)?;
-    if input[ident_end..].as_bytes().first().copied() != Some(b'(') {
+    if input.as_bytes()[ident_end..].first().copied() != Some(b'(') {
         return None;
     }
     find_matching_call_end(input, ident_end)
@@ -798,8 +798,7 @@ fn find_matching_call_end(input: &str, open: usize) -> Option<usize> {
 }
 
 fn previous_byte(input: &str, index: usize) -> Option<u8> {
-    input[..index]
-        .as_bytes()
+    input.as_bytes()[..index]
         .iter()
         .rev()
         .find(|byte| !byte.is_ascii_whitespace())

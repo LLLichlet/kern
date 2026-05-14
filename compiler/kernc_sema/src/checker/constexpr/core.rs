@@ -218,7 +218,7 @@ pub struct ConstExecState<T> {
     loop_control: Option<LoopControl>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ConstEvalCore {
     locals: ConstLocalStore,
     local_types: ConstLocalTypes<TypeId>,
@@ -226,19 +226,6 @@ pub struct ConstEvalCore {
     type_substs: Vec<HashMap<SymbolId, GenericArg>>,
     script_host: Option<ScriptHostHandle>,
     allow_non_const_calls: bool,
-}
-
-impl Default for ConstEvalCore {
-    fn default() -> Self {
-        Self {
-            locals: ConstLocalStore::default(),
-            local_types: ConstLocalTypes::default(),
-            exec: ConstExecState::default(),
-            type_substs: Vec::new(),
-            script_host: None,
-            allow_non_const_calls: false,
-        }
-    }
 }
 
 impl ConstEvalCore {

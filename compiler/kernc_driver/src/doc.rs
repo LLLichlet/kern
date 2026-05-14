@@ -21,6 +21,26 @@ pub struct KernDocSection {
     pub entries: Vec<KernDocEntry>,
 }
 
+struct DocItemInput<'a> {
+    path: String,
+    kind: &'a str,
+    signature: Option<String>,
+    impl_trait_path: Option<String>,
+    impl_trait_external: bool,
+    is_public: bool,
+    docs: Option<&'a ast::DocBlock>,
+}
+
+struct MemberDocItemInput<'ctx, 'a> {
+    ctx: &'a SemaContext<'ctx>,
+    parent: DefId,
+    kind: &'a str,
+    name: &'a str,
+    is_public: bool,
+    docs: Option<&'a ast::DocBlock>,
+    signature: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KernDocEntry {
     pub name: Option<String>,
@@ -319,13 +339,15 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
             Def::Module(module) if !module.is_imported => {
                 push_item(
                     &mut items,
-                    module_path(ctx, module.id),
-                    "module",
-                    Some(format!("module {}", ctx.resolve(module.name))),
-                    None,
-                    false,
-                    true,
-                    module.docs.as_ref(),
+                    DocItemInput {
+                        path: module_path(ctx, module.id),
+                        kind: "module",
+                        signature: Some(format!("module {}", ctx.resolve(module.name))),
+                        impl_trait_path: None,
+                        impl_trait_external: false,
+                        is_public: true,
+                        docs: module.docs.as_ref(),
+                    },
                 );
             }
             Def::Function(function) if !function.is_imported => {
@@ -333,93 +355,107 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                 let is_method = receiver_impl.is_some();
                 push_item(
                     &mut items,
-                    def_path(ctx, function.id),
-                    if is_method { "method" } else { "function" },
-                    function_signature(ctx, function),
-                    receiver_impl.and_then(|impl_def| impl_trait_path(ctx, impl_def)),
-                    receiver_impl.is_some_and(|impl_def| impl_trait_is_external(ctx, impl_def)),
-                    function.vis.is_public(),
-                    function.docs.as_ref(),
+                    DocItemInput {
+                        path: def_path(ctx, function.id),
+                        kind: if is_method { "method" } else { "function" },
+                        signature: function_signature(ctx, function),
+                        impl_trait_path: receiver_impl
+                            .and_then(|impl_def| impl_trait_path(ctx, impl_def)),
+                        impl_trait_external: receiver_impl
+                            .is_some_and(|impl_def| impl_trait_is_external(ctx, impl_def)),
+                        is_public: function.vis.is_public(),
+                        docs: function.docs.as_ref(),
+                    },
                 );
             }
             Def::Struct(def) if !def.is_imported => {
                 push_item(
                     &mut items,
-                    def_path(ctx, def.id),
-                    "struct",
-                    Some(type_signature(
-                        ctx,
-                        "struct",
-                        ctx.resolve(def.name),
-                        &def.generics,
-                        def.fields.iter(),
-                    )),
-                    None,
-                    false,
-                    def.vis.is_public(),
-                    def.docs.as_ref(),
+                    DocItemInput {
+                        path: def_path(ctx, def.id),
+                        kind: "struct",
+                        signature: Some(type_signature(
+                            ctx,
+                            "struct",
+                            ctx.resolve(def.name),
+                            &def.generics,
+                            def.fields.iter(),
+                        )),
+                        impl_trait_path: None,
+                        impl_trait_external: false,
+                        is_public: def.vis.is_public(),
+                        docs: def.docs.as_ref(),
+                    },
                 );
                 for field in &def.fields {
                     push_member_item(
                         &mut items,
-                        ctx,
-                        def.id,
-                        "field",
-                        ctx.resolve(field.name),
-                        field.vis.is_public(),
-                        field.docs.as_ref(),
-                        Some(format!(
-                            "field {}: {}",
-                            ctx.resolve(field.name),
-                            type_node_label(ctx, &field.type_node)
-                        )),
+                        MemberDocItemInput {
+                            ctx,
+                            parent: def.id,
+                            kind: "field",
+                            name: ctx.resolve(field.name),
+                            is_public: field.vis.is_public(),
+                            docs: field.docs.as_ref(),
+                            signature: Some(format!(
+                                "field {}: {}",
+                                ctx.resolve(field.name),
+                                type_node_label(ctx, &field.type_node)
+                            )),
+                        },
                     );
                 }
             }
             Def::Union(def) if !def.is_imported => {
                 push_item(
                     &mut items,
-                    def_path(ctx, def.id),
-                    "union",
-                    Some(type_signature(
-                        ctx,
-                        "union",
-                        ctx.resolve(def.name),
-                        &def.generics,
-                        def.fields.iter(),
-                    )),
-                    None,
-                    false,
-                    def.vis.is_public(),
-                    def.docs.as_ref(),
+                    DocItemInput {
+                        path: def_path(ctx, def.id),
+                        kind: "union",
+                        signature: Some(type_signature(
+                            ctx,
+                            "union",
+                            ctx.resolve(def.name),
+                            &def.generics,
+                            def.fields.iter(),
+                        )),
+                        impl_trait_path: None,
+                        impl_trait_external: false,
+                        is_public: def.vis.is_public(),
+                        docs: def.docs.as_ref(),
+                    },
                 );
                 for field in &def.fields {
                     push_member_item(
                         &mut items,
-                        ctx,
-                        def.id,
-                        "field",
-                        ctx.resolve(field.name),
-                        field.vis.is_public(),
-                        field.docs.as_ref(),
-                        Some(format!(
-                            "field {}: {}",
-                            ctx.resolve(field.name),
-                            type_node_label(ctx, &field.type_node)
-                        )),
+                        MemberDocItemInput {
+                            ctx,
+                            parent: def.id,
+                            kind: "field",
+                            name: ctx.resolve(field.name),
+                            is_public: field.vis.is_public(),
+                            docs: field.docs.as_ref(),
+                            signature: Some(format!(
+                                "field {}: {}",
+                                ctx.resolve(field.name),
+                                type_node_label(ctx, &field.type_node)
+                            )),
+                        },
                     );
                 }
             }
             Def::Enum(def) if !def.is_imported => {
                 push_item(
                     &mut items,
-                    def_path(ctx, def.id),
-                    "enum",
-                    Some(format!("enum {}", ctx.resolve(def.name))),
-                    None,
-                    false,
-                    def.vis.is_public(),
-                    def.docs.as_ref(),
+                    DocItemInput {
+                        path: def_path(ctx, def.id),
+                        kind: "enum",
+                        signature: Some(format!("enum {}", ctx.resolve(def.name))),
+                        impl_trait_path: None,
+                        impl_trait_external: false,
+                        is_public: def.vis.is_public(),
+                        docs: def.docs.as_ref(),
+                    },
                 );
                 for variant in &def.variants {
                     let signature = if let Some(payload) = &variant.payload_type {
@@ -433,37 +469,43 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                     };
                     push_member_item(
                         &mut items,
-                        ctx,
-                        def.id,
-                        "variant",
-                        ctx.resolve(variant.name),
-                        def.vis.is_public(),
-                        variant.docs.as_ref(),
-                        signature,
+                        MemberDocItemInput {
+                            ctx,
+                            parent: def.id,
+                            kind: "variant",
+                            name: ctx.resolve(variant.name),
+                            is_public: def.vis.is_public(),
+                            docs: variant.docs.as_ref(),
+                            signature,
+                        },
                     );
                 }
             }
             Def::Trait(def) if !def.is_imported => {
                 push_item(
                     &mut items,
-                    def_path(ctx, def.id),
-                    "trait",
-                    Some(format!("trait {}", ctx.resolve(def.name))),
-                    None,
-                    false,
-                    def.vis.is_public(),
-                    def.docs.as_ref(),
+                    DocItemInput {
+                        path: def_path(ctx, def.id),
+                        kind: "trait",
+                        signature: Some(format!("trait {}", ctx.resolve(def.name))),
+                        impl_trait_path: None,
+                        impl_trait_external: false,
+                        is_public: def.vis.is_public(),
+                        docs: def.docs.as_ref(),
+                    },
                 );
                 for method in &def.methods {
                     push_member_item(
                         &mut items,
-                        ctx,
-                        def.id,
-                        "trait_method",
-                        ctx.resolve(method.signature.name),
-                        def.vis.is_public(),
-                        method.signature.docs.as_ref(),
-                        trait_method_signature(ctx, &method.signature),
+                        MemberDocItemInput {
+                            ctx,
+                            parent: def.id,
+                            kind: "trait_method",
+                            name: ctx.resolve(method.signature.name),
+                            is_public: def.vis.is_public(),
+                            docs: method.signature.docs.as_ref(),
+                            signature: trait_method_signature(ctx, &method.signature),
+                        },
                     );
                 }
             }
@@ -490,29 +532,33 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                 };
                 push_item(
                     &mut items,
-                    def_path(ctx, def.id),
-                    kind,
-                    signature,
-                    None,
-                    false,
-                    def.vis.is_public(),
-                    def.docs.as_ref(),
+                    DocItemInput {
+                        path: def_path(ctx, def.id),
+                        kind,
+                        signature,
+                        impl_trait_path: None,
+                        impl_trait_external: false,
+                        is_public: def.vis.is_public(),
+                        docs: def.docs.as_ref(),
+                    },
                 );
             }
             Def::TypeAlias(def) if !def.is_imported => {
                 push_item(
                     &mut items,
-                    def_path(ctx, def.id),
-                    "type",
-                    Some(format!(
-                        "type {} = {}",
-                        ctx.resolve(def.name),
-                        type_node_label(ctx, &def.target)
-                    )),
-                    None,
-                    false,
-                    def.vis.is_public(),
-                    def.docs.as_ref(),
+                    DocItemInput {
+                        path: def_path(ctx, def.id),
+                        kind: "type",
+                        signature: Some(format!(
+                            "type {} = {}",
+                            ctx.resolve(def.name),
+                            type_node_label(ctx, &def.target)
+                        )),
+                        impl_trait_path: None,
+                        impl_trait_external: false,
+                        is_public: def.vis.is_public(),
+                        docs: def.docs.as_ref(),
+                    },
                 );
             }
             _ => {}
@@ -764,16 +810,16 @@ fn lint_args_line(
     }
 }
 
-fn push_item(
-    items: &mut Vec<KmetaDocItem>,
-    path: String,
-    kind: &str,
-    signature: Option<String>,
-    impl_trait_path: Option<String>,
-    impl_trait_external: bool,
-    is_public: bool,
-    docs: Option<&ast::DocBlock>,
-) {
+fn push_item(items: &mut Vec<KmetaDocItem>, input: DocItemInput<'_>) {
+    let DocItemInput {
+        path,
+        kind,
+        signature,
+        impl_trait_path,
+        impl_trait_external,
+        is_public,
+        docs,
+    } = input;
     if docs.is_none() && !is_public {
         return;
     }
@@ -788,16 +834,16 @@ fn push_item(
     });
 }
 
-fn push_member_item(
-    items: &mut Vec<KmetaDocItem>,
-    ctx: &SemaContext<'_>,
-    parent: DefId,
-    kind: &str,
-    name: &str,
-    is_public: bool,
-    docs: Option<&ast::DocBlock>,
-    signature: Option<String>,
-) {
+fn push_member_item(items: &mut Vec<KmetaDocItem>, input: MemberDocItemInput<'_, '_>) {
+    let MemberDocItemInput {
+        ctx,
+        parent,
+        kind,
+        name,
+        is_public,
+        docs,
+        signature,
+    } = input;
     if docs.is_none() && !is_public {
         return;
     }

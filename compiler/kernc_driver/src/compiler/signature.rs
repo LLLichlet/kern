@@ -269,11 +269,8 @@ fn collect_call_sites_in_pattern_exprs(
     pattern: &ast::MatchPattern,
     call_sites: &mut Vec<SignatureCallSite>,
 ) {
-    match &pattern.kind {
-        ast::MatchPatternKind::Value(value) => {
-            collect_call_sites_in_expr(ctx, file_id, value, call_sites);
-        }
-        _ => {}
+    if let ast::MatchPatternKind::Value(value) = &pattern.kind {
+        collect_call_sites_in_expr(ctx, file_id, value, call_sites);
     }
 }
 

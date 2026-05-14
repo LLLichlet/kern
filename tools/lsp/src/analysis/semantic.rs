@@ -564,10 +564,10 @@ fn is_type_context_identifier(tokens: &[Token], index: usize) -> bool {
         | TokenType::DotAmpersand
         | TokenType::DotDotAmpersand
         | TokenType::LBracket
-        | TokenType::Comma => {
-            if is_nested_in_type_context(tokens, index) {
-                return true;
-            }
+        | TokenType::Comma
+            if is_nested_in_type_context(tokens, index) =>
+        {
+            return true;
         }
         _ => {}
     }

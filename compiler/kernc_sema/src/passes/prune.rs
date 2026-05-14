@@ -89,9 +89,8 @@ impl<'a> Pruner<'a> {
                 for arm in arms {
                     // Visit expressions embedded inside patterns such as values and ranges.
                     for pat in &mut arm.patterns {
-                        match &mut pat.kind {
-                            MatchPatternKind::Value(e) => self.prune_expr(e),
-                            _ => {} // `Variant` and `CatchAll` contain no standalone expression nodes.
+                        if let MatchPatternKind::Value(e) = &mut pat.kind {
+                            self.prune_expr(e);
                         }
                     }
                     self.prune_expr(&mut arm.body);
@@ -117,11 +116,10 @@ impl<'a> Pruner<'a> {
                     }
                 }
             }
-            ExprKind::Static { init, .. } => {
-                if let Some(init) = init {
-                    self.prune_expr(init);
-                }
-            }
+            ExprKind::Static {
+                init: Some(init), ..
+            } => self.prune_expr(init),
+            ExprKind::Static { init: None, .. } => {}
             ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
                 self.prune_expr(lhs);
                 self.prune_expr(rhs);

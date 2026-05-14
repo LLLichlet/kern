@@ -68,12 +68,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let target_module = match anchor {
-            PathAnchor::Parent => {
-                let Some(parent) = self.ctx.module_parent(current_module) else {
-                    return None;
-                };
-                parent
-            }
+            PathAnchor::Parent => self.ctx.module_parent(current_module)?,
             PathAnchor::Package => self.ctx.module_root(current_module),
         };
 

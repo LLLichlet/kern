@@ -1,8 +1,8 @@
 //! Integer range iterator adapters.
 //!
 //! Ascending ranges use Kern's builtin range value types directly: `T...T`
-//! and `T..=T`. Descending ranges remain library values because they express a
-//! traversal direction that the builtin range syntax does not encode.
+//! and `T..=T`. Reverse traversal is a range adapter: `(a...b).rev()` and
+//! `(a..=b).rev()` keep the range value as the single spelling for bounds.
 
 use base.coll.{
     Iterator,
@@ -20,37 +20,35 @@ use ..iter.{
     consume_position,
 };
 
-/// A descending left-closed, right-open range `(end, start]`.
-pub/ struct RangeDown[T] {
+/// Reverse iterator state for a left-closed, right-open range.
+pub struct RangeRev[T] {
     start: T,
     end: T,
 };
 
-/// A descending closed range `[end, start]`.
-pub/ struct RangeDownInclusive[T] {
+/// Reverse iterator state for a closed range.
+pub struct RangeRevInclusive[T] {
     start: T,
     end: T,
     done: bool = false,
 };
 
-/// Constructs a descending left-closed, right-open range `(end, start]`.
-///
-/// The first item is `start`; iteration stops before `end`.
-/// When `start <= end`, the range is empty.
-pub/ fn range_down[T](start: T, end: T) RangeDown[T]
-    where T: Integer + Gt[T] + Sub[T, Out = T],
+impl[T] T...T
+    where T: Integer,
 {
-    return .{ start: start, end: end };
+    /// Returns an iterator that visits this half-open range from high to low.
+    pub fn rev() RangeRev[T] {
+        return .{ start: self.start, end: self.end };
+    }
 }
 
-/// Constructs a descending closed range `[end, start]`.
-///
-/// The first item is `start`; the final item is `end`.
-/// When `start < end`, the range is empty.
-pub/ fn range_down_inclusive[T](start: T, end: T) RangeDownInclusive[T]
-    where T: Integer + Eq[T] + Ge[T] + Sub[T, Out = T],
+impl[T] T..=T
+    where T: Integer,
 {
-    return .{ start: start, end: end };
+    /// Returns an iterator that visits this inclusive range from high to low.
+    pub fn rev() RangeRevInclusive[T] {
+        return .{ start: self.start, end: self.end };
+    }
 }
 
 impl[T] &mut (T...T) : Iterator
@@ -178,22 +176,22 @@ impl[T] &mut (T..=T)
     }
 }
 
-impl[T] &mut RangeDown[T] : Iterator
-    where T: Integer + Gt[T] + Sub[T, Out = T],
+impl[T] &mut RangeRev[T] : Iterator
+    where T: Integer + Lt[T] + Sub[T, Out = T],
 {
     type Item = T;
 
     pub fn next() ?Item {
-        if (!(self.start > self.end)) return .None;
+        if (!(self.start < self.end)) return .None;
 
-        let item = self.start;
-        self.start -= 1;
+        self.end -= 1;
+        let item = self.end;
         return .{ Some: item };
     }
 }
 
-impl[T] &mut RangeDown[T]
-    where T: Integer + Gt[T] + Sub[T, Out = T],
+impl[T] &mut RangeRev[T]
+    where T: Integer + Lt[T] + Sub[T, Out = T],
 {
     pub fn count() usize {
         return consume_count[T]((self as &mut Iterator[Item = T]));
@@ -236,30 +234,30 @@ impl[T] &mut RangeDown[T]
     }
 }
 
-impl[T] &mut RangeDownInclusive[T] : Iterator
-    where T: Integer + Eq[T] + Ge[T] + Sub[T, Out = T],
+impl[T] &mut RangeRevInclusive[T] : Iterator
+    where T: Integer + Eq[T] + Le[T] + Sub[T, Out = T],
 {
     type Item = T;
 
     pub fn next() ?Item {
         if (self.done) return .None;
-        if (!(self.start >= self.end)) {
+        if (!(self.start <= self.end)) {
             self.done = true;
             return .None;
         }
 
-        let item = self.start;
+        let item = self.end;
         if (self.start == self.end) {
             self.done = true;
         } else {
-            self.start -= 1;
+            self.end -= 1;
         }
         return .{ Some: item };
     }
 }
 
-impl[T] &mut RangeDownInclusive[T]
-    where T: Integer + Eq[T] + Ge[T] + Sub[T, Out = T],
+impl[T] &mut RangeRevInclusive[T]
+    where T: Integer + Eq[T] + Le[T] + Sub[T, Out = T],
 {
     pub fn count() usize {
         return consume_count[T]((self as &mut Iterator[Item = T]));

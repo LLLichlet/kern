@@ -128,6 +128,11 @@ and does not perform slicing.
 `hidden..&.next()`. Ranges only work in `for` when ordinary method resolution
 makes the range expression iterable in the compiled package.
 
+Reverse traversal is an iterator adapter on existing range values, not a new
+range constructor family. The base package exposes `(a...b).rev()` and
+`(a..=b).rev()` as ordinary combinators returning iterator state; it should not
+expose standalone helpers such as `range_down`.
+
 ## Implementation Phases
 
 ### Phase 1: Real Pattern Trait
@@ -190,5 +195,7 @@ makes the range expression iterable in the compiled package.
 - Do not make `for` depend on range syntax.
 - Do not make compiler/tooling depend on library range adapters.
 - Do not expose range values as ordinary user-declared structs.
+- Do not expose descending range constructor families such as `range_down`;
+  use range adapters such as `.rev()` instead.
 - Do not fully delete compiler-known structural pattern analysis; it remains
   needed for binding syntax, privacy, and exhaustiveness metadata.

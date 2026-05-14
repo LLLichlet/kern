@@ -21,12 +21,6 @@ pub use .iter.{
 };
 pub use .list_impl.{InsertError, List};
 pub use .map_impl.Map;
-pub use .ranges.{
-    RangeDown,
-    RangeDownInclusive,
-    range_down,
-    range_down_inclusive,
-};
 pub use .slice.{
     bytes_eq,
     find_byte,

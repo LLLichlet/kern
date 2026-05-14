@@ -6,8 +6,6 @@ use base.coll.{
     List,
     String,
     list,
-    range_down,
-    range_down_inclusive,
     string,
 };
 use base.cmp.{GREATER, LESS, EQUAL, Ordering};
@@ -203,16 +201,34 @@ fn check_ranges[W](t: &mut Report[W]) void
     inclusive_single..&.next().should_none().sum(@loc(), t);
 
     let mut descending_sum = 0i32;
-    for (value: range_down(5i32, 2i32)) {
+    for (value: (2i32...6i32).rev()) {
         descending_sum += value;
     }
     descending_sum.should().eq(12i32).sum(@loc(), t);
 
     let mut inclusive_descending_sum = 0i32;
-    for (value: range_down_inclusive(3i32, 1i32)) {
+    for (value: (1i32..=3i32).rev()) {
         inclusive_descending_sum += value;
     }
     inclusive_descending_sum.should().eq(6i32).sum(@loc(), t);
+
+    let mut rev_empty = (0u8...0u8).rev();
+    rev_empty..&.next().should_none().sum(@loc(), t);
+
+    let mut rev_single = (0u8...1u8).rev();
+    rev_single..&.next().should_some().eq(0u8).sum(@loc(), t);
+    rev_single..&.next().should_none().sum(@loc(), t);
+
+    let mut rev_inclusive_single = (0u8..=0u8).rev();
+    rev_inclusive_single..&.next().should_some().eq(0u8).sum(@loc(), t);
+    rev_inclusive_single..&.next().should_none().sum(@loc(), t);
+
+    let mut rev_inclusive_edge = (252u8..=255u8).rev();
+    rev_inclusive_edge..&.next().should_some().eq(255u8).sum(@loc(), t);
+    rev_inclusive_edge..&.next().should_some().eq(254u8).sum(@loc(), t);
+    rev_inclusive_edge..&.next().should_some().eq(253u8).sum(@loc(), t);
+    rev_inclusive_edge..&.next().should_some().eq(252u8).sum(@loc(), t);
+    rev_inclusive_edge..&.next().should_none().sum(@loc(), t);
 
     let mut count_range = 2i32...7i32;
     count_range..&.count().should().eq(5usize).sum(@loc(), t);
@@ -228,7 +244,7 @@ fn check_ranges[W](t: &mut Report[W]) void
     inclusive_nth..&.nth(3usize).should_some().eq(255u8).sum(@loc(), t);
     inclusive_nth..&.next().should_none().sum(@loc(), t);
 
-    let mut fold_range = range_down_inclusive(4i32, 1i32);
+    let mut fold_range = (1i32..=4i32).rev();
     fold_range..&.fold[i32](0i32, [](accum: i32, value: i32) i32 {
         return accum + value;
     }).should().eq(10i32).sum(@loc(), t);

@@ -168,7 +168,7 @@ Pointer arithmetic stays explicit:
       * `arr.&[a...b]` produces `&[T]` (read-only slice view).
       * `arr..&[a...b]` produces `&mut [T]` (mutable slice view), and requires the base storage path to be mutable.
       * The distinction is intentional: Kern does not silently upgrade a read-only view into a mutable one, even if the slice binding itself is declared with `let mut`.
-      * Slice brackets accept compiler-owned `SliceBounds` range values with `usize` bounds, including `a...b`, `a...`, `...b`, `...`, `a..=b`, and `..=b`. This marker is slice-specific; signed scalar match ranges such as `-1...5` do not become valid slice bounds.
+      * Slice brackets accept compiler-owned `SliceBounds` range values with `usize` bounds, including `a...b`, `a...`, `...b`, `...`, `a..=b`, and `..=b`. This marker is slice-specific; signed scalar match ranges such as `-1...5` do not become valid slice bounds. Reverse traversal adapters such as `.rev()` produce iterator state values, not slice bounds.
   * **Semantic Checklist**:
       * `let mut arr = [N]T.{ ... };` makes the array storage mutable and permits `arr.[i] = ...`.
       * `let arr = [N]T.{ ... };` keeps the array storage immutable and rejects `arr.[i] = ...`.
@@ -683,7 +683,7 @@ let a = if (b < 10) 10i32 else 20i32;
 Enhanced pattern matching and branching. `match` replaces `switch` for all
 branching logic (integers, strings, and `enum` variants). No fallthrough.
 
-  * **Ranges**: `...` defines a left-closed, right-open range. `..=` defines a fully inclusive range. In expression position these construct builtin range values with canonical type forms such as `T...T`, `T..=T`, `...T`, `..=T`, `T...`, and `...`. These are named builtin type families with compiler-owned layout; their `start` and `end` storage is not source-level field API. In match pattern position, closed scalar ranges are compiler-known no-binding patterns. All builtin integer types may be used as scalar match range bounds, including signed ranges such as `-1...5`.
+  * **Ranges**: `...` defines a left-closed, right-open range. `..=` defines a fully inclusive range. In expression position these construct builtin range values with canonical type forms such as `T...T`, `T..=T`, `...T`, `..=T`, `T...`, and `...`. These are named builtin type families with compiler-owned layout; their `start` and `end` storage is not source-level field API. In match pattern position, closed scalar ranges are compiler-known no-binding patterns. All builtin integer types may be used as scalar match range bounds, including signed ranges such as `-1...5`. Descending traversal is not a separate range spelling; packages may expose adapters such as `(a...b).rev()` and `(a..=b).rev()` that consume the same range value and return iterator state.
 
 <!-- end list -->
 
@@ -712,7 +712,9 @@ for (item: values.iter()) { ... }
 iterator and repeatedly calling `hidden..&.next()`. Range expressions have no
 special loop privilege: `for (i: 0...n)` works only when the compiled package
 provides an ordinary `next()` surface for that builtin range value. The compiler
-and package tools do not depend on `base` or `std` range adapters.
+and package tools do not depend on `base` or `std` range adapters. Reverse
+iteration follows the same rule: `for (i: (0...n).rev())` is ordinary adapter
+composition, not a second descending range syntax.
 
 ### 7.4 Defer
 

@@ -1475,6 +1475,43 @@ pub.. fn parent_only() i32 {
 }
 
 #[test]
+fn lowers_direct_parent_anchored_value_paths() {
+    let output = compile_source_tree_with_args(
+        "kernc_parent_anchored_value_paths",
+        "main.kn",
+        &[
+            (
+                "main.kn",
+                r#"
+mod child;
+
+pub const OFFSET = 2i32;
+
+pub fn helper() i32 {
+    return 40;
+}
+
+fn main() i32 {
+    return child.value();
+}
+"#,
+            ),
+            (
+                "child.kn",
+                r#"
+pub fn value() i32 {
+    return ..helper() + /helper() - 78 - ..OFFSET - /OFFSET;
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
 fn parent_module_can_access_pub_super_reexports() {
     let output = compile_source_tree_with_args(
         "kernc_pub_super_reexport",

@@ -135,6 +135,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     }
                 })
             }
+            ExprKind::AnchoredPath { anchor, name, .. } => {
+                self.measure_phase("        lower_expr_anchored_identifier", |this| {
+                    let norm_ty = this.ctx.type_registry.normalize(concrete_ty);
+
+                    match this.ctx.type_registry.get(norm_ty).clone() {
+                        TypeKind::FnDef(fn_id, fn_args) => {
+                            this.measure_phase("          lower_anchored_fn_ref", |this| {
+                                let mono_id =
+                                    this.instantiate_function_at(fn_id, &fn_args, expr.span);
+                                MastExprKind::FuncRef(mono_id)
+                            })
+                        }
+                        _ => this.lower_anchored_identifier(*anchor, *name, expr.span),
+                    }
+                })
+            }
 
             ExprKind::Let {
                 pattern,

@@ -1,9 +1,9 @@
 use super::Lowerer;
 use std::collections::HashMap;
 
-use kernc_ast::Expr;
+use kernc_ast::{Expr, PathAnchor};
 use kernc_mast::*;
-use kernc_sema::def::Def;
+use kernc_sema::def::{Def, DefId};
 use kernc_sema::scope::SymbolKind;
 use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
@@ -51,6 +51,41 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     fn lower_access_error(&mut self, span: Span, message: impl Into<String>) -> MastExprKind {
         self.lower_error_kind(span, message)
+    }
+
+    fn anchored_start_scope(
+        &mut self,
+        anchor: PathAnchor,
+        span: Span,
+    ) -> Option<(DefId, kernc_sema::scope::ScopeId)> {
+        let current_scope = self.ctx.scopes.current_scope_id()?;
+        let Some(current_module) = self.ctx.module_for_scope(current_scope) else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): could not determine current module for anchored path",
+            );
+            return None;
+        };
+
+        let target_module = match anchor {
+            PathAnchor::Parent => {
+                let Some(parent) = self.ctx.module_parent(current_module) else {
+                    return None;
+                };
+                parent
+            }
+            PathAnchor::Package => self.ctx.module_root(current_module),
+        };
+
+        let Def::Module(module) = &self.ctx.defs[target_module.0 as usize] else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): anchored path target is not a module",
+            );
+            return None;
+        };
+
+        Some((target_module, module.scope_id))
     }
 
     fn local_value_or_binding(&self, name: SymbolId) -> Option<LocalResolvedValue> {
@@ -185,6 +220,77 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> MastExprKind {
         self.lower_identifier_with_locality(expr_id, name, subst_map)
             .kind
+    }
+
+    pub(crate) fn lower_anchored_identifier(
+        &mut self,
+        anchor: PathAnchor,
+        name: SymbolId,
+        span: Span,
+    ) -> MastExprKind {
+        let Some((_owner_module, start_scope)) = self.anchored_start_scope(anchor, span) else {
+            return MastExprKind::Trap;
+        };
+
+        let resolved_info = self
+            .ctx
+            .scopes
+            .resolve_value_in(start_scope, name)
+            .or_else(|| self.ctx.scopes.resolve_namespace_in(start_scope, name))
+            .cloned();
+
+        let Some(info) = resolved_info else {
+            return self.lower_access_error(
+                span,
+                format!(
+                    "cannot find `{}` in the anchored module path",
+                    self.ctx.resolve(name)
+                ),
+            );
+        };
+
+        match info.kind {
+            SymbolKind::Const => {
+                if let Some(def_id) = info.def_id {
+                    if let Some(expr) = self.lower_const_global_value_expr(def_id, span) {
+                        return expr.kind;
+                    }
+                    return self.lower_access_error(
+                        span,
+                        format!(
+                            "constant `{}` could not be evaluated at compile time",
+                            self.ctx.resolve(name)
+                        ),
+                    );
+                }
+            }
+            SymbolKind::Static | SymbolKind::Function => {
+                if let Some(def_id) = info.def_id {
+                    self.ensure_global_lowered(def_id);
+                    if let Some(&mono_id) = self.global_map.get(&def_id) {
+                        return MastExprKind::GlobalRef(mono_id);
+                    }
+                    return self.lower_access_error(
+                        span,
+                        format!(
+                            "module member `{}` could not be lowered because no instantiated value was available",
+                            self.ctx.resolve(name)
+                        ),
+                    );
+                }
+            }
+            SymbolKind::Module => return MastExprKind::Var(name),
+            _ => {}
+        }
+
+        self.lower_access_error(
+            span,
+            format!(
+                "module member `{}` of kind `{:?}` cannot be used as a runtime value",
+                self.ctx.resolve(name),
+                info.kind
+            ),
+        )
     }
 
     pub(crate) fn lower_field_access(

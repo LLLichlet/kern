@@ -452,7 +452,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.cache_stats.mono_function_misses += 1;
         let id = self.new_mono_id();
         for &arg in args {
-            self.track_pure_enum_repr_in_generic_arg(arg);
+            self.track_pure_enum_repr_in_const_generic_arg(arg);
         }
         self.mono_cache.insert(key, id);
         self.pending_function_instantiations
@@ -1097,7 +1097,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.measure_phase("  lower_instantiate_struct", |this| {
             let id = this.new_mono_id();
             for &arg in args {
-                this.track_pure_enum_repr_in_generic_arg(arg);
+                this.track_pure_enum_repr_in_const_generic_arg(arg);
             }
             this.mono_cache.insert(key, id);
 
@@ -1505,7 +1505,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let wrapper_id = this.new_mono_id();
             let payload_union_id = this.new_mono_id();
             for &arg in args {
-                this.track_pure_enum_repr_in_generic_arg(arg);
+                this.track_pure_enum_repr_in_const_generic_arg(arg);
             }
             this.mono_cache.insert(key, wrapper_id);
             this.adt_union_map.insert(wrapper_id, payload_union_id);

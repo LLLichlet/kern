@@ -457,6 +457,40 @@ const BAD: Mode = 1;
 }
 
 #[test]
+fn compiles_extern_enum_const_generic_function_specialization() {
+    let source = r#"
+extern enum Mode: u8 {
+    Fast = 1,
+    Safe = 2,
+};
+
+fn mode_value[M: Mode]() Mode {
+    return M;
+}
+
+fn main() i32 {
+    let fast = mode_value[Mode.Fast]();
+    if (fast != Mode.Fast) {
+        return 1;
+    }
+    let safe = mode_value[Mode.Safe]();
+    if (safe != Mode.Safe) {
+        return 2;
+    }
+    return 0;
+}
+"#;
+
+    let output = build_and_run_source(source);
+    assert!(
+        output.status.success(),
+        "extern enum const generic specialization failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_strong_enum_to_integer_bnc() {
     let source = r#"
 enum Mode: u8 {

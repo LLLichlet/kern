@@ -827,10 +827,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    pub(crate) fn track_pure_enum_repr_in_generic_arg(&mut self, arg: GenericArg) {
-        match arg {
-            GenericArg::Type(ty) => self.track_pure_enum_repr_in_type(ty),
-            GenericArg::Const(value) => self.track_pure_enum_repr_in_const_generic(value),
+    pub(crate) fn track_pure_enum_repr_in_const_generic_arg(&mut self, arg: GenericArg) {
+        if let GenericArg::Const(value) = arg {
+            self.track_pure_enum_repr_in_const_generic(value);
         }
     }
 

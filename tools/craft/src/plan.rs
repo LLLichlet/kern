@@ -518,7 +518,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 publish = false
 
 [lib]
@@ -544,7 +544,7 @@ limine = { path = "vendor/limine" }
         let plan =
             PackagePlan::from_manifest(Path::new("Craft.toml"), &package_id(), &manifest).unwrap();
 
-        assert_eq!(plan.kern, "0.7.5");
+        assert_eq!(plan.kern, "0.7.6");
         assert_eq!(plan.manifest_path, Path::new("Craft.toml"));
         assert_eq!(plan.publish, Some(false));
         assert_eq!(
@@ -583,7 +583,7 @@ limine = { path = "vendor/limine" }
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 "#,
             Path::new("Craft.toml"),
         )
@@ -636,7 +636,7 @@ kern = "0.7.5"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 "#,
             &root.join("Craft.toml"),
         )
@@ -673,7 +673,7 @@ kern = "0.7.5"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [test]
 roots = []
@@ -706,7 +706,7 @@ roots = []
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [test]
 roots = ["integration/*.rn"]
@@ -748,7 +748,7 @@ roots = ["integration/*.rn"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [test]
 roots = ["tests/*.rn", "integration/*.rn"]
@@ -785,7 +785,7 @@ roots = ["tests/*.rn", "integration/*.rn"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [test]
 roots = ["tests/**/*.rn"]
@@ -811,7 +811,7 @@ roots = ["tests/**/*.rn"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [dependencies]
 log = { path = "../log", version = "1" }

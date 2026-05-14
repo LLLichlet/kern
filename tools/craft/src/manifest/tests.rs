@@ -9,7 +9,7 @@ fn parses_package_manifest() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 description = "Demo package"
 license = "MIT"
 authors = ["Demo <demo@example.com>"]
@@ -60,7 +60,7 @@ fn parses_workspace_inherited_dependency() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [dependencies]
 shared = { workspace = true, features = ["simd"] }
@@ -107,7 +107,7 @@ fn rejects_package_and_workspace_in_same_manifest() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [workspace]
 name = "demo"
@@ -133,7 +133,7 @@ fn parses_package_resources() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [resources]
 limine = { git = "https://example.com/limine.git", branch = "main" }
@@ -160,7 +160,7 @@ fn rejects_invalid_resource_source_combinations() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [resources]
 limine = { path = "vendor/limine", git = "https://example.com/limine.git" }
@@ -182,7 +182,7 @@ fn rejects_plain_version_dependencies() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [dependencies]
 log = "1"
@@ -207,7 +207,7 @@ fn rejects_unsupported_source_tables() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [source.default]
 git = "https://example.com/default.git"
@@ -229,7 +229,7 @@ fn parses_craft_release_source_policy_overrides() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [craft]
 release-source-policy = "warn"
@@ -253,7 +253,7 @@ fn parses_craft_style_config() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [craft.style]
 suggestions = "warn"
@@ -280,7 +280,7 @@ fn parses_craft_fmt_config() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [craft.fmt]
 line-width = 88
@@ -313,7 +313,7 @@ fn rejects_tiny_craft_fmt_line_width() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [craft.fmt]
 line-width = 20
@@ -335,7 +335,7 @@ fn rejects_tiny_craft_fmt_threshold() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [craft.fmt]
 postfix-chain-threshold = 1
@@ -360,7 +360,7 @@ fn rejects_unknown_craft_style_rule() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [craft.style]
 disabled-rules = ["unknown-rule"]
@@ -382,7 +382,7 @@ fn rejects_invalid_release_source_policy_value() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [craft]
 release-source-policy = "strict"
@@ -404,7 +404,7 @@ fn rejects_invalid_craft_style_suggestion_level() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [craft.style]
 suggestions = "strict"
@@ -426,7 +426,7 @@ fn parses_runtime_section() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [runtime]
 entry = "crt"
@@ -450,7 +450,7 @@ fn rejects_unknown_runtime_provider_key() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [runtime]
 provider = "toolchain"
@@ -472,7 +472,7 @@ fn runtime_section_applies_to_compile_options() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [runtime]
 entry = "rt"
@@ -498,7 +498,7 @@ fn runtime_entry_does_not_override_lib_target_defaults() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [runtime]
 entry = "rt"
@@ -530,7 +530,7 @@ fn runtime_entry_overrides_test_target_defaults() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [runtime]
 entry = "rt"
@@ -562,7 +562,7 @@ fn profile_section_parses_codegen_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [profile.release]
 opt = 3
@@ -588,7 +588,7 @@ fn profile_section_parses_lto_mode() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [profile.release]
 lto = "thin"
@@ -612,7 +612,7 @@ fn profile_section_parses_code_model() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [profile.release]
 code-model = "kernel"
@@ -636,7 +636,7 @@ fn rejects_zero_profile_codegen_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [profile.dev]
 codegen-units = 0
@@ -658,7 +658,7 @@ fn rejects_invalid_profile_lto_mode() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [profile.release]
 lto = "turbo"
@@ -676,7 +676,7 @@ fn rejects_invalid_profile_code_model() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [profile.release]
 code-model = "huge"
@@ -694,7 +694,7 @@ fn rejects_package_edition_field() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 edition = "2027"
 "#,
         std::path::Path::new("Craft.toml"),
@@ -757,7 +757,7 @@ fn rejects_duplicate_test_file_stems() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [test]
 roots = ["tests/smoke.rn", "alt/smoke.rn"]
@@ -782,7 +782,7 @@ fn parses_glob_patterns_in_test_roots() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [test]
 roots = ["tests/*"]
@@ -804,7 +804,7 @@ fn accepts_multiple_glob_patterns_in_test_roots() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [test]
 roots = ["tests/*.rn", "integration/*.rn"]
@@ -826,7 +826,7 @@ fn rejects_glob_patterns_in_example_roots() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [example]
 roots = ["examples/*.rn"]
@@ -845,7 +845,7 @@ fn rejects_array_table_test_targets() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[test]]
 name = "smoke"
@@ -868,7 +868,7 @@ fn rejects_array_table_example_targets() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[example]]
 name = "hello"

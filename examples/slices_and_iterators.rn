@@ -1,37 +1,37 @@
-use base.coll.{range, range_down};
 use std.io;
-use base.test;
+use base.coll.Iterator;
+use base.test.report;
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
     let mut values = [5]i32.{ 1, 2, 3, 4, 5 };
 
-    let middle = values.&[1 .. 4];
+    let middle = values.&[1...4];
     let mut sum = 0i32;
     for (item: middle.iter()) {
         sum += item;
     }
     (sum == 9).should().sum(@loc(), t);
 
-    let mut head = values..&[0 .. 3];
+    let mut head = values..&[0...3];
     head.reverse();
     (values == [5]i32.{ 3, 2, 1, 4, 5 }).should().sum(@loc(), t);
 
     let mut squares = 0i32;
-    for (i: range(1, 4)) {
+    for (i: 1i32...4i32) {
         squares += i * i;
     }
     (squares == 14).should().sum(@loc(), t);
 
-    let mut descending = range_down(5, 2);
-    let descending_sum = descending..&.fold[i32](0, [](accum: i32, value: i32) i32 {
+    let mut descending = (2i32...6i32).rev();
+    let descending_sum = descending..&.fold[i32](0i32, [](accum: i32, value: i32) i32 {
         return accum + value;
     });
-    (descending_sum == 12).should().sum(@loc(), t);
+    (descending_sum == 14i32).should().sum(@loc(), t);
 
-    let mut nth = range(10, 20);
-    (nth..&.nth(4usize).should_some().sum(@loc(), t) == 14).should().sum(@loc(), t);
+    let mut nth = 10i32...20i32;
+    (nth..&.nth(4usize).should_some().sum(@loc(), t) == 14i32).should().sum(@loc(), t);
 
     "slices: sum={}, squares={}, descending={}".fmt(.{sum, squares, descending_sum}).println();
     return 0;

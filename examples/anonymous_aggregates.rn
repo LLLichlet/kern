@@ -1,5 +1,5 @@
 use std.io;
-use base.test;
+use base.test.report;
 
 extern struct CLayout {
     tag: u8,
@@ -35,7 +35,7 @@ fn classify(state: enum: u32 { Off = 0, On = 1, Error: i32 }) i32 {
 }
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
     // Native structs may reorder fields for compact layout; extern structs keep
     // C-compatible layout.

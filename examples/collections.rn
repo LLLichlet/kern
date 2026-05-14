@@ -1,11 +1,11 @@
 use base.coll.{List, list};
 use base.mem.alloc.gpa;
 use std.io;
-use base.test;
+use base.test.report;
 use std.mem.page;
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
     let page = page()..&;
     let gpa = gpa().on(page)..&;

@@ -1,15 +1,15 @@
 use std.io;
-use base.test;
+use base.test.{Report, report};
 
-fn process_erased_ptr(t: &mut test.Report[io.File], ptr: &mut void) void {
-    let offset_ptr = ptr + 10;
+fn process_erased_ptr(t: &mut Report[io.File], ptr: &mut void) void {
+    let offset_ptr = ptr + 10usize;
 
     (ptr == offset_ptr).should().sum(@loc(), t);
     _ = ptr.*;
 }
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
     (@sizeOf[void]() == 0usize).should().sum(@loc(), t);
     (@sizeOf[[100]void]() == 0usize).should().sum(@loc(), t);

@@ -7,10 +7,10 @@ use base.sync.{
     spin_lock,
 };
 use std.io;
-use base.test;
+use base.test.report;
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
     let mut counter = atomic[usize](0);
     (counter..&.fetch_add[SEQ_CST](2) == 0usize).should().sum(@loc(), t);

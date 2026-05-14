@@ -1,5 +1,5 @@
 use std.io;
-use base.test;
+use base.test.report;
 
 fn apply_operation(
     op: &fn(i32, i32) i32,
@@ -19,7 +19,7 @@ fn repeat_twice(cb: &mut Fn() void) void {
 }
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
     let sum = apply_operation([](a: i32, b: i32) i32 {
         return a + b;

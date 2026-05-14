@@ -1020,7 +1020,7 @@ mod tests {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [dependencies]
 log = { path = "vendor/log", version = "1" }
@@ -1033,7 +1033,7 @@ log = { path = "vendor/log", version = "1" }
 [package]
 name = "log"
 version = "1"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [lib]
 root = "src/lib.rn"
@@ -1084,7 +1084,7 @@ root = "src/lib.rn"
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "kernel"
@@ -1136,7 +1136,7 @@ limine = { path = "vendor/limine" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "app"
@@ -1190,7 +1190,7 @@ limine = { path = "vendor/limine" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "app"
@@ -1239,7 +1239,7 @@ limine = { path = "vendor/limine" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [dependencies]
 log = { path = "vendor/log", version = "1" }
@@ -1252,7 +1252,7 @@ log = { path = "vendor/log", version = "1" }
 [package]
 name = "log"
 version = "1"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [lib]
 root = "src/lib.rn"
@@ -1303,7 +1303,7 @@ root = "src/lib.rn"
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [dependencies]
 log = {{ git = "{}", branch = "main", version = "1" }}
@@ -1370,7 +1370,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [dependencies]
 log = {{ git = "{}", branch = "main", version = "1" }}
@@ -1417,7 +1417,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [dependencies]
 log = {{ git = "{}", branch = "main", version = "1" }}
@@ -1461,7 +1461,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "kernel"
@@ -1514,7 +1514,7 @@ limine = {{ git = "{}", branch = "main" }}
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "kernel"
@@ -1569,7 +1569,7 @@ limine = {{ git = "{}", tag = "v1.0.0" }}
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [dependencies]
 log = {{ git = "{}", rev = "{}", version = "1" }}
@@ -1624,7 +1624,7 @@ log = {{ git = "{}", rev = "{}", version = "1" }}
 [package]
 name = "log"
 version = "1"
-kern = "0.7.5"
+kern = "0.7.6"
 repository = "{}"
 
 [lib]

@@ -11,7 +11,7 @@ fn applies_build_script_link_directives_per_unit() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [features]
 default = ["simd"]
@@ -156,7 +156,7 @@ fn build_script_can_resolve_relative_link_arg_paths_from_package_root() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -227,7 +227,7 @@ fn build_script_can_apply_structured_link_config() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -310,7 +310,7 @@ fn build_script_can_generate_sources_and_mutate_unit_cfg_define() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -394,7 +394,7 @@ fn build_script_can_resolve_and_stage_declared_resources() {
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "kernel"
@@ -472,7 +472,7 @@ fn build_script_can_compile_declared_resource_c_source() {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "app"
@@ -555,7 +555,7 @@ fn build_script_can_copy_package_files_into_generated_root() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -631,7 +631,7 @@ fn build_script_can_model_explicit_staged_dependencies() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -702,7 +702,7 @@ fn build_script_can_stage_post_link_artifact_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -775,7 +775,7 @@ fn build_script_can_stage_post_link_directory_copies() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -852,7 +852,7 @@ fn build_script_can_stage_copies_of_the_primary_artifact() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -926,7 +926,7 @@ fn build_script_can_chain_post_link_output_copies() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -997,7 +997,7 @@ fn build_script_rejects_binding_primary_artifact_as_source_root() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -1050,7 +1050,7 @@ fn build_script_rejects_primary_artifact_on_library_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [lib]
 root = "src/lib.rn"
@@ -1105,7 +1105,7 @@ fn build_script_rejects_post_link_artifact_staging_on_library_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [lib]
 root = "src/lib.rn"
@@ -1160,7 +1160,7 @@ fn build_script_rejects_overlapping_generated_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -1215,7 +1215,7 @@ fn build_script_rejects_overlapping_artifact_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -1266,7 +1266,7 @@ fn build_script_rejects_cyclic_generated_output_dependencies() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -1325,7 +1325,7 @@ fn build_script_rejects_forged_staged_output_handles() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -1381,7 +1381,7 @@ fn build_script_rejects_forged_primary_artifact_handles() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -1445,7 +1445,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "app"
@@ -1476,7 +1476,7 @@ b.depend(note, kernel);
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "artifact-note"
@@ -1549,7 +1549,7 @@ fn build_script_receives_host_target_and_domain_context() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -1621,7 +1621,7 @@ fn build_script_roots_use_absolute_paths_for_workspace_root_package() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "demo"
@@ -1701,7 +1701,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "app"
@@ -1778,7 +1778,7 @@ fn build_script_exposes_expected_paths_for_lib_and_bin_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [lib]
 root = "src/lib.rn"

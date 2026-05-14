@@ -21,7 +21,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [lib]
 root = "src/lib.rn"
@@ -96,7 +96,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [[bin]]
 name = "app"
@@ -114,7 +114,7 @@ util = { path = "../util" }
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [lib]
 root = "src/lib.rn"
@@ -179,7 +179,7 @@ fn build_run_and_test_only_include_relevant_target_kinds() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [lib]
 root = "src/lib.rn"
@@ -266,7 +266,7 @@ fn build_can_include_examples_when_requested() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [lib]
 root = "src/lib.rn"
@@ -319,7 +319,7 @@ fn run_can_select_examples_without_building_bins() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.5"
+kern = "0.7.6"
 
 [lib]
 root = "src/lib.rn"

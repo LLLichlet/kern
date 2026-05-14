@@ -197,7 +197,7 @@ rest of the code pointer-shaped:
 ```kern
 let page = page()..&;
 let gpa = gpa().on(page)..&;
-let t = test.report(io.stderr())..&;
+let t = report(io.stderr())..&;
 let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
 
 state.handle_key(gpa, .{ Byte: b'i' });
@@ -382,7 +382,7 @@ For tests, make assertions postfixed on the checked value and finish them with
 keeps the assertion site explicit without global test state:
 
 ```kern
-let t = test.report(io.stderr())..&;
+let t = report(io.stderr())..&;
 
 "42".parse[i32]().should_ok().eq(42).sum(@loc(), t);
 buffer.is_empty().should().sum(@loc(), t);

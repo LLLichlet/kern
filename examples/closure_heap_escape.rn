@@ -1,7 +1,7 @@
 use base.mem.alloc.gpa;
 use base.mem.{Allocator, Layout, layout_of};
 use std.io;
-use base.test;
+use base.test.report;
 use std.mem.page;
 
 struct StoredClosure {
@@ -29,7 +29,7 @@ fn create_heap_closure(alloc: &mut Allocator, factor: i32) StoredClosure {
 }
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
     let page = page()..&;
     let gpa = gpa().on(page)..&;

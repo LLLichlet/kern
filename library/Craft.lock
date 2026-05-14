@@ -4,138 +4,138 @@ manifest = "Craft.toml"
 manifest-digest = "fnv1a64:5e934dd73f512dfe"
 
 [[package]]
-id = "base 0.7.5 workspace-member:base"
+id = "base 0.7.6 workspace-member:base"
 name = "base"
-version = "0.7.5"
+version = "0.7.6"
 source = "workspace-member"
 source-value = "base"
 manifest = "base/Craft.toml"
-manifest-digest = "fnv1a64:d896aea56e5ceaca"
+manifest-digest = "fnv1a64:9ff3fecb8aca7010"
 
 [[package]]
-id = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+id = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 name = "kernlib-test"
-version = "0.7.5"
+version = "0.7.6"
 source = "workspace-member"
 source-value = "kernlib-test"
 manifest = "kernlib-test/Craft.toml"
-manifest-digest = "fnv1a64:9a07649300a7439d"
+manifest-digest = "fnv1a64:f031d3944e121bdb"
 
 [[package]]
-id = "rt 0.7.5 workspace-member:rt"
+id = "rt 0.7.6 workspace-member:rt"
 name = "rt"
-version = "0.7.5"
+version = "0.7.6"
 source = "workspace-member"
 source-value = "rt"
 manifest = "rt/Craft.toml"
-manifest-digest = "fnv1a64:d31dc9690845a890"
+manifest-digest = "fnv1a64:dc3e5e17dc338aa2"
 
 [[package]]
-id = "std 0.7.5 workspace-member:std"
+id = "std 0.7.6 workspace-member:std"
 name = "std"
-version = "0.7.5"
+version = "0.7.6"
 source = "workspace-member"
 source-value = "std"
 manifest = "std/Craft.toml"
-manifest-digest = "fnv1a64:2854bd378230a13b"
+manifest-digest = "fnv1a64:6593bf549848ba85"
 
 [[package-target]]
-package = "base 0.7.5 workspace-member:base"
+package = "base 0.7.6 workspace-member:base"
 kind = "lib"
 root = "init.rn"
 
 [[package-target]]
-package = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+package = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 kind = "test"
 name = "abi"
 root = "src/abi.rn"
 
 [[package-target]]
-package = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+package = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 kind = "test"
 name = "alloc"
 root = "src/alloc.rn"
 
 [[package-target]]
-package = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+package = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 kind = "test"
 name = "coll_map"
 root = "src/coll_map.rn"
 
 [[package-target]]
-package = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+package = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 kind = "test"
 name = "coll_seq"
 root = "src/coll_seq.rn"
 
 [[package-target]]
-package = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+package = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 kind = "test"
 name = "coll_tree"
 root = "src/coll_tree.rn"
 
 [[package-target]]
-package = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+package = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 kind = "test"
 name = "fs_io"
 root = "src/fs_io.rn"
 
 [[package-target]]
-package = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+package = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 kind = "test"
 name = "fs_path"
 root = "src/fs_path.rn"
 
 [[package-target]]
-package = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+package = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 kind = "test"
 name = "io"
 root = "src/io.rn"
 
 [[package-target]]
-package = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+package = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 kind = "test"
 name = "num"
 root = "src/num.rn"
 
 [[package-target]]
-package = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+package = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 kind = "test"
 name = "std_host"
 root = "src/std_host.rn"
 
 [[package-target]]
-package = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+package = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 kind = "test"
 name = "sync"
 root = "src/sync.rn"
 
 [[package-target]]
-package = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+package = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 kind = "test"
 name = "test"
 root = "src/test.rn"
 
 [[package-target]]
-package = "kernlib-test 0.7.5 workspace-member:kernlib-test"
+package = "kernlib-test 0.7.6 workspace-member:kernlib-test"
 kind = "test"
 name = "text"
 root = "src/text.rn"
 
 [[package-target]]
-package = "rt 0.7.5 workspace-member:rt"
+package = "rt 0.7.6 workspace-member:rt"
 kind = "lib"
 root = "init.rn"
 
 [[package-target]]
-package = "std 0.7.5 workspace-member:std"
+package = "std 0.7.6 workspace-member:std"
 kind = "lib"
 root = "init.rn"
 
 [[dependency]]
-from = "std 0.7.5 workspace-member:std"
+from = "std 0.7.6 workspace-member:std"
 kind = "normal"
 name = "base"
 package = "base"
 target = "local"
-target-id = "base 0.7.5 workspace-member:base"
+target-id = "base 0.7.6 workspace-member:base"

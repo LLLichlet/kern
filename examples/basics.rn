@@ -1,5 +1,5 @@
 use std.io;
-use base.test;
+use base.test.report;
 
 struct Point {
     x: i32,
@@ -18,7 +18,7 @@ fn translate(
 }
 
 fn main() i32 {
-    let t = test.report(io.stderr())..&;
+    let t = report(io.stderr())..&;
 
     let origin = Point.{ x: 0, y: 0 };
     let moved = translate(origin, 4, -2);

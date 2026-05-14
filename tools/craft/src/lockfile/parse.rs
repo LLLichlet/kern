@@ -1,6 +1,6 @@
 use super::{
     LockedDependency, LockedExternalPackage, LockedPackage, LockedPackageResource,
-    LockedPackageTarget, Lockfile,
+    LockedPackageTarget, LockedPublishProof, Lockfile,
 };
 use crate::error::{Error, Result};
 use std::path::Path;
@@ -13,10 +13,11 @@ enum Section {
     PackageResource(usize),
     ExternalPackage(usize),
     Dependency(usize),
+    PublishProof(usize),
 }
 
 impl Lockfile {
-    pub(super) fn parse(source: &str, path: &Path) -> Result<Self> {
+    pub fn parse(source: &str, path: &Path) -> Result<Self> {
         let mut lockfile = Self {
             version: 0,
             manifest: String::new(),
@@ -26,6 +27,7 @@ impl Lockfile {
             package_resources: Vec::new(),
             external_packages: Vec::new(),
             dependencies: Vec::new(),
+            publish_proofs: Vec::new(),
         };
         let mut section = Section::Root;
 
@@ -121,6 +123,23 @@ fn start_section(lockfile: &mut Lockfile, line: &str) -> std::result::Result<Sec
             });
             Ok(Section::Dependency(lockfile.dependencies.len() - 1))
         }
+        "[[publish-proof]]" => {
+            lockfile.publish_proofs.push(LockedPublishProof {
+                package_id: String::new(),
+                path: String::new(),
+                package: String::new(),
+                version: String::new(),
+                kern: String::new(),
+                description: String::new(),
+                license: String::new(),
+                authors: Vec::new(),
+                readme: String::new(),
+                repository: String::new(),
+                manifest_sha256: String::new(),
+                source_sha256: String::new(),
+            });
+            Ok(Section::PublishProof(lockfile.publish_proofs.len() - 1))
+        }
         _ => Err(format!("unsupported array table `{line}`")),
     }
 }
@@ -196,6 +215,24 @@ fn assign_key_value(
                 "target" => dependency.target_kind = parse_string(raw_value)?,
                 "target-id" => dependency.target_id = parse_string(raw_value)?,
                 _ => return Err(format!("unsupported [[dependency]] key `{key}`")),
+            }
+        }
+        Section::PublishProof(index) => {
+            let proof = &mut lockfile.publish_proofs[index];
+            match key {
+                "package-id" => proof.package_id = parse_string(raw_value)?,
+                "path" => proof.path = parse_string(raw_value)?,
+                "package" => proof.package = parse_string(raw_value)?,
+                "version" => proof.version = parse_string(raw_value)?,
+                "kern" => proof.kern = parse_string(raw_value)?,
+                "description" => proof.description = parse_string(raw_value)?,
+                "license" => proof.license = parse_string(raw_value)?,
+                "authors" => proof.authors = parse_string_array(raw_value)?,
+                "readme" => proof.readme = parse_string(raw_value)?,
+                "repository" => proof.repository = parse_string(raw_value)?,
+                "manifest-sha256" => proof.manifest_sha256 = parse_string(raw_value)?,
+                "source-sha256" => proof.source_sha256 = parse_string(raw_value)?,
+                _ => return Err(format!("unsupported [[publish-proof]] key `{key}`")),
             }
         }
     }
@@ -322,4 +359,47 @@ fn parse_string(raw: &str) -> std::result::Result<String, String> {
     }
 
     Ok(out)
+}
+
+fn parse_string_array(raw: &str) -> std::result::Result<Vec<String>, String> {
+    let raw = raw.trim();
+    if !raw.starts_with('[') || !raw.ends_with(']') {
+        return Err(format!("expected string array, found `{raw}`"));
+    }
+    let inner = raw[1..raw.len() - 1].trim();
+    if inner.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut values = Vec::new();
+    let mut start = 0usize;
+    let mut in_string = false;
+    let mut escape = false;
+    for (index, ch) in inner.char_indices() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        if in_string {
+            match ch {
+                '\\' => escape = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            ',' => {
+                values.push(parse_string(inner[start..index].trim())?);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    if in_string {
+        return Err("unterminated string literal in array".to_string());
+    }
+    values.push(parse_string(inner[start..].trim())?);
+    Ok(values)
 }

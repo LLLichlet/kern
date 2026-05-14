@@ -83,6 +83,23 @@ impl Lockfile {
             push_string_line(&mut out, "target-id", &dependency.target_id);
         }
 
+        for proof in &self.publish_proofs {
+            out.push('\n');
+            out.push_str("[[publish-proof]]\n");
+            push_string_line(&mut out, "package-id", &proof.package_id);
+            push_string_line(&mut out, "path", &proof.path);
+            push_string_line(&mut out, "package", &proof.package);
+            push_string_line(&mut out, "version", &proof.version);
+            push_string_line(&mut out, "kern", &proof.kern);
+            push_string_line(&mut out, "description", &proof.description);
+            push_string_line(&mut out, "license", &proof.license);
+            push_string_array_line(&mut out, "authors", &proof.authors);
+            push_string_line(&mut out, "readme", &proof.readme);
+            push_string_line(&mut out, "repository", &proof.repository);
+            push_string_line(&mut out, "manifest-sha256", &proof.manifest_sha256);
+            push_string_line(&mut out, "source-sha256", &proof.source_sha256);
+        }
+
         out
     }
 }
@@ -92,6 +109,20 @@ fn push_string_line(out: &mut String, key: &str, value: &str) {
     out.push_str(" = \"");
     out.push_str(&escape_string(value));
     out.push_str("\"\n");
+}
+
+fn push_string_array_line(out: &mut String, key: &str, values: &[String]) {
+    out.push_str(key);
+    out.push_str(" = [");
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push('"');
+        out.push_str(&escape_string(value));
+        out.push('"');
+    }
+    out.push_str("]\n");
 }
 
 fn escape_string(value: &str) -> String {

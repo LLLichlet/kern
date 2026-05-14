@@ -12,7 +12,6 @@ use crate::lockfile;
 use crate::manifest::Manifest;
 use crate::operation_lock::WorkspaceOperationLock;
 use crate::plan::TargetKind;
-use crate::publish::{self, PublishFile, PublishPackageInput};
 use crate::source;
 use crate::style;
 use crate::workspace;
@@ -289,7 +288,6 @@ fn run_check(
         &feature_selection,
         "check",
     )?;
-    let publish_sync = sync_publish_file_for_check(&loaded)?;
     let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Check)?;
     let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
@@ -409,14 +407,6 @@ fn run_check(
             lockfile::LockWriteResult::Unchanged => "current",
         },
     );
-    render.summary(
-        "publish",
-        match publish_sync {
-            CheckPublishSync::Ready(result) => result.as_str(),
-            CheckPublishSync::Blocked => "blocked",
-            CheckPublishSync::None => "none",
-        },
-    );
     if render.is_verbose() && build_plan.generated_file_count() > 0 {
         render.section("generated");
     }
@@ -525,13 +515,12 @@ fn run_publish(
     crate::test_support::hit(crate::test_support::FAILPOINT_AFTER_WORKSPACE_LOCK);
     let summary = publish_summary(&manifest_path, &manifest, &workspace_members)?;
     validate_publish_metadata(&summary)?;
-    let publish_path = workspace_root.join(publish::PUBLISH_FILE_NAME);
     let preflight_vcs_summary = validate_publish_vcs(
         &manifest_path,
         &manifest,
         &workspace_members,
         &summary,
-        Some(publish_path.as_path()),
+        None,
     )?;
     let security_summary = summarize_source_security(&manifest);
     validate_check_source_policy(&manifest_path, &feature_selection, &security_summary)?;
@@ -560,19 +549,13 @@ fn run_publish(
                 .to_string(),
         });
     }
-    let expected_publish =
-        expected_publish_file(&manifest_path, &manifest, &workspace_members, &summary)?;
-    let publish_write_result = publish::sync_publish_file(workspace_root, &expected_publish)?;
     validate_publish_vcs(
         &manifest_path,
         &manifest,
         &workspace_members,
         &summary,
-        Some(publish_path.as_path()),
+        None,
     )?;
-    if publish_write_result != publish::PublishWriteResult::Unchanged {
-        crate::publish::PublishFile::load(&publish_path)?;
-    }
     let format_summaries = fmt::format_workspace_sources(
         &manifest_path,
         &manifest,
@@ -663,14 +646,6 @@ fn run_publish(
         format!("{style_suggestion_count} advisory source style suggestion(s)"),
     );
     render.summary(
-        "publish",
-        format!(
-            "{} in {}",
-            publish_write_result.as_str(),
-            publish::PUBLISH_FILE_NAME
-        ),
-    );
-    render.summary(
         "lockfile",
         match lockfile_write_result {
             lockfile::LockWriteResult::Created => "created (release)",
@@ -726,53 +701,6 @@ fn run_publish(
     render.ok("publish check completed");
 
     Ok(())
-}
-
-pub(crate) fn expected_publish_file(
-    manifest_path: &Path,
-    manifest: &Manifest,
-    workspace_members: &[workspace::WorkspaceMember],
-    summary: &super::policy::PublishSummary,
-) -> Result<PublishFile> {
-    let workspace_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let mut inputs = Vec::new();
-    for package in &summary.ready {
-        let package_root = package.manifest_path.parent().unwrap_or(workspace_root);
-        let package_manifest = if package.manifest_path == manifest_path {
-            manifest.clone()
-        } else {
-            workspace_members
-                .iter()
-                .find(|member| member.manifest_path == package.manifest_path)
-                .map(|member| member.manifest.clone())
-                .ok_or_else(|| Error::Validation {
-                    path: package.manifest_path.clone(),
-                    message: "publish metadata check failed: package manifest is not part of the workspace"
-                        .to_string(),
-                })?
-        };
-        inputs.push(PublishPackageInput {
-            path: relative_display(workspace_root, package_root),
-            package_root: package_root.to_path_buf(),
-            manifest: package_manifest,
-            description: package.description.clone(),
-            license: package.license.clone(),
-            authors: package.authors.clone(),
-            readme: package.readme.clone(),
-            repository: package.repository.clone(),
-        });
-    }
-    PublishFile::expected(inputs)
-}
-
-fn relative_display(root: &Path, path: &Path) -> String {
-    let relative = path.strip_prefix(root).unwrap_or(path);
-    let text = relative.to_string_lossy().replace('\\', "/");
-    if text.is_empty() {
-        ".".to_string()
-    } else {
-        text
-    }
 }
 
 fn run_build(
@@ -1953,13 +1881,6 @@ struct LoadedPackageGraph {
     lockfile_write_result: lockfile::LockWriteResult,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CheckPublishSync {
-    Ready(publish::PublishWriteResult),
-    Blocked,
-    None,
-}
-
 fn load_package_graph(
     path: Option<&Path>,
     command: crate::script::ScriptCommand,
@@ -2008,35 +1929,6 @@ fn load_package_graph(
         },
         workspace_lock,
     ))
-}
-
-fn sync_publish_file_for_check(loaded: &LoadedPackageGraph) -> Result<CheckPublishSync> {
-    let summary = match publish_summary(
-        &loaded.manifest_path,
-        &loaded.manifest,
-        &loaded.workspace_members,
-    ) {
-        Ok(summary) => summary,
-        Err(_) => return Ok(CheckPublishSync::None),
-    };
-    if !summary.blocked.is_empty() {
-        return Ok(CheckPublishSync::Blocked);
-    }
-    if summary.ready.is_empty() {
-        return Ok(CheckPublishSync::None);
-    }
-
-    let workspace_root = loaded
-        .manifest_path
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
-    let expected = expected_publish_file(
-        &loaded.manifest_path,
-        &loaded.manifest,
-        &loaded.workspace_members,
-        &summary,
-    )?;
-    publish::sync_publish_file(workspace_root, &expected).map(CheckPublishSync::Ready)
 }
 
 fn filter_selected_package(

@@ -7,6 +7,7 @@ use crate::error::{Error, Result};
 use crate::graph::{DependencyKind, PackageId, SourceId};
 use crate::manifest::ResourceSpec;
 use crate::plan::TargetKind;
+use crate::publish;
 use crate::resolver::{ExternalPackageId, ResolvedDependencyTarget};
 use std::fs;
 use std::path::Path;
@@ -22,6 +23,7 @@ impl Lockfile {
         let mut package_resources = Vec::new();
         let mut external_packages = Vec::new();
         let mut dependencies = Vec::new();
+        let mut publish_proofs = Vec::new();
 
         for package in &resolved.packages {
             let package_id = package_lock_id(&package.id);
@@ -57,6 +59,17 @@ impl Lockfile {
                     source_locator: resource_source_locator(spec),
                     source_selector: resource_source_selector(spec),
                 });
+            }
+            if let Some(input) = publish_input_for_locked_package(
+                root,
+                manifest_path,
+                &elaboration.manifest,
+                package,
+            )? {
+                publish_proofs.push(publish::expected_publish_proof_for_lock(
+                    package_id.clone(),
+                    input,
+                )?);
             }
             for dep in &package.dependencies {
                 let (target_kind, target_id) = match &dep.target {
@@ -100,8 +113,111 @@ impl Lockfile {
             package_resources,
             external_packages,
             dependencies,
+            publish_proofs,
         })
     }
+}
+
+fn publish_input_for_locked_package(
+    workspace_root: &Path,
+    root_manifest_path: &Path,
+    root_manifest: &crate::manifest::Manifest,
+    package: &crate::resolver::ResolvedPackageNode,
+) -> Result<Option<publish::PublishPackageInput>> {
+    let workspace_defaults = root_manifest
+        .workspace
+        .as_ref()
+        .and_then(|workspace| workspace.package.as_ref());
+    let package_root = package
+        .manifest_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    let package_manifest = crate::workspace::load_member_manifest(
+        root_manifest_path,
+        root_manifest,
+        &package.manifest_path,
+    )?;
+    let Some(manifest_package) = &package_manifest.package else {
+        return Ok(None);
+    };
+
+    match &package.id.source {
+        SourceId::Root => {}
+        SourceId::WorkspaceMember { .. } => {
+            let Some(workspace) = &root_manifest.workspace else {
+                return Ok(None);
+            };
+            let member_path = relative_display(workspace_root, package_root);
+            if !workspace
+                .exports
+                .values()
+                .any(|export| export.member == member_path)
+            {
+                return Ok(None);
+            }
+        }
+        SourceId::PathDependency { .. } | SourceId::GitDependency { .. } => return Ok(None),
+    }
+
+    let Some(description) = manifest_package
+        .description
+        .clone()
+        .or_else(|| workspace_defaults.and_then(|package| package.description.clone()))
+    else {
+        return Ok(None);
+    };
+    let Some(license) = manifest_package
+        .license
+        .clone()
+        .or_else(|| workspace_defaults.and_then(|package| package.license.clone()))
+    else {
+        return Ok(None);
+    };
+    let authors = if manifest_package.authors.is_empty() {
+        workspace_defaults
+            .map(|package| package.authors.clone())
+            .unwrap_or_default()
+    } else {
+        manifest_package.authors.clone()
+    };
+    if authors.is_empty() {
+        return Ok(None);
+    }
+    let (readme, inherited_readme) = match manifest_package.readme.clone() {
+        Some(readme) => (readme, false),
+        None => {
+            let Some(readme) = workspace_defaults.and_then(|package| package.readme.clone()) else {
+                return Ok(None);
+            };
+            (readme, true)
+        }
+    };
+    let readme_path = if inherited_readme {
+        workspace_root.join(&readme)
+    } else {
+        package_root.join(&readme)
+    };
+    if !readme_path.is_file() {
+        return Ok(None);
+    }
+    let Some(repository) = manifest_package
+        .repository
+        .clone()
+        .or_else(|| workspace_defaults.and_then(|package| package.repository.clone()))
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(publish::PublishPackageInput {
+        path: relative_display(workspace_root, package_root),
+        package_root: package_root.to_path_buf(),
+        manifest: package_manifest,
+        description,
+        license,
+        authors,
+        readme,
+        repository,
+    }))
 }
 
 fn dependency_kind(kind: DependencyKind) -> &'static str {
@@ -253,9 +369,15 @@ fn git_selector(source: &SourceId) -> String {
 }
 
 fn relative_display(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
+    let text = path
+        .strip_prefix(root)
         .map(|relative| relative.to_string_lossy().replace('\\', "/"))
-        .unwrap_or_else(|_| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| path.to_string_lossy().replace('\\', "/"));
+    if text.is_empty() {
+        ".".to_string()
+    } else {
+        text
+    }
 }
 
 fn digest_file(path: &Path) -> Result<String> {

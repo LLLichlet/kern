@@ -209,11 +209,9 @@ fn assert_lockfile_is_current(root: &Path) {
 }
 
 fn assert_lockfile_has_publish_proof(root: &Path) {
-    let publish = fs::read_to_string(root.join("Craft.publish")).unwrap();
-    assert!(publish.contains("[[package]]"));
-    assert!(publish.contains("name = \"demo\"") || publish.contains("name = \"member\""));
     let lockfile = fs::read_to_string(root.join("Craft.lock")).unwrap();
-    assert!(!lockfile.contains("[[publish-proof]]"));
+    assert!(lockfile.contains("[[publish-proof]]"));
+    assert!(lockfile.contains("package = \"demo\"") || lockfile.contains("package = \"member\""));
 }
 
 fn assert_command_resyncs_missing_and_damaged_lockfile(
@@ -2725,8 +2723,7 @@ fn publish_auto_syncs_release_lock_and_checks_metadata() {
         ui: UiOptions::default(),
     })
     .unwrap();
-    assert!(root.join("Craft.publish").is_file());
-    run_git(&root, ["add", "Craft.lock", "Craft.publish"]);
+    run_git(&root, ["add", "Craft.lock"]);
     run_git(&root, ["commit", "-m", "lock"]);
 
     run_command(Command::Publish {
@@ -2841,26 +2838,6 @@ fn publish_rejects_dirty_git_worktree() {
         err.to_string()
             .contains("git worktree has uncommitted changes")
     );
-
-    let _ = fs::remove_dir_all(root);
-}
-
-#[test]
-fn check_refreshes_existing_publish_file() {
-    let root = temp_dir("craft-cli-check-refresh-publish-file");
-    write_publishable_git_bin_package(&root);
-    fs::write(root.join("Craft.publish"), "stale publish declaration\n").unwrap();
-
-    run_command(Command::Check {
-        path: Some(root.clone()),
-        feature_selection: FeatureSelection::default(),
-        ui: UiOptions::default(),
-    })
-    .unwrap();
-
-    let publish = fs::read_to_string(root.join("Craft.publish")).unwrap();
-    assert!(publish.contains("[[package]]"));
-    assert!(!publish.contains("stale publish declaration"));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -3085,9 +3062,8 @@ root = "src/main.kn"
     .unwrap();
 
     assert!(root.join("Craft.lock").exists());
-    assert!(root.join("Craft.publish").exists());
+    assert_lockfile_has_publish_proof(&root);
     assert!(!member.join("Craft.lock").exists());
-    assert!(!member.join("Craft.publish").exists());
     assert!(!member.join(".craft").exists());
 
     let _ = fs::remove_dir_all(root);

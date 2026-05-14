@@ -105,7 +105,7 @@ pub fn fetch_external_packages(resolved: &ResolvedGraph) -> Result<Vec<FetchedPa
         let cache_path = cache_path_for_external(&cache_root, &package.id)?;
         let status = materialize_tree(&resolved_source.source_path, &cache_path)?;
         validate_fetched_manifest(&cache_path, &package.id.package_name)?;
-        publish::validate_git_dependency_publish_file(
+        publish::validate_git_dependency_publish_proof(
             &cache_path,
             &package.id,
             &resolved_source.identity,
@@ -1359,7 +1359,13 @@ log = {{ git = "{}", branch = "main", version = "1" }}
         let root = temp_dir("craft-fetch-git-no-proof");
         let repo = root.join("log.git");
         init_git_package(&repo, "pub fn x() i32 { return 0; }\n");
-        fs::remove_file(repo.join("Craft.publish")).unwrap();
+        let lockfile = fs::read_to_string(repo.join("Craft.lock")).unwrap();
+        let lockfile_without_proof = lockfile
+            .split("\n[[publish-proof]]")
+            .next()
+            .unwrap()
+            .to_string();
+        fs::write(repo.join("Craft.lock"), lockfile_without_proof).unwrap();
         run_git(&repo, ["add", "."]).unwrap();
         run_git(&repo, ["commit", "-m", "remove proof"]).unwrap();
 
@@ -1395,7 +1401,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
         let err = fetch_external_packages(&elaboration.resolved_graph).unwrap_err();
         assert!(
             err.to_string()
-                .contains("missing committed `Craft.publish`")
+                .contains("missing a matching `Craft.lock` publish proof")
         );
 
         let _ = fs::remove_dir_all(root);
@@ -1440,10 +1446,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
         .unwrap();
 
         let err = fetch_external_packages(&elaboration.resolved_graph).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("Craft.publish proof does not match")
-        );
+        assert!(err.to_string().contains("publish proof does not match"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -1687,20 +1690,6 @@ root = "src/lib.kn"
         )
         .unwrap();
         lockfile::sync_lockfile(&manifest_path, &elaboration).unwrap();
-        let package = manifest.package.as_ref().unwrap();
-        let expected =
-            crate::publish::PublishFile::expected(vec![crate::publish::PublishPackageInput {
-                path: ".".to_string(),
-                package_root: repo.clone(),
-                manifest: manifest.clone(),
-                description: package.description.clone().unwrap(),
-                license: package.license.clone().unwrap(),
-                authors: package.authors.clone(),
-                readme: package.readme.clone().unwrap(),
-                repository: package.repository.clone().unwrap(),
-            }])
-            .unwrap();
-        crate::publish::sync_publish_file(repo, &expected).unwrap();
     }
 
     fn git_head(repo: &PathBuf) -> String {

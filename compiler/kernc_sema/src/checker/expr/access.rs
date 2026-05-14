@@ -881,9 +881,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let self_type = self.ctx.intern("Self");
 
         if let Some(info) = self.ctx.scopes.resolve_value_symbol(self_var) {
-            info.type_id
+            let definition_span = info.span;
+            let type_id = info.type_id;
+            self.ctx.record_identifier_reference(span, definition_span);
+            type_id
         } else if let Some(info) = self.ctx.scopes.resolve_type_symbol(self_type) {
-            info.type_id
+            let definition_span = info.span;
+            let type_id = info.type_id;
+            self.ctx.record_identifier_reference(span, definition_span);
+            type_id
         } else {
             self.ctx
                 .struct_error(span, "`self` is not available in this context")

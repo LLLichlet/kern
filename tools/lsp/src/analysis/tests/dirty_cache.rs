@@ -35,7 +35,8 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
         .hover(&result_uri, position_of_nth(result_source, "Result", 0, 1))
         .unwrap();
     assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -46,7 +47,8 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
         },
     });
     assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
 
     let _ = analysis
         .hover(&result_uri, position_of_nth(result_source, "Result", 0, 1))
@@ -54,7 +56,7 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
     assert_eq!(analysis.structure_cache.borrow().len(), 1);
     assert!(
         analysis
-            .artifact_cache
+            .navigation_cache
             .borrow()
             .keys()
             .all(AnalysisCacheKey::is_clean)
@@ -171,6 +173,7 @@ fn dirty_interactive_requests_after_complex_error_avoid_full_dirty_analysis() {
         .unwrap();
 
     assert!(!actions.is_empty());
+    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
     assert_eq!(analysis.artifact_cache.borrow().len(), 1);
 }
 
@@ -283,7 +286,8 @@ fn dirty_complex_hover_uses_clean_analysis() {
         .hover(&uri, position_of_nth(dirty, "make_point", 1, 1))
         .unwrap();
 
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
     assert_eq!(
         analysis.last_analysis_tier(),
         Some(AnalysisTier::CleanSemantic)
@@ -314,7 +318,8 @@ fn dirty_complex_navigation_uses_clean_analysis() {
     let _highlights = analysis
         .document_highlights(&uri, position_of_nth(dirty, "make_point", 1, 1))
         .unwrap();
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
     assert_eq!(
         analysis.last_analysis_tier(),
         Some(AnalysisTier::CleanSemantic)
@@ -527,7 +532,8 @@ root = "src/lib.rn"
         .unwrap();
 
     assert!(!tokens.data.is_empty());
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
     assert!(
         hover.contents.value.contains("fn helper"),
         "{}",
@@ -716,9 +722,7 @@ fn opening_clean_sibling_document_keeps_cached_artifact() {
         },
     });
 
-    let _ = analysis
-        .hover(&result_uri, position_of_nth(result_source, "Result", 0, 1))
-        .unwrap();
+    warm_clean_semantic_artifact(&analysis, &result_uri, result_source);
     let resolved = analysis.resolve_analysis(&result_uri).unwrap();
     let cache_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
     let cached_before = analysis
@@ -778,9 +782,7 @@ fn reverting_dirty_document_reuses_clean_caches() {
         },
     });
 
-    let _ = analysis
-        .hover(&uri, position_of_nth(&original, "main", 0, 1))
-        .unwrap();
+    warm_clean_semantic_artifact(&analysis, &uri, &original);
     let resolved = analysis.resolve_analysis(&uri).unwrap();
     let clean_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
     let clean_artifact = analysis
@@ -856,12 +858,7 @@ fn body_only_dirty_diagnostics_reuse_clean_structure_cache() {
         },
     });
 
-    let _ = analysis
-        .hover(
-            &uri,
-            position_of_nth("fn main() i32 { return 1i32; }\n", "main", 0, 1),
-        )
-        .unwrap();
+    warm_clean_semantic_artifact(&analysis, &uri, "fn main() i32 { return 1i32; }\n");
     let resolved = analysis.resolve_analysis(&uri).unwrap();
     let clean_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
     let clean_structure = analysis
@@ -1047,9 +1044,7 @@ fn function_body_fast_path_preserves_clean_target_diagnostics_outside_changed_ow
             text: original.to_string(),
         },
     });
-    let _ = analysis
-        .hover(&uri, position_of_nth(original, "main", 0, 1))
-        .unwrap();
+    warm_clean_semantic_artifact(&analysis, &uri, original);
 
     let _ = analysis.change_document_state(DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
@@ -1102,9 +1097,7 @@ fn function_body_fast_path_replaces_overlapping_clean_target_diagnostics() {
             text: original.to_string(),
         },
     });
-    let _ = analysis
-        .hover(&uri, position_of_nth(original, "missing", 0, 1))
-        .unwrap();
+    warm_clean_semantic_artifact(&analysis, &uri, original);
 
     let outcome = analysis.change_document(DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {

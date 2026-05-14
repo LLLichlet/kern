@@ -264,6 +264,51 @@ fn goto_definition_resolves_function_identifier_references() {
 }
 
 #[test]
+fn navigation_queries_use_navigation_cache_without_full_artifact() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
+    let uri = temp_file_uri("navigation_light_artifact", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    analysis.parse_cache.borrow_mut().clear();
+    analysis.surface_cache.borrow_mut().clear();
+    analysis.structure_cache.borrow_mut().clear();
+    analysis.artifact_cache.borrow_mut().clear();
+    analysis.navigation_cache.borrow_mut().clear();
+
+    let definition = analysis
+        .goto_definition(&uri, position_of_nth(source, "helper", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        definition.range.start,
+        position_of_nth(source, "helper", 0, 0)
+    );
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::CleanSemantic)
+    );
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
+
+    let _hover = analysis
+        .hover(&uri, position_of_nth(source, "helper", 1, 1))
+        .unwrap()
+        .unwrap();
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
+}
+
+#[test]
 fn goto_definition_resolves_impl_method_references() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
@@ -473,6 +518,9 @@ fn hover_resolves_function_signature_from_reference() {
         .unwrap();
 
     assert!(hover.contents.value.contains("fn helper: &fn(i32) i32"));
+    let range = hover.range.unwrap();
+    assert_eq!(range.start, position_of_nth(source, "helper", 1, 0));
+    assert_eq!(range.end, position_of_nth(source, "helper", 1, 6));
 }
 
 #[test]
@@ -724,6 +772,9 @@ fn hover_resolves_impl_method_signature_from_reference() {
         .unwrap();
 
     assert!(hover.contents.value.contains("fn get:"));
+    let range = hover.range.unwrap();
+    assert_eq!(range.start, position_of_nth(source, "get", 1, 0));
+    assert_eq!(range.end, position_of_nth(source, "get", 1, 3));
 }
 
 #[test]
@@ -1253,6 +1304,45 @@ fn hover_on_impl_method_definition_prefers_method_span() {
     assert!(hover.contents.value.contains("fn get:"));
     assert_eq!(range.start, position_of_nth(source, "get", 0, 0));
     assert_eq!(range.end, position_of_nth(source, "get", 0, 3));
+}
+
+#[test]
+fn hover_in_method_body_does_not_use_synthetic_self_span() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "struct Counter { value: i32 }\n",
+        "impl Counter {\n",
+        "    fn get() i32 { return self.value; }\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_method_body_synthetic_self", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let stray_hover = analysis
+        .hover(&uri, position_of_nth(source, "return", 0, 1))
+        .unwrap();
+    assert!(
+        stray_hover.is_none(),
+        "unexpected hover: {:?}",
+        stray_hover.map(|hover| (hover.range, hover.contents.value))
+    );
+
+    let self_hover = analysis
+        .hover(&uri, position_of_nth(source, "self", 0, 1))
+        .unwrap();
+    if let Some(hover) = self_hover {
+        let range = hover.range.unwrap();
+        assert_eq!(range.start, position_of_nth(source, "self", 0, 0));
+        assert_eq!(range.end, position_of_nth(source, "self", 0, 4));
+    }
 }
 
 #[test]

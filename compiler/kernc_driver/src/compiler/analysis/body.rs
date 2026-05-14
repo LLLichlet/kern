@@ -26,6 +26,7 @@ impl CompilerDriver {
             .map(|reference| (reference.reference_span, reference.definition_span))
             .collect::<Vec<_>>();
         let hovers = self.collect_analysis_hovers(&ctx);
+        let type_hints = self.collect_analysis_type_hints(&ctx, &analysis_asts);
         let definition_links = self.collect_analysis_definition_links(&ctx);
         let semantic_entries = self.collect_analysis_semantic_entries(&symbols, &ctx, &references);
         let completion_model = self.collect_completion_model(&mut ctx, &analysis_asts);
@@ -43,6 +44,7 @@ impl CompilerDriver {
             symbols,
             references,
             hovers,
+            type_hints,
             definition_links,
             semantic_entries,
             asts: analysis_asts,
@@ -53,6 +55,43 @@ impl CompilerDriver {
             unused_items,
             unused_bindings,
             dead_stores,
+        }
+    }
+
+    pub fn analyze_navigation_artifact_from_structure(
+        &self,
+        structure: &StructureArtifact,
+    ) -> AnalysisNavigationArtifact {
+        let mut session = structure.session.clone();
+        let analysis_asts = structure.asts.clone();
+
+        let mut ctx = self.build_sema_context(&mut session);
+        ctx.restore_structure(structure.snapshot.clone());
+        let succeeded = self.run_navigation_pipeline(&mut ctx);
+        let symbols = self.collect_analysis_symbols(&ctx, &analysis_asts);
+        let references = ctx
+            .identifier_references()
+            .iter()
+            .map(|(reference_span, definition_span)| AnalysisReference {
+                reference_span: *reference_span,
+                definition_span: *definition_span,
+            })
+            .collect::<Vec<_>>();
+        let hovers = self.collect_analysis_hovers(&ctx);
+        let type_hints = self.collect_analysis_type_hints(&ctx, &analysis_asts);
+        let definition_links = self.collect_analysis_definition_links(&ctx);
+        let semantic_entries = self.collect_analysis_semantic_entries(&symbols, &ctx, &references);
+        drop(ctx);
+
+        AnalysisNavigationArtifact {
+            session,
+            succeeded,
+            symbols,
+            references,
+            hovers,
+            type_hints,
+            definition_links,
+            semantic_entries,
         }
     }
 
@@ -166,6 +205,18 @@ impl CompilerDriver {
         self.run_body_pipeline_with_report(ctx).is_some()
     }
 
+    pub(in crate::compiler) fn run_navigation_pipeline<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+    ) -> bool {
+        let mut typeck = TypeckDriver::new(ctx);
+        let (globals, worklist) = typeck.worklists();
+        typeck.resolve_global_worklist(&globals);
+        typeck.check_body_worklist(&worklist);
+        let ctx = typeck.into_context();
+        Self::report_diagnostics_if_errors(ctx)
+    }
+
     pub(in crate::compiler) fn run_body_pipeline_with_report<'a>(
         &self,
         ctx: &mut SemaContext<'a>,
@@ -259,6 +310,7 @@ impl CompilerDriver {
             symbols: Vec::new(),
             references: Vec::new(),
             hovers: Vec::new(),
+            type_hints: Vec::new(),
             definition_links: Vec::new(),
             semantic_entries: Vec::new(),
             asts: Vec::new(),
@@ -269,6 +321,22 @@ impl CompilerDriver {
             unused_items: Vec::new(),
             unused_bindings: Vec::new(),
             dead_stores: Vec::new(),
+        }
+    }
+
+    pub(super) fn empty_analysis_navigation_artifact(
+        &self,
+        session: Session,
+    ) -> AnalysisNavigationArtifact {
+        AnalysisNavigationArtifact {
+            session,
+            succeeded: false,
+            symbols: Vec::new(),
+            references: Vec::new(),
+            hovers: Vec::new(),
+            type_hints: Vec::new(),
+            definition_links: Vec::new(),
+            semantic_entries: Vec::new(),
         }
     }
 

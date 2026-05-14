@@ -32,6 +32,7 @@ fn initialize_result_advertises_precise_capabilities() {
         result["capabilities"]["semanticTokensProvider"]["full"]["delta"],
         false
     );
+    assert_eq!(result["capabilities"]["inlayHintProvider"], true);
 }
 
 #[test]

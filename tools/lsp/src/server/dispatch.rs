@@ -15,8 +15,8 @@ use crate::protocol::{
     CancelRequestParams, CodeActionParams, CompletionParams, DefinitionParams,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, DocumentHighlightParams, DocumentSymbolParams, IncomingMessage,
-    InitializeParams, ReferenceParams, RenameParams, SemanticTokensParams, SetTraceParams,
-    SignatureHelpParams, error_response, initialize_result, log_message,
+    InitializeParams, InlayHintParams, ReferenceParams, RenameParams, SemanticTokensParams,
+    SetTraceParams, SignatureHelpParams, error_response, initialize_result, log_message,
 };
 use crate::transport::MessageWriter;
 use serde_json::Value;
@@ -328,6 +328,23 @@ pub(super) fn handle_message(
                 SchedulerLane::Interactive,
                 method,
                 |analysis| analysis.semantic_tokens(&params.text_document.uri),
+            )?;
+        }
+        "textDocument/inlayHint" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/inlayHint must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<InlayHintParams>(message.params)?;
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &params.text_document.uri,
+                SchedulerLane::Interactive,
+                method,
+                |analysis| analysis.inlay_hints(&params.text_document.uri, params.range.clone()),
             )?;
         }
         "textDocument/prepareRename" => {

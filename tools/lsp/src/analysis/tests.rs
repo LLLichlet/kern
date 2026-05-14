@@ -3,6 +3,7 @@ mod completion;
 mod diagnostics;
 mod dirty_cache;
 mod document;
+mod inlay_hints;
 mod navigation;
 mod project_resolution;
 mod real_projects;
@@ -128,10 +129,8 @@ fn change_document_for_full_diagnostics(
     analysis.analyze_document_uri(uri)
 }
 
-fn warm_clean_semantic_artifact(analysis: &AnalysisEngine, uri: &str, source: &str) {
-    let _ = analysis
-        .hover(uri, position_of_nth(source, "fn", 0, 1))
-        .unwrap();
+fn warm_clean_semantic_artifact(analysis: &AnalysisEngine, uri: &str, _source: &str) {
+    let _ = analysis.analyze_interactive_artifact(uri).unwrap();
 }
 
 fn position_of_nth(source: &str, needle: &str, occurrence: usize, char_offset: u32) -> Position {

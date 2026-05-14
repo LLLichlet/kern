@@ -71,7 +71,7 @@ impl AnalysisEngine {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(None);
         }
-        let artifact = match self.analyze_interactive_artifact(uri) {
+        let artifact = match self.analyze_interactive_navigation_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(None),
         };
@@ -100,7 +100,7 @@ impl AnalysisEngine {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(Vec::new());
         }
-        let artifact = match self.analyze_interactive_artifact(uri) {
+        let artifact = match self.analyze_interactive_navigation_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(Vec::new()),
         };
@@ -130,7 +130,7 @@ impl AnalysisEngine {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(Vec::new());
         }
-        let artifact = match self.analyze_interactive_artifact(uri) {
+        let artifact = match self.analyze_interactive_navigation_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(Vec::new()),
         };
@@ -155,7 +155,7 @@ impl AnalysisEngine {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(None);
         }
-        let artifact = match self.analyze_interactive_artifact(uri) {
+        let artifact = match self.analyze_interactive_navigation_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(None),
         };
@@ -296,7 +296,7 @@ impl AnalysisEngine {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(None);
         }
-        let artifact = match self.analyze_interactive_artifact(uri) {
+        let artifact = match self.analyze_interactive_navigation_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(None),
         };
@@ -334,7 +334,7 @@ impl AnalysisEngine {
         }
 
         let artifact = self
-            .analyze_interactive_artifact(uri)
+            .analyze_interactive_navigation_artifact(uri)
             .map_err(|message| format!("rename analysis failed: {message}"))?;
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested rename for a document that is not open".to_string());
@@ -397,6 +397,38 @@ impl AnalysisEngine {
             .borrow_mut()
             .insert(token_key, tokens.clone());
         Ok(tokens)
+    }
+
+    pub fn inlay_hints(&self, uri: &str, range: Range) -> Result<Vec<InlayHint>, String> {
+        let Some(target_doc) = self.documents.get(uri) else {
+            return Err("requested inlay hints for a document that is not open".to_string());
+        };
+        let target_path = normalize_path(&target_doc.path);
+        let artifact = match self.analyze_interactive_navigation_artifact(uri) {
+            Ok(artifact) => artifact,
+            Err(_) => return Ok(Vec::new()),
+        };
+
+        self.record_analysis_tier(AnalysisTier::CleanSemantic);
+        Ok(artifact
+            .type_hints
+            .iter()
+            .filter_map(|hint| {
+                let path = artifact
+                    .session
+                    .source_manager
+                    .get_file_path(hint.span.file)?;
+                (normalize_path(path) == target_path).then_some(hint)
+            })
+            .map(|hint| analysis_type_hint_to_lsp_hint(&artifact.session, hint))
+            .filter(|hint| {
+                let hint_range = Range {
+                    start: hint.position.clone(),
+                    end: hint.position.clone(),
+                };
+                ranges_overlap(&hint_range, &range)
+            })
+            .collect())
     }
 
     pub fn code_actions(&self, uri: &str, range: Range) -> Result<Vec<CodeAction>, String> {

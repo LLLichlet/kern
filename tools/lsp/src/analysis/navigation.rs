@@ -1,12 +1,12 @@
 use super::{RenameBehavior, RenameTarget};
 use crate::protocol::{
-    CompletionItem, DocumentHighlight, DocumentSymbol, Hover, Location, MarkupContent,
+    CompletionItem, DocumentHighlight, DocumentSymbol, Hover, InlayHint, Location, MarkupContent,
     ParameterInformation, Position, SignatureHelp, SignatureInformation, TextEdit,
 };
 use kernc_driver::{
     AnalysisCompletionItem, AnalysisCompletionKind, AnalysisDefinitionLink, AnalysisHover,
     AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSignatureHelp,
-    AnalysisSymbol, AnalysisSymbolKind,
+    AnalysisSymbol, AnalysisSymbolKind, AnalysisTypeHint, AnalysisTypeHintKind,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -58,6 +58,26 @@ pub(super) fn analysis_signature_help_to_lsp_help(help: AnalysisSignatureHelp) -
             .collect(),
         active_signature: help.active_signature as u32,
         active_parameter: help.active_parameter as u32,
+    }
+}
+
+pub(super) fn analysis_type_hint_to_lsp_hint(
+    session: &kernc_utils::Session,
+    hint: &AnalysisTypeHint,
+) -> InlayHint {
+    let range = super::span_to_range(session, hint.span);
+    InlayHint {
+        position: range.end,
+        label: hint.label.clone(),
+        kind: Some(lsp_inlay_hint_kind(hint.kind)),
+        padding_left: Some(false),
+        padding_right: Some(true),
+    }
+}
+
+fn lsp_inlay_hint_kind(kind: AnalysisTypeHintKind) -> u8 {
+    match kind {
+        AnalysisTypeHintKind::Variable | AnalysisTypeHintKind::Expression => 1,
     }
 }
 
@@ -233,7 +253,8 @@ pub(super) fn find_hover(
         semantic_entries_at_position(session, semantic_entries, target_path, position);
 
     if let Some(entry) = best_target_entry(session, hovers, &matching_entries)
-        && let Some(hover) = hover_for_definition_span(session, hovers, entry.definition_span)
+        && let Some(hover) =
+            hover_for_definition_span_with_range(session, hovers, entry.definition_span, entry.span)
     {
         return Some(hover);
     }
@@ -250,8 +271,21 @@ fn hover_for_definition_span(
     hovers: &[AnalysisHover],
     definition_span: kernc_utils::Span,
 ) -> Option<Hover> {
+    hover_for_definition_span_with_range(session, hovers, definition_span, definition_span)
+}
+
+fn hover_for_definition_span_with_range(
+    session: &kernc_utils::Session,
+    hovers: &[AnalysisHover],
+    definition_span: kernc_utils::Span,
+    display_span: kernc_utils::Span,
+) -> Option<Hover> {
     let hover = hovers.iter().find(|hover| hover.span == definition_span)?;
-    Some(analysis_hover_to_lsp_hover(session, hover))
+    Some(analysis_hover_to_lsp_hover_with_range(
+        session,
+        hover,
+        display_span,
+    ))
 }
 
 fn hover_at_definition_position(
@@ -287,12 +321,20 @@ fn hover_at_definition_position(
 }
 
 fn analysis_hover_to_lsp_hover(session: &kernc_utils::Session, hover: &AnalysisHover) -> Hover {
+    analysis_hover_to_lsp_hover_with_range(session, hover, hover.span)
+}
+
+fn analysis_hover_to_lsp_hover_with_range(
+    session: &kernc_utils::Session,
+    hover: &AnalysisHover,
+    range_span: kernc_utils::Span,
+) -> Hover {
     Hover {
         contents: MarkupContent {
             kind: "markdown",
             value: hover.contents.clone(),
         },
-        range: Some(super::span_to_range(session, hover.span)),
+        range: Some(super::span_to_range(session, range_span)),
     }
 }
 

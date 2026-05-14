@@ -1224,7 +1224,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 node_id: i.target_type.id,
                 type_id: target_ty,
                 def_id: None,
-                span: i.span,
+                span: Span::default(),
                 vis: Visibility::Private,
                 is_mut: false,
             },

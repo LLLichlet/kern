@@ -67,6 +67,8 @@ pub struct TextDocumentClientCapabilities {
     #[serde(default)]
     pub code_action: Option<CodeActionClientCapabilities>,
     #[serde(default)]
+    pub inlay_hint: Option<InlayHintClientCapabilities>,
+    #[serde(default)]
     pub rename: Option<RenameClientCapabilities>,
     #[serde(default)]
     pub semantic_tokens: Option<SemanticTokensClientCapabilities>,
@@ -91,6 +93,13 @@ pub struct CodeActionLiteralSupport {
 pub struct RenameClientCapabilities {
     #[serde(default)]
     pub prepare_support: bool,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InlayHintClientCapabilities {
+    #[serde(default)]
+    pub _dynamic_registration: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -234,6 +243,13 @@ pub struct RenameParams {
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensParams {
     pub text_document: TextDocumentIdentifier,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InlayHintParams {
+    pub text_document: TextDocumentIdentifier,
+    pub range: Range,
 }
 
 #[derive(Debug, Deserialize)]
@@ -430,6 +446,19 @@ pub struct SemanticTokens {
     pub data: Vec<u32>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InlayHint {
+    pub position: Position,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub padding_left: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub padding_right: Option<bool>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Range {
     pub start: Position,
@@ -479,6 +508,7 @@ pub struct DocumentSymbol {
 #[derive(Debug, Clone, Copy)]
 pub struct InitializeResultOptions {
     pub code_action_literals: bool,
+    pub inlay_hint: bool,
     pub rename_prepare_support: bool,
     pub semantic_tokens: bool,
 }
@@ -487,6 +517,7 @@ impl Default for InitializeResultOptions {
     fn default() -> Self {
         Self {
             code_action_literals: true,
+            inlay_hint: true,
             rename_prepare_support: true,
             semantic_tokens: true,
         }
@@ -538,6 +569,9 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
                 }
             }),
         );
+    }
+    if options.inlay_hint {
+        capabilities.insert("inlayHintProvider".to_string(), Value::Bool(true));
     }
     capabilities.insert(
         "codeActionProvider".to_string(),

@@ -417,6 +417,45 @@ fn semantic_tokens_request_returns_encoded_token_data() {
 }
 
 #[test]
+fn inlay_hint_request_returns_type_hints() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "fn helper() usize { return 1usize; }\n",
+        "fn main() i32 {\n",
+        "    let value = helper();\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("server_inlay_hint", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(33)),
+            method: Some("textDocument/inlayHint".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 10, "character": 0 }
+                }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(33));
+    let hints = response["result"].as_array().unwrap();
+    assert!(hints.iter().any(|hint| hint["label"] == ": usize"));
+    assert!(
+        hints
+            .iter()
+            .any(|hint| hint["position"] == json!({ "line": 2, "character": 13 }))
+    );
+}
+
+#[test]
 fn verbose_trace_reports_dirty_semantic_tokens_as_lexical() {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;

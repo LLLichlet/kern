@@ -231,7 +231,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
     }
 
-    pub(super) fn bind_self_type(&mut self, target_ty: TypeId, scope: ScopeId, span: Span) {
+    pub(super) fn bind_self_type(&mut self, target_ty: TypeId, scope: ScopeId, _span: Span) {
         self.ctx.scopes.set_current_scope(scope);
         let self_sym = self.ctx.intern("Self");
         let info = SymbolInfo {
@@ -239,7 +239,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             node_id: self.ctx.next_node_id(),
             type_id: target_ty,
             def_id: None,
-            span,
+            span: Span::default(),
             vis: Visibility::Private,
             is_mut: false,
         };

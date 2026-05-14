@@ -5,6 +5,7 @@ mod flow;
 mod link;
 mod pipeline;
 mod signature;
+mod type_hints;
 
 pub use self::codegen_units::{CodegenImportPlanReport, CodegenPlanFallback, CodegenPlanReport};
 use std::collections::HashMap;
@@ -123,6 +124,19 @@ pub struct AnalysisHover {
 pub struct AnalysisDefinitionLink {
     pub definition_span: kernc_utils::Span,
     pub linked_definition_span: kernc_utils::Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalysisTypeHintKind {
+    Variable,
+    Expression,
+}
+
+#[derive(Debug, Clone)]
+pub struct AnalysisTypeHint {
+    pub span: kernc_utils::Span,
+    pub label: String,
+    pub kind: AnalysisTypeHintKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -274,6 +288,7 @@ pub struct AnalysisArtifact {
     pub symbols: Vec<AnalysisSymbol>,
     pub references: Vec<AnalysisReference>,
     pub hovers: Vec<AnalysisHover>,
+    pub type_hints: Vec<AnalysisTypeHint>,
     pub definition_links: Vec<AnalysisDefinitionLink>,
     pub semantic_entries: Vec<AnalysisSemanticEntry>,
     asts: Vec<(DefId, ast::Module)>,
@@ -284,6 +299,17 @@ pub struct AnalysisArtifact {
     unused_items: Vec<AnalysisUnusedItem>,
     unused_bindings: Vec<AnalysisUnusedBinding>,
     dead_stores: Vec<AnalysisDeadStore>,
+}
+
+pub struct AnalysisNavigationArtifact {
+    pub session: Session,
+    pub succeeded: bool,
+    pub symbols: Vec<AnalysisSymbol>,
+    pub references: Vec<AnalysisReference>,
+    pub hovers: Vec<AnalysisHover>,
+    pub type_hints: Vec<AnalysisTypeHint>,
+    pub definition_links: Vec<AnalysisDefinitionLink>,
+    pub semantic_entries: Vec<AnalysisSemanticEntry>,
 }
 
 pub struct AnalysisOutline {

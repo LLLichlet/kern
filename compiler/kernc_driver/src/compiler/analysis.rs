@@ -15,13 +15,13 @@ use super::completion::CompletionModel;
 use super::flow::FlowModel;
 use super::signature::SignatureModel;
 use super::{
-    AnalysisArtifact, AnalysisDefinitionLink, AnalysisHover, AnalysisOutline, AnalysisReference,
-    AnalysisReport, AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole,
-    AnalysisSpanReplacement, AnalysisSurfaceArtifact, AnalysisSymbol, AnalysisSymbolKind,
-    AnalysisUnusedBinding, AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind,
-    CollectedStructureArtifact, CompileStructureArtifact, CompilerDriver,
-    ImportedStructureArtifact, ParsedModule, ParsedModuleArtifact, PhaseTiming, SourceOverrides,
-    StructureArtifact, TargetedAnalysisReport,
+    AnalysisArtifact, AnalysisDefinitionLink, AnalysisHover, AnalysisNavigationArtifact,
+    AnalysisOutline, AnalysisReference, AnalysisReport, AnalysisSemanticEntry,
+    AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSpanReplacement, AnalysisSurfaceArtifact,
+    AnalysisSymbol, AnalysisSymbolKind, AnalysisUnusedBinding, AnalysisUnusedBindingKind,
+    AnalysisUnusedItem, AnalysisUnusedItemKind, CollectedStructureArtifact,
+    CompileStructureArtifact, CompilerDriver, ImportedStructureArtifact, ParsedModule,
+    ParsedModuleArtifact, PhaseTiming, SourceOverrides, StructureArtifact, TargetedAnalysisReport,
 };
 use crate::doc::{lint_docs, render_hover_markdown};
 use crate::loader::ModuleLoader;
@@ -106,6 +106,20 @@ impl CompilerDriver {
         match self.try_analyze_structure(session, input_file, source_overrides) {
             Ok(structure) => self.analyze_artifact_from_structure(&structure),
             Err(session) => self.empty_analysis_artifact(*session),
+        }
+    }
+
+    pub fn analyze_navigation_artifact(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+    ) -> AnalysisNavigationArtifact {
+        let mut session = Session::new();
+        session.apply_options(&self.options);
+
+        match self.try_analyze_structure(session, input_file, source_overrides) {
+            Ok(structure) => self.analyze_navigation_artifact_from_structure(&structure),
+            Err(session) => self.empty_analysis_navigation_artifact(*session),
         }
     }
 

@@ -70,10 +70,12 @@ pub(super) fn negotiate_capabilities(capabilities: &ClientCapabilities) -> Initi
         .as_ref()
         .map(|capabilities| capabilities.prepare_support)
         .unwrap_or(false);
+    let inlay_hint = capabilities.text_document.inlay_hint.is_some();
     let semantic_tokens = capabilities.text_document.semantic_tokens.is_some();
 
     InitializeResultOptions {
         code_action_literals,
+        inlay_hint,
         rename_prepare_support,
         semantic_tokens,
     }

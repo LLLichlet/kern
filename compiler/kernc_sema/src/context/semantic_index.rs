@@ -16,6 +16,16 @@ impl SemanticIndexState {
 
 impl<'a> SemaContext<'a> {
     pub fn record_identifier_reference(&mut self, reference_span: Span, definition_span: Span) {
+        if reference_span.end <= reference_span.start
+            || self
+                .sess
+                .source_manager
+                .get_file(reference_span.file)
+                .is_none()
+        {
+            return;
+        }
+
         self.analysis
             .semantic_index
             .identifier_references
@@ -33,6 +43,10 @@ impl<'a> SemaContext<'a> {
         is_mut: bool,
         is_pub: bool,
     ) {
+        if span.end <= span.start || self.sess.source_manager.get_file(span.file).is_none() {
+            return;
+        }
+
         self.analysis
             .semantic_index
             .semantic_definitions

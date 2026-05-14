@@ -24,8 +24,9 @@ use self::diagnostics::{
 };
 use self::navigation::{
     ReferenceLocationQuery, analysis_completion_to_lsp_item, analysis_signature_help_to_lsp_help,
-    analysis_symbol_to_document_symbol, build_rename_changes, find_definition_location,
-    find_document_highlights, find_hover, find_reference_locations, find_rename_target,
+    analysis_symbol_to_document_symbol, analysis_type_hint_to_lsp_hint, build_rename_changes,
+    find_definition_location, find_document_highlights, find_hover, find_reference_locations,
+    find_rename_target,
 };
 pub(crate) use self::text::single_server_diagnostic;
 #[cfg(test)]
@@ -42,15 +43,15 @@ use self::text::{
 use crate::defaults::default_analysis_compile_options;
 use crate::protocol::{
     CodeAction, CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentHighlight, DocumentSymbol, Hover, Location, Position,
-    PrepareRenameResult, Range, SemanticTokens, SignatureHelp, TextDocumentContentChangeEvent,
-    WorkspaceEdit,
+    DidOpenTextDocumentParams, DocumentHighlight, DocumentSymbol, Hover, InlayHint, Location,
+    Position, PrepareRenameResult, Range, SemanticTokens, SignatureHelp,
+    TextDocumentContentChangeEvent, WorkspaceEdit,
 };
 use crate::server::DiagnosticsAnalysisMode;
 use craft::project::{AnalysisProject, ResolvedAnalysis, resolve_project_manifest_path};
 use kernc_driver::{
-    AnalysisArtifact, AnalysisReport, AnalysisSurfaceArtifact, CompilerDriver,
-    IncrementalDriverKey, ParsedModuleArtifact, SourceOverrides, StructureArtifact,
+    AnalysisArtifact, AnalysisNavigationArtifact, AnalysisReport, AnalysisSurfaceArtifact,
+    CompilerDriver, IncrementalDriverKey, ParsedModuleArtifact, SourceOverrides, StructureArtifact,
 };
 use kernc_utils::config::{
     CompileOptions, apply_configured_library_aliases, inject_driver_condition_defines,
@@ -153,6 +154,7 @@ pub struct AnalysisEngine {
     surface_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisSurfaceArtifact>>>,
     structure_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<StructureArtifact>>>,
     artifact_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisArtifact>>>,
+    navigation_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisNavigationArtifact>>>,
     semantic_tokens_cache: RefCell<BTreeMap<SemanticTokensCacheKey, SemanticTokens>>,
     dirty_documents_snapshot: RefCell<Option<Rc<DirtyDocumentsSnapshot>>>,
     open_uri_by_path: RefCell<Option<Rc<BTreeMap<PathBuf, String>>>>,
@@ -176,6 +178,7 @@ impl AnalysisEngine {
             surface_cache: RefCell::new(BTreeMap::new()),
             structure_cache: RefCell::new(BTreeMap::new()),
             artifact_cache: RefCell::new(BTreeMap::new()),
+            navigation_cache: RefCell::new(BTreeMap::new()),
             semantic_tokens_cache: RefCell::new(BTreeMap::new()),
             dirty_documents_snapshot: RefCell::new(None),
             open_uri_by_path: RefCell::new(None),
@@ -496,6 +499,25 @@ impl AnalysisEngine {
         Ok(self.analyze_clean_artifact_for_context(&context))
     }
 
+    fn analyze_interactive_navigation_artifact(
+        &self,
+        target_uri: &str,
+    ) -> Result<Rc<AnalysisNavigationArtifact>, String> {
+        let context = self.resolve_analysis_context(target_uri)?;
+        if context.dirty_documents.is_clean() {
+            self.record_analysis_tier(AnalysisTier::CleanSemantic);
+            return Ok(self.analyze_navigation_artifact_for_context(&context));
+        }
+
+        if !context.resolved.input_file.is_file() {
+            self.record_analysis_tier(AnalysisTier::DirtySemantic);
+            return Ok(self.analyze_navigation_artifact_for_context(&context));
+        }
+
+        self.record_analysis_tier(AnalysisTier::CleanSemantic);
+        Ok(self.analyze_clean_navigation_artifact_for_context(&context))
+    }
+
     fn analyze_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
@@ -532,6 +554,49 @@ impl AnalysisEngine {
             )
         });
         self.artifact_cache
+            .borrow_mut()
+            .insert(context.cache_key.clone(), Rc::clone(&artifact));
+        artifact
+    }
+
+    fn analyze_navigation_artifact_for_context(
+        &self,
+        context: &AnalysisRequestContext,
+    ) -> Rc<AnalysisNavigationArtifact> {
+        if let Some(artifact) = self.navigation_cache.borrow().get(&context.cache_key) {
+            return Rc::clone(artifact);
+        }
+
+        let structure =
+            if let Some(structure) = self.structure_cache.borrow().get(&context.cache_key) {
+                Some(Rc::clone(structure))
+            } else {
+                context
+                    .driver
+                    .analyze_structure(
+                        &context.resolved.input_file.to_string_lossy(),
+                        &context.dirty_documents.overrides,
+                    )
+                    .map(Rc::new)
+            };
+        self.prune_cache_family_for_insert(&context.cache_key);
+        if let Some(structure) = &structure {
+            self.structure_cache
+                .borrow_mut()
+                .insert(context.cache_key.clone(), Rc::clone(structure));
+        }
+
+        let artifact = Rc::new(if let Some(structure) = structure {
+            context
+                .driver
+                .analyze_navigation_artifact_from_structure(&structure)
+        } else {
+            context.driver.analyze_navigation_artifact(
+                &context.resolved.input_file.to_string_lossy(),
+                &context.dirty_documents.overrides,
+            )
+        });
+        self.navigation_cache
             .borrow_mut()
             .insert(context.cache_key.clone(), Rc::clone(&artifact));
         artifact
@@ -577,6 +642,25 @@ impl AnalysisEngine {
             &SourceOverrides::new(),
         ));
         self.artifact_cache
+            .borrow_mut()
+            .insert(clean_key, Rc::clone(&artifact));
+        artifact
+    }
+
+    fn analyze_clean_navigation_artifact_for_context(
+        &self,
+        context: &AnalysisRequestContext,
+    ) -> Rc<AnalysisNavigationArtifact> {
+        let clean_key = AnalysisCacheKey::clean(&context.resolved);
+        if let Some(artifact) = self.navigation_cache.borrow().get(&clean_key) {
+            return Rc::clone(artifact);
+        }
+
+        let artifact = Rc::new(context.driver.analyze_navigation_artifact(
+            &context.resolved.input_file.to_string_lossy(),
+            &SourceOverrides::new(),
+        ));
+        self.navigation_cache
             .borrow_mut()
             .insert(clean_key, Rc::clone(&artifact));
         artifact
@@ -754,6 +838,7 @@ impl AnalysisEngine {
         self.surface_cache.borrow_mut().clear();
         self.structure_cache.borrow_mut().clear();
         self.artifact_cache.borrow_mut().clear();
+        self.navigation_cache.borrow_mut().clear();
     }
 
     fn invalidate_dirty_document_snapshot(&self) {
@@ -780,6 +865,9 @@ impl AnalysisEngine {
             .borrow_mut()
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
         self.artifact_cache
+            .borrow_mut()
+            .retain(|key, _| key.family() != family || key == keep || key.is_clean());
+        self.navigation_cache
             .borrow_mut()
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
     }

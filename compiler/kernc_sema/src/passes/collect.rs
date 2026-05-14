@@ -608,22 +608,23 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         if spec.parent_impl.is_some() || spec.parent_trait.is_some() {
             let self_sym = self.ctx.intern("self");
             let node_id = self.ctx.next_node_id();
+            let synthetic_span = Span::default();
 
             actual_params.insert(
                 0,
                 ast::FuncParam {
                     pattern: ast::BindingPattern {
                         name: self_sym,
-                        name_span: decl.span,
+                        name_span: synthetic_span,
                         is_mut: false,
-                        span: decl.span,
+                        span: synthetic_span,
                     },
                     type_node: ast::TypeNode {
                         id: node_id,
-                        span: decl.span,
+                        span: synthetic_span,
                         kind: ast::TypeKind::SelfType,
                     },
-                    span: decl.span,
+                    span: synthetic_span,
                 },
             );
         }
@@ -721,22 +722,23 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         if parent_impl.is_some() || parent_trait.is_some() {
             let self_sym = self.ctx.intern("self");
             let self_node_id = self.ctx.next_node_id();
+            let synthetic_span = Span::default();
 
             actual_params.insert(
                 0,
                 ast::FuncParam {
                     pattern: ast::BindingPattern {
                         name: self_sym,
-                        name_span: span,
+                        name_span: synthetic_span,
                         is_mut: false,
-                        span,
+                        span: synthetic_span,
                     },
                     type_node: ast::TypeNode {
                         id: self_node_id,
-                        span,
+                        span: synthetic_span,
                         kind: ast::TypeKind::SelfType,
                     },
-                    span,
+                    span: synthetic_span,
                 },
             );
         }

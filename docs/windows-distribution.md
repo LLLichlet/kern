@@ -1,7 +1,7 @@
 # Windows Distribution Guide
 
 This document describes the Windows host-tool distribution policy for the
-current 0.7.5 toolchain.
+current 0.7.6 toolchain.
 
 It keeps three concerns separate:
 
@@ -97,7 +97,7 @@ needs a complete LLVM development prefix. The installed end-user Kern SDK is not
 enough for this because it intentionally omits `llvm-config.exe`, LLVM headers,
 LLVM libraries, `clang++.exe`, and other source-build assets.
 
-Install or unpack the LLVM 21 toolchain first. The current 0.7.5 source tree
+Install or unpack the LLVM 21 toolchain first. The current 0.7.6 source tree
 uses `llvm-sys = "211.0.0"`, so the expected LLVM major version is 21. CI uses
 LLVM 21.1.8.
 
@@ -179,7 +179,7 @@ The Rust repository worker is the canonical Windows packaging
 entry point:
 
 ```powershell
-cargo run -q -p kernworker -- release package --version v0.7.5 --target x86_64-windows-msvc
+cargo run -q -p kernworker -- release package --version v0.7.6 --target x86_64-windows-msvc
 ```
 
 The command currently enforces the important Windows-specific rules:
@@ -216,19 +216,8 @@ The user-facing Windows installer is the repository root [install.ps1](../instal
 entrypoint. It should perform installation directly instead of depending on
 repository maintenance tooling.
 
-It downloads the prebuilt archive and expands it into:
-
-```text
-%USERPROFILE%\.kern
-```
-
-It then adds:
-
-```text
-%USERPROFILE%\.kern\bin
-```
-
-to the user PATH.
+The installed SDK layout, ordinary install commands, offline install commands,
+and reproducibility checks are centralized in [Installing Kern](./install.md).
 
 This means the quality of the release archive matters directly. If the archive
 itself is wrong, the installer will still install the wrong thing.
@@ -243,19 +232,6 @@ standalone development toolchain archive. Installer UX still matters:
   slower links or machines with aggressive antivirus scanning
 - keep the `-Archive <path>` offline-install path available so one download can
   be reused across repeated installs
-
-The offline-install path should be documented concretely. A correct example is:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.5-x86_64-windows-msvc.zip
-```
-
-If the archive filename no longer contains the release tag, users should pass
-the version explicitly:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.7.5 -Archive .\kern.zip
-```
 
 The Rust `kernworker` and `kernup` entrypoints are the repository engineering
 surface, but they are not the user-install contract on Windows.

@@ -18,6 +18,8 @@ powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Ex
 
 The installer places the SDK under `~/.kern` on Unix or `%USERPROFILE%\.kern`
 on Windows, then checks that `kernc`, `craft`, and `kern-lsp` can start.
+For offline installs, source builds, and local SDK archives, see
+[Installing Kern](../../install.md).
 
 ## Create Your First Package
 

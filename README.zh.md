@@ -20,7 +20,7 @@
   <a href="#文档">文档</a>
 </p>
 
-> 当前状态：v0.7.5，实验阶段。Kern 尚未进入 1.0；当新的设计已经足够清晰时，语言和工具链会主动清理旧语法与历史包袱。
+> 当前状态：v0.7.6，实验阶段。Kern 尚未进入 1.0；当新的设计已经足够清晰时，语言和工具链会主动清理旧语法与历史包袱。
 
 Kern 面向底层系统开发。它允许你直接面对内存、链接入口和运行时边界，同时仍然使用模块、泛型、代数数据类型、trait 和穷尽模式匹配。Kern 也自带包管理与构建工具，并把 freestanding 目标作为一等场景处理。
 
@@ -31,18 +31,18 @@ Kern 不提供垃圾回收，不使用异常，也不会在你没有要求时分
 Linux 和 macOS：
 
 ```sh
-curl -sSf https://raw.githubusercontent.com/softfault/kern/main/install.sh | bash
+curl -sSf https://raw.githubusercontent.com/kern-project/kern/main/install.sh | bash
 ```
 
 Windows PowerShell：
 
 ```powershell
-powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/softfault/kern/main/install.ps1 -UseBasicParsing).Content"
+powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/kern-project/kern/main/install.ps1 -UseBasicParsing).Content"
 ```
 
 安装器会把 SDK 放到 Unix 的 `~/.kern` 或 Windows 的 `%USERPROFILE%\.kern`，并检查 `kernc`、`craft`、`kern-lsp` 是否可以正常启动。
 
-离线安装、发布包结构和宿主环境要求见 [Unix Distribution](docs/unix-distribution.md) 与 [Windows Distribution](docs/windows-distribution.md)。
+离线安装、源码构建、本地 SDK 归档和可复现性检查见 [Installing Kern](docs/install.md)。
 
 ## 快速开始
 
@@ -185,7 +185,7 @@ Kern 包含这些工具：
 如果要在本地开发编译器：
 
 ```sh
-git clone https://github.com/softfault/kern.git
+git clone https://github.com/kern-project/kern.git
 cd kern
 cargo build --release
 cargo test
@@ -201,28 +201,20 @@ cargo run -p kernworker -- ci kernc-tests --mode smoke
 
 在 Windows 上从源码构建时，需要完整的 LLVM 21 开发环境，不能只安装面向使用者的 SDK。如果 `cargo build` 报告缺少 `libxml2.lib`、`libxml2s.lib` 等 LLVM 库，请参考 [Windows Distribution](docs/windows-distribution.md#local-development-build) 中的本地构建说明。
 
-如果希望本地安装的 SDK 在删除源码目录后仍然可用，应先打包并安装本地归档，而不是手工复制 `target/release`。打包入口：
-
-```sh
-cargo run -q -p kernworker -- release package --version v0.7.5 --target <host-target>
-```
-
-本地 SDK 归档安装已经有 Rust 入口：
-
-```sh
-cargo run -p kernup -- install --archive ./kern-v0.7.5-<host-target>.tar.gz
-```
+安装后的 SDK 目录结构、本地归档、离线安装和 Rust `kernup` 入口见
+[Installing Kern](docs/install.md)。
 
 ## 文档
 
 - [Documentation Map](docs/documentation-map.md)：当前文档集合的索引。
+- [Installing Kern](docs/install.md)：SDK 安装、离线安装、源码构建、本地归档和可复现性检查。
 - [Kern 教程](docs/tutorial/zh/README.md)：中文导览式入门教程，覆盖工具、语言基础、核心语义、库和 freestanding 入口。英文版见 [Kern Tutorial](docs/tutorial/README.md)。
 - [Kern Language Design](docs/design.md)：当前语言语义和语法的参考文档。
 - [Source Style Guide](docs/style.md)：仓库内 Kern 代码的风格约定。
 - [`kernc` Compiler Guide](docs/kernc.md)：命令行、链接、LLVM 输出和集成细节。
 - [`craft` Package And Build Guide](docs/craft.md)：包、锁文件、构建脚本、生成文件、资源和命令行为。
 - [Runtime And Library Architecture](docs/runtime-architecture.md)：`base` / `rt` / `std` 分层和 freestanding 模型。
-- [Unix Distribution](docs/unix-distribution.md) 与 [Windows Distribution](docs/windows-distribution.md)：发布包和安装器策略。
+- [Unix Distribution](docs/unix-distribution.md) 与 [Windows Distribution](docs/windows-distribution.md)：平台相关的发布包策略和宿主基线说明。
 
 ## 贡献
 
@@ -230,8 +222,8 @@ cargo run -p kernup -- install --archive ./kern-v0.7.5-<host-target>.tar.gz
 
 ## Star 走势
 
-<a href="https://www.star-history.com/#softfault/kern&Date">
-  <img src="https://api.star-history.com/svg?repos=softfault/kern&type=Date" alt="Star history chart">
+<a href="https://www.star-history.com/#kern-project/kern&Date">
+  <img src="https://api.star-history.com/svg?repos=kern-project/kern&type=Date" alt="Star history chart">
 </a>
 
 ## 许可证

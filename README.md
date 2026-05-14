@@ -20,7 +20,7 @@
   <a href="#documentation">Documentation</a>
 </p>
 
-> Status: v0.7.5, experimental. Kern is pre-1.0 and deliberately removes
+> Status: v0.7.6, experimental. Kern is pre-1.0 and deliberately removes
 > historical syntax or toolchain baggage when the current design becomes clear.
 
 Kern is designed for low-level software that still wants modern language
@@ -50,9 +50,8 @@ The installer places the SDK under `~/.kern` on Unix and
 `%USERPROFILE%\.kern` on Windows, then verifies that `kernc`, `craft`, and
 `kern-lsp` start successfully.
 
-For offline installs, release packaging details, and host baseline notes, see
-[Unix Distribution](docs/unix-distribution.md) and
-[Windows Distribution](docs/windows-distribution.md).
+For offline installs, source builds, local SDK archives, and reproducibility
+details, see [Installing Kern](docs/install.md).
 
 ## Quick Start
 
@@ -231,24 +230,15 @@ installed end-user SDK. If `cargo build` reports missing LLVM libraries such as
 `libxml2.lib` or `libxml2s.lib`, follow the Windows source-build setup in
 [Windows Distribution](docs/windows-distribution.md#local-development-build).
 
-If you want a local SDK install that remains usable after deleting the source
-checkout, package and install a local archive instead of copying
-`target/release` by hand. The packaging entry point is:
-
-```sh
-cargo run -q -p kernworker -- release package --version v0.7.5 --target <host-target>
-```
-
-Local SDK archive installation has a Rust entry point:
-
-```sh
-cargo run -p kernup -- install --archive ./kern-v0.7.5-<host-target>.tar.gz
-```
+For installed SDK layout, local archives, offline installs, and the Rust
+`kernup` entry point, see [Installing Kern](docs/install.md).
 
 ## Documentation
 
 - [Documentation Map](docs/documentation-map.md): where each kind of
   documentation lives.
+- [Installing Kern](docs/install.md): SDK installation, offline installs,
+  source builds, local archive packaging, and reproducibility checks.
 - [Kern Tutorial](docs/tutorial/README.md): introductory guided tour through
   tools, language basics, core semantics, libraries, and freestanding entry
   points. Also available in [Simplified Chinese](docs/tutorial/zh/README.md).
@@ -261,8 +251,8 @@ cargo run -p kernup -- install --archive ./kern-v0.7.5-<host-target>.tar.gz
 - [Runtime And Library Architecture](docs/runtime-architecture.md): the
   `base`/`rt`/`std` split and freestanding model.
 - [Unix Distribution](docs/unix-distribution.md) and
-  [Windows Distribution](docs/windows-distribution.md): release packaging and
-  installer policy.
+  [Windows Distribution](docs/windows-distribution.md): platform-specific
+  release packaging policy and host baseline notes.
 
 ## Contributing
 

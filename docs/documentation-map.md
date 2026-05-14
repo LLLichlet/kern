@@ -19,6 +19,7 @@ The important rule is simple:
 These are the current public reference documents.
 
 - [`README.md`](../README.md): default English repository front page, high-level language/toolchain overview, installation, and documentation entry points; the Simplified Chinese version is [`README.zh.md`](../README.zh.md)
+- [`docs/install.md`](./install.md): SDK installation, installed layout, offline installs, source builds, local archive packaging, and reproducibility checks
 - [`docs/tutorial/`](./tutorial/README.md): default English guided tour through tools, language basics, core semantics, library usage, and freestanding entry points; the Simplified Chinese version is [`docs/tutorial/zh/README.md`](./tutorial/zh/README.md)
 - [`docs/design.md`](./design.md): current language semantics and syntax
 - [`docs/kernc.md`](./kernc.md): `kernc` CLI/driver behavior
@@ -60,5 +61,6 @@ When writing tutorials or guide material, prefer these sources:
 - runtime and library layering: [`docs/runtime-architecture.md`](./runtime-architecture.md)
 - compiler CLI behavior: [`docs/kernc.md`](./kernc.md)
 - package manager behavior: [`docs/craft.md`](./craft.md)
-- installation and distribution expectations: [`README.md`](../README.md), [`docs/unix-distribution.md`](./unix-distribution.md), and [`docs/windows-distribution.md`](./windows-distribution.md)
+- installation behavior and SDK layout: [`docs/install.md`](./install.md)
+- platform release/distribution constraints: [`docs/unix-distribution.md`](./unix-distribution.md) and [`docs/windows-distribution.md`](./windows-distribution.md)
 - implementation architecture details: the relevant crate README files under [`compiler/`](../compiler/) and tool README files under [`tools/`](../tools/)

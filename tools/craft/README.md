@@ -69,6 +69,19 @@ not upload anywhere.
 copies selected package binaries into `bin/`. `craft uninstall` removes those
 installed binaries using the same package-target selection rules.
 
+## Stress Tests
+
+The workspace execution race check lives in the `workspace_concurrency`
+integration test and is ignored by default because it intentionally spawns
+concurrent `craft test` processes over copied workspaces:
+
+```sh
+cargo test -p craft --test workspace_concurrency -- --ignored
+```
+
+It accepts the same environment knobs as the retired shell script:
+`CRAFT_STRESS_PROJECT`, `ROUNDS`, `JOBS`, and `KEEP_SUCCESS`.
+
 ## Important Internal Modules
 
 - `src/manifest.rs` and `src/manifest/`: `Craft.toml` parsing and validation

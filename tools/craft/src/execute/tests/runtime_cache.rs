@@ -241,9 +241,15 @@ fn runtime_packages_preserve_multi_object_outputs_for_release_codegen_units() {
     if cfg!(windows) {
         assert!(!std_object_dir.is_dir());
         assert_eq!(linker_inputs.len(), 1);
-    } else {
+    } else if cfg!(target_os = "linux") {
         assert!(std_object_dir.is_dir());
         assert!(linker_inputs.len() > 1);
+    } else {
+        if std_object_dir.is_dir() {
+            assert!(linker_inputs.len() > 1);
+        } else {
+            assert_eq!(linker_inputs, vec![std_object.clone()]);
+        }
     }
     assert!(
         linker_inputs

@@ -284,15 +284,15 @@ pub(crate) fn repository_urls_match(repository: &str, remote: &str) -> bool {
 
 fn normalize_repository_url(url: &str) -> String {
     let trimmed = url.trim().trim_end_matches('/');
-    let without_git = trimmed.strip_suffix(".git").unwrap_or(trimmed);
-    if let Some(path) = without_git.strip_prefix("file://") {
+    if let Some(path) = trimmed.strip_prefix("file://") {
         return normalize_local_repository_path(path);
     }
+    let without_git = trimmed.strip_suffix(".git").unwrap_or(trimmed);
     if let Some(rest) = without_git.strip_prefix("git@github.com:") {
         return format!("https://github.com/{rest}");
     }
-    if looks_like_local_repository_path(without_git) {
-        return normalize_local_repository_path(without_git);
+    if looks_like_local_repository_path(trimmed) {
+        return normalize_local_repository_path(trimmed);
     }
     without_git.to_string()
 }
@@ -326,6 +326,9 @@ fn normalize_local_repository_path_text(value: &str) -> String {
     }
     if let Some(stripped) = text.strip_suffix(".git") {
         text = stripped.to_string();
+    }
+    if let Some(stripped) = text.strip_prefix("/private/var/") {
+        text = format!("/var/{stripped}");
     }
     if text.as_bytes().get(1).is_some_and(|byte| *byte == b':') {
         text = text.to_ascii_lowercase();
@@ -443,6 +446,9 @@ fn sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::repository_urls_match;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn repository_urls_match_normalizes_common_remote_spellings() {
@@ -466,5 +472,42 @@ mod tests {
             r"file://C:\Users\runneradmin\AppData\Local\Temp\repo.git",
             r"\\?\C:\Users\runneradmin\AppData\Local\Temp\repo.git"
         ));
+    }
+
+    #[test]
+    fn repository_urls_match_canonicalizes_existing_git_suffix_paths() {
+        let root = temp_dir("craft-repository-url-git-suffix");
+        let repo = root.join("repo.git");
+        fs::create_dir_all(&repo).unwrap();
+        let canonical = repo.canonicalize().unwrap();
+
+        assert!(repository_urls_match(
+            &repo.to_string_lossy(),
+            &canonical.to_string_lossy(),
+        ));
+        assert!(repository_urls_match(
+            &format!("file://{}", repo.display()),
+            &canonical.to_string_lossy(),
+        ));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn repository_urls_match_normalizes_private_var_aliases() {
+        assert!(repository_urls_match(
+            "/var/folders/example/repo.git",
+            "/private/var/folders/example/repo.git",
+        ));
+    }
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
     }
 }

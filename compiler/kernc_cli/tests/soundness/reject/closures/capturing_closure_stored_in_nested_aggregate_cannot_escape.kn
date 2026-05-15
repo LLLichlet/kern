@@ -1,0 +1,25 @@
+// class: escaping-stack-state
+// source: closure fat pointer escape analysis must recurse through nested aggregates
+// stderr: capturing closure environment escapes into a return value
+// stderr: closure environment is stored in the current stack frame
+// stderr-not: LLVM IR Verification Failed
+
+struct Holder {
+    cb: &Fn(i32) i32,
+};
+
+struct Outer {
+    holder: Holder,
+};
+
+fn make() Outer {
+    let base = 7i32;
+    return Outer.{ holder: Holder.{ cb: [base](x: i32) i32 {
+        return x + base;
+    } } };
+}
+
+fn main() i32 {
+    let outer = make();
+    return outer.holder.cb(5);
+}

@@ -37,6 +37,7 @@ pub(crate) struct NumericInferenceState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum PointerOrigin {
     Temporary(Span),
+    CapturingClosure(Span),
     Parameter(usize),
 }
 
@@ -409,35 +410,55 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    pub(crate) fn reject_temporary_address_escape(&mut self, expr: &Expr, destination: &str) {
+    pub(crate) fn reject_stack_pointer_escape(&mut self, expr: &Expr, destination: &str) {
         let origins = self.pointer_origins(expr);
-        self.reject_temporary_origins(&origins, destination);
+        self.reject_stack_pointer_origins(&origins, destination);
         if destination == "static storage" {
             self.record_parameter_store_from_origins(&origins);
         }
     }
 
-    fn reject_temporary_origins(
+    fn reject_stack_pointer_origins(
         &mut self,
         origins: &FastHashSet<PointerOrigin>,
         destination: &str,
     ) {
         for origin in origins {
-            if let PointerOrigin::Temporary(address_span) = origin {
-                self.emit_temporary_address_escape(*address_span, destination);
-            }
+            self.emit_stack_pointer_escape(*origin, destination);
         }
     }
 
-    fn emit_temporary_address_escape(&mut self, address_span: Span, destination: &str) {
-        self.ctx
-            .struct_error(
-                address_span,
-                format!("address of temporary value escapes into {}", destination),
-            )
-            .with_hint("`..&` may materialize a temporary that is only valid in the current scope")
-            .with_hint("bind the value to stable storage before taking its address")
-            .emit();
+    fn emit_stack_pointer_escape(&mut self, origin: PointerOrigin, destination: &str) {
+        match origin {
+            PointerOrigin::Temporary(address_span) => {
+                self.ctx
+                    .struct_error(
+                        address_span,
+                        format!("address of temporary value escapes into {}", destination),
+                    )
+                    .with_hint(
+                        "`..&` may materialize a temporary that is only valid in the current scope",
+                    )
+                    .with_hint("bind the value to stable storage before taking its address")
+                    .emit();
+            }
+            PointerOrigin::CapturingClosure(closure_span) => {
+                self.ctx
+                    .struct_error(
+                        closure_span,
+                        format!("capturing closure environment escapes into {}", destination),
+                    )
+                    .with_span_label(
+                        closure_span,
+                        "this closure environment is stored in the current stack frame",
+                    )
+                    .with_hint(
+                        "return a non-capturing closure, or move the captured state into an explicit object that outlives the callback",
+                    )
+                    .emit();
+            }
+            PointerOrigin::Parameter(_) => {}
+        }
     }
 
     fn record_parameter_store_from_origins(&mut self, origins: &FastHashSet<PointerOrigin>) {

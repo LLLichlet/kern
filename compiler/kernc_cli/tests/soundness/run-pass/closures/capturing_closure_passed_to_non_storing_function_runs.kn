@@ -1,0 +1,14 @@
+// class: escaping-stack-state
+// source: capturing closure BNC is valid across a non-storing call boundary
+// exit: 0
+
+fn call(cb: &Fn() i32) i32 {
+    return cb();
+}
+
+fn main() i32 {
+    let base = 7i32;
+    return call([base]() i32 {
+        return base;
+    }) - 7;
+}

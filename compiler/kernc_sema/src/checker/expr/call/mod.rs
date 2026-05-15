@@ -357,7 +357,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 stats.call_arguments += elapsed;
             });
         }
-        self.record_pending_temporary_address_escape_checks(
+        self.record_pending_stack_pointer_escape_checks(
             inferred_callee_ty.unwrap_or(norm_callee),
             args,
             is_method,
@@ -365,7 +365,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         final_ret
     }
 
-    fn record_pending_temporary_address_escape_checks(
+    fn record_pending_stack_pointer_escape_checks(
         &mut self,
         callee_ty: TypeId,
         args: &[Expr],
@@ -381,16 +381,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let origins = self.pointer_origins(arg);
             let param_index = arg_index + param_offset;
             for origin in origins {
-                let crate::checker::expr::PointerOrigin::Temporary(address_span) = origin else {
+                if !matches!(
+                    origin,
+                    crate::checker::expr::PointerOrigin::Temporary(_)
+                        | crate::checker::expr::PointerOrigin::CapturingClosure(_)
+                ) {
                     continue;
-                };
+                }
                 self.ctx
                     .analysis
                     .pending_escape_checks
                     .push(crate::context::PendingEscapeCheck {
                         callee: def_id,
                         arg_index: param_index,
-                        address_span,
+                        origin,
                     });
             }
         }

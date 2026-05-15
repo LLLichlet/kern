@@ -326,6 +326,50 @@ fn rejects_temporary_address_inside_static_aggregate() {
 }
 
 #[test]
+fn rejects_capturing_closure_inside_returned_aggregate() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_closure_return_aggregate_escape",
+        concat!(
+            "struct Holder { cb: &Fn(i32) i32 };\n",
+            "fn make() Holder {\n",
+            "    let base = 7i32;\n",
+            "    return Holder.{ cb: [base](x: i32) i32 { return x + base; } };\n",
+            "}\n",
+            "extern fn main() i32 { let _ = make(); return 0; }\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("capturing closure environment escapes into a return value")
+    }));
+}
+
+#[test]
+fn rejects_capturing_closure_inside_static_aggregate_assignment() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_closure_static_aggregate_escape",
+        concat!(
+            "struct Holder { cb: &Fn(i32) i32 };\n",
+            "fn zero(_: i32) i32 { return 0; }\n",
+            "static mut sink = Holder.{ cb: zero };\n",
+            "fn install() void {\n",
+            "    let base = 7i32;\n",
+            "    sink = Holder.{ cb: [base](x: i32) i32 { return x + base; } };\n",
+            "}\n",
+            "extern fn main() i32 { install(); return 0; }\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("capturing closure environment escapes into static storage")
+    }));
+}
+
+#[test]
 fn permits_temporary_address_as_call_argument() {
     let artifact = analyze_source_for_diagnostics(
         "kern_temp_addr_call_arg",
@@ -412,6 +456,53 @@ fn rejects_temporary_address_passed_to_storing_function() {
         diag.message
             .contains("address of temporary value escapes through function call")
     }));
+}
+
+#[test]
+fn rejects_capturing_closure_passed_to_storing_function() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_closure_call_static_escape",
+        concat!(
+            "fn zero() i32 { return 0; }\n",
+            "static mut sink: &Fn() i32 = zero;\n",
+            "fn store(cb: &Fn() i32) void {\n",
+            "    sink = cb;\n",
+            "}\n",
+            "extern fn main() i32 {\n",
+            "    let base = 7i32;\n",
+            "    store([base]() i32 { return base; });\n",
+            "    return 0;\n",
+            "}\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("capturing closure environment escapes through function call")
+    }));
+}
+
+#[test]
+fn permits_capturing_closure_passed_to_non_storing_function() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_closure_call_non_escape",
+        concat!(
+            "fn call(cb: &Fn() i32) i32 {\n",
+            "    return cb();\n",
+            "}\n",
+            "extern fn main() i32 {\n",
+            "    let base = 7i32;\n",
+            "    return call([base]() i32 { return base; }) - 7;\n",
+            "}\n",
+        ),
+    );
+
+    assert!(
+        artifact.succeeded,
+        "unexpected diagnostics: {:?}",
+        artifact.session.diagnostics
+    );
 }
 
 #[test]

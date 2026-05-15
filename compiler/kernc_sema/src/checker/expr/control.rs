@@ -1676,7 +1676,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             {
                 self.check_coercion(v, ret_ty, val_ty);
             }
-            self.reject_temporary_address_escape(v, "a return value");
+            self.reject_stack_pointer_escape(v, "a return value");
         } else if expected_ret != TypeId::VOID && expected_ret != TypeId::ERROR {
             let ret_str = self.ctx.ty_to_string(expected_ret);
             self.ctx

@@ -85,7 +85,7 @@ pub(crate) struct EscapeSummary {
 pub(crate) struct PendingEscapeCheck {
     pub(crate) callee: DefId,
     pub(crate) arg_index: usize,
-    pub(crate) address_span: Span,
+    pub(crate) origin: crate::checker::expr::PointerOrigin,
 }
 
 #[derive(Clone, Default)]

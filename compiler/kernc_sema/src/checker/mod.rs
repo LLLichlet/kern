@@ -1,5 +1,5 @@
 mod constexpr;
-mod expr;
+pub(crate) mod expr;
 
 pub use constexpr::{ConstEvalError, ConstEvalResult, ConstEvaluator, ConstValue, ScriptHost};
 pub(crate) use expr::ExprChecker;
@@ -483,15 +483,16 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             };
         };
         let mut checker = ExprChecker::new(self.ctx, None);
-        checker.reject_temporary_address_escape(value, "static storage");
         let init_ty = {
             let init_ty = checker.check_expr(value, annotated_ty);
             checker.finalize_numeric_inference(init_ty)
         };
         if let Some(expected) = annotated_ty {
             checker.check_coercion(value, expected, init_ty);
+            checker.reject_stack_pointer_escape(value, "static storage");
             return expected;
         }
+        checker.reject_stack_pointer_escape(value, "static storage");
         self.ctx.scopes.set_current_scope(scope_id);
         init_ty
     }
@@ -589,14 +590,39 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             if !summary.stored_params.contains(&check.arg_index) {
                 continue;
             }
-            self.ctx
-                .struct_error(
-                    check.address_span,
-                    "address of temporary value escapes through function call",
-                )
-                .with_hint("the callee stores the parameter receiving this temporary address")
-                .with_hint("bind the value to stable storage before taking its address")
-                .emit();
+            match check.origin {
+                crate::checker::expr::PointerOrigin::Temporary(address_span) => {
+                    self.ctx
+                        .struct_error(
+                            address_span,
+                            "address of temporary value escapes through function call",
+                        )
+                        .with_hint(
+                            "the callee stores the parameter receiving this temporary address",
+                        )
+                        .with_hint("bind the value to stable storage before taking its address")
+                        .emit();
+                }
+                crate::checker::expr::PointerOrigin::CapturingClosure(closure_span) => {
+                    self.ctx
+                        .struct_error(
+                            closure_span,
+                            "capturing closure environment escapes through function call",
+                        )
+                        .with_span_label(
+                            closure_span,
+                            "this closure environment is stored in the current stack frame",
+                        )
+                        .with_hint(
+                            "the callee stores the parameter receiving this closure object",
+                        )
+                        .with_hint(
+                            "move the captured state into an explicit object that outlives the callback",
+                        )
+                        .emit();
+                }
+                crate::checker::expr::PointerOrigin::Parameter(_) => {}
+            }
         }
     }
 

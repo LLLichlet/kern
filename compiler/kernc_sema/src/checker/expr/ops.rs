@@ -959,9 +959,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         let lhs_ty = self.check_expr(lhs, None);
-        if self.assignment_may_store_long_lived_pointer(lhs, op) {
-            self.reject_temporary_address_escape(rhs, "static storage");
-        }
+        let stores_long_lived_pointer = self.assignment_may_store_long_lived_pointer(lhs, op);
 
         // Defer to the inherited-mutability analysis.
         if !self.is_lvalue_mutable(lhs) && lhs_ty != TypeId::ERROR {
@@ -987,6 +985,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let rhs_ty_id = self.resolve_tv(rhs_ty);
         self.check_coercion(rhs, l_norm, rhs_ty_id);
+        if stores_long_lived_pointer {
+            self.reject_stack_pointer_escape(rhs, "static storage");
+        }
         TypeId::VOID
     }
 }

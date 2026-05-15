@@ -264,7 +264,7 @@ fn doctor(args: DoctorArgs) -> OpsResult<()> {
 
 fn help() -> HelpDoc {
     HelpDoc::new("kernup")
-        .summary("Kern SDK installer and toolchain manager.")
+        .summary("Kern SDK installer.")
         .usage("kernup <command> [options]")
         .section(
             HelpSection::new("Commands")
@@ -282,7 +282,8 @@ fn help() -> HelpDoc {
             "download and install a release SDK",
         )
         .example("kernup doctor", "verify the default installation")
-        .note("Source installs, shims, and multi-toolchain channel management are planned next.")
+        .note("kernup installs SDK archives only; it does not build Kern from source.")
+        .note("For source builds, configure the host LLVM development environment and run Cargo directly.")
 }
 
 fn install_help() -> HelpDoc {
@@ -304,6 +305,7 @@ fn install_help() -> HelpDoc {
                 .entry("--github-repo <repo>", "GitHub repository for release downloads")
                 .entry("--no-path", "skip PATH configuration"),
         )
+        .note("This command installs release SDK archives; it is not a source-build command.")
 }
 
 fn doctor_help() -> HelpDoc {

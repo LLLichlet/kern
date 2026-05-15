@@ -119,8 +119,12 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.7.6 -Archive 
 
 ## Rust Installer Entry Point
 
-`kernup` is the Rust SDK installer and future toolchain manager entry point. It
-is useful when working from a source checkout.
+`kernup` is the Rust SDK installer entry point. It is useful when working from a
+source checkout because it can install the same SDK archives as the shell and
+PowerShell installers.
+
+`kernup` does not currently build Kern from source. It installs an already-built
+SDK archive from a release download or from a local archive path.
 
 Install a release archive directly:
 
@@ -147,8 +151,7 @@ cargo run -p kernup -- doctor
 ```
 
 The repository-root shell and PowerShell installers remain the user-facing
-contract. `kernup` is the repository engineering surface and will grow into the
-toolchain manager over time.
+contract. `kernup` is the repository engineering surface for SDK installs.
 
 ## Building From Source
 
@@ -173,8 +176,10 @@ development prefix required by `llvm-sys`.
 
 Windows source builds require a complete LLVM 21 development prefix, Visual
 Studio Build Tools for the MSVC target, and the LLVM-side `libxml2` dependency.
-See [Windows Distribution](./windows-distribution.md#local-development-build)
-for the exact setup.
+Installing the end-user SDK with `kernup` or `install.ps1` does not provide
+those source-build assets. See
+[Windows Distribution](./windows-distribution.md#local-development-build) for
+the exact setup.
 
 ## Creating A Local SDK Archive
 

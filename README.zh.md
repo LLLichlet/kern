@@ -197,7 +197,7 @@ cargo test
 cargo run -p kernworker -- ci kernc-tests --mode smoke
 ```
 
-在 Windows 上从源码构建时，需要完整的 LLVM 21 开发环境，不能只安装面向使用者的 SDK。如果 `cargo build` 报告缺少 `libxml2.lib`、`libxml2s.lib` 等 LLVM 库，请参考 [Windows Distribution](docs/windows-distribution.md#local-development-build) 中的本地构建说明。
+在 Windows 上从源码构建时，需要完整的 LLVM 21 开发环境，不能只安装面向使用者的 SDK。`kernup` 目前只安装 SDK 归档，不会从源码构建 Kern，也不会补齐 `cargo build` 需要的 LLVM 开发库。如果 `cargo build` 报告缺少 `libxml2.lib`、`libxml2s.lib` 等 LLVM 库，请参考 [Windows Distribution](docs/windows-distribution.md#local-development-build) 中的本地构建说明。
 
 安装后的 SDK 目录结构、本地归档、离线安装和 Rust `kernup` 入口见
 [Installing Kern](docs/install.md)。

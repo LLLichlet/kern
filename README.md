@@ -224,7 +224,9 @@ cargo run -p kernworker -- ci kernc-tests --mode smoke
 ```
 
 Windows source builds require a full LLVM 21 development prefix, not only the
-installed end-user SDK. If `cargo build` reports missing LLVM libraries such as
+installed end-user SDK. `kernup` currently installs SDK archives; it does not
+build Kern from source or add the LLVM development libraries required by
+`cargo build`. If `cargo build` reports missing LLVM libraries such as
 `libxml2.lib` or `libxml2s.lib`, follow the Windows source-build setup in
 [Windows Distribution](docs/windows-distribution.md#local-development-build).
 

@@ -883,3 +883,99 @@ root = "examples/hello.kn"
             .contains("unsupported array table `[[example]]`")
     );
 }
+
+#[test]
+fn deterministic_manifest_parser_fuzz_smoke_does_not_panic() {
+    for seed in 0..384u64 {
+        let source = fuzz_manifest(seed);
+        let result = std::panic::catch_unwind(|| {
+            if let Ok(manifest) = Manifest::parse(&source, std::path::Path::new("Craft.toml")) {
+                let _ = manifest.validate(std::path::Path::new("Craft.toml"));
+            }
+        });
+        assert!(
+            result.is_ok(),
+            "manifest parser fuzz seed {seed} panicked with source:\n{source}"
+        );
+    }
+}
+
+fn fuzz_manifest(seed: u64) -> String {
+    const FRAGMENTS: &[&str] = &[
+        "[package]\n",
+        "[workspace]\n",
+        "[dependencies]\n",
+        "[dev-dependencies]\n",
+        "[build-dependencies]\n",
+        "[resources]\n",
+        "[features]\n",
+        "[runtime]\n",
+        "[craft]\n",
+        "[craft.fmt]\n",
+        "[craft.style]\n",
+        "[lib]\n",
+        "[test]\n",
+        "[example]\n",
+        "[profile.dev]\n",
+        "[profile.release]\n",
+        "[[bin]]\n",
+        "[[unknown]]\n",
+        "name = \"demo\"\n",
+        "version = \"0.1.0\"\n",
+        "kern = \"0.7.6\"\n",
+        "root = \"src/main.kn\"\n",
+        "roots = [\"tests/a.kn\", \"tests/**/*.kn\"]\n",
+        "members = [\"a\", \"b\"]\n",
+        "default = []\n",
+        "feature = [\"a\", \"b\"]\n",
+        "libc = true\n",
+        "code-model = \"kernel\"\n",
+        "library-bundle = \"base\"\n",
+        "entry = \"rt\"\n",
+        "line-width = 100\n",
+        "suggestions = \"warn\"\n",
+        "disabled-rules = [\"a\", \"b\"]\n",
+        "dep = { path = \"../dep\", features = [\"x\"] }\n",
+        "dep = { git = \"https://example.com/dep.git\", tag = \"v1\" }\n",
+        "dep = { workspace = true }\n",
+        "bad = \"unterminated\n",
+        "bad = [\"unterminated]\n",
+        "bad = { path = \"x\", git = \"y\" }\n",
+        "bad = \n",
+        "= \"missing-key\"\n",
+        "# comment\n",
+        "unknown = \"value\"\n",
+        "\n",
+    ];
+
+    let mut rng = FuzzRng::new(seed ^ 0x632b_d7d1_2f81_b35b);
+    let mut source = String::new();
+    let target_len = 8 + rng.range(64) as usize;
+    for _ in 0..target_len {
+        source.push_str(FRAGMENTS[rng.range(FRAGMENTS.len() as u64) as usize]);
+    }
+    source
+}
+
+struct FuzzRng {
+    state: u64,
+}
+
+impl FuzzRng {
+    fn new(seed: u64) -> Self {
+        Self { state: seed | 1 }
+    }
+
+    fn next(&mut self) -> u64 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.state = x;
+        x
+    }
+
+    fn range(&mut self, upper: u64) -> u64 {
+        self.next() % upper
+    }
+}

@@ -31,25 +31,21 @@ jobs:
           - os: ubuntu-24.04
             target: x86_64-linux-gnu
             rust_target: x86_64-unknown-linux-gnu
-            vsce_target: linux-x64
             artifact_ext: tar.gz
             test_mode: all
           - os: windows-latest
             target: x86_64-windows-msvc
             rust_target: x86_64-pc-windows-msvc
-            vsce_target: win32-x64
             artifact_ext: zip
             test_mode: smoke
           - os: macos-15-intel
             target: x86_64-apple-darwin
             rust_target: x86_64-apple-darwin
-            vsce_target: darwin-x64
             artifact_ext: tar.gz
             test_mode: all
           - os: macos-14
             target: aarch64-apple-darwin
             rust_target: aarch64-apple-darwin
-            vsce_target: darwin-arm64
             artifact_ext: tar.gz
             test_mode: all
 
@@ -69,6 +65,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Setup Node
+        if: matrix.target == 'x86_64-linux-gnu'
         uses: actions/setup-node@v5
         with:
           node-version: 20
@@ -109,6 +106,7 @@ jobs:
         run: cargo run -q -p kernworker -- ci toolchain-health
 
       - name: Install VS Code Extension Dependencies
+        if: matrix.target == 'x86_64-linux-gnu'
         working-directory: editors/vscode
         run: npm ci
 
@@ -245,24 +243,17 @@ jobs:
           path: ${{ env.TOOLCHAIN_ARTIFACT_FILE }}
           if-no-files-found: error
 
-      - name: Package VS Code Extension (Unix)
-        if: runner.os != 'Windows'
+      - name: Package VS Code Extension
+        if: matrix.target == 'x86_64-linux-gnu'
         working-directory: editors/vscode
         run: |
           VERSION=${KERN_RELEASE_VERSION#v}
-          npm run package:vsix -- --target ${{ matrix.vsce_target }} --out kern-vscode-${VERSION}-${{ matrix.vsce_target }}.vsix
-          echo "VSCODE_ARTIFACT=kern-vscode-${VERSION}-${{ matrix.vsce_target }}.vsix" >> $GITHUB_ENV
-
-      - name: Package VS Code Extension (Windows)
-        if: runner.os == 'Windows'
-        working-directory: editors/vscode
-        shell: powershell
-        run: |
-          $VERSION = $env:KERN_RELEASE_VERSION.TrimStart('v')
-          npm run package:vsix -- --target ${{ matrix.vsce_target }} --out kern-vscode-$VERSION-${{ matrix.vsce_target }}.vsix
-          echo "VSCODE_ARTIFACT=kern-vscode-$VERSION-${{ matrix.vsce_target }}.vsix" >> $env:GITHUB_ENV
+          npm run package:vsix -- --out kern-vscode-${VERSION}.vsix
+          cargo run -q -p kernworker -- ci verify-vsix --vsix kern-vscode-${VERSION}.vsix
+          echo "VSCODE_ARTIFACT=kern-vscode-${VERSION}.vsix" >> $GITHUB_ENV
 
       - name: Upload VS Code Extension Artifact
+        if: matrix.target == 'x86_64-linux-gnu'
         uses: actions/upload-artifact@v6
         with:
           name: vscode-${{ env.VSCODE_ARTIFACT }}

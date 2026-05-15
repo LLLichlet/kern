@@ -160,7 +160,6 @@
     "check": "tsc -p ./ --noEmit",
     "test": "npm run compile && node ./scripts/run-tests.mjs",
     "sync:icons": "node ./scripts/sync-icons.mjs",
-    "stage:server": "node ./scripts/stage-server.mjs",
     "package:vsix": "npm run sync:icons && node ./scripts/package-vsix.mjs"
   },
   "devDependencies": {

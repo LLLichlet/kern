@@ -72,12 +72,12 @@ To package a VSIX:
 
 ```bash
 cd editors/vscode
-npm run package:vsix -- --target linux-x64
+npm run package:vsix
 ```
 
 This packages the extension entrypoint, grammar, snippets, icons, and runtime
 JavaScript dependencies. It intentionally excludes `server/` and does not embed
-`kern-lsp` or the official libraries.
+`kern-lsp` or the official libraries, so the VSIX is platform-independent.
 
 ## Icons
 
@@ -133,4 +133,4 @@ language server so diagnostics and navigation pick up the new plan immediately.
 - Marketplace name: `Kern`
 - Release packaging: ship editor integration only; use the installed Kern toolchain for `kern-lsp` and libraries
 - Local fallback behavior: configured path, configured toolchain, `PATH`, installed toolchain, workspace build
-- Current release check: `npm run check && npm run package:vsix -- --target <target>`
+- Current release check: `npm run check && npm run package:vsix`

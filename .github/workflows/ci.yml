@@ -223,7 +223,7 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: editors/vscode
         run: |
-          npm run package:vsix -- --target linux-x64
+          npm run package:vsix
           cargo run -q -p kernworker -- ci verify-vsix
 
   verify-bootstrap-toolchain-assembly:

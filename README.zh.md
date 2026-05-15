@@ -178,7 +178,7 @@ Kern 包含这些工具：
 
 ## 编辑器
 
-第一方 VS Code 扩展位于 [editors/vscode](editors/vscode)。它提供 Kern 语言支持，并附带用于 `.kn` 文件的 `Kern Icons` 图标主题。
+第一方 VS Code 扩展位于 [editors/vscode](editors/vscode)。它提供 Kern 语言支持、语言图标、语义高亮、补全、悬浮信息、诊断、重命名和代码操作。
 
 ## 从源码构建
 

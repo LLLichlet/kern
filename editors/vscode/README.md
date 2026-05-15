@@ -7,7 +7,6 @@ experience for `.kn` source files.
 
 - Kern language registration for `.kn`
 - Kern mark as the bundled language icon
-- optional `Kern Icons` file icon theme for `.kn` files
 - stdio LSP connection to `kern-lsp`
 - diagnostics, hover, completion, rename, semantic tokens, and code actions
 - a lightweight TextMate grammar and language configuration for editor basics
@@ -82,23 +81,20 @@ JavaScript dependencies. It intentionally excludes `server/` and does not embed
 
 ## Icons
 
-The extension contributes the Kern mark as the default language icon for `kern`
-documents and also ships a `Kern Icons` file icon theme that maps `.kn` files
-to the same mark.
+The extension contributes theme-specific Kern marks as the default language
+icon for `kern` documents.
 
 The packaged extension also declares the PNG mark as its Marketplace icon, so
 the published listing and installed extension entry stay visually aligned with
-the language/file icon assets.
+the language icon assets.
 
-`../../assets/brand/kern-mark.svg` and
+`../../assets/brand/kern-mark-light.svg`,
+`../../assets/brand/kern-mark-dark.svg`, and
 `../../assets/brand/kern-mark.png` are the canonical repository mark assets.
 Run `npm run sync:icons` in `editors/vscode/` after updating them to refresh
-`icons/kern.svg` and `icons/kern.png` before packaging or publishing. The full
-README logo is kept separately at `../../assets/brand/kern-logo.svg`.
-
-If your current file icon theme already overrides language/file icons, switch
-VS Code's File Icon Theme to `Kern Icons` to guarantee that `.kn` files use the
-bundled mark.
+`icons/kern-light.svg`, `icons/kern-dark.svg`, and `icons/kern.png` before
+packaging or publishing. The full README logo is kept separately at
+`../../assets/brand/kern-logo.svg`.
 
 The extension README intentionally does not embed the raw SVG asset. GitHub
 renders local SVGs fine, but Marketplace publishing is stricter about extension

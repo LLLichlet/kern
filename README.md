@@ -199,8 +199,8 @@ to drive a specific compile or link action directly.
 ## Editors
 
 The first-party VS Code extension lives in [editors/vscode](editors/vscode).
-It provides Kern language support and a `Kern Icons` file icon theme for `.kn`
-files.
+It provides Kern language support, language icons, semantic tokens,
+completion, hover, diagnostics, rename, and code actions.
 
 ## Build From Source
 

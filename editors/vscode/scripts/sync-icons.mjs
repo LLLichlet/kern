@@ -6,27 +6,30 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const extensionRoot = path.resolve(scriptDir, "..");
 const repoRoot = path.resolve(extensionRoot, "..", "..");
 
-const sourceSvg = path.join(repoRoot, "assets", "brand", "kern-mark.svg");
+const sourceLightSvg = path.join(repoRoot, "assets", "brand", "kern-mark-light.svg");
+const sourceDarkSvg = path.join(repoRoot, "assets", "brand", "kern-mark-dark.svg");
 const sourcePng = path.join(repoRoot, "assets", "brand", "kern-mark.png");
-const targetSvg = path.join(extensionRoot, "icons", "kern.svg");
+const targetLightSvg = path.join(extensionRoot, "icons", "kern-light.svg");
+const targetDarkSvg = path.join(extensionRoot, "icons", "kern-dark.svg");
 const targetPng = path.join(extensionRoot, "icons", "kern.png");
 
-syncSvg();
+syncText(sourceLightSvg, targetLightSvg, "../../assets/brand/kern-mark-light.svg");
+syncText(sourceDarkSvg, targetDarkSvg, "../../assets/brand/kern-mark-dark.svg");
 syncPng();
 
-function syncSvg() {
-    const source = fs.readFileSync(sourceSvg, "utf8");
-    const existing = fs.existsSync(targetSvg)
-        ? fs.readFileSync(targetSvg, "utf8")
+function syncText(sourcePath, targetPath, label) {
+    const source = fs.readFileSync(sourcePath, "utf8");
+    const existing = fs.existsSync(targetPath)
+        ? fs.readFileSync(targetPath, "utf8")
         : null;
 
     if (existing === source) {
-        console.log("[kern-vscode] icons/kern.svg already matches ../../assets/brand/kern-mark.svg");
+        console.log(`[kern-vscode] ${relativeToExtension(targetPath)} already matches ${label}`);
         return;
     }
 
-    fs.writeFileSync(targetSvg, source);
-    console.log("[kern-vscode] synced icons/kern.svg from ../../assets/brand/kern-mark.svg");
+    fs.writeFileSync(targetPath, source);
+    console.log(`[kern-vscode] synced ${relativeToExtension(targetPath)} from ${label}`);
 }
 
 function syncPng() {
@@ -46,4 +49,8 @@ function syncPng() {
 
     fs.writeFileSync(targetPng, source);
     console.log("[kern-vscode] synced icons/kern.png from ../../assets/brand/kern-mark.png");
+}
+
+function relativeToExtension(targetPath) {
+    return path.relative(extensionRoot, targetPath).replaceAll(path.sep, "/");
 }

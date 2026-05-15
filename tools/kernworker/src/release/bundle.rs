@@ -215,6 +215,7 @@ pub fn bundle_sdk_runtime_toolchain(
     );
 
     let runtime_tools = sdk_runtime_tool_paths(host, bundled_toolchain)?;
+    let runtime_tool_roots = runtime_tool_source_roots(&runtime_tools);
     let mut copied_tools = Vec::new();
     for (component, source) in runtime_tools {
         let destination = bin_dir.join(source.file_name().unwrap());
@@ -223,17 +224,19 @@ pub fn bundle_sdk_runtime_toolchain(
         copied_tools.push((component, destination));
     }
 
-    let roots = copied_tools
-        .iter()
-        .map(|(_, path)| path.clone())
-        .collect::<Vec<_>>();
     let runtime_libs = if host.archive_target.ends_with("linux-gnu") {
-        linux_collect_bundled_runtime_libs(&roots, &bundled_toolchain.prefix)?
+        linux_collect_bundled_runtime_libs(&runtime_tool_roots, &bundled_toolchain.prefix)?
     } else if host.archive_target.ends_with("apple-darwin") {
-        macos_collect_runtime_libs(&roots)?
+        macos_collect_runtime_libs(&runtime_tool_roots)?
     } else {
         Vec::new()
     };
+    if !runtime_libs.is_empty() {
+        println!("Bundling runtime libraries:");
+        for library in &runtime_libs {
+            println!("  {}", library.display());
+        }
+    }
     for library in &runtime_libs {
         if host.archive_target.ends_with("apple-darwin") {
             copy_runtime_library(library, &lib_dir)?;
@@ -273,9 +276,9 @@ pub fn bundle_sdk_runtime_toolchain(
             "# Bundled Host Toolchain\n\nThis SDK bundles the minimal host LLVM/Clang runtime needed by installed Kern tools.\n\n- Source: {}\n- Version: {}\n- Bundled runtime tools: {}\n\nThis is intentionally smaller than the standalone toolchain artifact.\nEnd-user SDKs omit the Clang resource dir because Kern only uses Clang as a linker driver here.\nHeaders, llvm-config, and the full LLVM development prefix are not part of the end-user SDK.\nClone the repository and configure the host environment directly for source builds.\n",
             bundled_toolchain.source_label,
             bundled_toolchain.version,
-            roots
+            copied_tools
                 .iter()
-                .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
+                .filter_map(|(_, path)| path.file_name().and_then(|name| name.to_str()))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
@@ -349,6 +352,13 @@ fn sdk_runtime_tool_paths(
         .collect()
 }
 
+fn runtime_tool_source_roots(runtime_tools: &[(String, PathBuf)]) -> Vec<PathBuf> {
+    runtime_tools
+        .iter()
+        .map(|(_, path)| path.clone())
+        .collect::<Vec<_>>()
+}
+
 fn verify_sdk_runtime_tool_starts(component: &str, path: &Path) -> OpsResult<()> {
     let result = if component == "llvm_lib" {
         let probe = path
@@ -374,9 +384,17 @@ fn verify_sdk_runtime_tool_starts(component: &str, path: &Path) -> OpsResult<()>
     if result.status_code == Some(0) {
         Ok(())
     } else {
+        let stdout = result.stdout.trim();
+        let stderr = result.stderr.trim();
         Err(OpsError::new(format!(
-            "bundled runtime tool `{}` failed to start while packaging; the SDK runtime subset is missing a required dependency",
-            path.display()
+            "bundled runtime tool `{}` failed to start while packaging; the SDK runtime subset is missing a required dependency\n  status: {}\n  stdout: {}\n  stderr: {}",
+            path.display(),
+            result
+                .status_code
+                .map(|code| code.to_string())
+                .unwrap_or_else(|| "terminated by signal".to_string()),
+            if stdout.is_empty() { "<empty>" } else { stdout },
+            if stderr.is_empty() { "<empty>" } else { stderr },
         )))
     }
 }
@@ -421,5 +439,27 @@ mod tests {
         assert!(error.to_string().contains("refusing to overwrite"));
         assert_eq!(fs::read_to_string(destination).unwrap(), "destination");
         remove_path_if_exists(&root).unwrap();
+    }
+
+    #[test]
+    fn sdk_runtime_dependency_roots_use_source_tool_paths() {
+        let roots = runtime_tool_source_roots(&[
+            (
+                "clang".to_string(),
+                PathBuf::from("/source/toolchain/bin/clang"),
+            ),
+            (
+                "lld".to_string(),
+                PathBuf::from("/source/toolchain/bin/ld64.lld"),
+            ),
+        ]);
+
+        assert_eq!(
+            roots,
+            vec![
+                PathBuf::from("/source/toolchain/bin/clang"),
+                PathBuf::from("/source/toolchain/bin/ld64.lld"),
+            ]
+        );
     }
 }

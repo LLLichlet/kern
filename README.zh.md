@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="./assets/brand/kern-logo.svg" alt="Kern logo" width="120">
-</p>
-
-<h1 align="center">Kern</h1>
+<h1 align="center">
+  <img src="./assets/brand/kern-logo.svg" alt="Kern" width="420">
+</h1>
 
 <p align="center">
   用于编写内核、固件和 freestanding 程序的系统编程语言。

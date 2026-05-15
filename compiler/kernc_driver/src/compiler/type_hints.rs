@@ -51,8 +51,24 @@ fn collect_type_hints_in_decl(
         } => collect_type_hints_in_expr(ctx, file_id, body, hints),
         ast::DeclKind::Function { body: None, .. } => {}
         ast::DeclKind::Var {
-            value: Some(value), ..
-        } => collect_type_hints_in_expr(ctx, file_id, value, hints),
+            type_node,
+            value: Some(value),
+            ..
+        } => {
+            if type_node.is_none() {
+                collect_named_decl_type_hint(ctx, file_id, decl, hints);
+            }
+            collect_type_hints_in_expr(ctx, file_id, value, hints);
+        }
+        ast::DeclKind::Var {
+            type_node,
+            value: None,
+            ..
+        } => {
+            if type_node.is_none() {
+                collect_named_decl_type_hint(ctx, file_id, decl, hints);
+            }
+        }
         ast::DeclKind::ExternBlock { decls, .. } | ast::DeclKind::Impl { decls, .. } => {
             for child in decls {
                 collect_type_hints_in_decl(ctx, file_id, child, hints);
@@ -291,6 +307,28 @@ fn collect_binding_type_hint(
     });
 }
 
+fn collect_named_decl_type_hint(
+    ctx: &SemaContext<'_>,
+    file_id: FileId,
+    decl: &ast::Decl,
+    hints: &mut Vec<AnalysisTypeHint>,
+) {
+    if decl.name_span.file != file_id {
+        return;
+    }
+    let Some(type_id) = binding_type_for_span(ctx, decl.name_span) else {
+        return;
+    };
+    let Some(ty) = hint_type_label(ctx, type_id) else {
+        return;
+    };
+    hints.push(AnalysisTypeHint {
+        span: decl.name_span,
+        label: format!(": {ty}"),
+        kind: AnalysisTypeHintKind::Variable,
+    });
+}
+
 fn collect_type_hints_in_match_pattern(
     ctx: &SemaContext<'_>,
     file_id: FileId,
@@ -372,6 +410,13 @@ fn type_can_be_displayed_as_data_init_prefix(ctx: &SemaContext<'_>, ty: TypeId) 
             | TypeKind::Array { .. }
             | TypeKind::ArrayInfer { .. }
             | TypeKind::Simd { .. }
+    ) || type_is_builtin_anonymous_enum(ctx, normalized)
+}
+
+fn type_is_builtin_anonymous_enum(ctx: &SemaContext<'_>, ty: TypeId) -> bool {
+    matches!(
+        ctx.type_registry.get(ty),
+        TypeKind::AnonymousEnum(enum_def) if enum_def.builtin.is_some()
     )
 }
 
@@ -388,7 +433,9 @@ fn maybe_push_contextual_enum_literal_type_hint(
         return;
     };
     let normalized = ctx.type_registry.normalize(type_id);
-    if !matches!(ctx.type_registry.get(normalized), TypeKind::Enum(..)) {
+    if !matches!(ctx.type_registry.get(normalized), TypeKind::Enum(..))
+        && !type_is_builtin_anonymous_enum(ctx, normalized)
+    {
         return;
     }
     let Some(ty) = hint_type_label(ctx, normalized) else {

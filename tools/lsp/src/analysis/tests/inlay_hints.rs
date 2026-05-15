@@ -86,6 +86,42 @@ fn inlay_hints_include_inferred_static_binding_types() {
 }
 
 #[test]
+fn inlay_hints_include_inferred_global_const_and_static_types() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "struct SpinLock {}\n",
+        "const SPIN_UNLOCKED = SpinLock.{};\n",
+        "static mut frame_op_lock = SPIN_UNLOCKED;\n",
+        "fn main() i32 {\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("inlay_hints_global_const_static", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
+
+    assert!(hints.iter().any(|hint| {
+        hint.label == ": SpinLock"
+            && hint.position
+                == position_of_nth(source, "SPIN_UNLOCKED", 0, "SPIN_UNLOCKED".len() as u32)
+    }));
+    assert!(hints.iter().any(|hint| {
+        hint.label == ": SpinLock"
+            && hint.position
+                == position_of_nth(source, "frame_op_lock", 0, "frame_op_lock".len() as u32)
+    }));
+}
+
+#[test]
 fn inlay_hints_skip_calls_fields_and_function_values() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
@@ -299,6 +335,45 @@ fn inlay_hints_include_contextual_enum_literal_type_prefixes() {
     assert!(!hints.iter().any(|hint| {
         hint.label == "Result"
             && hint.position == position_of_nth(source, "Result.Err", 0, "Result".len() as u32)
+    }));
+}
+
+#[test]
+fn inlay_hints_include_builtin_contextual_shorthand_type_prefixes() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn make_optional() ?i32 {\n",
+        "    return .None;\n",
+        "}\n",
+        "fn make_result() i32!i32 {\n",
+        "    return .{ Ok: 7i32 };\n",
+        "}\n",
+        "fn main() i32 {\n",
+        "    let array: [_]u8 = .{ 1u8, 2u8, 3u8 };\n",
+        "    return array[0] as i32;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("inlay_hints_builtin_shorthand_prefix", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
+
+    assert!(hints.iter().any(|hint| {
+        hint.label == "?i32" && hint.position == position_of_nth(source, ".None", 0, 0)
+    }));
+    assert!(hints.iter().any(|hint| {
+        hint.label == "i32!i32" && hint.position == position_of_nth(source, ".{ Ok", 0, 0)
+    }));
+    assert!(hints.iter().any(|hint| {
+        hint.label == "[3]u8" && hint.position == position_of_nth(source, ".{ 1u8", 0, 0)
     }));
 }
 

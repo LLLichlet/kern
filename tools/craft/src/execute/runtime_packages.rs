@@ -173,11 +173,14 @@ fn runtime_opt_level(profile: &crate::script::ScriptProfile) -> OptLevel {
 fn rt_entry_linker_input_flavor(
     profile: &crate::script::ScriptProfile,
 ) -> kernc_utils::config::LinkerInputFlavor {
-    if crate::script::host_target().os == crate::script::ScriptOs::Windows {
-        // Windows startup shims define linker-contract symbols such as
-        // `mainCRTStartup`, `__chkstk`, and `_fltused`. Preserve them as a
-        // concrete COFF object so the final link sees them as ordinary object
-        // definitions instead of ThinLTO-internalizable bitcode.
+    if matches!(
+        crate::script::host_target().os,
+        crate::script::ScriptOs::Windows | crate::script::ScriptOs::Darwin
+    ) {
+        // Platform startup shims define linker-contract symbols such as
+        // `mainCRTStartup`, `__chkstk`, `_fltused`, or Darwin entry symbols.
+        // Preserve them as concrete objects so the final link sees ordinary
+        // object definitions instead of ThinLTO-internalizable bitcode.
         kernc_utils::config::LinkerInputFlavor::Object
     } else {
         profile_linker_input_flavor(profile, crate::graph::BuildDomain::Target)

@@ -352,6 +352,10 @@ fn prepare_git_dependency_root(
         run_git(
             config_root,
             [
+                "-c",
+                "core.autocrlf=false",
+                "-c",
+                "core.eol=lf",
                 "clone",
                 "--no-checkout",
                 git_locator.as_str(),
@@ -360,6 +364,8 @@ fn prepare_git_dependency_root(
         )?;
     }
 
+    run_git(&cache_root, ["config", "core.autocrlf", "false"])?;
+    run_git(&cache_root, ["config", "core.eol", "lf"])?;
     run_git(
         &cache_root,
         ["remote", "set-url", "origin", git_locator.as_str()],

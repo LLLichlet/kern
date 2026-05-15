@@ -95,8 +95,9 @@ pub fn files_with_extension(root: &Path, extension: &str) -> OpsResult<Vec<PathB
         return Ok(Vec::new());
     }
     let mut files = Vec::new();
-    for entry in fs::read_dir(root)? {
-        let path = entry?.path();
+    for entry in fs::read_dir(root).map_err(|err| OpsError::io(root, "read directory", err))? {
+        let entry = entry.map_err(|err| OpsError::io(root, "read directory entry in", err))?;
+        let path = entry.path();
         if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some(extension) {
             files.push(path);
         }
@@ -110,8 +111,9 @@ pub fn direct_files(root: &Path) -> OpsResult<Vec<PathBuf>> {
         return Ok(Vec::new());
     }
     let mut files = Vec::new();
-    for entry in fs::read_dir(root)? {
-        let path = entry?.path();
+    for entry in fs::read_dir(root).map_err(|err| OpsError::io(root, "read directory", err))? {
+        let entry = entry.map_err(|err| OpsError::io(root, "read directory entry in", err))?;
+        let path = entry.path();
         if path.is_file() {
             files.push(path);
         }
@@ -121,7 +123,11 @@ pub fn direct_files(root: &Path) -> OpsResult<Vec<PathBuf>> {
 }
 
 pub fn is_empty_dir(path: &Path) -> OpsResult<bool> {
-    Ok(path.is_dir() && fs::read_dir(path)?.next().is_none())
+    Ok(path.is_dir()
+        && fs::read_dir(path)
+            .map_err(|err| OpsError::io(path, "read directory", err))?
+            .next()
+            .is_none())
 }
 
 pub fn canonical_or_self(path: &Path) -> PathBuf {

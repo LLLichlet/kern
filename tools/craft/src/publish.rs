@@ -286,12 +286,51 @@ fn normalize_repository_url(url: &str) -> String {
     let trimmed = url.trim().trim_end_matches('/');
     let without_git = trimmed.strip_suffix(".git").unwrap_or(trimmed);
     if let Some(path) = without_git.strip_prefix("file://") {
-        return path.trim_end_matches('/').to_string();
+        return normalize_local_repository_path(path);
     }
     if let Some(rest) = without_git.strip_prefix("git@github.com:") {
         return format!("https://github.com/{rest}");
     }
+    if looks_like_local_repository_path(without_git) {
+        return normalize_local_repository_path(without_git);
+    }
     without_git.to_string()
+}
+
+fn looks_like_local_repository_path(value: &str) -> bool {
+    value.starts_with('/')
+        || value.starts_with("\\\\")
+        || value.as_bytes().get(1).is_some_and(|byte| *byte == b':')
+}
+
+fn normalize_local_repository_path(value: &str) -> String {
+    let mut text = value.trim().trim_end_matches('/').trim_end_matches('\\');
+    if let Some(stripped) = text.strip_prefix("\\\\?\\") {
+        text = stripped;
+    } else if let Some(stripped) = text.strip_prefix("//?/") {
+        text = stripped;
+    }
+
+    let path = Path::new(text);
+    if let Ok(canonical) = path.canonicalize() {
+        return normalize_local_repository_path_text(&canonical.to_string_lossy());
+    }
+
+    normalize_local_repository_path_text(text)
+}
+
+fn normalize_local_repository_path_text(value: &str) -> String {
+    let mut text = value.replace('\\', "/");
+    while text.ends_with('/') {
+        text.pop();
+    }
+    if let Some(stripped) = text.strip_suffix(".git") {
+        text = stripped.to_string();
+    }
+    if text.as_bytes().get(1).is_some_and(|byte| *byte == b':') {
+        text = text.to_ascii_lowercase();
+    }
+    text
 }
 
 fn relative_display(root: &Path, path: &Path) -> String {
@@ -399,4 +438,33 @@ fn sha256_hex(bytes: &[u8]) -> String {
     }
 
     h.iter().map(|word| format!("{word:08x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repository_urls_match;
+
+    #[test]
+    fn repository_urls_match_normalizes_common_remote_spellings() {
+        assert!(repository_urls_match(
+            "git@github.com:kern-project/json-kern.git",
+            "https://github.com/kern-project/json-kern"
+        ));
+        assert!(repository_urls_match(
+            "https://github.com/kern-project/json-kern.git/",
+            "https://github.com/kern-project/json-kern"
+        ));
+    }
+
+    #[test]
+    fn repository_urls_match_normalizes_windows_verbatim_paths() {
+        assert!(repository_urls_match(
+            r"C:\Users\runneradmin\AppData\Local\Temp\repo.git",
+            r"\\?\C:\Users\runneradmin\AppData\Local\Temp\repo.git"
+        ));
+        assert!(repository_urls_match(
+            r"file://C:\Users\runneradmin\AppData\Local\Temp\repo.git",
+            r"\\?\C:\Users\runneradmin\AppData\Local\Temp\repo.git"
+        ));
+    }
 }

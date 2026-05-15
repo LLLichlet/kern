@@ -401,7 +401,7 @@ pub(super) fn validate_publish_vcs(
         .expect("publish metadata validation ensures repository exists");
         if !remote_urls
             .iter()
-            .any(|remote| repository_urls_match(repository, remote))
+            .any(|remote| crate::publish::repository_urls_match(repository, remote))
         {
             return Err(Error::Validation {
                 path: package.manifest_path.clone(),
@@ -499,19 +499,6 @@ fn parse_remote_urls(remotes: &str) -> Vec<String> {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
-}
-
-fn repository_urls_match(repository: &str, remote: &str) -> bool {
-    normalize_repository_url(repository) == normalize_repository_url(remote)
-}
-
-fn normalize_repository_url(url: &str) -> String {
-    let trimmed = url.trim().trim_end_matches('/');
-    let without_git = trimmed.strip_suffix(".git").unwrap_or(trimmed);
-    if let Some(rest) = without_git.strip_prefix("git@github.com:") {
-        return format!("https://github.com/{rest}");
-    }
-    without_git.to_string()
 }
 
 fn git_output<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<String> {

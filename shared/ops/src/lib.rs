@@ -23,6 +23,10 @@ impl OpsError {
             message: message.into(),
         }
     }
+
+    pub fn io(path: &Path, action: &str, source: io::Error) -> Self {
+        Self::new(format!("failed to {action} `{}`: {source}", path.display()))
+    }
 }
 
 impl fmt::Display for OpsError {
@@ -944,6 +948,12 @@ pub fn toolchain_manifest_json(
 }
 
 pub fn sha256_file(path: &Path) -> OpsResult<String> {
+    if !path.is_file() {
+        return Err(OpsError::new(format!(
+            "cannot compute sha256 for non-file `{}`",
+            path.display()
+        )));
+    }
     if cfg!(windows) {
         let script = format!(
             "(Get-FileHash -Algorithm SHA256 -LiteralPath {}).Hash.ToLowerInvariant()",
@@ -1023,7 +1033,10 @@ pub fn sha256_directory(path: &Path) -> OpsResult<String> {
 }
 
 pub fn file_size(path: &Path) -> OpsResult<u64> {
-    Ok(path.metadata()?.len())
+    Ok(path
+        .metadata()
+        .map_err(|err| OpsError::io(path, "read metadata for", err))?
+        .len())
 }
 
 pub fn extract_archive_with_system_tool(
@@ -1276,9 +1289,9 @@ pub fn remove_path_if_exists(path: &Path) -> OpsResult<()> {
         return Ok(());
     }
     if path.is_dir() {
-        fs::remove_dir_all(path)?;
+        fs::remove_dir_all(path).map_err(|err| OpsError::io(path, "remove directory", err))?;
     } else {
-        fs::remove_file(path)?;
+        fs::remove_file(path).map_err(|err| OpsError::io(path, "remove file", err))?;
     }
     Ok(())
 }
@@ -1288,9 +1301,16 @@ pub fn copy_path(source: &Path, dest: &Path) -> OpsResult<()> {
         copy_dir_recursive(source, dest)
     } else {
         if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent)
+                .map_err(|err| OpsError::io(parent, "create directory", err))?;
         }
-        fs::copy(source, dest)?;
+        fs::copy(source, dest).map_err(|err| {
+            OpsError::new(format!(
+                "failed to copy `{}` to `{}`: {err}",
+                source.display(),
+                dest.display()
+            ))
+        })?;
         Ok(())
     }
 }
@@ -1302,9 +1322,9 @@ pub fn copy_dir_recursive(source: &Path, dest: &Path) -> OpsResult<()> {
             source.display()
         )));
     }
-    fs::create_dir_all(dest)?;
-    for entry in fs::read_dir(source)? {
-        let entry = entry?;
+    fs::create_dir_all(dest).map_err(|err| OpsError::io(dest, "create directory", err))?;
+    for entry in fs::read_dir(source).map_err(|err| OpsError::io(source, "read directory", err))? {
+        let entry = entry.map_err(|err| OpsError::io(source, "read directory entry in", err))?;
         let source_path = entry.path();
         let dest_path = dest.join(entry.file_name());
         copy_path(&source_path, &dest_path)?;
@@ -1645,8 +1665,8 @@ fn json_string_array(
 }
 
 fn collect_files(root: &Path, out: &mut Vec<PathBuf>) -> OpsResult<()> {
-    for entry in fs::read_dir(root)? {
-        let entry = entry?;
+    for entry in fs::read_dir(root).map_err(|err| OpsError::io(root, "read directory", err))? {
+        let entry = entry.map_err(|err| OpsError::io(root, "read directory entry in", err))?;
         let path = entry.path();
         if path.is_dir() {
             collect_files(&path, out)?;

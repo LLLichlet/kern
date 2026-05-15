@@ -224,6 +224,84 @@ fn inlay_hints_include_only_multiline_chain_expression_types() {
     }));
 }
 
+#[test]
+fn inlay_hints_include_contextual_data_init_type_prefixes() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "struct Point { x: i32, y: i32 }\n",
+        "fn make_point() Point {\n",
+        "    return .{ x: 1i32, y: 2i32 };\n",
+        "}\n",
+        "fn main() i32 {\n",
+        "    let point: Point = .{ x: 10i32, y: 20i32 };\n",
+        "    let explicit = Point.{ x: 30i32, y: 40i32 };\n",
+        "    return point.x + explicit.y;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("inlay_hints_contextual_data_init_prefix", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
+
+    assert!(hints.iter().any(|hint| {
+        hint.label == "Point" && hint.position == position_of_nth(source, ".{ x: 1i32", 0, 0)
+    }));
+    assert!(hints.iter().any(|hint| {
+        hint.label == "Point" && hint.position == position_of_nth(source, ".{ x: 10i32", 0, 0)
+    }));
+    assert!(!hints.iter().any(|hint| {
+        hint.label == "Point"
+            && hint.position == position_of_nth(source, "Point.{", 0, "Point".len() as u32)
+    }));
+}
+
+#[test]
+fn inlay_hints_include_contextual_enum_literal_type_prefixes() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "enum Result { Ok: i32, Err }\n",
+        "fn make_result() Result {\n",
+        "    return .Err;\n",
+        "}\n",
+        "fn main() i32 {\n",
+        "    let value: Result = .Err;\n",
+        "    let explicit = Result.Err;\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("inlay_hints_contextual_enum_literal_prefix", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
+
+    assert!(hints.iter().any(|hint| {
+        hint.label == "Result" && hint.position == position_of_nth(source, ".Err", 0, 0)
+    }));
+    assert!(hints.iter().any(|hint| {
+        hint.label == "Result" && hint.position == position_of_nth(source, ".Err", 1, 0)
+    }));
+    assert!(!hints.iter().any(|hint| {
+        hint.label == "Result"
+            && hint.position == position_of_nth(source, "Result.Err", 0, "Result".len() as u32)
+    }));
+}
+
 fn whole_document_range() -> Range {
     Range {
         start: Position {

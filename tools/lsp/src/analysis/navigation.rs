@@ -66,18 +66,26 @@ pub(super) fn analysis_type_hint_to_lsp_hint(
     hint: &AnalysisTypeHint,
 ) -> InlayHint {
     let range = super::span_to_range(session, hint.span);
+    let (position, padding_right) = match hint.kind {
+        AnalysisTypeHintKind::ConstructorPrefix => (range.start, Some(false)),
+        AnalysisTypeHintKind::Variable | AnalysisTypeHintKind::Expression => {
+            (range.end, Some(true))
+        }
+    };
     InlayHint {
-        position: range.end,
+        position,
         label: hint.label.clone(),
         kind: Some(lsp_inlay_hint_kind(hint.kind)),
         padding_left: Some(false),
-        padding_right: Some(true),
+        padding_right,
     }
 }
 
 fn lsp_inlay_hint_kind(kind: AnalysisTypeHintKind) -> u8 {
     match kind {
-        AnalysisTypeHintKind::Variable | AnalysisTypeHintKind::Expression => 1,
+        AnalysisTypeHintKind::Variable
+        | AnalysisTypeHintKind::Expression
+        | AnalysisTypeHintKind::ConstructorPrefix => 1,
     }
 }
 

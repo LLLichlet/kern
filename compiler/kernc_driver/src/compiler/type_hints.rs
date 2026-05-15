@@ -2,7 +2,7 @@ use super::{AnalysisTypeHint, AnalysisTypeHintKind, CompilerDriver};
 use kernc_ast as ast;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId};
-use kernc_sema::ty::TypeId;
+use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::FileId;
 
 impl CompilerDriver {
@@ -143,7 +143,10 @@ fn collect_type_hints_in_expr(
                 collect_type_hints_in_expr(ctx, file_id, end, hints);
             }
         }
-        ast::ExprKind::DataInit { literal, .. } => {
+        ast::ExprKind::DataInit { type_node, literal } => {
+            if type_node.is_none() {
+                maybe_push_contextual_data_init_type_hint(ctx, file_id, expr, hints);
+            }
             collect_type_hints_in_data_literal(ctx, file_id, literal, hints);
         }
         ast::ExprKind::If {
@@ -214,12 +217,14 @@ fn collect_type_hints_in_expr(
         | ast::ExprKind::Identifier(_)
         | ast::ExprKind::AnchoredPath { .. }
         | ast::ExprKind::TypeNode(_)
-        | ast::ExprKind::EnumLiteral { .. }
         | ast::ExprKind::Break
         | ast::ExprKind::Continue
         | ast::ExprKind::Undef
         | ast::ExprKind::Infer
         | ast::ExprKind::SelfValue => {}
+        ast::ExprKind::EnumLiteral { .. } => {
+            maybe_push_contextual_enum_literal_type_hint(ctx, file_id, expr, hints);
+        }
     }
 }
 
@@ -327,6 +332,77 @@ fn collect_type_hints_in_data_literal(
             collect_type_hints_in_expr(ctx, file_id, value, hints)
         }
     }
+}
+
+fn maybe_push_contextual_data_init_type_hint(
+    ctx: &SemaContext<'_>,
+    file_id: FileId,
+    expr: &ast::Expr,
+    hints: &mut Vec<AnalysisTypeHint>,
+) {
+    if expr.span.file != file_id {
+        return;
+    }
+    let Some(type_id) = ctx.node_type(expr.id) else {
+        return;
+    };
+    if !type_can_be_displayed_as_data_init_prefix(ctx, type_id) {
+        return;
+    }
+    let Some(ty) = hint_type_label(ctx, type_id) else {
+        return;
+    };
+    hints.push(AnalysisTypeHint {
+        span: kernc_utils::Span {
+            file: expr.span.file,
+            start: expr.span.start,
+            end: expr.span.start,
+        },
+        label: ty,
+        kind: AnalysisTypeHintKind::ConstructorPrefix,
+    });
+}
+
+fn type_can_be_displayed_as_data_init_prefix(ctx: &SemaContext<'_>, ty: TypeId) -> bool {
+    let normalized = ctx.type_registry.normalize(ty);
+    matches!(
+        ctx.type_registry.get(normalized),
+        TypeKind::Def(..)
+            | TypeKind::Enum(..)
+            | TypeKind::Array { .. }
+            | TypeKind::ArrayInfer { .. }
+            | TypeKind::Simd { .. }
+    )
+}
+
+fn maybe_push_contextual_enum_literal_type_hint(
+    ctx: &SemaContext<'_>,
+    file_id: FileId,
+    expr: &ast::Expr,
+    hints: &mut Vec<AnalysisTypeHint>,
+) {
+    if expr.span.file != file_id {
+        return;
+    }
+    let Some(type_id) = ctx.node_type(expr.id) else {
+        return;
+    };
+    let normalized = ctx.type_registry.normalize(type_id);
+    if !matches!(ctx.type_registry.get(normalized), TypeKind::Enum(..)) {
+        return;
+    }
+    let Some(ty) = hint_type_label(ctx, normalized) else {
+        return;
+    };
+    hints.push(AnalysisTypeHint {
+        span: kernc_utils::Span {
+            file: expr.span.file,
+            start: expr.span.start,
+            end: expr.span.start,
+        },
+        label: ty,
+        kind: AnalysisTypeHintKind::ConstructorPrefix,
+    });
 }
 
 fn maybe_push_multiline_chain_type_hint(

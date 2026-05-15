@@ -130,6 +130,7 @@ pub struct AnalysisDefinitionLink {
 pub enum AnalysisTypeHintKind {
     Variable,
     Expression,
+    ConstructorPrefix,
 }
 
 #[derive(Debug, Clone)]

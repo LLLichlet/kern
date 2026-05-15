@@ -26,6 +26,7 @@ These are the current public reference documents.
 - [`docs/kernc.md`](./kernc.md): `kernc` CLI/driver behavior
 - [`docs/craft.md`](./craft.md): package manager, lockfile, resolution, and build orchestration model
 - [`docs/runtime-architecture.md`](./runtime-architecture.md): `base` / `rt` / `std` split and runtime/library policy
+- [`docs/lsp-roadmap-0.7.7.md`](./lsp-roadmap-0.7.7.md): 0.7.7 plan for making `kern-lsp` a core, responsive, cancellable, and testable language-server component
 - [`docs/unix-distribution.md`](./unix-distribution.md): Unix host-tool distribution policy
 - [`docs/windows-distribution.md`](./windows-distribution.md): Windows host-tool distribution policy
 - [`docs/style.md`](./style.md): repository source-style guidance

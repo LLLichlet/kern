@@ -10,7 +10,7 @@ use super::util::{
 };
 use shared_ops::{
     ArtifactRecord, BundledToolchain, OpsError, OpsResult, copy_dir_recursive, copy_path,
-    remove_path_if_exists, run_command_capture, sha256_directory,
+    remove_path_if_exists, run_command_capture, sha256_directory, sha256_file,
 };
 use std::ffi::OsString;
 use std::fs;
@@ -106,19 +106,18 @@ pub fn bundle_host_toolchain(
         &tool_paths(bundled_toolchain)?,
     )?;
     if host.archive_target.ends_with("apple-darwin") {
+        let mut bundled_prefixes = vec![bundled_toolchain.prefix.clone(), host_root.clone()];
+        bundled_prefixes.extend(extra_runtime_lib_dirs.clone());
         for lib_dir_source in &extra_runtime_lib_dirs {
             for dylib in files_with_extension(lib_dir_source, "dylib")? {
-                copy_path(&dylib, &lib_dir.join(dylib.file_name().unwrap()))?;
+                copy_runtime_library(&dylib, &lib_dir)?;
             }
         }
         let mut roots = direct_files(&host_root.join("bin"))?;
         roots.extend(files_with_extension(&lib_dir, "dylib")?);
-        let extra_runtime_libs = macos_collect_external_runtime_libs(
-            &roots,
-            &[bundled_toolchain.prefix.clone(), host_root.clone()],
-        )?;
+        let extra_runtime_libs = macos_collect_external_runtime_libs(&roots, &bundled_prefixes)?;
         for dylib in &extra_runtime_libs {
-            copy_path(dylib, &lib_dir.join(dylib.file_name().unwrap()))?;
+            copy_runtime_library(dylib, &lib_dir)?;
         }
         let mut original_libdirs = extra_runtime_lib_dirs;
         original_libdirs.push(bundled_toolchain.libdir.clone());
@@ -236,7 +235,11 @@ pub fn bundle_sdk_runtime_toolchain(
         Vec::new()
     };
     for library in &runtime_libs {
-        copy_path(library, &lib_dir.join(library.file_name().unwrap()))?;
+        if host.archive_target.ends_with("apple-darwin") {
+            copy_runtime_library(library, &lib_dir)?;
+        } else {
+            copy_path(library, &lib_dir.join(library.file_name().unwrap()))?;
+        }
     }
     if host.archive_target.ends_with("apple-darwin") && !is_empty_dir(&lib_dir)? {
         let mut original_libdirs = vec![bundled_toolchain.libdir.clone()];
@@ -294,6 +297,32 @@ fn tool_paths(bundled_toolchain: &BundledToolchain) -> OpsResult<Vec<(String, Pa
     Ok(tools)
 }
 
+fn copy_runtime_library(source: &Path, lib_dir: &Path) -> OpsResult<()> {
+    let Some(name) = source.file_name() else {
+        return Err(OpsError::new(format!(
+            "runtime library path `{}` has no file name",
+            source.display()
+        )));
+    };
+    let destination = lib_dir.join(name);
+    if destination.exists() {
+        if source.canonicalize().ok() == destination.canonicalize().ok() {
+            return Ok(());
+        }
+        let source_hash = sha256_file(source)?;
+        let destination_hash = sha256_file(&destination)?;
+        if source_hash == destination_hash {
+            return Ok(());
+        }
+        return Err(OpsError::new(format!(
+            "refusing to overwrite bundled runtime library `{}` with different contents from `{}`",
+            destination.display(),
+            source.display()
+        )));
+    }
+    copy_path(source, &destination)
+}
+
 fn sdk_runtime_tool_paths(
     host: &shared_ops::HostTarget,
     bundled_toolchain: &BundledToolchain,
@@ -349,5 +378,48 @@ fn verify_sdk_runtime_tool_starts(component: &str, path: &Path) -> OpsResult<()>
             "bundled runtime tool `{}` failed to start while packaging; the SDK runtime subset is missing a required dependency",
             path.display()
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared_ops::make_temp_dir;
+
+    #[test]
+    fn copy_runtime_library_skips_existing_library_with_same_contents() {
+        let root = make_temp_dir("kernworker-runtime-dylib-same-").unwrap();
+        let source_dir = root.join("source");
+        let lib_dir = root.join("lib");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::create_dir_all(&lib_dir).unwrap();
+        let source = source_dir.join("libduplicate.dylib");
+        let destination = lib_dir.join("libduplicate.dylib");
+        fs::write(&source, "same").unwrap();
+        fs::write(&destination, "same").unwrap();
+
+        copy_runtime_library(&source, &lib_dir).unwrap();
+
+        assert_eq!(fs::read_to_string(destination).unwrap(), "same");
+        remove_path_if_exists(&root).unwrap();
+    }
+
+    #[test]
+    fn copy_runtime_library_rejects_existing_library_with_different_contents() {
+        let root = make_temp_dir("kernworker-runtime-dylib-different-").unwrap();
+        let source_dir = root.join("source");
+        let lib_dir = root.join("lib");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::create_dir_all(&lib_dir).unwrap();
+        let source = source_dir.join("libduplicate.dylib");
+        let destination = lib_dir.join("libduplicate.dylib");
+        fs::write(&source, "source").unwrap();
+        fs::write(&destination, "destination").unwrap();
+
+        let error = copy_runtime_library(&source, &lib_dir).unwrap_err();
+
+        assert!(error.to_string().contains("refusing to overwrite"));
+        assert_eq!(fs::read_to_string(destination).unwrap(), "destination");
+        remove_path_if_exists(&root).unwrap();
     }
 }

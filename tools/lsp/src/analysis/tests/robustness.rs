@@ -97,6 +97,41 @@ fn incremental_content_change_fuzz_preserves_valid_utf16_positions() {
     }
 }
 
+#[test]
+fn lsp_analysis_does_not_silence_infrastructure_errors() {
+    let queries = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("analysis")
+            .join("queries.rs"),
+    )
+    .unwrap();
+    let analysis = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("analysis.rs"),
+    )
+    .unwrap();
+
+    for forbidden in [
+        "Err(_) => return Ok(None)",
+        "Err(_) => return Ok(Vec::new())",
+        "Err(_) => Ok(None)",
+        "Err(_) => Ok(Vec::new())",
+        ".analyze_interactive_artifact(uri) {\n            Ok(artifact) => artifact,\n            Err(_) => return Ok(None)",
+        ".analyze_interactive_navigation_artifact(uri) {\n            Ok(artifact) => artifact,\n            Err(_) => return Ok",
+    ] {
+        assert!(
+            !queries.contains(forbidden),
+            "LSP analysis query code must not silence infrastructure errors with `{forbidden}`"
+        );
+        assert!(
+            !analysis.contains(forbidden),
+            "LSP analysis core code must not silence infrastructure errors with `{forbidden}`"
+        );
+    }
+}
+
 fn query_positions(source: &str, seed: u64) -> Vec<Position> {
     let mut offsets = vec![0, source.len()];
     let mut rng = FuzzRng::new(seed ^ 0x9e37_79b9_7f4a_7c15);

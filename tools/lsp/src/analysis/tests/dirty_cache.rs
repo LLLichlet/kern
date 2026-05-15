@@ -938,7 +938,7 @@ fn structural_dirty_edit_falls_back_to_dirty_structure_analysis() {
         bundle
             .diagnostics
             .iter()
-            .all(|diagnostic| diagnostic.severity == 2)
+            .all(|diagnostic| diagnostic.severity == IdeDiagnosticSeverity::Warning)
     );
     assert!(
         bundle

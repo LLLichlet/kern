@@ -25,7 +25,12 @@ pub(super) fn publish_analysis_outcome(
     for bundle in &outcome.bundles {
         writer.write_json(&publish_diagnostics(
             bundle.uri.clone(),
-            bundle.diagnostics.clone(),
+            bundle
+                .diagnostics
+                .clone()
+                .into_iter()
+                .map(crate::analysis::ide::IdeDiagnostic::into_lsp)
+                .collect(),
         ))?;
     }
 

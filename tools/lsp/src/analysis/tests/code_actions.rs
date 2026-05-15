@@ -181,7 +181,7 @@ fn code_actions_offer_let_mut_fix() {
         .iter()
         .find(|action| action.title == "Change to `let mut`")
         .unwrap();
-    let diagnostic = action.diagnostics.as_ref().unwrap().first().unwrap();
+    let diagnostic = action.diagnostics.first().unwrap();
     let edit = action.edit.as_ref().unwrap();
     let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
 

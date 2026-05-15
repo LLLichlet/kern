@@ -229,13 +229,8 @@ fn definition_request_returns_definition_location() {
 #[test]
 fn definition_request_reports_analysis_errors() {
     let mut state = initialized_state();
-    let root = unique_temp_file_path("server_definition_invalid_manifest");
-    fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(root.join("Craft.toml"), "not valid craft toml").unwrap();
     let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
-    let source_path = root.join("src/main.kn");
-    fs::write(&source_path, source).unwrap();
-    let uri = format!("file://{}", source_path.to_string_lossy());
+    let uri = invalid_manifest_document_uri("server_definition_invalid_manifest", source);
 
     let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
     let response = dispatch_single_response(
@@ -256,6 +251,128 @@ fn definition_request_reports_analysis_errors() {
     let message = response["error"]["message"].as_str().unwrap();
     assert!(message.contains("definition analysis failed"), "{message}");
     assert!(message.contains("Craft.toml"), "{message}");
+}
+
+#[test]
+fn did_open_reports_analysis_errors_as_diagnostics() {
+    let mut state = initialized_state();
+    let source = "fn helper() i32 { return 1; }\n";
+    let uri = invalid_manifest_document_uri("server_open_invalid_manifest", source);
+
+    let messages = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["method"], "textDocument/publishDiagnostics");
+    assert_eq!(messages[0]["params"]["uri"], uri);
+    let diagnostics = messages[0]["params"]["diagnostics"].as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1);
+    let message = diagnostics[0]["message"].as_str().unwrap();
+    assert!(message.contains("analysis failed"), "{message}");
+    assert!(message.contains("Craft.toml"), "{message}");
+}
+
+#[test]
+fn semantic_request_failures_are_error_responses() {
+    let cases = [
+        (
+            "textDocument/references",
+            json!({
+                "position": { "line": 1, "character": 24 },
+                "context": { "includeDeclaration": true }
+            }),
+            "references analysis failed",
+        ),
+        (
+            "textDocument/hover",
+            json!({
+                "position": { "line": 1, "character": 24 }
+            }),
+            "hover analysis failed",
+        ),
+        (
+            "textDocument/signatureHelp",
+            json!({
+                "position": { "line": 1, "character": 31 }
+            }),
+            "signature help analysis failed",
+        ),
+        (
+            "textDocument/prepareRename",
+            json!({
+                "position": { "line": 1, "character": 24 }
+            }),
+            "prepareRename analysis failed",
+        ),
+        (
+            "textDocument/inlayHint",
+            json!({
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 3, "character": 0 }
+                }
+            }),
+            "inlay hint analysis failed",
+        ),
+        (
+            "textDocument/completion",
+            json!({
+                "position": { "line": 1, "character": 24 }
+            }),
+            "failed to resolve Craft project for LSP analysis",
+        ),
+        (
+            "textDocument/documentSymbol",
+            json!({}),
+            "failed to resolve Craft project for LSP analysis",
+        ),
+        (
+            "textDocument/semanticTokens/full",
+            json!({}),
+            "failed to resolve Craft project for LSP analysis",
+        ),
+        (
+            "textDocument/codeAction",
+            json!({
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 3, "character": 0 }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["quickfix"]
+                }
+            }),
+            "failed to resolve Craft project for LSP analysis",
+        ),
+    ];
+
+    for (index, (method, extra_params, expected)) in cases.into_iter().enumerate() {
+        let mut state = initialized_state();
+        let source = "fn helper(a: i32) i32 { return a; }\nfn main() i32 { return helper(1); }\n";
+        let uri = invalid_manifest_document_uri(&format!("server_semantic_error_{index}"), source);
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let mut params = extra_params;
+        params["textDocument"] = json!({ "uri": uri });
+
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(2600 + index)),
+                method: Some(method.to_string()),
+                params: Some(params),
+            },
+        );
+
+        assert_eq!(response["id"], json!(2600 + index));
+        assert_eq!(response["error"]["code"], json!(-32600), "{method}");
+        let message = response["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains(expected),
+            "{method}: expected `{expected}` in `{message}`"
+        );
+        assert!(message.contains("Craft.toml"), "{method}: {message}");
+    }
 }
 
 #[test]

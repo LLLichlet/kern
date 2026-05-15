@@ -98,6 +98,15 @@ pub(super) fn temp_file_uri(prefix: &str, initial_text: &str) -> String {
     format!("file://{}", path.to_string_lossy())
 }
 
+pub(super) fn invalid_manifest_document_uri(prefix: &str, source: &str) -> String {
+    let root = unique_temp_file_path(prefix);
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("Craft.toml"), "not valid craft toml").unwrap();
+    let source_path = root.join("src/main.kn");
+    fs::write(&source_path, source).unwrap();
+    format!("file://{}", source_path.to_string_lossy())
+}
+
 fn unique_temp_file_path(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

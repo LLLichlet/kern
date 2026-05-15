@@ -219,14 +219,14 @@ pub(crate) fn single_server_diagnostic(uri: String, message: impl Into<String>) 
     AnalysisOutcome {
         bundles: vec![super::DiagnosticBundle {
             uri,
-            diagnostics: vec![crate::protocol::Diagnostic {
+            diagnostics: vec![super::ide::IdeDiagnostic {
                 range: empty_range(),
-                severity: 2,
+                severity: super::ide::IdeDiagnosticSeverity::Warning,
                 source: "kern-lsp",
                 message: message.into(),
                 code: None,
-                tags: None,
-                related_information: None,
+                tags: Vec::new(),
+                related_information: Vec::new(),
             }],
         }],
     }

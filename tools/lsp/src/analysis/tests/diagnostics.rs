@@ -23,7 +23,7 @@ fn diagnostics_include_native_doc_lints_as_warnings() {
         bundle
             .diagnostics
             .iter()
-            .all(|diagnostic| diagnostic.severity == 2)
+            .all(|diagnostic| diagnostic.severity == IdeDiagnosticSeverity::Warning)
     );
     assert!(
         bundle
@@ -63,7 +63,7 @@ fn diagnostics_include_native_doc_lints_for_impl_methods() {
         bundle
             .diagnostics
             .iter()
-            .all(|diagnostic| diagnostic.severity == 2)
+            .all(|diagnostic| diagnostic.severity == IdeDiagnosticSeverity::Warning)
     );
     assert!(bundle.diagnostics.iter().any(|diagnostic| {
         diagnostic
@@ -281,7 +281,7 @@ fn diagnostics_mark_flow_and_reachability_warnings_as_unnecessary() {
             .find(|diagnostic| diagnostic.message.contains(needle))
             .unwrap_or_else(|| panic!("missing diagnostic: {needle}"));
         assert_eq!(diagnostic.code.as_deref(), Some(code));
-        assert_eq!(diagnostic.tags, Some(vec![DiagnosticTag::Unnecessary]));
+        assert_eq!(diagnostic.tags, vec![IdeDiagnosticTag::Unnecessary]);
     }
 }
 

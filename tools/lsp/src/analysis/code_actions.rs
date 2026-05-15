@@ -1,4 +1,5 @@
-use crate::protocol::{CodeAction, Diagnostic, Position, Range, TextEdit, WorkspaceEdit};
+use super::ide::{IdeCodeAction, IdeDiagnostic, IdeTextEdit, IdeWorkspaceEdit};
+use crate::protocol::{Position, Range};
 use kernc_driver::{AnalysisArtifact, AnalysisDeadStoreKind};
 use kernc_lexer::{TokenType, Tokenizer};
 use kernc_utils::{DiagnosticCode, FileId};
@@ -8,48 +9,48 @@ pub(super) fn quick_fix_for_diagnostic(
     uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
-    lsp_diagnostic: Diagnostic,
-) -> Option<CodeAction> {
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
     if diagnostic.level == kernc_utils::DiagnosticLevel::Warning
         && let Some(action) =
-            fact_driven_quick_fix(uri, artifact, diagnostic, lsp_diagnostic.clone())
+            fact_driven_quick_fix(uri, artifact, diagnostic, ide_diagnostic.clone())
     {
         return Some(action);
     }
-    if let Some(action) = structured_quick_fix(uri, artifact, diagnostic, lsp_diagnostic.clone()) {
+    if let Some(action) = structured_quick_fix(uri, artifact, diagnostic, ide_diagnostic.clone()) {
         return Some(action);
     }
     if diagnostic.code.is_some() {
         return None;
     }
 
-    fallback_text_quick_fix(uri, artifact, diagnostic, lsp_diagnostic)
+    fallback_text_quick_fix(uri, artifact, diagnostic, ide_diagnostic)
 }
 
 pub(super) fn lightweight_quick_fix_for_diagnostic(
     uri: &str,
     diagnostic: &kernc_utils::Diagnostic,
-    lsp_diagnostic: Diagnostic,
-) -> Option<CodeAction> {
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
     if diagnostic.level == kernc_utils::DiagnosticLevel::Warning {
         return None;
     }
-    if let Some(action) = structured_text_quick_fix(uri, diagnostic, lsp_diagnostic.clone()) {
+    if let Some(action) = structured_text_quick_fix(uri, diagnostic, ide_diagnostic.clone()) {
         return Some(action);
     }
     if diagnostic.code.is_some() {
         return None;
     }
 
-    fallback_insert_text_quick_fix(uri, diagnostic, lsp_diagnostic)
+    fallback_insert_text_quick_fix(uri, diagnostic, ide_diagnostic)
 }
 
 fn structured_quick_fix(
     uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
-    lsp_diagnostic: Diagnostic,
-) -> Option<CodeAction> {
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
     match diagnostic.code {
         Some(
             DiagnosticCode::ExpectedSemicolon
@@ -57,15 +58,15 @@ fn structured_quick_fix(
             | DiagnosticCode::UnclosedBracket
             | DiagnosticCode::UnclosedBlock
             | DiagnosticCode::IgnoredNonvoidValue,
-        ) => structured_text_quick_fix(uri, diagnostic, lsp_diagnostic),
+        ) => structured_text_quick_fix(uri, diagnostic, ide_diagnostic),
         Some(DiagnosticCode::RequiresLetMut) => {
-            let_mut_code_action(uri, artifact, diagnostic, lsp_diagnostic)
+            let_mut_code_action(uri, artifact, diagnostic, ide_diagnostic)
         }
         Some(DiagnosticCode::NonexhaustiveMatch) => {
-            add_match_catch_all_code_action(uri, artifact, diagnostic, lsp_diagnostic)
+            add_match_catch_all_code_action(uri, artifact, diagnostic, ide_diagnostic)
         }
         Some(DiagnosticCode::IrrefutableLetElse) => {
-            remove_irrefutable_let_else_code_action(uri, artifact, diagnostic, lsp_diagnostic)
+            remove_irrefutable_let_else_code_action(uri, artifact, diagnostic, ide_diagnostic)
         }
         _ => None,
     }
@@ -74,38 +75,38 @@ fn structured_quick_fix(
 fn structured_text_quick_fix(
     uri: &str,
     diagnostic: &kernc_utils::Diagnostic,
-    lsp_diagnostic: Diagnostic,
-) -> Option<CodeAction> {
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
     match diagnostic.code {
         Some(DiagnosticCode::ExpectedSemicolon) => Some(insert_text_at_diagnostic_start(
             uri,
             "Insert `;`",
             ";",
-            lsp_diagnostic,
+            ide_diagnostic,
         )),
         Some(DiagnosticCode::UnclosedParen) => Some(insert_text_at_diagnostic_start(
             uri,
             "Insert `)`",
             ")",
-            lsp_diagnostic,
+            ide_diagnostic,
         )),
         Some(DiagnosticCode::UnclosedBracket) => Some(insert_text_at_diagnostic_start(
             uri,
             "Insert `]`",
             "]",
-            lsp_diagnostic,
+            ide_diagnostic,
         )),
         Some(DiagnosticCode::UnclosedBlock) => Some(insert_text_at_diagnostic_start(
             uri,
             "Insert `}`",
             "}",
-            lsp_diagnostic,
+            ide_diagnostic,
         )),
         Some(DiagnosticCode::IgnoredNonvoidValue) => Some(insert_text_at_diagnostic_start(
             uri,
             "Discard value with `let _ =`",
             "let _ = ",
-            lsp_diagnostic,
+            ide_diagnostic,
         )),
         _ => None,
     }
@@ -115,14 +116,14 @@ fn fallback_text_quick_fix(
     uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
-    lsp_diagnostic: Diagnostic,
-) -> Option<CodeAction> {
-    if let Some(action) = fallback_insert_text_quick_fix(uri, diagnostic, lsp_diagnostic.clone()) {
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
+    if let Some(action) = fallback_insert_text_quick_fix(uri, diagnostic, ide_diagnostic.clone()) {
         return Some(action);
     }
 
     if diagnostic.hints.iter().any(suggests_let_mut_fix) {
-        return let_mut_code_action(uri, artifact, diagnostic, lsp_diagnostic);
+        return let_mut_code_action(uri, artifact, diagnostic, ide_diagnostic);
     }
     if diagnostic.message == "match expression is not exhaustive"
         || diagnostic.message == "match expression must be exhaustive"
@@ -131,7 +132,7 @@ fn fallback_text_quick_fix(
             .iter()
             .any(|hint| hint.contains("catch-all branch") || hint.starts_with("missing variants:"))
     {
-        return add_match_catch_all_code_action(uri, artifact, diagnostic, lsp_diagnostic);
+        return add_match_catch_all_code_action(uri, artifact, diagnostic, ide_diagnostic);
     }
     if diagnostic.message == "irrefutable `let` bindings cannot use `else`"
         || diagnostic.message == "irrefutable `let` patterns cannot use `else`"
@@ -140,7 +141,7 @@ fn fallback_text_quick_fix(
             .iter()
             .any(|hint| hint.contains("remove the `else` block") && hint.contains("refutable"))
     {
-        return remove_irrefutable_let_else_code_action(uri, artifact, diagnostic, lsp_diagnostic);
+        return remove_irrefutable_let_else_code_action(uri, artifact, diagnostic, ide_diagnostic);
     }
 
     None
@@ -149,8 +150,8 @@ fn fallback_text_quick_fix(
 fn fallback_insert_text_quick_fix(
     uri: &str,
     diagnostic: &kernc_utils::Diagnostic,
-    lsp_diagnostic: Diagnostic,
-) -> Option<CodeAction> {
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
     if diagnostic.message == "Expected semicolon"
         || diagnostic
             .hints
@@ -161,7 +162,7 @@ fn fallback_insert_text_quick_fix(
             uri,
             "Insert `;`",
             ";",
-            lsp_diagnostic,
+            ide_diagnostic,
         ));
     }
     if diagnostic
@@ -173,7 +174,7 @@ fn fallback_insert_text_quick_fix(
             uri,
             "Insert `)`",
             ")",
-            lsp_diagnostic,
+            ide_diagnostic,
         ));
     }
     if diagnostic
@@ -185,7 +186,7 @@ fn fallback_insert_text_quick_fix(
             uri,
             "Insert `]`",
             "]",
-            lsp_diagnostic,
+            ide_diagnostic,
         ));
     }
     if diagnostic.hints.iter().any(|hint| hint == "unclosed block") {
@@ -193,7 +194,7 @@ fn fallback_insert_text_quick_fix(
             uri,
             "Insert `}`",
             "}",
-            lsp_diagnostic,
+            ide_diagnostic,
         ));
     }
     if diagnostic.message == "ignored non-void return value"
@@ -206,7 +207,7 @@ fn fallback_insert_text_quick_fix(
             uri,
             "Discard value with `let _ =`",
             "let _ = ",
-            lsp_diagnostic,
+            ide_diagnostic,
         ));
     }
 
@@ -217,8 +218,8 @@ fn insert_text_at_diagnostic_start(
     uri: &str,
     title: &str,
     text: &str,
-    diagnostic: Diagnostic,
-) -> CodeAction {
+    diagnostic: IdeDiagnostic,
+) -> IdeCodeAction {
     insert_text_code_action(
         uri,
         title,
@@ -235,17 +236,17 @@ fn fact_driven_quick_fix(
     uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
-    lsp_diagnostic: Diagnostic,
-) -> Option<CodeAction> {
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
     match diagnostic.code {
         Some(DiagnosticCode::UnusedBinding) => {
-            unused_binding_code_action(uri, artifact, diagnostic, lsp_diagnostic)
+            unused_binding_code_action(uri, artifact, diagnostic, ide_diagnostic)
         }
         Some(DiagnosticCode::DeadStore) => {
-            dead_store_code_action(uri, artifact, diagnostic, lsp_diagnostic)
+            dead_store_code_action(uri, artifact, diagnostic, ide_diagnostic)
         }
         Some(DiagnosticCode::UnusedPrivateItem) => {
-            unused_private_item_code_action(uri, artifact, diagnostic, lsp_diagnostic)
+            unused_private_item_code_action(uri, artifact, diagnostic, ide_diagnostic)
         }
         _ => None,
     }
@@ -256,12 +257,12 @@ fn insert_text_code_action(
     title: &str,
     text: &str,
     range: Range,
-    diagnostic: Diagnostic,
-) -> CodeAction {
+    diagnostic: IdeDiagnostic,
+) -> IdeCodeAction {
     single_edit_code_action(
         uri,
         title,
-        TextEdit {
+        IdeTextEdit {
             range,
             new_text: text.to_string(),
         },
@@ -273,18 +274,18 @@ fn insert_text_code_action(
 fn single_edit_code_action(
     uri: &str,
     title: &str,
-    edit: TextEdit,
-    diagnostic: Diagnostic,
+    edit: IdeTextEdit,
+    diagnostic: IdeDiagnostic,
     is_preferred: bool,
-) -> CodeAction {
+) -> IdeCodeAction {
     let mut changes = BTreeMap::new();
     changes.insert(uri.to_string(), vec![edit]);
 
-    CodeAction {
+    IdeCodeAction {
         title: title.to_string(),
         kind: Some("quickfix"),
-        diagnostics: Some(vec![diagnostic]),
-        edit: Some(WorkspaceEdit { changes }),
+        diagnostics: vec![diagnostic],
+        edit: Some(IdeWorkspaceEdit { changes }),
         is_preferred: Some(is_preferred),
     }
 }
@@ -293,8 +294,8 @@ fn let_mut_code_action(
     uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
-    lsp_diagnostic: Diagnostic,
-) -> Option<CodeAction> {
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
     let definition_span = mutable_binding_definition(artifact, diagnostic.primary_span)?;
     let file = artifact
         .session
@@ -307,7 +308,7 @@ fn let_mut_code_action(
         "Change to `let mut`",
         "mut ",
         insertion_range,
-        lsp_diagnostic,
+        ide_diagnostic,
     ))
 }
 
@@ -315,8 +316,8 @@ fn unused_binding_code_action(
     uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
-    lsp_diagnostic: Diagnostic,
-) -> Option<CodeAction> {
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
     artifact
         .unused_bindings()
         .into_iter()
@@ -325,11 +326,11 @@ fn unused_binding_code_action(
             single_edit_code_action(
                 uri,
                 "Rename binding to `_`",
-                TextEdit {
+                IdeTextEdit {
                     range: super::span_to_range(&artifact.session, diagnostic.primary_span),
                     new_text: "_".to_string(),
                 },
-                lsp_diagnostic,
+                ide_diagnostic,
                 true,
             )
         })
@@ -339,8 +340,8 @@ fn dead_store_code_action(
     uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
-    lsp_diagnostic: Diagnostic,
-) -> Option<CodeAction> {
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
     let store = artifact
         .dead_stores()
         .into_iter()
@@ -355,11 +356,11 @@ fn dead_store_code_action(
     Some(single_edit_code_action(
         uri,
         "Remove dead assignment",
-        TextEdit {
+        IdeTextEdit {
             range: delete_range,
             new_text: String::new(),
         },
-        lsp_diagnostic,
+        ide_diagnostic,
         true,
     ))
 }
@@ -368,8 +369,8 @@ fn unused_private_item_code_action(
     uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
-    lsp_diagnostic: Diagnostic,
-) -> Option<CodeAction> {
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
     let item = artifact
         .unused_private_items()
         .into_iter()
@@ -383,11 +384,11 @@ fn unused_private_item_code_action(
     Some(single_edit_code_action(
         uri,
         "Make item public",
-        TextEdit {
+        IdeTextEdit {
             range: empty_range_at(file, insertion_offset),
             new_text: "pub ".to_string(),
         },
-        lsp_diagnostic,
+        ide_diagnostic,
         false,
     ))
 }
@@ -396,8 +397,8 @@ fn add_match_catch_all_code_action(
     uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
-    lsp_diagnostic: Diagnostic,
-) -> Option<CodeAction> {
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
     let file = artifact
         .session
         .source_manager
@@ -419,11 +420,11 @@ fn add_match_catch_all_code_action(
     Some(single_edit_code_action(
         uri,
         "Add `_ => @unreachable()` arm",
-        TextEdit {
+        IdeTextEdit {
             range: insertion_range,
             new_text: insertion_text,
         },
-        lsp_diagnostic,
+        ide_diagnostic,
         false,
     ))
 }
@@ -432,8 +433,8 @@ fn remove_irrefutable_let_else_code_action(
     uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
-    lsp_diagnostic: Diagnostic,
-) -> Option<CodeAction> {
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
     let file = artifact
         .session
         .source_manager
@@ -448,16 +449,16 @@ fn remove_irrefutable_let_else_code_action(
     Some(single_edit_code_action(
         uri,
         "Remove invalid `else` branch",
-        TextEdit {
+        IdeTextEdit {
             range: delete_range,
             new_text: String::new(),
         },
-        lsp_diagnostic,
+        ide_diagnostic,
         true,
     ))
 }
 
-pub(super) fn workspace_edit_key(edit: &WorkspaceEdit) -> String {
+pub(super) fn workspace_edit_key(edit: &IdeWorkspaceEdit) -> String {
     let mut key = String::new();
     for (uri, edits) in &edit.changes {
         key.push_str(uri);

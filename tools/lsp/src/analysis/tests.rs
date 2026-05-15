@@ -18,10 +18,11 @@ use super::{
     uri_to_analysis_path, uri_to_file_path,
 };
 use crate::analysis::DocumentSyncAction;
+use crate::analysis::ide::{IdeDiagnosticSeverity, IdeDiagnosticTag};
 use crate::protocol::{
-    DiagnosticTag, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, Position, Range, SemanticTokens, TextDocumentContentChangeEvent,
-    TextDocumentItem, VersionedTextDocumentIdentifier,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, Position,
+    Range, SemanticTokens, TextDocumentContentChangeEvent, TextDocumentItem,
+    VersionedTextDocumentIdentifier,
 };
 use crate::server::DiagnosticsAnalysisMode;
 use craft::analysis_context;

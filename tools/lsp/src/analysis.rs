@@ -3,6 +3,7 @@ mod code_actions;
 mod completion;
 mod diagnostics;
 mod documents;
+pub(super) mod ide;
 mod navigation;
 mod queries;
 mod semantic;
@@ -23,6 +24,7 @@ pub use self::diagnostics::cleared_uris;
 use self::diagnostics::{
     convert_diagnostic_for_document, diagnostics_from_session, preserve_target_diagnostics,
 };
+use self::ide::{IdeCodeAction, IdeDiagnostic};
 use self::navigation::{
     ReferenceLocationQuery, analysis_completion_to_lsp_item, analysis_signature_help_to_lsp_help,
     analysis_symbol_to_document_symbol, analysis_type_hint_to_lsp_hint, build_rename_changes,
@@ -42,7 +44,7 @@ use self::text::{
 };
 use crate::defaults::default_analysis_compile_options;
 use crate::protocol::{
-    CodeAction, CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DocumentHighlight, DocumentSymbol, Hover, InlayHint, Location,
     Position, PrepareRenameResult, Range, SemanticTokens, SignatureHelp,
     TextDocumentContentChangeEvent, WorkspaceEdit,
@@ -89,7 +91,7 @@ pub struct OpenDocument {
 #[derive(Debug, Clone)]
 pub struct DiagnosticBundle {
     pub uri: String,
-    pub diagnostics: Vec<crate::protocol::Diagnostic>,
+    pub diagnostics: Vec<IdeDiagnostic>,
 }
 
 pub struct AnalysisOutcome {
@@ -254,11 +256,21 @@ impl AnalysisEngine {
     }
 
     fn analyze_document_structure(&self, target_uri: &str) -> AnalysisOutcome {
-        let Ok(session) = self.parse_open_document_session(target_uri) else {
+        if let Err(message) = self.resolve_analysis(target_uri) {
             return single_server_diagnostic(
                 target_uri.to_string(),
-                "received analysis request for a document that is not open",
+                format!("analysis failed: {message}"),
             );
+        }
+
+        let session = match self.parse_open_document_session(target_uri) {
+            Ok(session) => session,
+            Err(message) => {
+                return single_server_diagnostic(
+                    target_uri.to_string(),
+                    format!("analysis failed: {message}"),
+                );
+            }
         };
 
         let mut bundles_by_uri = diagnostics_from_session(&session, &self.documents);
@@ -843,7 +855,7 @@ impl AnalysisEngine {
     fn retain_publishable_bundles(
         &self,
         target_uri: &str,
-        bundles_by_uri: &mut BTreeMap<String, Vec<crate::protocol::Diagnostic>>,
+        bundles_by_uri: &mut BTreeMap<String, Vec<IdeDiagnostic>>,
     ) {
         let Some(target_doc) = self.documents.get(target_uri) else {
             return;

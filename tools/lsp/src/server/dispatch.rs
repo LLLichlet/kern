@@ -407,7 +407,14 @@ pub(super) fn handle_message(
                     SchedulerLane::Interactive,
                     method,
                     |analysis| {
-                        analysis.code_actions(&params.text_document.uri, params.range.clone())
+                        analysis
+                            .code_actions(&params.text_document.uri, params.range.clone())
+                            .map(|actions| {
+                                actions
+                                    .into_iter()
+                                    .map(crate::analysis::ide::IdeCodeAction::into_lsp)
+                                    .collect::<Vec<_>>()
+                            })
                     },
                 )?;
             }

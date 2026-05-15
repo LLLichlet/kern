@@ -435,7 +435,7 @@ impl AnalysisEngine {
             .collect())
     }
 
-    pub fn code_actions(&self, uri: &str, range: Range) -> Result<Vec<CodeAction>, String> {
+    pub fn code_actions(&self, uri: &str, range: Range) -> Result<Vec<IdeCodeAction>, String> {
         let analysis_context = self.resolve_analysis_context(uri)?;
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested code actions for a document that is not open".to_string());
@@ -463,16 +463,16 @@ impl AnalysisEngine {
                 continue;
             }
 
-            let lsp_diagnostic =
+            let ide_diagnostic =
                 convert_diagnostic_for_document(&diagnostics_session, diagnostic, target_doc);
-            if !ranges_overlap(&lsp_diagnostic.range, &range) {
+            if !ranges_overlap(&ide_diagnostic.range, &range) {
                 continue;
             }
 
             let action = if let Some(artifact) = &artifact {
-                quick_fix_for_diagnostic(uri, artifact, diagnostic, lsp_diagnostic.clone())
+                quick_fix_for_diagnostic(uri, artifact, diagnostic, ide_diagnostic.clone())
             } else {
-                lightweight_quick_fix_for_diagnostic(uri, diagnostic, lsp_diagnostic.clone())
+                lightweight_quick_fix_for_diagnostic(uri, diagnostic, ide_diagnostic.clone())
             };
             let Some(action) = action else {
                 continue;

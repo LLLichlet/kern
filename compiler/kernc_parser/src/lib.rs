@@ -1570,4 +1570,157 @@ fn main(flag: bool) i32 {
         let (_session, module) = parse_module(source);
         assert_eq!(module.decls.len(), 4);
     }
+
+    #[test]
+    fn deterministic_parser_fuzz_smoke_does_not_panic_or_hang() {
+        for seed in 0..384u64 {
+            let source = fuzz_source(seed);
+            let result = std::panic::catch_unwind(|| {
+                let mut session = Session::new();
+                let file_id = session
+                    .source_manager
+                    .add_file(format!("fuzz_{seed}.kn"), source.clone());
+                let mut parser = Parser::new(&source, file_id, &mut session);
+                let _ = parser.parse_module();
+            });
+            assert!(
+                result.is_ok(),
+                "parser fuzz seed {seed} panicked with source:\n{source}"
+            );
+        }
+    }
+
+    fn fuzz_source(seed: u64) -> String {
+        const FRAGMENTS: &[&str] = &[
+            "fn",
+            "main",
+            "(",
+            ")",
+            "{",
+            "}",
+            "[",
+            "]",
+            "<",
+            ">",
+            ",",
+            ";",
+            ":",
+            "::",
+            ".",
+            ".{",
+            ".[",
+            "..",
+            "..=",
+            "..&",
+            ".&",
+            ".*",
+            ".?",
+            "=>",
+            "=",
+            "==",
+            "!",
+            "!=",
+            "+",
+            "-",
+            "*",
+            "/",
+            "%",
+            "&",
+            "|",
+            "^",
+            "~",
+            "return",
+            "let",
+            "mut",
+            "const",
+            "static",
+            "type",
+            "struct",
+            "union",
+            "enum",
+            "trait",
+            "impl",
+            "extern",
+            "use",
+            "mod",
+            "match",
+            "if",
+            "else",
+            "for",
+            "while",
+            "break",
+            "continue",
+            "defer",
+            "where",
+            "as",
+            "and",
+            "or",
+            "true",
+            "false",
+            "undef",
+            "void",
+            "i32",
+            "usize",
+            "&&u8",
+            "Fn",
+            "Self",
+            "self",
+            "_",
+            "0",
+            "1",
+            "0x",
+            "0b102",
+            "123_",
+            "1e+",
+            "\"unterminated",
+            "\"ok\"",
+            "'x'",
+            "'\\x'",
+            "b'\\n'",
+            "// comment\n",
+            "/* block */",
+            "/* unterminated",
+            "#[test]",
+            "#![if(test)]",
+            "/// docs\n",
+            "//! docs\n",
+            "\\\\multi\n    \\\\line",
+        ];
+
+        let mut rng = FuzzRng::new(seed ^ 0x9e37_79b9_7f4a_7c15);
+        let mut source = String::new();
+        let target_len = 24 + rng.range(160) as usize;
+        for index in 0..target_len {
+            if index % 17 == 0 {
+                source.push('\n');
+            } else if rng.range(4) == 0 {
+                source.push(' ');
+            }
+            source.push_str(FRAGMENTS[rng.range(FRAGMENTS.len() as u64) as usize]);
+        }
+        source
+    }
+
+    struct FuzzRng {
+        state: u64,
+    }
+
+    impl FuzzRng {
+        fn new(seed: u64) -> Self {
+            Self { state: seed | 1 }
+        }
+
+        fn next(&mut self) -> u64 {
+            let mut x = self.state;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.state = x;
+            x
+        }
+
+        fn range(&mut self, upper: u64) -> u64 {
+            self.next() % upper
+        }
+    }
 }

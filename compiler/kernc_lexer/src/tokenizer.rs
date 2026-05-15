@@ -886,4 +886,215 @@ mod tests {
             ]
         ));
     }
+
+    #[test]
+    fn deterministic_lexer_fuzz_smoke_preserves_progress() {
+        for seed in 0..512u64 {
+            let source = fuzz_source(seed);
+            let lexeme_result = std::panic::catch_unwind(|| assert_lexeme_progress(&source));
+            assert!(
+                lexeme_result.is_ok(),
+                "lexer lexeme fuzz seed {seed} failed with source:\n{source}"
+            );
+
+            let token_result = std::panic::catch_unwind(|| assert_token_progress(&source));
+            assert!(
+                token_result.is_ok(),
+                "lexer token fuzz seed {seed} failed with source:\n{source}"
+            );
+        }
+    }
+
+    fn assert_lexeme_progress(source: &str) {
+        let mut tokenizer = Tokenizer::new(source, FileId(0));
+        let mut previous_end = 0;
+
+        for _ in 0..=source.len() + 1 {
+            let lexeme = tokenizer.next_lexeme();
+            assert!(lexeme.span.start <= lexeme.span.end, "{lexeme:?}");
+            assert!(lexeme.span.end <= source.len(), "{lexeme:?}");
+            assert!(
+                lexeme.span.start >= previous_end,
+                "lexeme span moved backwards: {lexeme:?}, previous end {previous_end}"
+            );
+
+            match lexeme.tag {
+                LexemeType::Token(TokenType::Eof) => {
+                    assert_eq!(lexeme.span.start, source.len(), "{lexeme:?}");
+                    assert_eq!(lexeme.span.end, source.len(), "{lexeme:?}");
+                    return;
+                }
+                _ => assert!(
+                    lexeme.span.end > lexeme.span.start,
+                    "non-eof lexeme made no progress: {lexeme:?}"
+                ),
+            }
+
+            previous_end = lexeme.span.end;
+        }
+
+        panic!("lexer did not reach eof");
+    }
+
+    fn assert_token_progress(source: &str) {
+        let mut tokenizer = Tokenizer::new(source, FileId(0));
+        let mut previous_end = 0;
+
+        for _ in 0..=source.len() + 1 {
+            let token = tokenizer.next_token();
+            assert!(token.span.start <= token.span.end, "{token:?}");
+            assert!(token.span.end <= source.len(), "{token:?}");
+            assert!(
+                token.span.start >= previous_end,
+                "token span moved backwards: {token:?}, previous end {previous_end}"
+            );
+
+            if token.tag == TokenType::Eof {
+                assert_eq!(token.span.start, source.len(), "{token:?}");
+                assert_eq!(token.span.end, source.len(), "{token:?}");
+                return;
+            }
+
+            assert!(
+                token.span.end > token.span.start,
+                "non-eof token made no progress: {token:?}"
+            );
+            previous_end = token.span.end;
+        }
+
+        panic!("lexer did not reach eof");
+    }
+
+    fn fuzz_source(seed: u64) -> String {
+        const FRAGMENTS: &[&str] = &[
+            "",
+            " ",
+            "\t",
+            "\n",
+            "\r\n",
+            "fn",
+            "ident",
+            "_",
+            "Self",
+            "self",
+            "0",
+            "123",
+            "0x",
+            "0xff",
+            "0b102",
+            "1e+",
+            "1.2e-",
+            "123_",
+            "\"",
+            "\"ok\"",
+            "\"\\x",
+            "\"\\u{110000}\"",
+            "\"unterminated\n",
+            "'",
+            "''",
+            "'x'",
+            "'xy'",
+            "'\\x'",
+            "'\\u{}'",
+            "b'",
+            "b'\\n'",
+            "b'xy'",
+            "// comment",
+            "/// doc",
+            "//// normal",
+            "//! inner",
+            "/* block */",
+            "/* /* nested */ */",
+            "/* unterminated",
+            "(",
+            ")",
+            "{",
+            "}",
+            "[",
+            "]",
+            ".",
+            "..",
+            "...",
+            "..=",
+            "..&",
+            ".&",
+            ".*",
+            ".?",
+            ".[",
+            ".{",
+            "+=",
+            "-=",
+            "*=",
+            "/=",
+            "%=",
+            "&=",
+            "|=",
+            "^=",
+            "<<=",
+            ">>=",
+            "@",
+            "#",
+            "=>",
+            "=",
+            "==",
+            "!",
+            "!=",
+            "<",
+            "<=",
+            "<<",
+            ">",
+            ">=",
+            ">>",
+            "\\",
+            "\\\\multi",
+            "\\\\multi\n    \\\\line",
+            "\u{e9}",
+            "\u{4e2d}",
+            "\u{0}",
+            "\u{7f}",
+        ];
+
+        let mut rng = FuzzRng::new(seed ^ 0xa24b_aed4_963e_e407);
+        let mut source = String::new();
+        let target_len = 16 + rng.range(160) as usize;
+
+        for index in 0..target_len {
+            if index % 23 == 0 {
+                source.push('\n');
+            } else if rng.range(5) == 0 {
+                source.push(' ');
+            }
+
+            if rng.range(12) == 0 {
+                source.push(char::from(rng.range(128) as u8));
+            } else {
+                source.push_str(FRAGMENTS[rng.range(FRAGMENTS.len() as u64) as usize]);
+            }
+        }
+
+        source
+    }
+
+    struct FuzzRng {
+        state: u64,
+    }
+
+    impl FuzzRng {
+        fn new(seed: u64) -> Self {
+            Self { state: seed | 1 }
+        }
+
+        fn next(&mut self) -> u64 {
+            let mut x = self.state;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.state = x;
+            x
+        }
+
+        fn range(&mut self, upper: u64) -> u64 {
+            self.next() % upper
+        }
+    }
 }

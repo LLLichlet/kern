@@ -693,3 +693,108 @@ return 0;
 
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn test_cases_receive_case_name_env() {
+    let root = temp_dir("craft-exec-test-case-env");
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.6"
+
+[test]
+roots = ["tests/cases.kn"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("tests/cases.kn"),
+        r#"
+use std.env;
+use base.mem.alloc.{Allocator, gpa};
+use std.mem.Page;
+
+fn read_case(alloc: &mut Allocator) ?base.coll.String {
+let mut value = match ("CRAFT_TEST_CASE".env().get(alloc)) {
+    .{ Ok: .{ Some: found } } => found,
+    .{ Ok: .None } => return .None,
+    .{ Err: _ } => return .None,
+};
+return .{ Some: value };
+}
+
+#[test]
+fn alpha() i32 {
+let mut page = Page.{};
+let mut gpa = gpa().on((page..& as &mut Allocator));
+defer gpa..&.deinit();
+let alloc = (gpa..& as &mut Allocator);
+
+let mut case = match (read_case(alloc)) {
+    .{ Some: value } => value,
+    .None => return 1,
+};
+defer case..&.deinit(alloc);
+if (case.& != "alpha") {
+    return 2;
+}
+return 0;
+}
+
+mod nested {
+use std.env;
+use base.mem.alloc.{Allocator, gpa};
+use std.mem.Page;
+
+#[test]
+fn beta() i32 {
+let mut page = Page.{};
+let mut gpa = gpa().on((page..& as &mut Allocator));
+defer gpa..&.deinit();
+let alloc = (gpa..& as &mut Allocator);
+
+let mut case = match ("CRAFT_TEST_CASE".env().get(alloc)) {
+    .{ Ok: .{ Some: value } } => value,
+    .{ Ok: .None } => return 3,
+    .{ Err: _ } => return 4,
+};
+defer case..&.deinit(alloc);
+if (case.& != "nested::beta") {
+    return 5;
+}
+return 0;
+}
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Test,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Test).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let test_units = build_plan.packages[0]
+        .units
+        .iter()
+        .filter(|unit| unit.target_kind == crate::plan::TargetKind::Test)
+        .collect::<Vec<_>>();
+
+    let summary = test(&build_plan, &action_plan, &test_units).unwrap();
+    assert_eq!(summary.executed, 2);
+    assert!(summary.failures.is_empty(), "{:?}", summary.failures);
+
+    let _ = fs::remove_dir_all(root);
+}

@@ -6,6 +6,8 @@ mod const_generics;
 mod core;
 #[path = "language/initialization.rs"]
 mod initialization;
+#[path = "language/robustness.rs"]
+mod robustness;
 #[path = "language/runtime.rs"]
 mod runtime;
 #[path = "language/trait_solver.rs"]

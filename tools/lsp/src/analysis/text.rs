@@ -132,7 +132,10 @@ pub(super) fn span_to_range(session: &kernc_utils::Session, span: kernc_utils::S
 }
 
 pub(super) fn byte_offset_to_position(file: &kernc_utils::SourceFile, offset: usize) -> Position {
-    let clamped = offset.min(file.src.len());
+    let mut clamped = offset.min(file.src.len());
+    while clamped > 0 && !file.src.is_char_boundary(clamped) {
+        clamped -= 1;
+    }
     let line = file.lookup_line(clamped);
     let line_start = file.line_starts[line.saturating_sub(1)];
     let character = file.src[line_start..clamped].encode_utf16().count() as u32;

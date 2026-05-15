@@ -7,6 +7,7 @@ mod inlay_hints;
 mod navigation;
 mod project_resolution;
 mod real_projects;
+mod robustness;
 mod semantic_tokens;
 
 use super::cache::AnalysisCacheKey;

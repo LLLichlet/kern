@@ -118,7 +118,6 @@ fn collect_type_hints_in_expr(
         } => {
             collect_type_hints_in_expr(ctx, file_id, lhs, hints);
             collect_type_hints_in_expr(ctx, file_id, rhs, hints);
-            maybe_push_expr_type_hint(ctx, file_id, expr, hints);
         }
         ast::ExprKind::FieldAccess { lhs, .. }
         | ast::ExprKind::Unary { operand: lhs, .. }
@@ -128,14 +127,12 @@ fn collect_type_hints_in_expr(
         | ast::ExprKind::Propagate { operand: lhs }
         | ast::ExprKind::Grouped { expr: lhs } => {
             collect_type_hints_in_expr(ctx, file_id, lhs, hints);
-            maybe_push_expr_type_hint(ctx, file_id, expr, hints);
         }
         ast::ExprKind::Call { callee, args } => {
             collect_type_hints_in_expr(ctx, file_id, callee, hints);
             for arg in args {
                 collect_type_hints_in_expr(ctx, file_id, arg, hints);
             }
-            maybe_push_expr_type_hint(ctx, file_id, expr, hints);
         }
         ast::ExprKind::Range { start, end, .. } => {
             if let Some(start) = start {
@@ -144,11 +141,9 @@ fn collect_type_hints_in_expr(
             if let Some(end) = end {
                 collect_type_hints_in_expr(ctx, file_id, end, hints);
             }
-            maybe_push_expr_type_hint(ctx, file_id, expr, hints);
         }
         ast::ExprKind::DataInit { literal, .. } => {
             collect_type_hints_in_data_literal(ctx, file_id, literal, hints);
-            maybe_push_expr_type_hint(ctx, file_id, expr, hints);
         }
         ast::ExprKind::If {
             cond,
@@ -197,7 +192,6 @@ fn collect_type_hints_in_expr(
             if let Some(end) = end {
                 collect_type_hints_in_expr(ctx, file_id, end, hints);
             }
-            maybe_push_expr_type_hint(ctx, file_id, expr, hints);
         }
         ast::ExprKind::Return(Some(value)) => {
             collect_type_hints_in_expr(ctx, file_id, value, hints)
@@ -208,7 +202,6 @@ fn collect_type_hints_in_expr(
                 collect_type_hints_in_expr(ctx, file_id, &capture.value, hints);
             }
             collect_type_hints_in_expr(ctx, file_id, body, hints);
-            maybe_push_expr_type_hint(ctx, file_id, expr, hints);
         }
         ast::ExprKind::Error
         | ast::ExprKind::Integer { .. }
@@ -335,28 +328,6 @@ fn collect_type_hints_in_data_literal(
     }
 }
 
-fn maybe_push_expr_type_hint(
-    ctx: &SemaContext<'_>,
-    file_id: FileId,
-    expr: &ast::Expr,
-    hints: &mut Vec<AnalysisTypeHint>,
-) {
-    if expr.span.file != file_id || !expr_kind_benefits_from_hint(&expr.kind) {
-        return;
-    }
-    let Some(type_id) = ctx.node_type(expr.id) else {
-        return;
-    };
-    let Some(ty) = hint_type_label(ctx, type_id) else {
-        return;
-    };
-    hints.push(AnalysisTypeHint {
-        span: expr.span,
-        label: format!(": {ty}"),
-        kind: AnalysisTypeHintKind::Expression,
-    });
-}
-
 fn binding_type_for_span(ctx: &SemaContext<'_>, span: kernc_utils::Span) -> Option<TypeId> {
     ctx.scopes
         .all_symbols()
@@ -374,19 +345,4 @@ fn hint_type_label(ctx: &SemaContext<'_>, ty: TypeId) -> Option<String> {
     }
     let label = ctx.ty_to_string(normalized);
     (!label.contains("{error}") && !label.contains("<infer")).then_some(label)
-}
-
-fn expr_kind_benefits_from_hint(kind: &ast::ExprKind) -> bool {
-    matches!(
-        kind,
-        ast::ExprKind::Call { .. }
-            | ast::ExprKind::FieldAccess { .. }
-            | ast::ExprKind::IndexAccess { .. }
-            | ast::ExprKind::SliceOp { .. }
-            | ast::ExprKind::Propagate { .. }
-            | ast::ExprKind::GenericInstantiation { .. }
-            | ast::ExprKind::Range { .. }
-            | ast::ExprKind::DataInit { .. }
-            | ast::ExprKind::Closure { .. }
-    )
 }

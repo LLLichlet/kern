@@ -58,20 +58,15 @@ fn inlay_hints_skip_explicit_let_binding_types() {
 }
 
 #[test]
-fn inlay_hints_include_call_and_chain_expression_types() {
+fn inlay_hints_include_inferred_static_binding_types() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "struct Counter { value: i32 }\n",
-        "impl Counter {\n",
-        "    fn get() i32 { return self.value; }\n",
-        "}\n",
-        "fn make_counter() Counter { return Counter.{ value: 1i32 }; }\n",
         "fn main() i32 {\n",
-        "    let value = make_counter().get();\n",
-        "    return value;\n",
+        "    static mut total = 0usize;\n",
+        "    return 0;\n",
         "}\n",
     );
-    let uri = temp_file_uri("inlay_hints_chain", source);
+    let uri = temp_file_uri("inlay_hints_static_binding", source);
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -85,19 +80,73 @@ fn inlay_hints_include_call_and_chain_expression_types() {
     let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
 
     assert!(hints.iter().any(|hint| {
-        hint.label == ": Counter"
-            && hint.position
-                == position_of_nth(source, "make_counter()", 1, "make_counter()".len() as u32)
+        hint.label == ": usize"
+            && hint.position == position_of_nth(source, "total", 0, "total".len() as u32)
     }));
+}
+
+#[test]
+fn inlay_hints_skip_calls_fields_and_function_values() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "const ATOMIC_RELAXED = 0i32;\n",
+        "const LOCK_STATE_LOCKED = 1u8;\n",
+        "struct Counter { value: i32 }\n",
+        "impl Counter {\n",
+        "    fn get() i32 { return self.value; }\n",
+        "}\n",
+        "fn make_counter() Counter { return Counter.{ value: 1i32 }; }\n",
+        "fn helper() i32 { return 1; }\n",
+        "fn main() i32 {\n",
+        "    static mut state: u8 = 0u8;\n",
+        "    let value = make_counter().get();\n",
+        "    while (@atomicLoad[u8](state..&, ATOMIC_RELAXED) == LOCK_STATE_LOCKED) {}\n",
+        "    let callback = helper;\n",
+        "    let result = helper();\n",
+        "    return value;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("inlay_hints_skip_expression_noise", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
+
     assert!(hints.iter().any(|hint| {
         hint.label == ": i32"
-            && hint.position
-                == position_of_nth(
-                    source,
-                    "make_counter().get()",
-                    0,
-                    "make_counter().get()".len() as u32,
-                )
+            && hint.position == position_of_nth(source, "result", 0, "result".len() as u32)
+    }));
+    assert!(!hints.iter().any(|hint| hint.label.contains("fn(")));
+    assert!(!hints.iter().any(|hint| {
+        hint.position == position_of_nth(source, "make_counter()", 1, "make_counter()".len() as u32)
+    }));
+    assert!(!hints.iter().any(|hint| {
+        hint.position
+            == position_of_nth(
+                source,
+                "make_counter().get()",
+                0,
+                "make_counter().get()".len() as u32,
+            )
+    }));
+    assert!(!hints.iter().any(|hint| {
+        hint.position == position_of_nth(source, "state", 1, "state".len() as u32)
+    }));
+    assert!(!hints.iter().any(|hint| {
+        hint.position
+            == position_of_nth(
+                source,
+                "@atomicLoad[u8](state..&, ATOMIC_RELAXED)",
+                0,
+                "@atomicLoad[u8](state..&, ATOMIC_RELAXED)".len() as u32,
+            )
     }));
 }
 

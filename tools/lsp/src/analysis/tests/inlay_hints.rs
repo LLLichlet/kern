@@ -150,6 +150,80 @@ fn inlay_hints_skip_calls_fields_and_function_values() {
     }));
 }
 
+#[test]
+fn inlay_hints_include_only_multiline_chain_expression_types() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "struct Counter { value: i32 }\n",
+        "impl Counter {\n",
+        "    fn get() i32 { return self.value; }\n",
+        "    fn bump(amount: i32) Counter { return Counter.{ value: self.value + amount }; }\n",
+        "}\n",
+        "fn make_counter() Counter { return Counter.{ value: 1i32 }; }\n",
+        "fn main() i32 {\n",
+        "    let chained = make_counter()\n",
+        "        .bump(1i32)\n",
+        "        .get();\n",
+        "    let single_line = make_counter().bump(2i32).get();\n",
+        "    let argument_wrapped = make_counter().bump(\n",
+        "        3i32,\n",
+        "    );\n",
+        "    return chained + single_line + argument_wrapped.get();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("inlay_hints_multiline_chain", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
+
+    assert!(hints.iter().any(|hint| {
+        hint.label == ": Counter"
+            && hint.position
+                == position_of_nth(
+                    source,
+                    "make_counter()\n        .bump(1i32)",
+                    0,
+                    "make_counter()\n        .bump(1i32)".len() as u32,
+                )
+    }));
+    assert!(hints.iter().any(|hint| {
+        hint.label == ": i32"
+            && hint.position
+                == position_of_nth(
+                    source,
+                    "make_counter()\n        .bump(1i32)\n        .get()",
+                    0,
+                    "make_counter()\n        .bump(1i32)\n        .get()".len() as u32,
+                )
+    }));
+    assert!(!hints.iter().any(|hint| {
+        hint.position
+            == position_of_nth(
+                source,
+                "make_counter().bump(2i32).get()",
+                0,
+                "make_counter().bump(2i32).get()".len() as u32,
+            )
+    }));
+    assert!(!hints.iter().any(|hint| {
+        hint.position
+            == position_of_nth(
+                source,
+                "make_counter().bump(\n        3i32,\n    )",
+                0,
+                "make_counter().bump(\n        3i32,\n    )".len() as u32,
+            )
+    }));
+}
+
 fn whole_document_range() -> Range {
     Range {
         start: Position {

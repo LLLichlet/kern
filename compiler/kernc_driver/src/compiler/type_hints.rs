@@ -133,6 +133,7 @@ fn collect_type_hints_in_expr(
             for arg in args {
                 collect_type_hints_in_expr(ctx, file_id, arg, hints);
             }
+            maybe_push_multiline_chain_type_hint(ctx, file_id, expr, hints);
         }
         ast::ExprKind::Range { start, end, .. } => {
             if let Some(start) = start {
@@ -326,6 +327,50 @@ fn collect_type_hints_in_data_literal(
             collect_type_hints_in_expr(ctx, file_id, value, hints)
         }
     }
+}
+
+fn maybe_push_multiline_chain_type_hint(
+    ctx: &SemaContext<'_>,
+    file_id: FileId,
+    expr: &ast::Expr,
+    hints: &mut Vec<AnalysisTypeHint>,
+) {
+    if expr.span.file != file_id || !is_multiline_method_chain_call(ctx, expr) {
+        return;
+    }
+    let Some(type_id) = ctx.node_type(expr.id) else {
+        return;
+    };
+    let Some(ty) = hint_type_label(ctx, type_id) else {
+        return;
+    };
+    hints.push(AnalysisTypeHint {
+        span: expr.span,
+        label: format!(": {ty}"),
+        kind: AnalysisTypeHintKind::Expression,
+    });
+}
+
+fn is_multiline_method_chain_call(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
+    let ast::ExprKind::Call { callee, .. } = &expr.kind else {
+        return false;
+    };
+    let ast::ExprKind::FieldAccess {
+        lhs, field_span, ..
+    } = &callee.kind
+    else {
+        return false;
+    };
+    if lhs.span.file != expr.span.file || field_span.file != expr.span.file {
+        return false;
+    }
+
+    let Some(file) = ctx.sess.source_manager.get_file(expr.span.file) else {
+        return false;
+    };
+    let receiver_end_line = file.lookup_line(lhs.span.end);
+    let method_line = file.lookup_line(field_span.start);
+    receiver_end_line < method_line
 }
 
 fn binding_type_for_span(ctx: &SemaContext<'_>, span: kernc_utils::Span) -> Option<TypeId> {

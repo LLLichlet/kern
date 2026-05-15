@@ -17,6 +17,7 @@ struct SoundnessCase {
     module_paths: Vec<(String, String)>,
     module_interface_paths: Vec<(String, String)>,
     stderr_substrings: Vec<String>,
+    stderr_absent_substrings: Vec<String>,
     exit_code: Option<i32>,
     timeout_ms: Option<u64>,
     source: String,
@@ -162,6 +163,7 @@ fn run_reject_cases(paths: &[PathBuf]) {
                 stderr
             );
         }
+        assert_stderr_absent(path, &stderr, &case.stderr_absent_substrings);
     }
 }
 
@@ -238,6 +240,7 @@ fn run_known_bug_reject_cases(paths: &[PathBuf]) {
                 stderr
             );
         }
+        assert_stderr_absent(path, &stderr, &case.stderr_absent_substrings);
     }
 }
 
@@ -294,6 +297,11 @@ fn run_reject_tree_cases(paths: &[PathBuf]) {
                 stderr
             );
         }
+        assert_stderr_absent(
+            &path.join("main.kn"),
+            &stderr,
+            &case.stderr_absent_substrings,
+        );
     }
 }
 
@@ -303,6 +311,11 @@ fn run_run_pass_cases(paths: &[PathBuf]) {
         let output = build_and_run_case_output(path, &case, "kernc_soundness_run_pass");
         let expected_exit = case.exit_code.unwrap_or(0);
         assert_no_internal_failure(path, &String::from_utf8_lossy(&output.stderr));
+        assert_stderr_absent(
+            path,
+            &String::from_utf8_lossy(&output.stderr),
+            &case.stderr_absent_substrings,
+        );
 
         assert_eq!(
             output.status.code(),
@@ -323,6 +336,11 @@ fn run_tree_run_pass_cases(paths: &[PathBuf]) {
         assert_no_internal_failure(
             &path.join("main.kn"),
             &String::from_utf8_lossy(&output.stderr),
+        );
+        assert_stderr_absent(
+            &path.join("main.kn"),
+            &String::from_utf8_lossy(&output.stderr),
+            &case.stderr_absent_substrings,
         );
 
         assert_eq!(
@@ -800,6 +818,8 @@ fn parse_case(path: &Path) -> SoundnessCase {
                 .push((alias.trim().to_string(), rel_path.trim().to_string()));
         } else if let Some(value) = directive.strip_prefix("stderr:") {
             case.stderr_substrings.push(value.trim().to_string());
+        } else if let Some(value) = directive.strip_prefix("stderr-not:") {
+            case.stderr_absent_substrings.push(value.trim().to_string());
         } else if let Some(value) = directive.strip_prefix("exit:") {
             case.exit_code = Some(value.trim().parse().unwrap_or_else(|err| {
                 panic!(
@@ -833,4 +853,16 @@ fn assert_no_internal_failure(path: &Path, stderr: &str) {
         path.display(),
         stderr
     );
+}
+
+fn assert_stderr_absent(path: &Path, stderr: &str, absent_substrings: &[String]) {
+    for needle in absent_substrings {
+        assert!(
+            !stderr.contains(needle),
+            "{} unexpectedly printed stderr fragment `{}`:\n{}",
+            path.display(),
+            needle,
+            stderr
+        );
+    }
 }

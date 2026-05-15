@@ -1,0 +1,19 @@
+// source: repeated malformed generic headers should recover locally without reaching lowering or backend paths
+// stderr: expected
+// stderr-not: LLVM IR Verification Failed
+// stderr-not: Kern Compiler Internal Error
+
+trait A[N: usize] {};
+trait B[T] {};
+
+impl[N: usize &A[N] {
+    fn value() i32 { return 1; }
+}
+
+impl[T, U: &B[T] {
+    fn other() i32 { return 2; }
+}
+
+fn main() i32 {
+    return 0;
+}

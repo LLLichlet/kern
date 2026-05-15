@@ -1,0 +1,28 @@
+// source: const generic function item coercion, mutable loops, and enum matching compose through one callback boundary
+// exit: 0
+
+enum Pick {
+    Index: usize,
+    Fallback: i32,
+}
+
+fn choose[N: usize](items: [N]i32, pick: Pick) i32 {
+    return match (pick) {
+        .{ Index: index } => items.[index],
+        .{ Fallback: value } => value,
+    };
+}
+
+fn apply(cb: &Fn([4]i32, Pick) i32, items: [4]i32) i32 {
+    let mut total = 0i32;
+    let mut index = 0usize;
+    while (index < 4usize) {
+        total += cb(items, Pick.{ Index: index });
+        index += 1usize;
+    }
+    return total;
+}
+
+fn main() i32 {
+    return apply(choose[4], [4]i32.{ 1, 2, 3, 4 }) - 10;
+}

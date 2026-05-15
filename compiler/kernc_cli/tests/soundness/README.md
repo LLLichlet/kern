@@ -40,9 +40,13 @@ Leading comment directives:
 // module-interface-path: dep=iface
 // stderr: overlapping trait impls are not allowed
 // stderr: global proofs
+// stderr-not: LLVM IR Verification Failed
 // exit: 0
 // timeout-ms: 2000
 ```
+
+Use `stderr-not:` when a case must fail in a specific compiler layer rather than
+fall through to a later generic failure mode.
 
 `tree-reject/` cases read directives from `main.kn`, copy the whole case directory
 to a temporary workspace, and currently support relative `module-path` mappings

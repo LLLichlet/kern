@@ -1,0 +1,14 @@
+// source: mutable element address must not be synthesized through a shared slice view
+// stderr: cannot take mutable address `..&` of immutable memory
+// stderr-not: LLVM IR Verification Failed
+
+fn bump(value: &mut i32) void {
+    value.* += 1;
+}
+
+fn main() i32 {
+    let data = [3]i32.{ 1, 2, 3 };
+    let view = data.&[0...3];
+    bump(view.[1]..&);
+    return 0;
+}

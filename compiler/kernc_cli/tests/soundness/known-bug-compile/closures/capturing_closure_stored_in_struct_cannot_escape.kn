@@ -1,0 +1,21 @@
+// class: escaping-stack-state
+// source: escaping closure environments must be rejected even when hidden behind aggregate fields
+// stderr: cannot return a capturing closure as `&Fn(i32) i32`
+// stderr: closure environment would escape the current stack frame
+// stderr-not: LLVM IR Verification Failed
+
+struct Holder {
+    cb: &Fn(i32) i32,
+};
+
+fn make() Holder {
+    let base = 7i32;
+    return Holder.{ cb: [base](x: i32) i32 {
+        return x + base;
+    } };
+}
+
+fn main() i32 {
+    let holder = make();
+    return holder.cb(5);
+}

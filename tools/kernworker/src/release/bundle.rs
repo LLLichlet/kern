@@ -113,8 +113,10 @@ pub fn bundle_host_toolchain(
         }
         let mut roots = direct_files(&host_root.join("bin"))?;
         roots.extend(files_with_extension(&lib_dir, "dylib")?);
-        let extra_runtime_libs =
-            macos_collect_external_runtime_libs(&roots, &bundled_toolchain.prefix)?;
+        let extra_runtime_libs = macos_collect_external_runtime_libs(
+            &roots,
+            &[bundled_toolchain.prefix.clone(), host_root.clone()],
+        )?;
         for dylib in &extra_runtime_libs {
             copy_path(dylib, &lib_dir.join(dylib.file_name().unwrap()))?;
         }

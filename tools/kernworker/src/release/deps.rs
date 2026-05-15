@@ -111,9 +111,12 @@ pub fn external_runtime_libdirs_for_bundled_tools(
 
 pub fn macos_collect_external_runtime_libs(
     roots: &[PathBuf],
-    bundled_prefix: &Path,
+    bundled_prefixes: &[PathBuf],
 ) -> OpsResult<Vec<PathBuf>> {
-    let bundled_prefix = canonical_or_self(bundled_prefix);
+    let bundled_prefixes = bundled_prefixes
+        .iter()
+        .map(|path| canonical_or_self(path))
+        .collect::<Vec<_>>();
     let mut queued = roots
         .iter()
         .filter(|path| path.is_file())
@@ -132,7 +135,10 @@ pub fn macos_collect_external_runtime_libs(
                     continue;
                 }
                 let resolved = canonical_or_self(&candidate);
-                if resolved.starts_with(&bundled_prefix) {
+                if bundled_prefixes
+                    .iter()
+                    .any(|prefix| resolved.starts_with(prefix))
+                {
                     queued.push(resolved);
                     continue;
                 }

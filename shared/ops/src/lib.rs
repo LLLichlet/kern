@@ -1300,6 +1300,13 @@ pub fn copy_path(source: &Path, dest: &Path) -> OpsResult<()> {
     if source.is_dir() {
         copy_dir_recursive(source, dest)
     } else {
+        if dest.exists() {
+            let source_canonical = source.canonicalize().ok();
+            let dest_canonical = dest.canonicalize().ok();
+            if source_canonical.is_some() && source_canonical == dest_canonical {
+                return Ok(());
+            }
+        }
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent)
                 .map_err(|err| OpsError::io(parent, "create directory", err))?;
@@ -1921,6 +1928,18 @@ mod tests {
         .unwrap();
 
         assert_eq!(load_workspace_version(&root).unwrap(), "0.7.6");
+        remove_path_if_exists(&root).unwrap();
+    }
+
+    #[test]
+    fn copy_path_allows_copying_file_to_itself() {
+        let root = make_temp_dir("shared-ops-copy-self-test-").unwrap();
+        let file = root.join("artifact.txt");
+        fs::write(&file, "contents").unwrap();
+
+        copy_path(&file, &file).unwrap();
+
+        assert_eq!(fs::read_to_string(&file).unwrap(), "contents");
         remove_path_if_exists(&root).unwrap();
     }
 }

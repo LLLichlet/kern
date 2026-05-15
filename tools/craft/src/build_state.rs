@@ -731,6 +731,8 @@ mod tests {
             },
         ];
         let c_path = CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: c_path is a nul-terminated copy of the test path and times points to the two
+        // valid timespec values required by utimensat for atime and mtime.
         let result = unsafe { libc::utimensat(libc::AT_FDCWD, c_path.as_ptr(), times.as_ptr(), 0) };
         assert_eq!(result, 0);
     }

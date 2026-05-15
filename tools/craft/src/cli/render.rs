@@ -966,33 +966,43 @@ fn terminal_columns() -> Option<usize> {
 
     let fd = std::io::stderr().as_raw_fd();
     let mut winsize = MaybeUninit::<libc::winsize>::uninit();
+    // SAFETY: winsize points to writable uninitialized storage for ioctl to fill. The value is
+    // only assumed initialized after ioctl reports success.
     let result = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, winsize.as_mut_ptr()) };
     if result != 0 {
         return None;
     }
 
+    // SAFETY: ioctl returned success, so the kernel initialized winsize.
     let winsize = unsafe { winsize.assume_init() };
     (winsize.ws_col > 0).then_some(winsize.ws_col as usize)
 }
 
 #[cfg(windows)]
 fn terminal_columns() -> Option<usize> {
+    use std::mem::MaybeUninit;
     use std::ptr::null_mut;
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::System::Console::{
         CONSOLE_SCREEN_BUFFER_INFO, GetConsoleScreenBufferInfo, GetStdHandle, STD_ERROR_HANDLE,
     };
 
+    // SAFETY: GetStdHandle does not dereference any caller-provided pointer and is queried for
+    // stderr only. Invalid handles are rejected below.
     let handle = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
     if handle == null_mut() || handle == INVALID_HANDLE_VALUE {
         return None;
     }
 
-    let mut info = unsafe { std::mem::zeroed::<CONSOLE_SCREEN_BUFFER_INFO>() };
-    if unsafe { GetConsoleScreenBufferInfo(handle, &mut info) } == 0 {
+    let mut info = MaybeUninit::<CONSOLE_SCREEN_BUFFER_INFO>::uninit();
+    // SAFETY: handle was validated above and info points to writable storage. The value is only
+    // read after GetConsoleScreenBufferInfo reports success.
+    if unsafe { GetConsoleScreenBufferInfo(handle, info.as_mut_ptr()) } == 0 {
         return None;
     }
 
+    // SAFETY: GetConsoleScreenBufferInfo returned success, so info is initialized.
+    let info = unsafe { info.assume_init() };
     let width = info.srWindow.Right - info.srWindow.Left + 1;
     (width > 0).then_some(width as usize)
 }

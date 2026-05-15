@@ -256,14 +256,19 @@ fn process_exists(pid: u32) -> bool {
         fn CloseHandle(object: Handle) -> i32;
     }
 
+    // SAFETY: OpenProcess is called with query-only access, no inherited handle, and a PID read
+    // from lock metadata. A null handle is handled as "process is not alive".
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if handle.is_null() {
         return false;
     }
 
     let mut exit_code = 0u32;
+    // SAFETY: handle is non-null and owned by this function. exit_code points to a valid u32
+    // for the duration of the call.
     let alive =
         unsafe { GetExitCodeProcess(handle, &mut exit_code) != 0 && exit_code == STILL_ACTIVE };
+    // SAFETY: handle was returned by OpenProcess above and has not been closed yet.
     let _ = unsafe { CloseHandle(handle) };
     alive
 }
@@ -321,6 +326,8 @@ fn process_exists(pid: u32) -> bool {
         fn kill(pid: c_int, sig: c_int) -> c_int;
     }
 
+    // SAFETY: kill(pid, 0) does not send a signal; it only asks the kernel whether the process
+    // exists or is inaccessible. pid comes from lock metadata and is narrowed to libc::c_int.
     let result = unsafe { kill(pid as c_int, 0) };
     if result == 0 {
         return true;

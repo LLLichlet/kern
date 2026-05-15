@@ -89,6 +89,45 @@ root = \"src/lib.kn\"
 }
 
 #[test]
+fn resolve_analysis_reports_invalid_craft_manifest() {
+    let root = unique_temp_dir("analysis_invalid_manifest");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("Craft.toml"), "not valid craft toml").unwrap();
+    let source = "fn helper() i32 { return 1; }\n";
+    fs::write(root.join("src/main.kn"), source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let uri = file_path_to_uri(&root.join("src/main.kn")).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let err = analysis.resolve_analysis(&uri).unwrap_err();
+    assert!(
+        err.contains("failed to resolve Craft project for LSP analysis"),
+        "{err}"
+    );
+
+    let outcome = analysis.analyze_document_uri(&uri);
+    let diagnostic = &outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .unwrap()
+        .diagnostics[0];
+    assert!(
+        diagnostic.message.contains("analysis failed"),
+        "{diagnostic:?}"
+    );
+    assert!(diagnostic.message.contains("Craft.toml"), "{diagnostic:?}");
+}
+
+#[test]
 fn resolve_analysis_uses_craft_sdk_for_package_script_roots() {
     let root = unique_temp_dir("analysis_craft_script");
     let app_dir = root.join("app");

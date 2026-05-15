@@ -227,6 +227,38 @@ fn definition_request_returns_definition_location() {
 }
 
 #[test]
+fn definition_request_reports_analysis_errors() {
+    let mut state = initialized_state();
+    let root = unique_temp_file_path("server_definition_invalid_manifest");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("Craft.toml"), "not valid craft toml").unwrap();
+    let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
+    let source_path = root.join("src/main.kn");
+    fs::write(&source_path, source).unwrap();
+    let uri = format!("file://{}", source_path.to_string_lossy());
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(2501)),
+            method: Some("textDocument/definition".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 24 }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(2501));
+    assert_eq!(response["error"]["code"], json!(-32600));
+    let message = response["error"]["message"].as_str().unwrap();
+    assert!(message.contains("definition analysis failed"), "{message}");
+    assert!(message.contains("Craft.toml"), "{message}");
+}
+
+#[test]
 fn references_request_returns_sorted_locations() {
     let mut state = initialized_state();
     let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper() + helper(); }\n";

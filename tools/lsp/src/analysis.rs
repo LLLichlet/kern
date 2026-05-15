@@ -48,6 +48,7 @@ use crate::protocol::{
     TextDocumentContentChangeEvent, WorkspaceEdit,
 };
 use crate::server::DiagnosticsAnalysisMode;
+use craft::error::Error as CraftError;
 use craft::project::{AnalysisProject, ResolvedAnalysis, resolve_project_manifest_path};
 use kernc_driver::{
     AnalysisArtifact, AnalysisNavigationArtifact, AnalysisReport, AnalysisSurfaceArtifact,
@@ -197,28 +198,47 @@ impl AnalysisEngine {
     }
 
     fn analyze_document(&self, target_uri: &str) -> AnalysisOutcome {
-        if let Ok(Some(outcome)) = self.analyze_targeted_dirty_outcome(target_uri) {
-            return outcome;
+        match self.analyze_targeted_dirty_outcome(target_uri) {
+            Ok(Some(outcome)) => return outcome,
+            Ok(None) => {}
+            Err(message) => {
+                return single_server_diagnostic(
+                    target_uri.to_string(),
+                    format!("analysis failed: {message}"),
+                );
+            }
         }
 
-        if let Ok(Some(report)) = self.analyze_dirty_report(target_uri) {
-            let mut bundles_by_uri = diagnostics_from_session(&report.session, &self.documents);
-            bundles_by_uri.entry(target_uri.to_string()).or_default();
-            self.retain_publishable_bundles(target_uri, &mut bundles_by_uri);
+        match self.analyze_dirty_report(target_uri) {
+            Ok(Some(report)) => {
+                let mut bundles_by_uri = diagnostics_from_session(&report.session, &self.documents);
+                bundles_by_uri.entry(target_uri.to_string()).or_default();
+                self.retain_publishable_bundles(target_uri, &mut bundles_by_uri);
 
-            return AnalysisOutcome {
-                bundles: bundles_by_uri
-                    .into_iter()
-                    .map(|(uri, diagnostics)| DiagnosticBundle { uri, diagnostics })
-                    .collect(),
-            };
+                return AnalysisOutcome {
+                    bundles: bundles_by_uri
+                        .into_iter()
+                        .map(|(uri, diagnostics)| DiagnosticBundle { uri, diagnostics })
+                        .collect(),
+                };
+            }
+            Ok(None) => {}
+            Err(message) => {
+                return single_server_diagnostic(
+                    target_uri.to_string(),
+                    format!("analysis failed: {message}"),
+                );
+            }
         }
 
-        let Ok(report) = self.analyze_diagnostic_report(target_uri) else {
-            return single_server_diagnostic(
-                target_uri.to_string(),
-                "received analysis request for a document that is not open",
-            );
+        let report = match self.analyze_diagnostic_report(target_uri) {
+            Ok(report) => report,
+            Err(message) => {
+                return single_server_diagnostic(
+                    target_uri.to_string(),
+                    format!("analysis failed: {message}"),
+                );
+            }
         };
 
         let mut bundles_by_uri = diagnostics_from_session(&report.session, &self.documents);
@@ -749,7 +769,7 @@ impl AnalysisEngine {
             return Err("document is not open".to_string());
         };
 
-        if let Some(project) = self.project_for_path(&target_doc.path) {
+        if let Some(project) = self.project_for_path(&target_doc.path)? {
             let mut resolved =
                 project.resolve_for_file(&target_doc.path, &self.settings.compile_options);
             inject_driver_condition_defines(&mut resolved.compile_options);
@@ -767,23 +787,38 @@ impl AnalysisEngine {
         })
     }
 
-    fn project_for_path(&self, path: &Path) -> Option<AnalysisProject> {
+    fn project_for_path(&self, path: &Path) -> Result<Option<AnalysisProject>, String> {
         let start = if path.is_dir() {
             path
         } else {
             path.parent().unwrap_or_else(|| Path::new("."))
         };
-        let manifest_path = resolve_project_manifest_path(Some(start)).ok()?;
+        let manifest_path = match resolve_project_manifest_path(Some(start)) {
+            Ok(path) => path,
+            Err(CraftError::ManifestNotFound { .. }) => return Ok(None),
+            Err(err) => {
+                return Err(format!(
+                    "failed to resolve Craft project for LSP analysis: {err}"
+                ));
+            }
+        };
 
         if let Some(project) = self.project_cache.borrow().get(&manifest_path) {
-            return project.clone();
+            return Ok(project.clone());
         }
 
-        let project = AnalysisProject::load_from_manifest(&manifest_path).ok();
+        let project = AnalysisProject::load_from_manifest(&manifest_path)
+            .map(Some)
+            .map_err(|err| {
+                format!(
+                    "failed to load Craft project `{}` for LSP analysis: {err}",
+                    manifest_path.display()
+                )
+            })?;
         self.project_cache
             .borrow_mut()
             .insert(manifest_path, project.clone());
-        project
+        Ok(project)
     }
 
     fn infer_standalone_analysis_root(&self, path: &Path) -> PathBuf {
@@ -816,6 +851,8 @@ impl AnalysisEngine {
         let target_path = normalize_path(&target_doc.path);
         let workspace_root = self
             .project_for_path(&target_doc.path)
+            .ok()
+            .flatten()
             .map(|project| normalize_path(project.workspace_root()));
         let open_uri_by_path = self.open_uri_by_normalized_path();
 

@@ -74,10 +74,9 @@ impl AnalysisEngine {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(None);
         }
-        let artifact = match self.analyze_interactive_navigation_artifact(uri) {
-            Ok(artifact) => artifact,
-            Err(_) => return Ok(None),
-        };
+        let artifact = self
+            .analyze_interactive_navigation_artifact(uri)
+            .map_err(|message| format!("definition analysis failed: {message}"))?;
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested definition for a document that is not open".to_string());
         };
@@ -103,10 +102,9 @@ impl AnalysisEngine {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(Vec::new());
         }
-        let artifact = match self.analyze_interactive_navigation_artifact(uri) {
-            Ok(artifact) => artifact,
-            Err(_) => return Ok(Vec::new()),
-        };
+        let artifact = self
+            .analyze_interactive_navigation_artifact(uri)
+            .map_err(|message| format!("references analysis failed: {message}"))?;
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested references for a document that is not open".to_string());
         };
@@ -133,10 +131,9 @@ impl AnalysisEngine {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(Vec::new());
         }
-        let artifact = match self.analyze_interactive_navigation_artifact(uri) {
-            Ok(artifact) => artifact,
-            Err(_) => return Ok(Vec::new()),
-        };
+        let artifact = self
+            .analyze_interactive_navigation_artifact(uri)
+            .map_err(|message| format!("document highlights analysis failed: {message}"))?;
         let Some(target_doc) = self.documents.get(uri) else {
             return Err(
                 "requested document highlights for a document that is not open".to_string(),
@@ -158,10 +155,9 @@ impl AnalysisEngine {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(None);
         }
-        let artifact = match self.analyze_interactive_navigation_artifact(uri) {
-            Ok(artifact) => artifact,
-            Err(_) => return Ok(None),
-        };
+        let artifact = self
+            .analyze_interactive_navigation_artifact(uri)
+            .map_err(|message| format!("hover analysis failed: {message}"))?;
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested hover for a document that is not open".to_string());
         };
@@ -184,10 +180,9 @@ impl AnalysisEngine {
         let Some(offset) = self.semantic_query_offset(uri, &position)? else {
             return Ok(None);
         };
-        let artifact = match self.analyze_interactive_artifact(uri) {
-            Ok(artifact) => artifact,
-            Err(_) => return Ok(None),
-        };
+        let artifact = self
+            .analyze_interactive_artifact(uri)
+            .map_err(|message| format!("signature help analysis failed: {message}"))?;
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested signature help for a document that is not open".to_string());
         };
@@ -302,10 +297,9 @@ impl AnalysisEngine {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(None);
         }
-        let artifact = match self.analyze_interactive_navigation_artifact(uri) {
-            Ok(artifact) => artifact,
-            Err(_) => return Ok(None),
-        };
+        let artifact = self
+            .analyze_interactive_navigation_artifact(uri)
+            .map_err(|message| format!("prepareRename analysis failed: {message}"))?;
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested prepareRename for a document that is not open".to_string());
         };
@@ -415,10 +409,9 @@ impl AnalysisEngine {
             return Err("requested inlay hints for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
-        let artifact = match self.analyze_interactive_navigation_artifact(uri) {
-            Ok(artifact) => artifact,
-            Err(_) => return Ok(Vec::new()),
-        };
+        let artifact = self
+            .analyze_interactive_navigation_artifact(uri)
+            .map_err(|message| format!("inlay hint analysis failed: {message}"))?;
 
         self.record_analysis_tier(AnalysisTier::CleanSemantic);
         Ok(artifact

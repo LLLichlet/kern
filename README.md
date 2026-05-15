@@ -1,8 +1,5 @@
-<h1 align="center">
-  <img src="./assets/brand/kern-logo.svg" alt="Kern" width="420">
-</h1>
-
 <p align="center">
+  <img src="./assets/brand/kern-logo.svg" alt="Kern" width="320"><br>
   A systems programming language for kernels, firmware, and freestanding software.
 </p>
 

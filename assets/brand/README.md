@@ -10,3 +10,6 @@ This directory contains the canonical Kern visual assets.
 Generated or packaged copies may live under tool-specific directories, such as
 `editors/vscode/icons/`, but those copies should be refreshed from this
 directory rather than edited directly.
+
+The editor mark assets are optically aligned for small file-icon slots. Their
+viewBox is intentionally not a pure geometric crop of the paths.

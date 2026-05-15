@@ -1,0 +1,12 @@
+// source: aggregate static initialization must diagnose shape errors before codegen
+// stderr: field
+struct Pair {
+    a: i32,
+    b: i32,
+}
+
+static BAD = Pair.{ a: 1i32, a: 2i32 };
+
+fn main() i32 {
+    return 0;
+}

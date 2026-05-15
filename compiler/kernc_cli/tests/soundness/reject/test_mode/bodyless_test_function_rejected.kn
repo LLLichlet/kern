@@ -1,0 +1,5 @@
+// source: #[test] declarations must be validated before codegen/test metadata lowering
+// compile-args: --test-mode --runtime-entry rt --module-path base=library/base
+// stderr: `#[test]` function must have a body
+#[test]
+fn bad() i32;

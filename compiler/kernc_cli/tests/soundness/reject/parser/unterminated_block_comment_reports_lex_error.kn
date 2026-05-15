@@ -1,0 +1,6 @@
+// source: lexer/parser boundary must surface unterminated block comments as diagnostics, not panics
+// stderr: Expected declaration
+fn main() i32 {
+    return 0;
+}
+/* unterminated

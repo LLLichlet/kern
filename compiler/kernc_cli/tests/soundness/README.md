@@ -27,6 +27,11 @@ Each `.kn` file is a minimized regression seed. The harness lives in
 - `run-pass/`: program must compile and run successfully.
 - `known-bug-run/`: currently runs with buggy output/exit status. The test fails once the behavior changes.
 
+Expected reject/build/run buckets also reject internal compiler failure output by
+default. A case must not print `panicked at`, `Kern Compiler Internal Error`, or
+`LLVM IR Verification Failed` unless it is explicitly quarantined in a
+`known-bug-*` bucket.
+
 Leading comment directives:
 
 ```kern

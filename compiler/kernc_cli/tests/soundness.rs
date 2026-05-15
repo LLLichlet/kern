@@ -152,6 +152,7 @@ fn run_reject_cases(paths: &[PathBuf]) {
         );
 
         let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_no_internal_failure(path, &stderr);
         for needle in &case.stderr_substrings {
             assert!(
                 stderr.contains(needle),
@@ -176,6 +177,7 @@ fn run_build_pass_cases(paths: &[PathBuf]) {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+        assert_no_internal_failure(path, &String::from_utf8_lossy(&output.stderr));
     }
 }
 
@@ -226,6 +228,7 @@ fn run_known_bug_reject_cases(paths: &[PathBuf]) {
         );
 
         let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_no_internal_failure(path, &stderr);
         for needle in &case.stderr_substrings {
             assert!(
                 stderr.contains(needle),
@@ -281,6 +284,7 @@ fn run_reject_tree_cases(paths: &[PathBuf]) {
         );
 
         let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_no_internal_failure(&path.join("main.kn"), &stderr);
         for needle in &case.stderr_substrings {
             assert!(
                 stderr.contains(needle),
@@ -298,6 +302,7 @@ fn run_run_pass_cases(paths: &[PathBuf]) {
         let case = parse_case(path);
         let output = build_and_run_case_output(path, &case, "kernc_soundness_run_pass");
         let expected_exit = case.exit_code.unwrap_or(0);
+        assert_no_internal_failure(path, &String::from_utf8_lossy(&output.stderr));
 
         assert_eq!(
             output.status.code(),
@@ -315,6 +320,10 @@ fn run_tree_run_pass_cases(paths: &[PathBuf]) {
         let case = parse_case(&path.join("main.kn"));
         let output = build_and_run_case_tree_output(path, &case);
         let expected_exit = case.exit_code.unwrap_or(0);
+        assert_no_internal_failure(
+            &path.join("main.kn"),
+            &String::from_utf8_lossy(&output.stderr),
+        );
 
         assert_eq!(
             output.status.code(),
@@ -813,4 +822,15 @@ fn parse_case(path: &Path) -> SoundnessCase {
     }
 
     case
+}
+
+fn assert_no_internal_failure(path: &Path, stderr: &str) {
+    assert!(
+        !stderr.contains("panicked at")
+            && !stderr.contains("Kern Compiler Internal Error")
+            && !stderr.contains("LLVM IR Verification Failed"),
+        "{} triggered an internal compiler failure:\n{}",
+        path.display(),
+        stderr
+    );
 }

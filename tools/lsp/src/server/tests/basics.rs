@@ -1,6 +1,7 @@
 use super::super::lifecycle::TraceValue;
 use super::super::*;
 use super::*;
+use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Barrier, Mutex};
@@ -89,6 +90,217 @@ fn initialize_result_advertises_precise_capabilities() {
         result["capabilities"]["workspace"]["workspaceFolders"]["changeNotifications"],
         false
     );
+}
+
+#[test]
+fn advertised_capabilities_have_dispatch_and_server_tests() {
+    let capabilities =
+        initialize_result(InitializeResultOptions::default())["capabilities"].clone();
+    let dispatch = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("server")
+            .join("dispatch.rs"),
+    )
+    .unwrap();
+    let tests_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("server")
+        .join("tests");
+    let mut tests = String::new();
+    for entry in fs::read_dir(tests_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+            tests.push_str(&fs::read_to_string(path).unwrap());
+            tests.push('\n');
+        }
+    }
+
+    for coverage in advertised_request_coverages(&capabilities) {
+        for method in coverage.methods {
+            assert!(
+                dispatch.contains(&format!("\"{method}\"")),
+                "advertised capability `{}` has no dispatch handler for `{method}`",
+                coverage.capability
+            );
+        }
+        for marker in coverage.test_markers {
+            assert!(
+                tests.contains(marker),
+                "advertised capability `{}` has no server test marker `{marker}`",
+                coverage.capability
+            );
+        }
+    }
+}
+
+struct CapabilityRequestCoverage {
+    capability: &'static str,
+    methods: &'static [&'static str],
+    test_markers: &'static [&'static str],
+}
+
+fn advertised_request_coverages(capabilities: &Value) -> Vec<CapabilityRequestCoverage> {
+    let mut coverages = Vec::new();
+    let mut push_bool = |capability: &'static str,
+                         methods: &'static [&'static str],
+                         test_markers: &'static [&'static str]| {
+        if capabilities[capability].as_bool() == Some(true) {
+            coverages.push(CapabilityRequestCoverage {
+                capability,
+                methods,
+                test_markers,
+            });
+        }
+    };
+
+    push_bool(
+        "documentSymbolProvider",
+        &["textDocument/documentSymbol"],
+        &["document_symbol_request_returns_top_level_symbols"],
+    );
+    push_bool(
+        "definitionProvider",
+        &["textDocument/definition"],
+        &["definition_request_returns_definition_location"],
+    );
+    push_bool(
+        "declarationProvider",
+        &["textDocument/declaration"],
+        &["declaration_request_returns_declaration_location"],
+    );
+    push_bool(
+        "typeDefinitionProvider",
+        &["textDocument/typeDefinition"],
+        &["type_definition_request_returns_type_symbol_definition"],
+    );
+    push_bool(
+        "implementationProvider",
+        &["textDocument/implementation"],
+        &["implementation_request_returns_trait_method_implementations"],
+    );
+    push_bool(
+        "documentHighlightProvider",
+        &["textDocument/documentHighlight"],
+        &["document_highlight_request_returns_same_file_spans"],
+    );
+    push_bool(
+        "hoverProvider",
+        &["textDocument/hover"],
+        &["hover_request_returns_signature_markup"],
+    );
+    push_bool(
+        "foldingRangeProvider",
+        &["textDocument/foldingRange"],
+        &["folding_range_request_returns_block_ranges"],
+    );
+    push_bool(
+        "selectionRangeProvider",
+        &["textDocument/selectionRange"],
+        &["selection_range_request_returns_parent_chain"],
+    );
+    push_bool(
+        "documentFormattingProvider",
+        &["textDocument/formatting"],
+        &["formatting_request_returns_text_edits_for_dirty_document"],
+    );
+    push_bool(
+        "documentRangeFormattingProvider",
+        &["textDocument/rangeFormatting"],
+        &["range_formatting_request_filters_unrelated_edits"],
+    );
+    push_bool(
+        "workspaceSymbolProvider",
+        &["workspace/symbol"],
+        &["workspace_symbol_request_returns_open_document_symbols"],
+    );
+    push_bool(
+        "inlayHintProvider",
+        &["textDocument/inlayHint"],
+        &["inlay_hint_request_returns_type_hints"],
+    );
+
+    if capabilities.get("callHierarchyProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "callHierarchyProvider",
+            methods: &[
+                "textDocument/prepareCallHierarchy",
+                "callHierarchy/incomingCalls",
+                "callHierarchy/outgoingCalls",
+            ],
+            test_markers: &["call_hierarchy_requests_return_direct_calls"],
+        });
+    }
+    if capabilities.get("codeLensProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "codeLensProvider",
+            methods: &["textDocument/codeLens"],
+            test_markers: &["code_lens_request_returns_craft_target_commands"],
+        });
+    }
+    if capabilities.get("referencesProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "referencesProvider",
+            methods: &["textDocument/references"],
+            test_markers: &["references_request_returns_sorted_locations"],
+        });
+    }
+    if capabilities.get("documentLinkProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "documentLinkProvider",
+            methods: &["textDocument/documentLink"],
+            test_markers: &["document_link_request_returns_import_targets"],
+        });
+    }
+    if capabilities.get("signatureHelpProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "signatureHelpProvider",
+            methods: &["textDocument/signatureHelp"],
+            test_markers: &["signature_help_request_returns_active_parameter_information"],
+        });
+    }
+    if capabilities.get("completionProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "completionProvider",
+            methods: &["textDocument/completion"],
+            test_markers: &["completion_request_returns_visible_items"],
+        });
+    }
+    if capabilities.get("semanticTokensProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "semanticTokensProvider",
+            methods: &[
+                "textDocument/semanticTokens/full",
+                "textDocument/semanticTokens/range",
+            ],
+            test_markers: &[
+                "semantic_tokens_request_returns_encoded_token_data",
+                "semantic_tokens_range_request_filters_token_data",
+            ],
+        });
+    }
+    if capabilities.get("codeActionProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "codeActionProvider",
+            methods: &["textDocument/codeAction", "codeAction/resolve"],
+            test_markers: &[
+                "code_action_request_returns_quick_fix_edits",
+                "code_action_resolve_returns_eager_action_without_analysis",
+            ],
+        });
+    }
+    if capabilities.get("renameProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "renameProvider",
+            methods: &["textDocument/prepareRename", "textDocument/rename"],
+            test_markers: &[
+                "prepare_rename_request_returns_placeholder_and_range",
+                "rename_request_returns_workspace_edit",
+            ],
+        });
+    }
+
+    coverages
 }
 
 #[test]

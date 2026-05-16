@@ -684,6 +684,12 @@ Tasks:
 - Added the nonexhaustive-match catch-all quick fix as a genuinely deferred
   action: initial code action responses carry resolve data without the edit, and
   `codeAction/resolve` materializes the catch-all arm edit from analysis.
+- Extended deferred action coverage to every semantic/analysis-backed quick fix:
+  `let mut`, unused-binding rename, dead-store removal, make-public,
+  nonexhaustive-match catch-all, and irrefutable-let-else removal. Cheap
+  parse-only text fixes such as delimiter insertion remain eager.
+- Deferred code action deduplication includes stable resolve data so repeated
+  actions with the same title do not collapse to one stale candidate.
 - Extend the deferred model to future heavier fixes such as import insertion,
   trait impl stubs, and wider multi-edit quick fixes.
 

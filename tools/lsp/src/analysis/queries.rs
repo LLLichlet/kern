@@ -1245,8 +1245,14 @@ impl AnalysisEngine {
                 .edit
                 .as_ref()
                 .map(workspace_edit_key)
-                .unwrap_or_default();
-            let dedup_key = (action.title.clone(), edit_key);
+                .unwrap_or_else(|| {
+                    action
+                        .resolve_data
+                        .as_ref()
+                        .map(code_action_resolve_key)
+                        .unwrap_or_default()
+                });
+            let dedup_key = (action.title.clone(), action.fix_id, edit_key);
             if seen.insert(dedup_key) {
                 actions.push(action);
             }
@@ -1289,10 +1295,11 @@ fn code_action_with_resolve_data(
     version: i64,
     request_range: &Range,
 ) -> IdeCodeAction {
-    if action.fix_id == Some("add-match-catch-all")
+    if action.fix_id.is_some_and(defer_code_action_fix)
         && let Some(diagnostic) = action.diagnostics.first()
         && let Some(action_kind) = action.kind
     {
+        let fix_id = action.fix_id.expect("checked above");
         action.resolve_data = Some(CodeActionResolveData {
             uri: uri.to_string(),
             version,
@@ -1300,11 +1307,41 @@ fn code_action_with_resolve_data(
             diagnostic_range: diagnostic.range.clone(),
             diagnostic_code: diagnostic.code.clone(),
             action_kind: action_kind.to_string(),
-            fix_id: "add-match-catch-all".to_string(),
+            fix_id: fix_id.to_string(),
         });
         action.edit = None;
     }
     action
+}
+
+fn defer_code_action_fix(fix_id: &str) -> bool {
+    matches!(
+        fix_id,
+        "change-let-mut"
+            | "rename-unused-binding-to-underscore"
+            | "remove-dead-assignment"
+            | "make-private-item-public"
+            | "add-match-catch-all"
+            | "remove-irrefutable-let-else"
+    )
+}
+
+fn code_action_resolve_key(data: &CodeActionResolveData) -> String {
+    format!(
+        "{}|{}|{}:{}:{}:{}|{}:{}:{}:{}|{}|{}",
+        data.fix_id,
+        data.version,
+        data.range.start.line,
+        data.range.start.character,
+        data.range.end.line,
+        data.range.end.character,
+        data.diagnostic_range.start.line,
+        data.diagnostic_range.start.character,
+        data.diagnostic_range.end.line,
+        data.diagnostic_range.end.character,
+        data.diagnostic_code.as_deref().unwrap_or(""),
+        data.action_kind
+    )
 }
 
 fn workspace_symbol_order(

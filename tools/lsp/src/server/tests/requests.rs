@@ -178,6 +178,69 @@ fn code_action_resolve_materializes_deferred_edit() {
 }
 
 #[test]
+fn code_action_resolve_materializes_let_mut_fix() {
+    let mut state = initialized_state();
+    let source = "fn main() void {\n    let value = 1;\n    value = 2;\n}\n";
+    let uri = temp_file_uri("server_code_action_resolve_let_mut", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let code_action_response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(235)),
+            method: Some("textDocument/codeAction".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 2, "character": 4 },
+                    "end": { "line": 2, "character": 13 }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["quickfix"]
+                }
+            })),
+        },
+    );
+    let code_action = code_action_response["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == json!("Change to `let mut`"))
+        .unwrap()
+        .clone();
+    assert!(code_action.get("edit").is_none());
+    assert_eq!(code_action["data"]["fixId"], json!("change-let-mut"));
+    assert_eq!(
+        code_action["data"]["diagnosticCode"],
+        json!("requires-let-mut")
+    );
+
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(236)),
+            method: Some("codeAction/resolve".to_string()),
+            params: Some(code_action),
+        },
+    );
+
+    assert_eq!(response["id"], json!(236));
+    assert_eq!(response["result"]["title"], "Change to `let mut`");
+    assert_eq!(
+        response["result"]["edit"]["changes"][&uri][0]["range"]["start"],
+        json!({ "line": 1, "character": 8 })
+    );
+    assert_eq!(
+        response["result"]["edit"]["changes"][&uri][0]["newText"],
+        "mut "
+    );
+    assert!(response["result"].get("data").is_none());
+}
+
+#[test]
 fn code_action_resolve_does_not_apply_stale_deferred_edit() {
     let mut state = initialized_state();
     let source = "fn main() i32 {\n    return match (1) {\n        1 => 1,\n    };\n}\n";

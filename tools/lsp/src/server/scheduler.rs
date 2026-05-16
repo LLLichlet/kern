@@ -1,8 +1,9 @@
-use super::state::{RequestBudgetKind, RequestBudgetStatus};
+use super::state::RequestBudgetKind;
 use super::{
-    AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, DocumentRequestResponse,
-    DocumentRequestTaskResult, INVALID_REQUEST, LspWorkerTask, RequestContext,
-    ScheduledDocumentRequestTask, SchedulerLane, ServerError, ServerState, lifecycle::emit_trace,
+    AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, DiagnosticsTaskResult,
+    DocumentRequestResponse, DocumentRequestTaskResult, INVALID_REQUEST, LspWorkerTask,
+    RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerError, ServerState,
+    WorkspaceRefreshTaskResult, lifecycle::emit_trace,
 };
 use crate::analysis::{AnalysisOutcome, AnalysisSnapshot, DocumentSyncAction, cleared_uris};
 use crate::protocol::{error_response, null_response, publish_diagnostics, success_response};
@@ -60,55 +61,15 @@ pub(super) fn flush_diagnostics_lane(
     state: &mut ServerState,
     writer: &mut MessageWriter<impl io::Write>,
 ) -> Result<(), ServerError> {
+    flush_workspace_refresh_results(state, writer, false)?;
+    flush_diagnostics_results(state, writer, false)?;
+
     if let Some(reason) = state.pending_workspace_refresh_reason.take() {
-        let started_at = Instant::now();
-        let refresh = catch_unwind(AssertUnwindSafe(|| {
-            state.analysis.refresh_workspace_targets()
-        }));
-        let elapsed_ms = started_at.elapsed().as_millis();
-        match refresh {
-            Ok(targets) => {
-                let target_count = targets.len();
-                for (target_uri, mode) in targets {
-                    let generation = state.begin_target_analysis(&target_uri);
-                    state.queue_target_diagnostics_task(target_uri, generation, mode);
-                }
-                emit_workspace_refresh_queued_trace(
-                    state,
-                    writer,
-                    &reason,
-                    target_count,
-                    elapsed_ms,
-                )?;
-            }
-            Err(payload) => {
-                let message = panic_message(payload.as_ref());
-                let fallback_targets = state.analysis.document_uris();
-                let target_count = fallback_targets.len();
-                for target_uri in fallback_targets {
-                    let generation = state.begin_target_analysis(&target_uri);
-                    state.queue_diagnostics_publish(
-                        target_uri.clone(),
-                        generation,
-                        crate::analysis::single_server_diagnostic(
-                            target_uri,
-                            format!("kern-lsp analysis panicked: {message}"),
-                        ),
-                    );
-                }
-                emit_workspace_refresh_queued_trace(
-                    state,
-                    writer,
-                    &reason,
-                    target_count,
-                    elapsed_ms,
-                )?;
-            }
-        }
+        submit_workspace_refresh_task(state, reason);
     }
     if state.pending_workspace_refresh_reason.is_none() {
         let target_task_budget = state.diagnostics_flush_policy.target_task_budget.max(1);
-        let mut analyzed_targets = 0;
+        let mut submitted_targets = 0;
         let mut targets = std::mem::take(&mut state.pending_diagnostics_targets);
         while let Some((target_uri, task)) = targets.pop_first() {
             let mode = task.mode;
@@ -116,38 +77,17 @@ pub(super) fn flush_diagnostics_lane(
             if !state.is_current_generation(&target_uri, generation) {
                 continue;
             }
-            state.analysis.clear_last_analysis_tier();
-            let started_at = Instant::now();
-            let outcome = match catch_unwind(AssertUnwindSafe(|| match mode {
-                DiagnosticsAnalysisMode::Structure => {
-                    state.analysis.analyze_document_structure_uri(&target_uri)
-                }
-                DiagnosticsAnalysisMode::Full => state.analysis.analyze_document_uri(&target_uri),
-            })) {
-                Ok(outcome) => outcome,
-                Err(payload) => crate::analysis::single_server_diagnostic(
-                    target_uri.clone(),
-                    format!(
-                        "kern-lsp analysis panicked: {}",
-                        panic_message(payload.as_ref())
-                    ),
-                ),
-            };
-            let elapsed_ms = started_at.elapsed().as_millis();
-            let budget_status = state
-                .request_budget_policy
-                .status(RequestBudgetKind::Diagnostics, elapsed_ms);
-            analyzed_targets += 1;
-            emit_diagnostics_analysis_trace(state, writer, &target_uri, mode, elapsed_ms)?;
-            state.queue_diagnostics_publish(target_uri, generation, outcome);
-            if budget_status == RequestBudgetStatus::Exceeded
-                || analyzed_targets >= target_task_budget
-            {
+            submit_diagnostics_task(state, target_uri, generation, mode);
+            submitted_targets += 1;
+            if submitted_targets >= target_task_budget {
                 state.pending_diagnostics_targets.extend(targets);
                 break;
             }
         }
     }
+
+    flush_workspace_refresh_results(state, writer, false)?;
+    flush_diagnostics_results(state, writer, false)?;
 
     let pending = std::mem::take(&mut state.pending_diagnostics);
     for (target_uri, publish) in pending {
@@ -159,6 +99,178 @@ pub(super) fn flush_diagnostics_lane(
             publish.outcome,
         )?;
     }
+    Ok(())
+}
+
+fn submit_workspace_refresh_task(state: &mut ServerState, reason: String) {
+    let mut analysis = state.analysis.clone();
+    state.queue_workspace_refresh_worker_task();
+    let task = LspWorkerTask::WorkspaceRefresh(Box::new(move || {
+        let started_at = Instant::now();
+        let targets = catch_unwind(AssertUnwindSafe(|| analysis.refresh_workspace_targets()))
+            .map_err(|payload| panic_message(payload.as_ref()));
+        WorkspaceRefreshTaskResult {
+            reason,
+            elapsed_ms: started_at.elapsed().as_millis(),
+            targets,
+        }
+    }));
+    if state.worker_task_tx.send(task).is_err() {
+        state.complete_workspace_refresh_worker_task();
+    }
+}
+
+fn submit_diagnostics_task(
+    state: &mut ServerState,
+    target_uri: String,
+    generation: AnalysisGeneration,
+    mode: DiagnosticsAnalysisMode,
+) {
+    let analysis = state.analysis.clone();
+    state.queue_diagnostics_worker_task();
+    let task = LspWorkerTask::Diagnostics(Box::new(move || {
+        run_diagnostics_task(analysis, target_uri, generation, mode)
+    }));
+    if state.worker_task_tx.send(task).is_err() {
+        state.complete_diagnostics_worker_task();
+    }
+}
+
+fn run_diagnostics_task(
+    analysis: AnalysisEngine,
+    target_uri: String,
+    generation: AnalysisGeneration,
+    mode: DiagnosticsAnalysisMode,
+) -> DiagnosticsTaskResult {
+    analysis.clear_last_analysis_tier();
+    let started_at = Instant::now();
+    let outcome = match catch_unwind(AssertUnwindSafe(|| match mode {
+        DiagnosticsAnalysisMode::Structure => analysis.analyze_document_structure_uri(&target_uri),
+        DiagnosticsAnalysisMode::Full => analysis.analyze_document_uri(&target_uri),
+    })) {
+        Ok(outcome) => outcome,
+        Err(payload) => crate::analysis::single_server_diagnostic(
+            target_uri.clone(),
+            format!(
+                "kern-lsp analysis panicked: {}",
+                panic_message(payload.as_ref())
+            ),
+        ),
+    };
+    DiagnosticsTaskResult {
+        target_uri,
+        generation,
+        mode,
+        elapsed_ms: started_at.elapsed().as_millis(),
+        analysis_tier: analysis.last_analysis_tier(),
+        outcome,
+    }
+}
+
+pub(super) fn flush_workspace_refresh_results(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    wait_for_ready: bool,
+) -> Result<(), ServerError> {
+    if wait_for_ready && state.pending_workspace_refresh_tasks > 0 {
+        let result = state.workspace_refresh_results_rx.recv().map_err(|err| {
+            ServerError::Protocol(format!("workspace refresh result channel closed: {err}"))
+        })?;
+        state.complete_workspace_refresh_worker_task();
+        submit_workspace_refresh_result(state, writer, result)?;
+    }
+
+    while let Ok(result) = state.workspace_refresh_results_rx.try_recv() {
+        state.complete_workspace_refresh_worker_task();
+        submit_workspace_refresh_result(state, writer, result)?;
+    }
+
+    Ok(())
+}
+
+fn submit_workspace_refresh_result(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    result: WorkspaceRefreshTaskResult,
+) -> Result<(), ServerError> {
+    match result.targets {
+        Ok(targets) => {
+            let target_count = targets.len();
+            for (target_uri, mode) in targets {
+                let generation = state.begin_target_analysis(&target_uri);
+                state.queue_target_diagnostics_task(target_uri, generation, mode);
+            }
+            emit_workspace_refresh_queued_trace(
+                state,
+                writer,
+                &result.reason,
+                target_count,
+                result.elapsed_ms,
+            )
+        }
+        Err(message) => {
+            let fallback_targets = state.analysis.document_uris();
+            let target_count = fallback_targets.len();
+            for target_uri in fallback_targets {
+                let generation = state.begin_target_analysis(&target_uri);
+                state.queue_diagnostics_publish(
+                    target_uri.clone(),
+                    generation,
+                    crate::analysis::single_server_diagnostic(
+                        target_uri,
+                        format!("kern-lsp analysis panicked: {message}"),
+                    ),
+                );
+            }
+            emit_workspace_refresh_queued_trace(
+                state,
+                writer,
+                &result.reason,
+                target_count,
+                result.elapsed_ms,
+            )
+        }
+    }
+}
+
+pub(super) fn flush_diagnostics_results(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    wait_for_ready: bool,
+) -> Result<(), ServerError> {
+    if wait_for_ready && state.pending_diagnostics_worker_tasks > 0 {
+        let result = state.diagnostics_results_rx.recv().map_err(|err| {
+            ServerError::Protocol(format!("diagnostics result channel closed: {err}"))
+        })?;
+        state.complete_diagnostics_worker_task();
+        submit_diagnostics_result(state, writer, result)?;
+    }
+
+    while let Ok(result) = state.diagnostics_results_rx.try_recv() {
+        state.complete_diagnostics_worker_task();
+        submit_diagnostics_result(state, writer, result)?;
+    }
+
+    Ok(())
+}
+
+fn submit_diagnostics_result(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    result: DiagnosticsTaskResult,
+) -> Result<(), ServerError> {
+    if !state.is_current_generation(&result.target_uri, result.generation) {
+        return Ok(());
+    }
+    emit_diagnostics_analysis_trace(
+        state,
+        writer,
+        &result.target_uri,
+        result.mode,
+        result.elapsed_ms,
+        result.analysis_tier,
+    )?;
+    state.queue_diagnostics_publish(result.target_uri, result.generation, result.outcome);
     Ok(())
 }
 
@@ -451,11 +563,9 @@ fn emit_diagnostics_analysis_trace(
     target_uri: &str,
     mode: DiagnosticsAnalysisMode,
     elapsed_ms: u128,
+    analysis_tier: Option<crate::analysis::AnalysisTier>,
 ) -> Result<(), ServerError> {
-    let tier = state
-        .analysis
-        .last_analysis_tier()
-        .map(|tier| tier.as_str());
+    let tier = analysis_tier.map(|tier| tier.as_str());
     let mut verbose = format!(
         "mode={:?} elapsed_ms={} budget={} lane={:?} target={}",
         mode,

@@ -196,17 +196,21 @@ Completed foundation work:
   the coordinator through a result channel.
 - Document request execution uses a bounded fixed worker pool instead of
   spawning an unbounded thread per request.
+- Diagnostics and workspace refresh execution now run on the same bounded
+  worker lane and return typed results to the coordinator for generation
+  checking and diagnostic publication.
 - The main server loop reads stdin on a dedicated reader thread, allowing the
-  coordinator to accept additional messages while document request workers are
-  still running.
+  coordinator to accept additional messages while document request, diagnostics,
+  and workspace refresh workers are still running.
 - Server-level tests cover multiple document requests being in flight together
   bounded worker execution, and worker panic recovery as LSP error responses.
 - Interactive analysis-tier tracing is carried by worker results, avoiding
   cross-request trace contamination from concurrent analysis workers.
+- Diagnostics analysis-tier tracing is also carried by worker results, so
+  concurrent diagnostics cannot read another worker's last selected tier.
 
 Still to complete before calling the scheduler done:
 
-- Move diagnostics and workspace refresh execution off the coordinator thread.
 - Add cancellation tokens that are checked by queued and running tasks.
 - Make worker limits configurable if real-world projects need tuning.
 - Track queue wait time, worker execution status, and cancellation status in

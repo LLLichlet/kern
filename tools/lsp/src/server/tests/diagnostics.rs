@@ -148,15 +148,18 @@ fn verbose_trace_marks_exceeded_workspace_refresh_budget() {
 #[test]
 fn workspace_refresh_reuses_diagnostics_budget_yielding() {
     let mut state = initialized_state();
-    state.request_budget_policy.diagnostics_ms = 0;
+    state.diagnostics_flush_policy.target_task_budget = 1;
     let source = "fn main() void {}\n";
     let uri_a = temp_file_uri("server_workspace_budget_yield_a", source);
     let uri_b = temp_file_uri("server_workspace_budget_yield_b", source);
 
     let _ = dispatch_messages(&mut state, did_open_message(&uri_a, source, 1));
     let _ = dispatch_messages(&mut state, did_open_message(&uri_b, source, 1));
-    let messages = dispatch_messages(
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+    let should_exit = handle_message(
         &mut state,
+        &mut writer,
         IncomingMessage {
             jsonrpc: JSONRPC_VERSION.to_string(),
             id: None,
@@ -166,9 +169,12 @@ fn workspace_refresh_reuses_diagnostics_budget_yielding() {
             })),
         },
     );
+    assert!(!should_exit.unwrap());
+    super::super::scheduler::flush_workspace_refresh_results(&mut state, &mut writer, true)
+        .unwrap();
+    super::super::scheduler::drain_scheduler(&mut state, &mut writer).unwrap();
 
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0]["method"], "textDocument/publishDiagnostics");
+    assert_eq!(state.pending_diagnostics_worker_tasks, 1);
     assert_eq!(state.pending_diagnostics_targets.len(), 1);
     assert!(state.has_pending_diagnostics_work());
 }

@@ -21,8 +21,12 @@ pub(super) struct ServerState {
     pub(super) pending_workspace_refresh_reason: Option<String>,
     pub(super) pending_diagnostics: BTreeMap<String, ScheduledDiagnosticsPublish>,
     pub(super) document_request_results_rx: mpsc::Receiver<DocumentRequestTaskResult>,
+    pub(super) diagnostics_results_rx: mpsc::Receiver<DiagnosticsTaskResult>,
+    pub(super) workspace_refresh_results_rx: mpsc::Receiver<WorkspaceRefreshTaskResult>,
     pub(super) worker_task_tx: mpsc::SyncSender<LspWorkerTask>,
     pub(super) pending_document_request_tasks: usize,
+    pub(super) pending_diagnostics_worker_tasks: usize,
+    pub(super) pending_workspace_refresh_tasks: usize,
     pub(super) published_by_target: BTreeMap<String, BTreeSet<String>>,
 }
 
@@ -55,8 +59,25 @@ pub(super) struct ScheduledDocumentRequestTask {
     pub(super) method: String,
 }
 
+pub(super) struct DiagnosticsTaskResult {
+    pub(super) target_uri: String,
+    pub(super) generation: AnalysisGeneration,
+    pub(super) mode: DiagnosticsAnalysisMode,
+    pub(super) elapsed_ms: u128,
+    pub(super) analysis_tier: Option<AnalysisTier>,
+    pub(super) outcome: AnalysisOutcome,
+}
+
+pub(super) struct WorkspaceRefreshTaskResult {
+    pub(super) reason: String,
+    pub(super) elapsed_ms: u128,
+    pub(super) targets: Result<Vec<(String, DiagnosticsAnalysisMode)>, String>,
+}
+
 pub(super) enum LspWorkerTask {
     DocumentRequest(Box<dyn FnOnce() -> DocumentRequestTaskResult + Send + 'static>),
+    Diagnostics(Box<dyn FnOnce() -> DiagnosticsTaskResult + Send + 'static>),
+    WorkspaceRefresh(Box<dyn FnOnce() -> WorkspaceRefreshTaskResult + Send + 'static>),
 }
 
 #[derive(Debug)]
@@ -208,8 +229,14 @@ impl ServerState {
 
     pub(super) fn with_analysis(analysis: AnalysisEngine) -> Self {
         let (document_request_results_tx, document_request_results_rx) = mpsc::channel();
-        let worker_task_tx =
-            spawn_worker_threads(DEFAULT_WORKER_COUNT, document_request_results_tx.clone());
+        let (diagnostics_results_tx, diagnostics_results_rx) = mpsc::channel();
+        let (workspace_refresh_results_tx, workspace_refresh_results_rx) = mpsc::channel();
+        let worker_task_tx = spawn_worker_threads(
+            DEFAULT_WORKER_COUNT,
+            document_request_results_tx,
+            diagnostics_results_tx,
+            workspace_refresh_results_tx,
+        );
         Self {
             initialized: false,
             shutdown_requested: false,
@@ -224,8 +251,12 @@ impl ServerState {
             pending_workspace_refresh_reason: None,
             pending_diagnostics: BTreeMap::new(),
             document_request_results_rx,
+            diagnostics_results_rx,
+            workspace_refresh_results_rx,
             worker_task_tx,
             pending_document_request_tasks: 0,
+            pending_diagnostics_worker_tasks: 0,
+            pending_workspace_refresh_tasks: 0,
             published_by_target: BTreeMap::new(),
         }
     }
@@ -343,6 +374,8 @@ impl ServerState {
         !self.pending_diagnostics_targets.is_empty()
             || self.pending_workspace_refresh_reason.is_some()
             || !self.pending_diagnostics.is_empty()
+            || self.pending_diagnostics_worker_tasks > 0
+            || self.pending_workspace_refresh_tasks > 0
     }
 
     pub(super) fn should_drain_scheduler_after(&self, method: &str) -> bool {
@@ -365,17 +398,48 @@ impl ServerState {
     pub(super) fn has_pending_document_request_work(&self) -> bool {
         self.pending_document_request_tasks > 0
     }
+
+    pub(super) fn has_pending_worker_work(&self) -> bool {
+        self.has_pending_document_request_work()
+            || self.pending_workspace_refresh_reason.is_some()
+            || !self.pending_diagnostics_targets.is_empty()
+            || self.pending_diagnostics_worker_tasks > 0
+            || self.pending_workspace_refresh_tasks > 0
+            || !self.pending_diagnostics.is_empty()
+    }
+
+    pub(super) fn queue_diagnostics_worker_task(&mut self) {
+        self.pending_diagnostics_worker_tasks += 1;
+    }
+
+    pub(super) fn complete_diagnostics_worker_task(&mut self) {
+        self.pending_diagnostics_worker_tasks =
+            self.pending_diagnostics_worker_tasks.saturating_sub(1);
+    }
+
+    pub(super) fn queue_workspace_refresh_worker_task(&mut self) {
+        self.pending_workspace_refresh_tasks += 1;
+    }
+
+    pub(super) fn complete_workspace_refresh_worker_task(&mut self) {
+        self.pending_workspace_refresh_tasks =
+            self.pending_workspace_refresh_tasks.saturating_sub(1);
+    }
 }
 
 fn spawn_worker_threads(
     worker_count: usize,
     document_request_results_tx: mpsc::Sender<DocumentRequestTaskResult>,
+    diagnostics_results_tx: mpsc::Sender<DiagnosticsTaskResult>,
+    workspace_refresh_results_tx: mpsc::Sender<WorkspaceRefreshTaskResult>,
 ) -> mpsc::SyncSender<LspWorkerTask> {
     let (task_tx, task_rx) = mpsc::sync_channel::<LspWorkerTask>(worker_count.max(1) * 2);
     let task_rx = std::sync::Arc::new(std::sync::Mutex::new(task_rx));
     for _ in 0..worker_count.max(1) {
         let task_rx = task_rx.clone();
         let document_request_results_tx = document_request_results_tx.clone();
+        let diagnostics_results_tx = diagnostics_results_tx.clone();
+        let workspace_refresh_results_tx = workspace_refresh_results_tx.clone();
         thread::spawn(move || {
             loop {
                 let task = {
@@ -389,6 +453,14 @@ fn spawn_worker_threads(
                     LspWorkerTask::DocumentRequest(task) => {
                         let result = task();
                         let _ = document_request_results_tx.send(result);
+                    }
+                    LspWorkerTask::Diagnostics(task) => {
+                        let result = task();
+                        let _ = diagnostics_results_tx.send(result);
+                    }
+                    LspWorkerTask::WorkspaceRefresh(task) => {
+                        let result = task();
+                        let _ = workspace_refresh_results_tx.send(result);
                     }
                 }
             }

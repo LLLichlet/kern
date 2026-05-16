@@ -237,6 +237,7 @@ fn diagnostics_execution_defers_publish_until_scheduler_drain() {
     {
         let mut writer = MessageWriter::new(&mut output);
         drain_scheduler(&mut state, &mut writer).unwrap();
+        drain_scheduler_to_quiescence(&mut state, &mut writer);
     }
 
     let messages = read_all_messages(&output);
@@ -283,7 +284,7 @@ fn stale_diagnostics_task_is_not_queued() {
 #[test]
 fn diagnostics_lane_yields_remaining_tasks_after_exceeded_budget() {
     let mut state = initialized_state();
-    state.request_budget_policy.diagnostics_ms = 0;
+    state.diagnostics_flush_policy.target_task_budget = 1;
     let uri_a = temp_file_uri("server_budget_yield_a", "fn main() void {}\n");
     let uri_b = temp_file_uri("server_budget_yield_b", "fn main() void {}\n");
     let generation_a = state.begin_target_analysis(&uri_a);
@@ -303,9 +304,8 @@ fn diagnostics_lane_yields_remaining_tasks_after_exceeded_budget() {
 
     flush_diagnostics_lane(&mut state, &mut writer).unwrap();
 
-    let messages = read_all_messages(&output);
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0]["method"], "textDocument/publishDiagnostics");
+    assert!(output.is_empty());
+    assert_eq!(state.pending_diagnostics_worker_tasks, 1);
     assert_eq!(state.pending_diagnostics_targets.len(), 1);
     assert!(state.has_pending_diagnostics_work());
 }
@@ -336,13 +336,8 @@ fn diagnostics_lane_respects_per_drain_target_budget() {
 
     flush_diagnostics_lane(&mut state, &mut writer).unwrap();
 
-    let messages = read_all_messages(&output);
-    assert_eq!(messages.len(), 2);
-    assert!(
-        messages
-            .iter()
-            .all(|message| message["method"] == "textDocument/publishDiagnostics")
-    );
+    assert!(output.is_empty());
+    assert_eq!(state.pending_diagnostics_worker_tasks, 2);
     assert_eq!(state.pending_diagnostics_targets.len(), 1);
     assert!(state.has_pending_diagnostics_work());
 }

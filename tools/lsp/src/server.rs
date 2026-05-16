@@ -11,8 +11,9 @@ use self::dispatch::{
 };
 pub(crate) use self::state::DiagnosticsAnalysisMode;
 use self::state::{
-    AnalysisGeneration, DocumentRequestResponse, DocumentRequestTaskResult, LspWorkerTask,
-    RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerState,
+    AnalysisGeneration, DiagnosticsTaskResult, DocumentRequestResponse, DocumentRequestTaskResult,
+    LspWorkerTask, RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerState,
+    WorkspaceRefreshTaskResult,
 };
 use crate::analysis::AnalysisEngine;
 use crate::protocol::{IncomingMessage, error_response};
@@ -121,15 +122,25 @@ where
     let mut input_closed = false;
     loop {
         scheduler::flush_document_request_results(state, writer, false)?;
+        scheduler::flush_workspace_refresh_results(state, writer, false)?;
+        scheduler::flush_diagnostics_results(state, writer, false)?;
+        if state.pending_workspace_refresh_reason.is_some()
+            || !state.pending_diagnostics_targets.is_empty()
+            || !state.pending_diagnostics.is_empty()
+        {
+            scheduler::drain_scheduler(state, writer)?;
+        }
         if input_closed {
-            if state.has_pending_document_request_work() {
+            if state.has_pending_worker_work() {
                 scheduler::flush_document_request_results(state, writer, true)?;
+                scheduler::flush_workspace_refresh_results(state, writer, true)?;
+                scheduler::flush_diagnostics_results(state, writer, true)?;
                 continue;
             }
             break;
         }
 
-        let event = if state.has_pending_document_request_work() {
+        let event = if state.has_pending_worker_work() {
             match input_rx.recv_timeout(Duration::from_millis(5)) {
                 Ok(event) => event,
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,

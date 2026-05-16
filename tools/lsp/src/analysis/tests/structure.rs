@@ -271,3 +271,125 @@ dep = {{ path = \"../dep\" }}
         }
     );
 }
+
+#[test]
+fn document_links_return_manifest_dependency_targets() {
+    let root = unique_temp_dir("document_links_manifest_dependencies");
+    fs::create_dir_all(root.join("dep/src")).unwrap();
+    fs::create_dir_all(root.join("shared/src")).unwrap();
+    fs::create_dir_all(root.join("app/src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[workspace]
+name = \"workspace\"
+members = [\"dep\", \"shared\", \"app\"]
+
+[workspace.dependencies]
+shared = {{ path = \"shared\" }}
+"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("dep/Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"dep\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(root.join("dep/src/lib.kn"), "pub fn dep() void {}\n").unwrap();
+    fs::write(
+        root.join("shared/Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"shared\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(root.join("shared/src/lib.kn"), "pub fn shared() void {}\n").unwrap();
+    let manifest_source = format!(
+        "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+
+[dependencies]
+dep = {{ path = \"../dep\" }}
+shared = {{ workspace = true }}
+"
+    );
+    fs::write(root.join("app/Craft.toml"), &manifest_source).unwrap();
+    fs::write(root.join("app/src/lib.kn"), "pub fn app() void {}\n").unwrap();
+
+    let uri = file_path_to_uri(&root.join("app/Craft.toml")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document_state(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "toml".to_string(),
+            version: 1,
+            text: manifest_source,
+        },
+    });
+
+    let links = analysis.document_links(&uri).unwrap();
+
+    assert_eq!(links.len(), 2, "{links:#?}");
+    assert!(
+        links[0].target.ends_with("/dep/Craft.toml"),
+        "{}",
+        links[0].target
+    );
+    assert_eq!(
+        links[0].range,
+        Range {
+            start: Position {
+                line: 9,
+                character: 0,
+            },
+            end: Position {
+                line: 9,
+                character: 3,
+            },
+        }
+    );
+    assert!(
+        links[1].target.ends_with("/shared/Craft.toml"),
+        "{}",
+        links[1].target
+    );
+    assert_eq!(
+        links[1].range,
+        Range {
+            start: Position {
+                line: 10,
+                character: 0,
+            },
+            end: Position {
+                line: 10,
+                character: 6,
+            },
+        }
+    );
+}

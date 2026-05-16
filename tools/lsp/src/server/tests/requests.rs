@@ -1436,6 +1436,84 @@ dep = {{ path = \"../dep\" }}
 }
 
 #[test]
+fn document_link_request_returns_manifest_dependency_targets() {
+    let root = unique_temp_dir("server_document_link_manifest_dependency");
+    fs::create_dir_all(root.join("dep/src")).unwrap();
+    fs::create_dir_all(root.join("app/src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        "[workspace]\nname = \"workspace\"\nmembers = [\"dep\", \"app\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("dep/Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"dep\"
+version = \"0.1.0\"
+kern = \"{}\"\n
+[lib]
+root = \"src/lib.kn\"
+",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    fs::write(root.join("dep/src/lib.kn"), "pub fn dep() void {}\n").unwrap();
+    let manifest_source = format!(
+        "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{}\"\n
+[lib]
+root = \"src/lib.kn\"
+
+[dependencies]
+dep = {{ path = \"../dep\" }}
+",
+        env!("CARGO_PKG_VERSION")
+    );
+    fs::write(root.join("app/Craft.toml"), &manifest_source).unwrap();
+    fs::write(root.join("app/src/lib.kn"), "pub fn app() void {}\n").unwrap();
+    let uri = format!("file://{}", root.join("app/Craft.toml").to_string_lossy());
+
+    let mut state = initialized_state();
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, &manifest_source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(332)),
+            method: Some("textDocument/documentLink".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(332));
+    let links = response["result"].as_array().unwrap();
+    assert_eq!(links.len(), 1, "{links:#?}");
+    assert_eq!(
+        links[0]["range"],
+        json!({
+            "start": { "line": 9, "character": 0 },
+            "end": { "line": 9, "character": 3 }
+        })
+    );
+    assert!(
+        links[0]["target"]
+            .as_str()
+            .unwrap()
+            .ends_with("/dep/Craft.toml"),
+        "{}",
+        links[0]["target"]
+    );
+}
+
+#[test]
 fn inlay_hint_request_returns_type_hints() {
     let mut state = initialized_state();
     let source = concat!(

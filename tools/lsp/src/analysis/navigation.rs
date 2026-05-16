@@ -261,9 +261,14 @@ pub(super) fn find_call_hierarchy_incoming_calls(
     };
 
     let mut grouped = BTreeMap::<kernc_utils::Span, (IdeCallHierarchyItem, Vec<Range>)>::new();
-    for call in calls.iter().filter(|call| {
-        call.kind == AnalysisCallKind::Direct
-            && call.callee_definition_span == target_entry.definition_span
+    for call in calls.iter().filter(|call| match call.kind {
+        AnalysisCallKind::Direct => call.callee_definition_span == target_entry.definition_span,
+        AnalysisCallKind::DynamicDispatch => {
+            call.callee_definition_span == target_entry.definition_span
+                || call
+                    .dynamic_dispatch_targets
+                    .contains(&target_entry.definition_span)
+        }
     }) {
         let Some(from) = call_hierarchy_item_for_definition(
             session,
@@ -307,23 +312,34 @@ pub(super) fn find_call_hierarchy_outgoing_calls(
     };
 
     let mut grouped = BTreeMap::<kernc_utils::Span, (IdeCallHierarchyItem, Vec<Range>)>::new();
-    for call in calls.iter().filter(|call| {
-        call.kind == AnalysisCallKind::Direct
-            && call.caller_definition_span == target_entry.definition_span
-    }) {
-        let Some(to) = call_hierarchy_item_for_definition(
-            session,
-            semantic_entries,
-            call.callee_definition_span,
-            uri_by_path,
-        ) else {
-            continue;
-        };
-        grouped
-            .entry(call.callee_definition_span)
-            .or_insert((to, Vec::new()))
-            .1
-            .push(super::span_to_range(session, call.callee_span));
+    for call in calls
+        .iter()
+        .filter(|call| call.caller_definition_span == target_entry.definition_span)
+    {
+        match call.kind {
+            AnalysisCallKind::Direct => {
+                add_outgoing_call_target(
+                    session,
+                    semantic_entries,
+                    uri_by_path,
+                    &mut grouped,
+                    call.callee_definition_span,
+                    call.callee_span,
+                );
+            }
+            AnalysisCallKind::DynamicDispatch => {
+                for target in &call.dynamic_dispatch_targets {
+                    add_outgoing_call_target(
+                        session,
+                        semantic_entries,
+                        uri_by_path,
+                        &mut grouped,
+                        *target,
+                        call.callee_span,
+                    );
+                }
+            }
+        }
     }
 
     grouped
@@ -334,6 +350,29 @@ pub(super) fn find_call_hierarchy_outgoing_calls(
             IdeCallHierarchyOutgoingCall { to, from_ranges }
         })
         .collect()
+}
+
+fn add_outgoing_call_target(
+    session: &kernc_utils::Session,
+    semantic_entries: &[AnalysisSemanticEntry],
+    uri_by_path: &BTreeMap<PathBuf, String>,
+    grouped: &mut BTreeMap<kernc_utils::Span, (IdeCallHierarchyItem, Vec<Range>)>,
+    callee_definition_span: kernc_utils::Span,
+    callee_span: kernc_utils::Span,
+) {
+    let Some(to) = call_hierarchy_item_for_definition(
+        session,
+        semantic_entries,
+        callee_definition_span,
+        uri_by_path,
+    ) else {
+        return;
+    };
+    grouped
+        .entry(callee_definition_span)
+        .or_insert((to, Vec::new()))
+        .1
+        .push(super::span_to_range(session, callee_span));
 }
 
 fn semantic_kind_is_type_definition_target(kind: AnalysisSemanticKind) -> bool {

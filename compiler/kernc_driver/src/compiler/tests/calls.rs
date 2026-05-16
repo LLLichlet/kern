@@ -64,10 +64,14 @@ fn analysis_artifact_classifies_trait_object_method_calls_as_dynamic_dispatch() 
     let source = concat!(
         "trait Base { fn foo() i32; }\n",
         "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "impl &bool : Base { pub fn foo() i32 { return 7; } }\n",
+        "fn run(base: &Base) i32 {\n",
+        "    return base.foo();\n",
+        "}\n",
         "fn main() i32 {\n",
         "    let value = 3i32;\n",
         "    let base = (value.& as &Base);\n",
-        "    return base.foo();\n",
+        "    return run(base);\n",
         "}\n",
     );
     fs::write(&main, source).unwrap();
@@ -90,13 +94,24 @@ fn analysis_artifact_classifies_trait_object_method_calls_as_dynamic_dispatch() 
     assert_eq!(foo_calls[0].kind, AnalysisCallKind::DynamicDispatch);
     assert_eq!(
         span_text(source, foo_calls[0].caller_definition_span),
-        "main"
+        "run"
     );
     assert_eq!(
         span_text(source, foo_calls[0].callee_definition_span),
         "foo"
     );
     assert_eq!(span_text(source, foo_calls[0].callee_span), "base.foo");
+    assert_eq!(foo_calls[0].dynamic_dispatch_targets.len(), 2);
+    assert_ne!(
+        foo_calls[0].dynamic_dispatch_targets[0],
+        foo_calls[0].dynamic_dispatch_targets[1]
+    );
+    assert!(
+        foo_calls[0]
+            .dynamic_dispatch_targets
+            .iter()
+            .all(|span| span_text(source, *span) == "foo")
+    );
 
     let _ = fs::remove_dir_all(&root);
 }

@@ -37,7 +37,7 @@ impl CompilerDriver {
         let signature_model = self.collect_signature_model(&mut ctx, &analysis_asts);
         let flow_model = self.collect_flow_model(&ctx, &references);
         let calls =
-            self.collect_analysis_calls(&ctx, &analysis_asts, &semantic_entries, &flow_model);
+            self.collect_analysis_calls(&mut ctx, &analysis_asts, &semantic_entries, &flow_model);
         let unused_items = self.collect_unused_private_items(&ctx, &raw_references, &flow_model);
         let unused_bindings = self.collect_unused_bindings(&ctx, &flow_model);
         let dead_stores = self.collect_dead_stores(&ctx, &raw_references, &flow_model);
@@ -95,7 +95,7 @@ impl CompilerDriver {
         let semantic_entries = self.collect_analysis_semantic_entries(&symbols, &ctx, &references);
         let flow_model = self.collect_flow_model(&ctx, &references);
         let calls =
-            self.collect_analysis_calls(&ctx, &analysis_asts, &semantic_entries, &flow_model);
+            self.collect_analysis_calls(&mut ctx, &analysis_asts, &semantic_entries, &flow_model);
         drop(ctx);
         cancellation.check()?;
 

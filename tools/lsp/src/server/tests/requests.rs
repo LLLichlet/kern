@@ -794,7 +794,7 @@ fn call_hierarchy_requests_return_direct_calls() {
 }
 
 #[test]
-fn call_hierarchy_excludes_dynamic_dispatch_from_direct_calls() {
+fn call_hierarchy_expands_dynamic_dispatch_targets() {
     let mut state = initialized_state();
     let source = concat!(
         "trait Base { fn foo() i32; }\n",
@@ -805,7 +805,7 @@ fn call_hierarchy_excludes_dynamic_dispatch_from_direct_calls() {
         "    return base.foo();\n",
         "}\n",
     );
-    let uri = temp_file_uri("server_call_hierarchy_dynamic_dispatch", source);
+    let uri = temp_file_uri("server_call_hierarchy_dynamic_dispatch_targets", source);
 
     let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
     let prepare = dispatch_single_response(
@@ -839,7 +839,51 @@ fn call_hierarchy_excludes_dynamic_dispatch_from_direct_calls() {
     );
 
     assert_eq!(outgoing["id"], json!(25075));
-    assert_eq!(outgoing["result"], json!([]));
+    let outgoing_calls = outgoing["result"].as_array().unwrap();
+    assert_eq!(outgoing_calls.len(), 1);
+    assert_eq!(outgoing_calls[0]["to"]["name"], "foo");
+    assert_eq!(
+        outgoing_calls[0]["to"]["selectionRange"],
+        json!({
+            "start": { "line": 1, "character": 26 },
+            "end": { "line": 1, "character": 29 }
+        })
+    );
+    assert_eq!(
+        outgoing_calls[0]["fromRanges"],
+        json!([
+            {
+                "start": { "line": 5, "character": 11 },
+                "end": { "line": 5, "character": 19 }
+            }
+        ])
+    );
+
+    let incoming = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25076)),
+            method: Some("callHierarchy/incomingCalls".to_string()),
+            params: Some(json!({
+                "item": outgoing_calls[0]["to"]
+            })),
+        },
+    );
+
+    assert_eq!(incoming["id"], json!(25076));
+    let incoming_calls = incoming["result"].as_array().unwrap();
+    assert_eq!(incoming_calls.len(), 1);
+    assert_eq!(incoming_calls[0]["from"]["name"], "main");
+    assert_eq!(
+        incoming_calls[0]["fromRanges"],
+        json!([
+            {
+                "start": { "line": 5, "character": 11 },
+                "end": { "line": 5, "character": 19 }
+            }
+        ])
+    );
 }
 
 #[test]

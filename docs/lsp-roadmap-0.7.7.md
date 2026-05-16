@@ -247,11 +247,11 @@ Completed foundation work:
   do not produce links.
 - `textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls`, and
   `callHierarchy/outgoingCalls` are advertised and implemented for direct
-  function/method calls resolved by compiler semantic analysis. The first
-  implementation intentionally reports only statically resolved direct calls;
-  `kernc_driver` now classifies trait-object method calls as dynamic-dispatch
-  call edges so they are not misreported as direct hierarchy edges. Indirect
-  calls and broader dynamic-dispatch expansion remain future work.
+  function/method calls and trait-object dynamic-dispatch method calls resolved
+  by compiler semantic analysis. `kernc_driver` classifies dynamic-dispatch call
+  edges and records candidate implementation targets, so LSP call hierarchy
+  expansion is based on compiler facts rather than string-level guesses.
+  Indirect function-value calls remain future work.
 - Diagnostics scheduling tracks the most recently active document from sync and
   document requests, and drains that target first within the existing
   diagnostics budget before returning to stable workspace ordering.
@@ -474,8 +474,9 @@ implemented by adding more direct compiler calls inside request dispatch.
 - type definition
 - declaration
 - implementation
-- call hierarchy: direct resolved function/method calls are done; indirect and
-  dynamic-dispatch expansion remain open
+- call hierarchy: direct resolved function/method calls and trait-object
+  dynamic-dispatch target expansion are done; indirect function-value calls
+  remain open
 - document links for imports/modules/packages: file-backed module declarations,
   semantically resolved import/use bindings, and local Craft dependency package
   references are done

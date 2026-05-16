@@ -181,7 +181,7 @@ impl CompilerDriver {
 
     pub(super) fn collect_analysis_calls(
         &self,
-        ctx: &SemaContext<'_>,
+        ctx: &mut SemaContext<'_>,
         asts: &[(DefId, ast::Module)],
         semantic_entries: &[AnalysisSemanticEntry],
         flow_model: &FlowModel,
@@ -1052,7 +1052,7 @@ impl CompilerDriver {
 }
 
 fn collect_calls_in_decl(
-    ctx: &SemaContext<'_>,
+    ctx: &mut SemaContext<'_>,
     decl: &ast::Decl,
     callable_entries: &std::collections::BTreeMap<Span, Span>,
     flow_model: &FlowModel,
@@ -1137,8 +1137,146 @@ fn analysis_call_kind(ctx: &SemaContext<'_>, callee: &ast::Expr) -> AnalysisCall
     AnalysisCallKind::Direct
 }
 
-fn collect_calls_in_expr(
+fn dynamic_dispatch_targets(ctx: &mut SemaContext<'_>, callee: &ast::Expr) -> Vec<Span> {
+    if analysis_call_kind(ctx, callee) != AnalysisCallKind::DynamicDispatch {
+        return Vec::new();
+    }
+
+    let Some(method_name) = callee_method_name(callee) else {
+        return Vec::new();
+    };
+    let Some(owner_ty) = ctx.method_owner_ty(callee.id) else {
+        return Vec::new();
+    };
+    let owner_ty = ctx.normalize_concrete_type(owner_ty);
+    let owner_ty = ctx.type_registry.normalize(owner_ty);
+    let TypeKind::TraitObject(owner_trait_id, owner_trait_args, _) =
+        ctx.type_registry.get(owner_ty).clone()
+    else {
+        return Vec::new();
+    };
+
+    let mut targets = Vec::new();
+    for entry in ctx.trait_impl_entries() {
+        let Some(impl_trait_ty) = entry.def.resolved_trait_ty.or_else(|| {
+            entry
+                .def
+                .trait_type
+                .as_ref()
+                .and_then(|ty| ctx.node_type(ty.id))
+        }) else {
+            continue;
+        };
+        let Some(owner_view) = kernc_sema::query::declared_trait_object_view_from_hierarchy(
+            ctx,
+            impl_trait_ty,
+            owner_trait_id,
+            &owner_trait_args,
+        ) else {
+            continue;
+        };
+        if !trait_object_satisfies_required(ctx, owner_view, owner_ty) {
+            continue;
+        }
+        let Some(function_span) =
+            dispatch_target_span_for_impl(ctx, &entry.def, owner_trait_id, method_name)
+        else {
+            continue;
+        };
+        targets.push(function_span);
+    }
+
+    targets.sort_by_key(|span| (span.file.0, span.start, span.end));
+    targets.dedup();
+    targets
+}
+
+fn trait_object_satisfies_required(
+    ctx: &mut SemaContext<'_>,
+    available_trait_ty: TypeId,
+    required_trait_ty: TypeId,
+) -> bool {
+    let available_norm = ctx.normalize_concrete_type(available_trait_ty);
+    let available_norm = ctx.type_registry.normalize(available_norm);
+    let required_norm = ctx.normalize_concrete_type(required_trait_ty);
+    let required_norm = ctx.type_registry.normalize(required_norm);
+
+    let (
+        TypeKind::TraitObject(available_def_id, available_args, available_assoc_bindings),
+        TypeKind::TraitObject(required_def_id, required_args, required_assoc_bindings),
+    ) = (
+        ctx.type_registry.get(available_norm).clone(),
+        ctx.type_registry.get(required_norm).clone(),
+    )
+    else {
+        return false;
+    };
+
+    if available_def_id != required_def_id || available_args != required_args {
+        return false;
+    }
+    if required_assoc_bindings.is_empty() {
+        return true;
+    }
+
+    let available_assoc_bindings = available_assoc_bindings
+        .into_iter()
+        .collect::<std::collections::HashMap<_, _>>();
+    required_assoc_bindings
+        .into_iter()
+        .all(|(assoc_def_id, required_assoc_ty)| {
+            available_assoc_bindings
+                .get(&assoc_def_id)
+                .is_some_and(|available_assoc_ty| {
+                    ctx.type_registry.normalize(*available_assoc_ty)
+                        == ctx.type_registry.normalize(required_assoc_ty)
+                })
+        })
+}
+
+fn dispatch_target_span_for_impl(
     ctx: &SemaContext<'_>,
+    impl_def: &kernc_sema::def::ImplDef,
+    owner_trait_id: DefId,
+    method_name: kernc_utils::SymbolId,
+) -> Option<Span> {
+    for &method_id in &impl_def.methods {
+        let Some(kernc_sema::def::Def::Function(function)) = ctx.defs.get(method_id.0 as usize)
+        else {
+            continue;
+        };
+        if function.name == method_name {
+            return Some(function.name_span);
+        }
+    }
+
+    let Some(kernc_sema::def::Def::Trait(trait_def)) = ctx.defs.get(owner_trait_id.0 as usize)
+    else {
+        return None;
+    };
+    let default_method_id = trait_def
+        .methods
+        .iter()
+        .find(|method| method.signature.name == method_name)
+        .and_then(|method| method.default_impl)?;
+    let Some(kernc_sema::def::Def::Function(default_method)) =
+        ctx.defs.get(default_method_id.0 as usize)
+    else {
+        return None;
+    };
+    Some(default_method.name_span)
+}
+
+fn callee_method_name(callee: &ast::Expr) -> Option<kernc_utils::SymbolId> {
+    match &callee.kind {
+        ast::ExprKind::FieldAccess { field, .. } => Some(*field),
+        ast::ExprKind::GenericInstantiation { target, .. } => callee_method_name(target),
+        _ => None,
+    }
+}
+
+fn collect_calls_in_expr(
+    ctx: &mut SemaContext<'_>,
     expr: &ast::Expr,
     callable_entries: &std::collections::BTreeMap<Span, Span>,
     flow_model: &FlowModel,
@@ -1298,6 +1436,7 @@ fn collect_calls_in_expr(
                     callee_span: callee.span,
                     callee_definition_span: *callee_definition_span,
                     caller_definition_span: *caller_definition_span,
+                    dynamic_dispatch_targets: dynamic_dispatch_targets(ctx, callee),
                 });
             }
         }
@@ -1562,7 +1701,7 @@ fn collect_calls_in_expr(
 }
 
 fn collect_calls_in_match_pattern(
-    ctx: &SemaContext<'_>,
+    ctx: &mut SemaContext<'_>,
     pattern: &ast::MatchPattern,
     callable_entries: &std::collections::BTreeMap<Span, Span>,
     flow_model: &FlowModel,
@@ -1590,7 +1729,7 @@ fn collect_calls_in_match_pattern(
 }
 
 fn collect_calls_in_pattern(
-    ctx: &SemaContext<'_>,
+    ctx: &mut SemaContext<'_>,
     pattern: &ast::Pattern,
     callable_entries: &std::collections::BTreeMap<Span, Span>,
     flow_model: &FlowModel,

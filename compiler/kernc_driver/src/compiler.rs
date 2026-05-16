@@ -174,13 +174,14 @@ pub struct AnalysisDocumentLink {
     pub target_path: PathBuf,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalysisCall {
     pub kind: AnalysisCallKind,
     pub call_span: kernc_utils::Span,
     pub callee_span: kernc_utils::Span,
     pub callee_definition_span: kernc_utils::Span,
     pub caller_definition_span: kernc_utils::Span,
+    pub dynamic_dispatch_targets: Vec<kernc_utils::Span>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

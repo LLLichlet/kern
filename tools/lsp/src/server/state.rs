@@ -77,6 +77,10 @@ impl CancellationToken {
         }
     }
 
+    pub(super) fn analysis_token(&self) -> crate::analysis::CancellationToken {
+        crate::analysis::CancellationToken::from_shared(self.canceled.clone())
+    }
+
     pub(super) fn cancel(&self) {
         self.canceled.store(true, Ordering::SeqCst);
     }

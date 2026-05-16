@@ -216,11 +216,16 @@ Completed foundation work:
   work.
 - The bounded worker pool size is configurable with `kern-lsp
   --worker-threads <N>`, while the default remains conservative.
+- Document request cancellation tokens now reach `AnalysisSnapshot` and the
+  LSP analysis query boundary. Canceled requests stop before resolving analysis
+  context or entering cached/compiler-backed semantic phases when they have not
+  already started that phase.
 
 Still to complete before calling the scheduler done:
 
-- Push cancellation checks deeper into analysis/compiler query boundaries so
-  long-running requests can stop before returning to the scheduler.
+- Push cancellation checks into the lower compiler driver phases so work already
+  inside parsing, lowering, type checking, or navigation artifact construction
+  can stop before returning to the LSP analysis layer.
 - Keep the intentional protocol references in analysis limited to the documented
   coordinate, sync-input, diagnostics-location, and `ide.rs` conversion
   exceptions.

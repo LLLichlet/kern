@@ -38,13 +38,18 @@ impl AnalysisEngine {
         snapshot: &AnalysisSnapshot,
         uri: &str,
     ) -> Result<Vec<IdeDocumentSymbol>, String> {
+        snapshot.check_canceled()?;
         let context = self.resolve_analysis_context_for_snapshot(snapshot, uri)?;
         let surface =
             if snapshot.dirty_documents().is_clean() || !context.resolved.input_file.is_file() {
-                self.analyze_surface_artifact_for_context(&context)
-                    .or_else(|| self.analyze_clean_surface_for_context(&context))
+                self.analyze_surface_artifact_for_context(&context)?
+                    .or_else(|| {
+                        self.analyze_clean_surface_for_context(&context)
+                            .ok()
+                            .flatten()
+                    })
             } else {
-                self.analyze_clean_surface_for_context(&context)
+                self.analyze_clean_surface_for_context(&context)?
             };
         let Some(surface) = surface else {
             return Ok(Vec::new());
@@ -324,7 +329,7 @@ impl AnalysisEngine {
         let analysis_context = self.resolve_analysis_context_for_snapshot(snapshot, uri)?;
         let is_dirty = !analysis_context.dirty_documents.is_clean();
         let surface = if is_dirty {
-            self.analyze_clean_surface_for_context(&analysis_context)
+            self.analyze_clean_surface_for_context(&analysis_context)?
         } else {
             self.analyze_surface_artifact(uri).ok()
         };
@@ -335,20 +340,20 @@ impl AnalysisEngine {
             } else {
                 let artifact = if is_dirty {
                     self.record_analysis_tier(AnalysisTier::CleanSemantic);
-                    self.analyze_clean_artifact_for_context(&analysis_context)
+                    self.analyze_clean_artifact_for_context(&analysis_context)?
                 } else {
                     self.record_analysis_tier(AnalysisTier::CleanSemantic);
-                    self.analyze_artifact_for_context(&analysis_context)
+                    self.analyze_artifact_for_context(&analysis_context)?
                 };
                 artifact.completion_items(&target_path, offset)
             }
         } else {
             let artifact = if is_dirty {
                 self.record_analysis_tier(AnalysisTier::CleanSemantic);
-                self.analyze_clean_artifact_for_context(&analysis_context)
+                self.analyze_clean_artifact_for_context(&analysis_context)?
             } else {
                 self.record_analysis_tier(AnalysisTier::CleanSemantic);
-                self.analyze_artifact_for_context(&analysis_context)
+                self.analyze_artifact_for_context(&analysis_context)?
             };
             artifact.completion_items(&target_path, offset)
         };
@@ -520,7 +525,7 @@ impl AnalysisEngine {
             semantic::lexical_semantic_tokens(&file)
         } else {
             self.record_analysis_tier(AnalysisTier::CleanSemantic);
-            let artifact = self.analyze_navigation_artifact_for_context(&context);
+            let artifact = self.analyze_navigation_artifact_for_context(&context)?;
             semantic::semantic_tokens(
                 semantic::SemanticArtifactView {
                     session: &artifact.session,
@@ -601,7 +606,7 @@ impl AnalysisEngine {
         let target_path = normalize_path(&target_doc.path);
         let (diagnostics_session, artifact) = if analysis_context.dirty_documents.is_clean() {
             self.record_analysis_tier(AnalysisTier::CleanSemantic);
-            let artifact = self.analyze_artifact_for_context(&analysis_context);
+            let artifact = self.analyze_artifact_for_context(&analysis_context)?;
             (artifact.session.clone(), Some(artifact))
         } else {
             self.record_analysis_tier(AnalysisTier::ParseOnly);

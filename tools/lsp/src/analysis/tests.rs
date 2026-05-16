@@ -13,9 +13,9 @@ mod semantic_tokens;
 use super::cache::AnalysisCacheKey;
 use super::semantic::{SemanticModifiers, SemanticTokenTypes};
 use super::{
-    AnalysisEngine, AnalysisSettings, AnalysisTier, DiagnosticBundle, byte_offset_to_position,
-    cleared_uris, file_path_to_uri, hash_source_text, normalize_path, position_to_byte_offset,
-    uri_to_analysis_path, uri_to_file_path,
+    AnalysisEngine, AnalysisSettings, AnalysisTier, CancellationToken, DiagnosticBundle,
+    byte_offset_to_position, cleared_uris, file_path_to_uri, hash_source_text, normalize_path,
+    position_to_byte_offset, uri_to_analysis_path, uri_to_file_path,
 };
 use crate::analysis::DocumentSyncAction;
 use crate::analysis::ide::{
@@ -86,7 +86,7 @@ fn open_workspace_document(analysis: &mut AnalysisEngine, path: &PathBuf) -> (St
     let uri = file_path_to_uri(path).unwrap();
     let source = fs::read_to_string(path).unwrap();
 
-    let _ = analysis.open_document(DidOpenTextDocumentParams {
+    let _ = analysis.open_document_state(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: uri.clone(),
             _language_id: "kern".to_string(),
@@ -103,7 +103,7 @@ fn open_document_for_full_diagnostics(
     uri: &str,
     source: &str,
 ) -> super::AnalysisOutcome {
-    let _ = analysis.open_document(DidOpenTextDocumentParams {
+    let _ = analysis.open_document_state(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: uri.to_string(),
             _language_id: "kern".to_string(),
@@ -138,6 +138,31 @@ fn warm_clean_semantic_artifact(analysis: &AnalysisEngine, uri: &str, _source: &
     let _ = analysis
         .analyze_interactive_artifact_for_snapshot(&snapshot, uri)
         .unwrap();
+}
+
+#[test]
+fn canceled_snapshot_stops_interactive_analysis_before_semantic_work() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn main() void {}\n";
+    let uri = temp_file_uri("analysis_canceled_snapshot", source);
+    let _ = analysis.open_document_state(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+    let token = CancellationToken::new();
+    token.cancel();
+    let snapshot = analysis.snapshot_with_cancellation(Some(token));
+
+    let err = analysis
+        .document_symbols_in_snapshot(&snapshot, &uri)
+        .unwrap_err();
+
+    assert_eq!(err, "request was canceled");
+    assert_eq!(analysis.last_analysis_tier(), None);
 }
 
 fn position_of_nth(source: &str, needle: &str, occurrence: usize, char_offset: u32) -> Position {

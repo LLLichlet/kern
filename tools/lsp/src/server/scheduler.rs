@@ -391,7 +391,12 @@ fn submit_document_request_task<F>(
 {
     state.analysis.clear_last_analysis_tier();
     let analysis = state.analysis.clone();
-    let snapshot = analysis.snapshot();
+    let cancellation = task_info
+        .request
+        .cancellation
+        .as_ref()
+        .map(|token| token.analysis_token());
+    let snapshot = analysis.snapshot_with_cancellation(cancellation);
     state.queue_document_request_task();
     let task = LspWorkerTask::DocumentRequest(Box::new(move || {
         let result = run_document_request_task(analysis, snapshot, task_info, task);

@@ -588,6 +588,50 @@ fn running_document_request_cancel_drops_response() {
 }
 
 #[test]
+fn running_document_request_cancel_reaches_analysis_snapshot() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let uri = temp_file_uri("server_canceled_analysis_snapshot", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+    let started = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let release = std::sync::Arc::new(std::sync::Barrier::new(2));
+
+    execute_document_request(
+        &mut state,
+        &mut writer,
+        json!(106),
+        &uri,
+        SchedulerLane::Interactive,
+        "textDocument/documentSymbol",
+        {
+            let started = started.clone();
+            let release = release.clone();
+            let uri = uri.clone();
+            move |analysis, snapshot| {
+                started.wait();
+                release.wait();
+                analysis
+                    .document_symbols_in_snapshot(snapshot, &uri)
+                    .map(|_| json!({ "ok": true }))
+            }
+        },
+    )
+    .unwrap();
+
+    started.wait();
+    state.cancel_request(json!(106));
+    release.wait();
+    flush_document_request_results(&mut state, &mut writer, true).unwrap();
+
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["method"], "$/logTrace");
+    assert_eq!(messages[0]["params"]["message"], "request canceled");
+    assert_eq!(state.analysis.last_analysis_tier(), None);
+}
+
+#[test]
 fn panicking_document_request_returns_error_response() {
     let mut state = initialized_state();
     let uri = temp_file_uri("server_panicking_request", "fn main() void {}\n");

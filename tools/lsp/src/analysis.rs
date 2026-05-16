@@ -65,7 +65,10 @@ use kernc_utils::{Session, SourceFile, Span};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
 #[derive(Debug, Clone)]
 pub struct AnalysisSettings {
@@ -112,9 +115,21 @@ pub struct AnalysisSnapshot {
     documents: BTreeMap<String, OpenDocument>,
     dirty_documents: Arc<DirtyDocumentsSnapshot>,
     open_uri_by_path: Arc<BTreeMap<PathBuf, String>>,
+    cancellation: Option<CancellationToken>,
 }
 
 impl AnalysisSnapshot {
+    fn check_canceled(&self) -> Result<(), String> {
+        if self
+            .cancellation
+            .as_ref()
+            .is_some_and(CancellationToken::is_canceled)
+        {
+            return Err("request was canceled".to_string());
+        }
+        Ok(())
+    }
+
     fn document(&self, uri: &str) -> Option<&OpenDocument> {
         self.documents.get(uri)
     }
@@ -138,6 +153,33 @@ impl AnalysisSnapshot {
     fn analysis_path_exists(&self, path: &Path) -> bool {
         let normalized = normalize_path(path);
         self.open_uri_by_path.contains_key(&normalized) || path.is_file()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CancellationToken {
+    canceled: Arc<AtomicBool>,
+}
+
+impl CancellationToken {
+    #[cfg(test)]
+    pub(crate) fn new() -> Self {
+        Self {
+            canceled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub(crate) fn from_shared(canceled: Arc<AtomicBool>) -> Self {
+        Self { canceled }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cancel(&self) {
+        self.canceled.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn is_canceled(&self) -> bool {
+        self.canceled.load(Ordering::SeqCst)
     }
 }
 
@@ -181,6 +223,20 @@ struct AnalysisRequestContext {
     dirty_documents: DirtyDocumentsSnapshot,
     cache_key: AnalysisCacheKey,
     driver: Arc<CompilerDriver>,
+    cancellation: Option<CancellationToken>,
+}
+
+impl AnalysisRequestContext {
+    fn check_canceled(&self) -> Result<(), String> {
+        if self
+            .cancellation
+            .as_ref()
+            .is_some_and(CancellationToken::is_canceled)
+        {
+            return Err("request was canceled".to_string());
+        }
+        Ok(())
+    }
 }
 
 pub struct AnalysisEngine {
@@ -255,11 +311,20 @@ impl AnalysisEngine {
         self.last_analysis_tier.lock().unwrap().take();
     }
 
+    #[cfg(test)]
     pub(crate) fn snapshot(&self) -> AnalysisSnapshot {
+        self.snapshot_with_cancellation(None)
+    }
+
+    pub(crate) fn snapshot_with_cancellation(
+        &self,
+        cancellation: Option<CancellationToken>,
+    ) -> AnalysisSnapshot {
         AnalysisSnapshot {
             documents: self.documents.clone(),
             dirty_documents: self.dirty_documents_snapshot(),
             open_uri_by_path: self.open_uri_by_normalized_path(),
+            cancellation,
         }
     }
 
@@ -613,6 +678,7 @@ impl AnalysisEngine {
         snapshot: &AnalysisSnapshot,
         target_uri: &str,
     ) -> Result<Arc<AnalysisArtifact>, String> {
+        snapshot.check_canceled()?;
         let context = self.resolve_analysis_context_for_snapshot(snapshot, target_uri)?;
         self.analyze_interactive_artifact_for_context(&context)
     }
@@ -621,18 +687,20 @@ impl AnalysisEngine {
         &self,
         context: &AnalysisRequestContext,
     ) -> Result<Arc<AnalysisArtifact>, String> {
+        context.check_canceled()?;
         if context.dirty_documents.is_clean() {
             self.record_analysis_tier(AnalysisTier::CleanSemantic);
-            return Ok(self.analyze_artifact_for_context(context));
+            return self.analyze_artifact_for_context(context);
         }
 
+        context.check_canceled()?;
         if !context.resolved.input_file.is_file() {
             self.record_analysis_tier(AnalysisTier::DirtySemantic);
-            return Ok(self.analyze_artifact_for_context(context));
+            return self.analyze_artifact_for_context(context);
         }
 
         self.record_analysis_tier(AnalysisTier::CleanSemantic);
-        Ok(self.analyze_clean_artifact_for_context(context))
+        self.analyze_clean_artifact_for_context(context)
     }
 
     fn analyze_interactive_navigation_artifact_for_snapshot(
@@ -640,6 +708,7 @@ impl AnalysisEngine {
         snapshot: &AnalysisSnapshot,
         target_uri: &str,
     ) -> Result<Arc<AnalysisNavigationArtifact>, String> {
+        snapshot.check_canceled()?;
         let context = self.resolve_analysis_context_for_snapshot(snapshot, target_uri)?;
         self.analyze_interactive_navigation_artifact_for_context(&context)
     }
@@ -648,28 +717,32 @@ impl AnalysisEngine {
         &self,
         context: &AnalysisRequestContext,
     ) -> Result<Arc<AnalysisNavigationArtifact>, String> {
+        context.check_canceled()?;
         if context.dirty_documents.is_clean() {
             self.record_analysis_tier(AnalysisTier::CleanSemantic);
-            return Ok(self.analyze_navigation_artifact_for_context(context));
+            return self.analyze_navigation_artifact_for_context(context);
         }
 
+        context.check_canceled()?;
         if !context.resolved.input_file.is_file() {
             self.record_analysis_tier(AnalysisTier::DirtySemantic);
-            return Ok(self.analyze_navigation_artifact_for_context(context));
+            return self.analyze_navigation_artifact_for_context(context);
         }
 
         self.record_analysis_tier(AnalysisTier::CleanSemantic);
-        Ok(self.analyze_clean_navigation_artifact_for_context(context))
+        self.analyze_clean_navigation_artifact_for_context(context)
     }
 
     fn analyze_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Arc<AnalysisArtifact> {
+    ) -> Result<Arc<AnalysisArtifact>, String> {
+        context.check_canceled()?;
         if let Some(artifact) = self.artifact_cache.lock().unwrap().get(&context.cache_key) {
-            return Arc::clone(artifact);
+            return Ok(Arc::clone(artifact));
         }
 
+        context.check_canceled()?;
         let structure =
             if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
                 Some(Arc::clone(structure))
@@ -690,6 +763,7 @@ impl AnalysisEngine {
                 .insert(context.cache_key.clone(), Arc::clone(structure));
         }
 
+        context.check_canceled()?;
         let artifact = Arc::new(if let Some(structure) = structure {
             context.driver.analyze_artifact_from_structure(&structure)
         } else {
@@ -702,22 +776,24 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .insert(context.cache_key.clone(), Arc::clone(&artifact));
-        artifact
+        Ok(artifact)
     }
 
     fn analyze_navigation_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Arc<AnalysisNavigationArtifact> {
+    ) -> Result<Arc<AnalysisNavigationArtifact>, String> {
+        context.check_canceled()?;
         if let Some(artifact) = self
             .navigation_cache
             .lock()
             .unwrap()
             .get(&context.cache_key)
         {
-            return Arc::clone(artifact);
+            return Ok(Arc::clone(artifact));
         }
 
+        context.check_canceled()?;
         let structure =
             if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
                 Some(Arc::clone(structure))
@@ -738,6 +814,7 @@ impl AnalysisEngine {
                 .insert(context.cache_key.clone(), Arc::clone(structure));
         }
 
+        context.check_canceled()?;
         let artifact = Arc::new(if let Some(structure) = structure {
             context
                 .driver
@@ -752,7 +829,7 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .insert(context.cache_key.clone(), Arc::clone(&artifact));
-        artifact
+        Ok(artifact)
     }
 
     fn analyze_surface_artifact(
@@ -760,42 +837,46 @@ impl AnalysisEngine {
         target_uri: &str,
     ) -> Result<Arc<AnalysisSurfaceArtifact>, String> {
         let context = self.resolve_analysis_context(target_uri)?;
-        self.analyze_surface_artifact_for_context(&context)
+        self.analyze_surface_artifact_for_context(&context)?
             .ok_or_else(|| "surface analysis failed".to_string())
     }
 
     fn analyze_surface_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Option<Arc<AnalysisSurfaceArtifact>> {
+    ) -> Result<Option<Arc<AnalysisSurfaceArtifact>>, String> {
+        context.check_canceled()?;
         if let Some(surface) = self.surface_cache.lock().unwrap().get(&context.cache_key) {
-            return Some(Arc::clone(surface));
+            return Ok(Some(Arc::clone(surface)));
         }
 
-        let surface = context
-            .driver
-            .analyze_surface(
-                &context.resolved.input_file.to_string_lossy(),
-                &context.dirty_documents.overrides,
-            )
-            .map(Arc::new)?;
+        context.check_canceled()?;
+        let surface = match context.driver.analyze_surface(
+            &context.resolved.input_file.to_string_lossy(),
+            &context.dirty_documents.overrides,
+        ) {
+            Some(surface) => Arc::new(surface),
+            None => return Ok(None),
+        };
         self.prune_cache_family_for_insert(&context.cache_key);
         self.surface_cache
             .lock()
             .unwrap()
             .insert(context.cache_key.clone(), Arc::clone(&surface));
-        Some(surface)
+        Ok(Some(surface))
     }
 
     fn analyze_clean_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Arc<AnalysisArtifact> {
+    ) -> Result<Arc<AnalysisArtifact>, String> {
+        context.check_canceled()?;
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
         if let Some(artifact) = self.artifact_cache.lock().unwrap().get(&clean_key) {
-            return Arc::clone(artifact);
+            return Ok(Arc::clone(artifact));
         }
 
+        context.check_canceled()?;
         let artifact = Arc::new(context.driver.analyze_artifact(
             &context.resolved.input_file.to_string_lossy(),
             &SourceOverrides::new(),
@@ -804,18 +885,20 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .insert(clean_key, Arc::clone(&artifact));
-        artifact
+        Ok(artifact)
     }
 
     fn analyze_clean_navigation_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Arc<AnalysisNavigationArtifact> {
+    ) -> Result<Arc<AnalysisNavigationArtifact>, String> {
+        context.check_canceled()?;
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
         if let Some(artifact) = self.navigation_cache.lock().unwrap().get(&clean_key) {
-            return Arc::clone(artifact);
+            return Ok(Arc::clone(artifact));
         }
 
+        context.check_canceled()?;
         let artifact = Arc::new(context.driver.analyze_navigation_artifact(
             &context.resolved.input_file.to_string_lossy(),
             &SourceOverrides::new(),
@@ -824,40 +907,44 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .insert(clean_key, Arc::clone(&artifact));
-        artifact
+        Ok(artifact)
     }
 
     fn analyze_clean_surface_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Option<Arc<AnalysisSurfaceArtifact>> {
+    ) -> Result<Option<Arc<AnalysisSurfaceArtifact>>, String> {
+        context.check_canceled()?;
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
         if let Some(surface) = self.surface_cache.lock().unwrap().get(&clean_key) {
-            return Some(Arc::clone(surface));
+            return Ok(Some(Arc::clone(surface)));
         }
 
-        let surface = context
-            .driver
-            .analyze_surface(
-                &context.resolved.input_file.to_string_lossy(),
-                &SourceOverrides::new(),
-            )
-            .map(Arc::new)?;
+        context.check_canceled()?;
+        let surface = match context.driver.analyze_surface(
+            &context.resolved.input_file.to_string_lossy(),
+            &SourceOverrides::new(),
+        ) {
+            Some(surface) => Arc::new(surface),
+            None => return Ok(None),
+        };
         self.surface_cache
             .lock()
             .unwrap()
             .insert(clean_key, Arc::clone(&surface));
-        Some(surface)
+        Ok(Some(surface))
     }
 
     fn parse_modules_for_context(
         &self,
         context: &AnalysisRequestContext,
     ) -> Result<Arc<ParsedModuleArtifact>, String> {
+        context.check_canceled()?;
         if let Some(parsed) = self.parse_cache.lock().unwrap().get(&context.cache_key) {
             return Ok(Arc::clone(parsed));
         }
 
+        context.check_canceled()?;
         let Some(parsed) = context
             .driver
             .parse_modules(
@@ -893,7 +980,11 @@ impl AnalysisEngine {
             .document(target_uri)
             .ok_or_else(|| "document is not open".to_string())?;
         let resolved = self.resolve_analysis_for_snapshot_document(snapshot, target_doc)?;
-        self.analysis_context_for_resolved_and_dirty(resolved, snapshot.dirty_documents())
+        self.analysis_context_for_resolved_and_dirty(
+            resolved,
+            snapshot.dirty_documents(),
+            snapshot.cancellation.clone(),
+        )
     }
 
     fn resolve_analysis_context_for_document(
@@ -909,24 +1000,32 @@ impl AnalysisEngine {
         resolved: ResolvedAnalysis,
     ) -> Result<AnalysisRequestContext, String> {
         let dirty_documents = self.dirty_documents_snapshot();
-        self.analysis_context_for_resolved_and_dirty(resolved, dirty_documents.as_ref())
+        self.analysis_context_for_resolved_and_dirty(resolved, dirty_documents.as_ref(), None)
     }
 
     fn analysis_context_for_resolved_and_dirty(
         &self,
         resolved: ResolvedAnalysis,
         dirty_snapshot: &DirtyDocumentsSnapshot,
+        cancellation: Option<CancellationToken>,
     ) -> Result<AnalysisRequestContext, String> {
         let dirty_documents = dirty_snapshot
             .filter_for_resolved(&resolved)
             .remap_for(&resolved.source_path_aliases);
         let cache_key = AnalysisCacheKey::from_resolved_dirty_snapshot(&resolved, &dirty_documents);
         let driver = self.driver_for_resolved(&resolved);
+        if cancellation
+            .as_ref()
+            .is_some_and(CancellationToken::is_canceled)
+        {
+            return Err("request was canceled".to_string());
+        }
         Ok(AnalysisRequestContext {
             resolved,
             dirty_documents,
             cache_key,
             driver,
+            cancellation,
         })
     }
 

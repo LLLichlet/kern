@@ -26,7 +26,7 @@ fn initialize_result_advertises_precise_capabilities() {
     assert_eq!(result["positionEncoding"], "utf-16");
     assert_eq!(
         result["capabilities"]["completionProvider"]["resolveProvider"],
-        true
+        false
     );
     assert_eq!(
         result["capabilities"]["completionProvider"]["triggerCharacters"],

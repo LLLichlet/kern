@@ -834,7 +834,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
     capabilities.insert(
         "completionProvider".to_string(),
         json!({
-            "resolveProvider": true,
+            "resolveProvider": false,
             "triggerCharacters": ["."]
         }),
     );

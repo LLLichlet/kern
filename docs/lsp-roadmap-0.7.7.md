@@ -267,6 +267,14 @@ Completed foundation work:
   expose precise run-test commands. The first-party VS Code extension registers
   the returned Craft commands and executes them with the configured feature and
   environment settings.
+- Semantic token range requests are advertised and implemented. Range requests
+  reuse the same semantic/lexical token production path as full-document
+  requests, then filter the encoded token stream to the requested range; delta
+  support remains intentionally unadvertised.
+- Completion stays fully eager for 0.7.7: completion items already include the
+  available detail and insert text/snippet data, so the server no longer
+  advertises `completionItem/resolve`. The resolve handler remains tolerant of
+  clients that send the request anyway and returns the item unchanged.
 
 Still to complete before calling the scheduler done:
 
@@ -451,8 +459,10 @@ implemented by adding more direct compiler calls inside request dispatch.
 - workspace symbols
 - folding ranges
 - selection ranges
-- semantic token range or delta support
-- completion resolve or a documented reason to keep completion fully eager
+- semantic token range support is done; delta support is intentionally not
+  advertised
+- completion is documented as fully eager; `completionItem/resolve` is not
+  advertised
 - code action resolve for heavier quick fixes
 - server-level tests for every advertised capability
 - deterministic stress tests
@@ -609,8 +619,8 @@ Tasks:
 - Selection ranges.
 - Type definition, declaration, implementation.
 - Call hierarchy.
-- Semantic token range or delta.
-- Completion resolve.
+- Semantic token range is done; delta is intentionally unadvertised.
+- Completion is intentionally eager; `completionItem/resolve` is not advertised.
 - Code action resolve.
 
 Exit criteria:

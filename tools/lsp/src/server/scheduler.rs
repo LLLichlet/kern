@@ -75,8 +75,7 @@ pub(super) fn flush_diagnostics_lane(
     if state.pending_workspace_refresh_reason.is_none() {
         let target_task_budget = state.diagnostics_flush_policy.target_task_budget.max(1);
         let mut submitted_targets = 0;
-        let mut targets = std::mem::take(&mut state.pending_diagnostics_targets);
-        while let Some((target_uri, task)) = targets.pop_first() {
+        while let Some((target_uri, task)) = state.pop_next_diagnostics_target() {
             let mode = task.mode;
             let generation = task.generation;
             if !state.is_current_generation(&target_uri, generation) {
@@ -85,7 +84,6 @@ pub(super) fn flush_diagnostics_lane(
             submit_diagnostics_task(state, target_uri, generation, mode);
             submitted_targets += 1;
             if submitted_targets >= target_task_budget {
-                state.pending_diagnostics_targets.extend(targets);
                 break;
             }
         }
@@ -314,6 +312,7 @@ pub(super) fn execute_document_diagnostics<F>(
 where
     F: FnOnce(&mut AnalysisEngine) -> DocumentSyncAction,
 {
+    state.mark_active_document(target_uri);
     let generation = state.begin_target_analysis(target_uri);
     let result = catch_unwind(AssertUnwindSafe(|| action(&mut state.analysis)));
     match result {
@@ -366,6 +365,7 @@ where
     T: serde::Serialize,
     F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<T, String> + Send + 'static,
 {
+    state.mark_active_document(target_uri);
     let mut request = state.request_context_for_document(id, target_uri);
     if state.should_skip_request(&request) {
         return Ok(());
@@ -543,6 +543,7 @@ where
     T: serde::Serialize,
     F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<Option<T>, String> + Send + 'static,
 {
+    state.mark_active_document(target_uri);
     let mut request = state.request_context_for_document(id, target_uri);
     if state.should_skip_request(&request) {
         return Ok(());

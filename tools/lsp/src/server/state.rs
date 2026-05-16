@@ -40,6 +40,7 @@ pub(super) struct ServerState {
     next_progress_token: u64,
     pending_server_request_ids: Vec<Value>,
     pub(super) latest_generation_by_target: BTreeMap<String, AnalysisGeneration>,
+    pub(super) active_document_uri: Option<String>,
     pub(super) canceled_request_ids: Vec<Value>,
     active_request_cancellations: Vec<ActiveRequestCancellation>,
     pub(super) pending_diagnostics_targets: BTreeMap<String, ScheduledDiagnosticsTask>,
@@ -328,6 +329,7 @@ impl ServerState {
             next_progress_token: 0,
             pending_server_request_ids: Vec::new(),
             latest_generation_by_target: BTreeMap::new(),
+            active_document_uri: None,
             canceled_request_ids: Vec::new(),
             active_request_cancellations: Vec::new(),
             pending_diagnostics_targets: BTreeMap::new(),
@@ -358,6 +360,16 @@ impl ServerState {
         generation: AnalysisGeneration,
     ) -> bool {
         self.latest_generation_by_target.get(target_uri).copied() == Some(generation)
+    }
+
+    pub(super) fn mark_active_document(&mut self, target_uri: &str) {
+        self.active_document_uri = Some(target_uri.to_string());
+    }
+
+    pub(super) fn clear_active_document(&mut self, target_uri: &str) {
+        if self.active_document_uri.as_deref() == Some(target_uri) {
+            self.active_document_uri = None;
+        }
     }
 
     pub(super) fn request_context(&self, id: Value) -> RequestContext {
@@ -520,6 +532,17 @@ impl ServerState {
                 existing.mode = existing.mode.merge(mode);
             })
             .or_insert(ScheduledDiagnosticsTask { generation, mode });
+    }
+
+    pub(super) fn pop_next_diagnostics_target(
+        &mut self,
+    ) -> Option<(String, ScheduledDiagnosticsTask)> {
+        if let Some(active_uri) = self.active_document_uri.clone()
+            && let Some(task) = self.pending_diagnostics_targets.remove(&active_uri)
+        {
+            return Some((active_uri, task));
+        }
+        self.pending_diagnostics_targets.pop_first()
     }
 
     pub(super) fn queue_workspace_refresh_task(&mut self, reason: String) {

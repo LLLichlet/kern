@@ -312,6 +312,43 @@ fn diagnostics_lane_yields_remaining_tasks_after_exceeded_budget() {
 }
 
 #[test]
+fn diagnostics_lane_prioritizes_active_document_within_target_budget() {
+    let mut state = initialized_state();
+    state.diagnostics_flush_policy.target_task_budget = 1;
+    let uri_a = temp_file_uri("server_active_priority_a", "fn main() void {}\n");
+    let uri_b = temp_file_uri("server_active_priority_b", "fn main() void {}\n");
+    let generation_a = state.begin_target_analysis(&uri_a);
+    let generation_b = state.begin_target_analysis(&uri_b);
+    state.queue_target_diagnostics_task(
+        uri_a.clone(),
+        generation_a,
+        DiagnosticsAnalysisMode::Structure,
+    );
+    state.queue_target_diagnostics_task(
+        uri_b.clone(),
+        generation_b,
+        DiagnosticsAnalysisMode::Structure,
+    );
+    state.mark_active_document(&uri_b);
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    flush_diagnostics_lane(&mut state, &mut writer).unwrap();
+
+    assert!(output.is_empty());
+    assert_eq!(state.pending_diagnostics_worker_tasks, 1);
+    assert_eq!(
+        state
+            .pending_diagnostics_targets
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec![uri_a]
+    );
+    assert!(state.has_pending_diagnostics_work());
+}
+
+#[test]
 fn diagnostics_lane_respects_per_drain_target_budget() {
     let mut state = initialized_state();
     state.diagnostics_flush_policy.target_task_budget = 2;

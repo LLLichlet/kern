@@ -248,6 +248,9 @@ Completed foundation work:
   function/method calls resolved by compiler semantic analysis. The first
   implementation intentionally reports only statically resolved direct calls;
   indirect calls and broader dynamic-dispatch expansion remain future work.
+- Diagnostics scheduling tracks the most recently active document from sync and
+  document requests, and drains that target first within the existing
+  diagnostics budget before returning to stable workspace ordering.
 
 Still to complete before calling the scheduler done:
 
@@ -449,7 +452,6 @@ implemented by adding more direct compiler calls inside request dispatch.
   import/use links remain open
 - code lens for tests/build targets once test/build metadata is stable
 - workspace-wide references with progress reporting
-- active-file priority diagnostics
 - incremental project reload when `Craft.toml`, lockfiles, or analysis context
   files change
 

@@ -241,6 +241,7 @@ fn handle_message_with_document_request_policy(
                 SchedulerLane::Diagnostics,
                 |analysis| analysis.close_document_state(params),
             )?;
+            state.clear_active_document(&target_uri);
         }
         "textDocument/didSave" => {
             let params = required_params::<DidSaveTextDocumentParams>(message.params)?;

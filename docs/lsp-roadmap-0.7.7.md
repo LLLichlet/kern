@@ -279,11 +279,13 @@ Completed foundation work:
   items carry opaque resolve data; `completionItem/resolve` expands that data into
   markdown documentation instead of echoing the item unchanged.
 
-Release hardening follow-up, not a Phase 4 blocker:
+Compiler cancellation follow-up, now tracked as Phase 9:
 
-- Decide, based on profiling and stress tests, whether cancellation must be
-  threaded into the inner parsing, lowering, and type-checking loops rather
-  than only the driver analysis phase boundaries.
+- Cancellation is already real at scheduler, snapshot, driver entry, and major
+  analysis artifact boundaries. That is enough for Phase 4, but not enough for
+  the final 0.7.7 quality bar. Phase 9 below owns the deeper parser, lowering,
+  and type-checking loop cancellation work so it cannot become an implicit
+  historical debt.
 - Keep the intentional protocol references in analysis limited to the documented
   coordinate, sync-input, diagnostics-location, and `ide.rs` conversion
   exceptions.
@@ -330,6 +332,10 @@ types inside `tools/lsp/src/analysis/*`:
 
 Any other direct LSP feature payload in analysis code should be treated as
 architectural drift.
+
+The current exception list is temporary and must be closed out in Phase 11. Kern
+does not keep known protocol leakage as a permanent compatibility layer before
+1.0.
 
 ### 2. Introduce Snapshots
 
@@ -730,6 +736,12 @@ Tasks:
 - Server stress coverage now alternates rapid document changes with completion
   requests and verifies that cancel-then-edit hover flows drop stale canceled
   responses while answering from the latest dirty structural state.
+- Server stress coverage now directly exercises workspace refresh while an
+  interactive hover is pending, proving the refresh remains lower priority than
+  active-file interaction.
+- Server stress coverage now repeatedly transitions `Craft.toml` between
+  invalid and valid contents, proving project reload diagnostics become visible
+  and then clear without poisoning later analysis.
 - Workspace-scale coverage now includes refreshed workspace indexes, generated
   source aliases, real std/example projects, and the open-100-files protocol
   stress fixture.
@@ -816,6 +828,145 @@ Exit criteria:
 - submit references, then cancel, then edit, then request hover
 - workspace refresh while interactive requests continue
 - repeated invalid/valid `Craft.toml` transitions
+
+### Phase 9: Deep Compiler Cancellation
+
+Purpose: make cancellation reach expensive compiler inner loops instead of
+stopping only at driver phase boundaries.
+
+Tasks:
+
+- Thread `CancellationToken` through parser module loading and parse loops,
+  including token-stream traversal, recursive descent recovery paths, and
+  multi-module loading.
+- Thread cancellation through structure collection, import resolution, type
+  resolution, lowering preparation, and body worklist construction.
+- Thread cancellation through type-checker global/body worklists and large
+  expression/pattern traversal loops.
+- Thread cancellation through flow analysis, unused/dead-store passes, linkage
+  checks, semantic token/reference collection, and workspace target iteration.
+- Add deterministic stress tests that cancel requests while those loops are in
+  progress. Tests should use explicit barriers or synthetic large inputs rather
+  than timing guesses.
+- Preserve diagnostics correctness: cancellation must exit with `Canceled` or
+  `RequestCancelled`, not partial successful artifacts.
+
+Exit criteria:
+
+- A canceled large parse/type-check/navigation request stops inside the
+  expensive loop it is currently executing.
+- No public LSP analysis path keeps a non-cancelable compiler call variant.
+- Cancellation tests cover parser, lowering/structure, type-checking, and
+  workspace target iteration.
+
+### Phase 10: Complete Observability
+
+Purpose: make production LSP failures diagnosable without attaching a debugger.
+
+Tasks:
+
+- Add structured request trace fields for request ID, method, target URI,
+  document generation, snapshot generation, queue wait, execution time,
+  analysis tier, cancellation status, and error class.
+- Add cache hit/miss summaries for project resolution, driver/artifact caches,
+  workspace symbol index reuse, dirty fallback selection, and semantic token
+  cache reuse.
+- Replace string-only failure traces with explicit error classes:
+  `ProjectUnavailable`, `ProjectInvalid`, `AnalysisFailed`, `RequestCanceled`,
+  `InternalBug`, and `ProtocolError`.
+- Keep default output quiet; expose complete details under verbose LSP trace and
+  decide whether a `KERN_LSP_LOG` environment variable is still useful.
+- Add server tests asserting the complete verbose trace shape for success,
+  cancellation, stale response dropping, project invalidation, cache hit, cache
+  miss, and worker panic paths.
+
+Exit criteria:
+
+- Every worker result and published LSP error can be traced with an error class
+  and enough generation/cache context to reproduce the decision.
+- Verbose trace tests cover interactive requests, diagnostics, workspace
+  refresh, workspace symbols/references, cancellation, stale results, and panic
+  recovery.
+
+### Phase 11: IDE Boundary Cleanup
+
+Purpose: remove the remaining protocol leakage from analysis code and make the
+IDE layer a stable Kern-owned API.
+
+Tasks:
+
+- Introduce Kern-owned text coordinate and range types for analysis. Convert
+  `Position`/`Range` only at protocol boundaries.
+- Replace document synchronization protocol params in `AnalysisEngine` public
+  mutation APIs with Kern-owned open/change/close/save structs.
+- Replace diagnostic related-information `Location` usage with an IDE location
+  type.
+- Move remaining `into_lsp` conversions into the explicit server/protocol
+  boundary and keep `tools/lsp/src/analysis/ide.rs` as the only allowed adapter
+  until a separate `kern_ide` crate is justified.
+- Add a guard test that scans `tools/lsp/src/analysis/*` and fails on direct
+  protocol payload imports outside the documented adapter and test modules.
+- Document the final IDE API boundary so future feature providers do not add
+  direct compiler calls inside request dispatch.
+
+Exit criteria:
+
+- Non-test analysis modules no longer depend on LSP protocol payload types
+  except the single documented adapter boundary.
+- Diagnostics, hover, completion, navigation, rename, semantic tokens, inlay
+  hints, formatting, code actions, document links, code lenses, and call
+  hierarchy all return Kern-owned IDE result types before LSP conversion.
+
+### Phase 12: Remaining Capability Gaps
+
+Purpose: finish or formally schedule the known capability gaps without treating
+non-support as completion.
+
+Tasks:
+
+- Semantic token delta support: implement result-id lifecycle, edit-aware token
+  cache invalidation, client capability negotiation, stale result handling, and
+  server tests before advertising delta.
+- Multi-root workspace support: replace the single-root policy with per-root
+  project/index state, root-scoped invalidation, workspace folder change
+  handling, and cross-root workspace symbol/reference tests.
+- `codeLens/resolve` and `documentLink/resolve`: keep eager providers until
+  there is a real lazy payload; implement resolve only with stable opaque data,
+  stale checks, and capability tests.
+- Indirect call hierarchy expansion: use compiler/data-flow facts to recover
+  function-value and closure-object call targets. Do not synthesize targets from
+  names.
+- Larger refactoring/code-action providers: import insertion, trait impl stubs,
+  and wider multi-edit fixes must use the deferred resolve model and real
+  compiler facts.
+
+Exit criteria:
+
+- Each capability is either implemented with advertised provider support and
+  server tests, or remains explicitly unadvertised with a tracked task. No
+  unsupported request is counted as completed work.
+
+### Phase 13: Documentation, VS Code, and Release Verification
+
+Purpose: finish release hygiene separately from core architecture work.
+
+Tasks:
+
+- Update `tools/lsp/README.md`, VS Code README, and user-facing feature lists
+  so they match the actually advertised capabilities.
+- Run and fix `cargo test -p kern-lsp`.
+- Run and fix VS Code `npm run check`, `npm run test`, and `npm run
+  package:vsix`.
+- Run VSIX verification through `kernworker`.
+- Perform a manual VS Code smoke test on a medium Kern workspace covering
+  launch, diagnostics, completion, hover, definition, rename, code actions,
+  code action resolve, workspace symbols, progress, and rapid typing.
+- Record any manual-only release risks before tagging.
+
+Exit criteria:
+
+- Release checklist below is complete and there is no stale documentation that
+  contradicts server capabilities.
 
 ## Observability Requirements
 

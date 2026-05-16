@@ -120,6 +120,9 @@ fn lsp_analysis_does_not_silence_infrastructure_errors() {
         "Err(_) => Ok(Vec::new())",
         ".analyze_interactive_artifact(uri) {\n            Ok(artifact) => artifact,\n            Err(_) => return Ok(None)",
         ".analyze_interactive_navigation_artifact(uri) {\n            Ok(artifact) => artifact,\n            Err(_) => return Ok",
+        ".analyze_surface_artifact(uri).ok()",
+        ".analyze_surface_artifact_for_context(&analysis_context).ok()",
+        ".analyze_clean_surface_for_context(&analysis_context).ok()",
     ] {
         assert!(
             !queries.contains(forbidden),

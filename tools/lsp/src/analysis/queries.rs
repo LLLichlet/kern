@@ -768,7 +768,7 @@ impl AnalysisEngine {
         let surface = if is_dirty {
             self.analyze_clean_surface_for_context(&analysis_context)?
         } else {
-            self.analyze_surface_artifact(uri).ok()
+            self.analyze_surface_artifact_for_context(&analysis_context)?
         };
         let mut items = if let Some(surface) = surface {
             if !surface.requires_body_completion(&target_path, offset) {

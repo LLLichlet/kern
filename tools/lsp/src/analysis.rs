@@ -840,15 +840,6 @@ impl AnalysisEngine {
         Ok(artifact)
     }
 
-    fn analyze_surface_artifact(
-        &self,
-        target_uri: &str,
-    ) -> Result<Arc<AnalysisSurfaceArtifact>, String> {
-        let context = self.resolve_analysis_context(target_uri)?;
-        self.analyze_surface_artifact_for_context(&context)?
-            .ok_or_else(|| "surface analysis failed".to_string())
-    }
-
     fn analyze_surface_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,

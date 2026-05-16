@@ -2,8 +2,8 @@ use super::state::RequestBudgetKind;
 use super::{
     AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, DiagnosticsTaskResult,
     DocumentRequestResponse, DocumentRequestTaskResult, INVALID_REQUEST, LspWorkerTask,
-    RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerError, ServerState,
-    WorkspaceRefreshTaskResult, lifecycle::emit_trace,
+    REQUEST_CANCELLED, RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerError,
+    ServerState, WorkspaceRefreshTaskResult, lifecycle::emit_trace,
 };
 use crate::analysis::{
     AnalysisOutcome, AnalysisSnapshot, CancellationToken, DocumentSyncAction, cleared_uris,
@@ -358,7 +358,13 @@ where
     if state.should_skip_request(&request) {
         return Ok(());
     }
+    let was_canceled_before_registration = state.take_pending_cancel(&request.id);
     state.register_request_cancellation(&mut request);
+    if was_canceled_before_registration {
+        if let Some(cancellation) = &request.cancellation {
+            cancellation.cancel();
+        }
+    }
 
     submit_document_request_task(
         state,
@@ -422,7 +428,7 @@ where
     let started_at = Instant::now();
     let canceled = task_info.request.is_canceled();
     let result = if canceled {
-        Ok(Err("request was canceled".to_string()))
+        Ok(Ok(DocumentRequestResponse::Null))
     } else {
         catch_unwind(AssertUnwindSafe(|| task(&analysis, &snapshot)))
     };
@@ -482,7 +488,13 @@ where
     if state.should_skip_request(&request) {
         return Ok(());
     }
+    let was_canceled_before_registration = state.take_pending_cancel(&request.id);
     state.register_request_cancellation(&mut request);
+    if was_canceled_before_registration {
+        if let Some(cancellation) = &request.cancellation {
+            cancellation.cancel();
+        }
+    }
 
     submit_document_request_task(
         state,
@@ -533,7 +545,13 @@ pub(super) fn submit_document_request_result(
 ) -> Result<(), ServerError> {
     if result.request.is_canceled() || result.canceled {
         emit_request_canceled_trace(state, writer, &result)?;
-        state.finish_request_cancellation(&result.request.id);
+        write_error_response(
+            state,
+            writer,
+            &result.request,
+            REQUEST_CANCELLED,
+            "request was canceled",
+        )?;
         return Ok(());
     }
     match result.response {

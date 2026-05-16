@@ -37,6 +37,7 @@ const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_REQUEST: i64 = -32600;
 const INVALID_PARAMS: i64 = -32602;
 const SERVER_NOT_INITIALIZED: i64 = -32002;
+const REQUEST_CANCELLED: i64 = -32800;
 
 #[derive(Debug)]
 pub enum ServerError {

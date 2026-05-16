@@ -209,8 +209,10 @@ Completed foundation work:
 - Diagnostics analysis-tier tracing is also carried by worker results, so
   concurrent diagnostics cannot read another worker's last selected tier.
 - LSP document requests now carry scheduler-level cancellation tokens. A
-  canceled queued request skips analysis before the worker closure runs, and a
-  canceled running request becomes inert before its response is written.
+  canceled queued request skips analysis before the worker closure runs, a
+  canceled running request becomes inert before publishing stale semantic
+  results, and both paths return the LSP `RequestCancelled` error code instead
+  of leaving the client request unresolved.
 - Worker traces now include queue wait time, completion/cancellation status, and
   execution latency for document requests, diagnostics, and workspace refresh
   work.
@@ -224,6 +226,9 @@ Completed foundation work:
   path used by LSP snapshots. Cancellation is checked at public analysis
   entry, cache fallback, structure-to-artifact, navigation-artifact, and report
   construction boundaries without keeping parallel non-cancelable driver APIs.
+- Scheduler tests now distinguish cancellation from stale generations:
+  cancellation returns `RequestCancelled`, while superseded generations still
+  drop stale responses silently.
 
 Still to complete before calling the scheduler done:
 
@@ -512,7 +517,9 @@ Tasks:
 - Add cancellation tokens.
 - Handle `$/cancelRequest` for queued and running requests.
 - Add generation cancellation on document edits.
-- Return proper cancellation errors for requests.
+- Return proper cancellation errors for requests. This is implemented for
+  document requests: canceled requests return LSP `RequestCancelled` (`-32800`)
+  instead of being silently dropped.
 - Add progress notifications for workspace refresh/indexing.
 
 Exit criteria:

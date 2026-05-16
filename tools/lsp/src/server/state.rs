@@ -414,31 +414,36 @@ impl ServerState {
             .retain(|active| &active.id != id);
     }
 
-    pub(super) fn should_skip_request(&mut self, request: &RequestContext) -> bool {
-        self.should_drop_response(request)
+    pub(super) fn should_skip_request(&self, request: &RequestContext) -> bool {
+        self.is_stale_request(request)
     }
 
     pub(super) fn should_drop_response(&mut self, request: &RequestContext) -> bool {
-        let was_canceled = request.is_canceled();
-        let had_pending_cancel = if let Some(index) = self
+        let is_stale = self.is_stale_request(request);
+        let _ = self.take_pending_cancel(&request.id);
+        self.finish_request_cancellation(&request.id);
+        is_stale
+    }
+
+    pub(super) fn take_pending_cancel(&mut self, id: &Value) -> bool {
+        if let Some(index) = self
             .canceled_request_ids
             .iter()
-            .position(|canceled| canceled == &request.id)
+            .position(|canceled| canceled == id)
         {
             self.canceled_request_ids.swap_remove(index);
-            true
-        } else {
-            false
-        };
+            return true;
+        }
+        false
+    }
 
-        let is_stale = match (&request.target_uri, request.generation) {
+    fn is_stale_request(&self, request: &RequestContext) -> bool {
+        match (&request.target_uri, request.generation) {
             (Some(target_uri), Some(generation)) => {
                 !self.is_current_generation(target_uri, generation)
             }
             _ => false,
-        };
-        self.finish_request_cancellation(&request.id);
-        was_canceled || had_pending_cancel || is_stale
+        }
     }
 
     pub(super) fn queue_diagnostics_publish(

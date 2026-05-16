@@ -1,7 +1,8 @@
 use super::super::scheduler::{
     drain_scheduler, execute_document_diagnostics, execute_document_request,
     execute_optional_document_request, flush_diagnostics_lane, flush_document_request_results,
-    publish_analysis_outcome, submit_document_request_result, write_success_response,
+    publish_analysis_outcome, submit_document_request_result, write_error_response,
+    write_success_response,
 };
 use super::super::state::{
     DocumentRequestResponse, DocumentRequestTaskResult, SchedulerDrainDecision,
@@ -436,7 +437,7 @@ fn interactive_requests_do_not_force_drain_when_diagnostics_budget_is_reached() 
 }
 
 #[test]
-fn canceled_request_drops_response() {
+fn canceled_non_document_response_is_not_rewritten() {
     let mut state = initialized_state();
     state.cancel_request(json!(42));
     let request = state.request_context(json!(42));
@@ -445,12 +446,15 @@ fn canceled_request_drops_response() {
 
     write_success_response(&mut state, &mut writer, &request, json!({ "ok": true })).unwrap();
 
-    assert!(output.is_empty());
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["id"], json!(42));
+    assert_eq!(messages[0]["result"], json!({ "ok": true }));
     assert!(state.canceled_request_ids.is_empty());
 }
 
 #[test]
-fn canceled_document_request_skips_analysis_work() {
+fn canceled_document_request_skips_analysis_work_and_returns_canceled_error() {
     let mut state = initialized_state();
     let uri = temp_file_uri("server_canceled_preflight", "fn main() void {}\n");
     state.cancel_request(json!(44));
@@ -473,8 +477,14 @@ fn canceled_document_request_skips_analysis_work() {
     )
     .unwrap();
 
+    flush_document_request_results(&mut state, &mut writer, true).unwrap();
+
     assert!(!*analyzed.lock().unwrap());
-    assert!(output.is_empty());
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["id"], json!(44));
+    assert_eq!(messages[0]["error"]["code"], json!(REQUEST_CANCELLED));
+    assert_eq!(messages[0]["error"]["message"], "request was canceled");
     assert!(state.canceled_request_ids.is_empty());
 }
 
@@ -529,16 +539,17 @@ fn queued_document_request_cancel_skips_analysis_work() {
 
     assert!(!analyzed.load(std::sync::atomic::Ordering::SeqCst));
     let messages = read_all_messages(&output);
-    assert_eq!(messages.len(), 4);
-    assert!(
-        messages
-            .iter()
-            .all(|message| message["id"].as_i64().unwrap() != 104)
-    );
+    assert_eq!(messages.len(), 5);
+    let canceled = messages
+        .iter()
+        .find(|message| message["id"] == json!(104))
+        .unwrap();
+    assert_eq!(canceled["error"]["code"], json!(REQUEST_CANCELLED));
+    assert_eq!(canceled["error"]["message"], "request was canceled");
 }
 
 #[test]
-fn running_document_request_cancel_drops_response() {
+fn running_document_request_cancel_returns_canceled_error() {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;
     let uri = temp_file_uri("server_canceled_running_request", "fn main() void {}\n");
@@ -576,7 +587,7 @@ fn running_document_request_cancel_drops_response() {
 
     assert!(analyzed.load(std::sync::atomic::Ordering::SeqCst));
     let messages = read_all_messages(&output);
-    assert_eq!(messages.len(), 1);
+    assert_eq!(messages.len(), 2);
     assert_eq!(messages[0]["method"], "$/logTrace");
     assert_eq!(messages[0]["params"]["message"], "request canceled");
     let verbose = messages[0]["params"]["verbose"].as_str().unwrap();
@@ -584,6 +595,9 @@ fn running_document_request_cancel_drops_response() {
     assert!(verbose.contains("elapsed_ms="), "{verbose}");
     assert!(verbose.contains("status=canceled"), "{verbose}");
     assert!(verbose.contains("method=textDocument/hover"), "{verbose}");
+    assert_eq!(messages[1]["id"], json!(105));
+    assert_eq!(messages[1]["error"]["code"], json!(REQUEST_CANCELLED));
+    assert_eq!(messages[1]["error"]["message"], "request was canceled");
     assert!(state.canceled_request_ids.is_empty());
 }
 
@@ -625,10 +639,39 @@ fn running_document_request_cancel_reaches_analysis_snapshot() {
     flush_document_request_results(&mut state, &mut writer, true).unwrap();
 
     let messages = read_all_messages(&output);
-    assert_eq!(messages.len(), 1);
+    assert_eq!(messages.len(), 2);
     assert_eq!(messages[0]["method"], "$/logTrace");
     assert_eq!(messages[0]["params"]["message"], "request canceled");
+    assert_eq!(messages[1]["id"], json!(106));
+    assert_eq!(messages[1]["error"]["code"], json!(REQUEST_CANCELLED));
+    assert_eq!(messages[1]["error"]["message"], "request was canceled");
     assert_eq!(state.analysis.last_analysis_tier(), None);
+}
+
+#[test]
+fn analysis_cancellation_text_alone_is_not_reclassified_as_lsp_cancellation() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_analysis_cancel_error", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    execute_document_request::<Value, _>(
+        &mut state,
+        &mut writer,
+        json!(107),
+        &uri,
+        SchedulerLane::Interactive,
+        "textDocument/hover",
+        |_, _| Err("request was canceled".to_string()),
+    )
+    .unwrap();
+    flush_document_request_results(&mut state, &mut writer, true).unwrap();
+
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["id"], json!(107));
+    assert_eq!(messages[0]["error"]["code"], json!(INVALID_REQUEST));
+    assert_eq!(messages[0]["error"]["message"], "request was canceled");
 }
 
 #[test]
@@ -878,6 +921,29 @@ fn stale_document_request_generation_drops_response() {
     write_success_response(&mut state, &mut writer, &request, json!({ "ok": true })).unwrap();
 
     assert!(output.is_empty());
+}
+
+#[test]
+fn canceled_standalone_error_response_is_still_written() {
+    let mut state = initialized_state();
+    state.cancel_request(json!(45));
+    let request = state.request_context(json!(45));
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    write_error_response(
+        &mut state,
+        &mut writer,
+        &request,
+        REQUEST_CANCELLED,
+        "request was canceled",
+    )
+    .unwrap();
+
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["id"], json!(45));
+    assert_eq!(messages[0]["error"]["code"], json!(REQUEST_CANCELLED));
 }
 
 #[test]

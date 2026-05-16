@@ -604,11 +604,10 @@ Tasks:
 - Build a project/workspace index abstraction.
 - Track `Craft.toml`, workspace members, package roots, source roots, generated
   aliases, and analysis context files.
-- Cache document symbols and top-level definitions per package target. Workspace
-  symbol requests now cache the unfiltered per-target symbol index and reuse it
-  across query strings, while preserving the clean/dirty analysis cache split.
-  Document symbol requests also cache per-target, per-document outline indexes
-  from surface analysis so repeated outline requests avoid rebuilding the tree.
+- Cache document symbols and top-level definitions per package target. Surface
+  analysis now feeds a shared per-target symbol index that stores both
+  unfiltered workspace symbols and per-document outline trees, preserving the
+  clean/dirty analysis cache split while avoiding repeated symbol-tree walks.
 - Invalidate precisely on watched file changes.
 
 Exit criteria:

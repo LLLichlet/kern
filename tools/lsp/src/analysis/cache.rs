@@ -104,12 +104,6 @@ pub(super) struct AnalysisCacheFamilyKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct DocumentSymbolCacheKey {
-    analysis: AnalysisCacheKey,
-    target_path: PathBuf,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct SemanticTokensCacheKey {
     pub(super) analysis: AnalysisCacheKey,
     pub(super) target_path: PathBuf,
@@ -200,23 +194,6 @@ impl AnalysisCacheKey {
             module_aliases: self.module_aliases.clone(),
             module_interface_aliases: self.module_interface_aliases.clone(),
         }
-    }
-}
-
-impl DocumentSymbolCacheKey {
-    pub(super) fn new(analysis: AnalysisCacheKey, target_path: PathBuf) -> Self {
-        Self {
-            analysis,
-            target_path,
-        }
-    }
-
-    pub(super) fn analysis_family(&self) -> AnalysisCacheFamilyKey {
-        self.analysis.family()
-    }
-
-    pub(super) fn analysis_key(&self) -> &AnalysisCacheKey {
-        &self.analysis
     }
 }
 

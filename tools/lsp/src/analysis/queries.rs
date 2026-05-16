@@ -35,14 +35,16 @@ impl AnalysisEngine {
                         snapshot.dirty_documents(),
                         snapshot.cancellation.clone(),
                     )?;
+                    let index = self.surface_symbol_index_for_context(
+                        &context,
+                        snapshot.uri_by_normalized_path(),
+                    )?;
                     symbols.extend(
-                        self.workspace_symbol_index_for_context(
-                            &context,
-                            snapshot.uri_by_normalized_path(),
-                        )?
-                        .iter()
-                        .filter(|symbol| workspace_symbol_matches_query(symbol, &needle))
-                        .cloned(),
+                        index
+                            .workspace_symbols
+                            .iter()
+                            .filter(|symbol| workspace_symbol_matches_query(symbol, &needle))
+                            .cloned(),
                     );
                 }
                 symbols.sort_by(workspace_symbol_order);
@@ -60,14 +62,14 @@ impl AnalysisEngine {
                 snapshot.dirty_documents(),
                 snapshot.cancellation.clone(),
             )?;
+            let index =
+                self.surface_symbol_index_for_context(&context, snapshot.uri_by_normalized_path())?;
             symbols.extend(
-                self.workspace_symbol_index_for_context(
-                    &context,
-                    snapshot.uri_by_normalized_path(),
-                )?
-                .iter()
-                .filter(|symbol| workspace_symbol_matches_query(symbol, &needle))
-                .cloned(),
+                index
+                    .workspace_symbols
+                    .iter()
+                    .filter(|symbol| workspace_symbol_matches_query(symbol, &needle))
+                    .cloned(),
             );
         }
 
@@ -77,51 +79,41 @@ impl AnalysisEngine {
         Ok(symbols)
     }
 
-    fn workspace_symbol_index_for_context(
+    fn surface_symbol_index_for_context(
         &self,
         context: &AnalysisRequestContext,
         uri_by_path: &BTreeMap<PathBuf, String>,
-    ) -> Result<Arc<Vec<IdeWorkspaceSymbol>>, String> {
+    ) -> Result<Arc<SurfaceSymbolIndex>, String> {
         context.check_canceled()?;
-        if let Some(symbols) = self
-            .workspace_symbol_cache
+        if let Some(index) = self
+            .surface_symbol_cache
             .lock()
             .unwrap()
             .get(&context.cache_key)
             .cloned()
         {
-            return Ok(symbols);
+            return Ok(index);
         }
 
         let Some(surface) = self.analyze_surface_artifact_for_context(context)? else {
-            let symbols = Arc::new(Vec::new());
+            let index = Arc::new(SurfaceSymbolIndex {
+                document_symbols_by_path: BTreeMap::new(),
+                workspace_symbols: Arc::new(Vec::new()),
+            });
             self.prune_cache_family_for_insert(&context.cache_key);
-            self.workspace_symbol_cache
+            self.surface_symbol_cache
                 .lock()
                 .unwrap()
-                .insert(context.cache_key.clone(), Arc::clone(&symbols));
-            return Ok(symbols);
+                .insert(context.cache_key.clone(), Arc::clone(&index));
+            return Ok(index);
         };
-        let mut symbols = Vec::new();
-        for module_symbol in &surface.symbols {
-            analysis_symbol_to_workspace_symbols(
-                &surface.session,
-                module_symbol,
-                None,
-                uri_by_path,
-                &mut symbols,
-            );
-        }
-        symbols.sort_by(workspace_symbol_order);
-        symbols.dedup_by(workspace_symbol_same_location);
-
-        let symbols = Arc::new(symbols);
+        let index = Arc::new(surface_symbol_index_from_artifact(&surface, uri_by_path));
         self.prune_cache_family_for_insert(&context.cache_key);
-        self.workspace_symbol_cache
+        self.surface_symbol_cache
             .lock()
             .unwrap()
-            .insert(context.cache_key.clone(), Arc::clone(&symbols));
-        Ok(symbols)
+            .insert(context.cache_key.clone(), Arc::clone(&index));
+        Ok(index)
     }
 
     fn semantic_query_offset(
@@ -184,53 +176,33 @@ impl AnalysisEngine {
             return Err("requested document symbols for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
-        self.document_symbol_index_for_surface(&surface, symbol_analysis_key, target_path)
-    }
-
-    fn document_symbol_index_for_surface(
-        &self,
-        surface: &AnalysisSurfaceArtifact,
-        analysis_key: AnalysisCacheKey,
-        target_path: PathBuf,
-    ) -> Result<Vec<IdeDocumentSymbol>, String> {
-        let cache_key = DocumentSymbolCacheKey::new(analysis_key, target_path.clone());
-        if let Some(symbols) = self
-            .document_symbol_cache
+        let index = if let Some(index) = self
+            .surface_symbol_cache
             .lock()
             .unwrap()
-            .get(&cache_key)
+            .get(&symbol_analysis_key)
             .cloned()
         {
-            self.record_analysis_tier(AnalysisTier::Surface);
-            return Ok(symbols.as_ref().clone());
-        }
+            index
+        } else {
+            let index = Arc::new(surface_symbol_index_from_artifact(
+                &surface,
+                snapshot.uri_by_normalized_path(),
+            ));
+            self.prune_cache_family_for_insert(&symbol_analysis_key);
+            self.surface_symbol_cache
+                .lock()
+                .unwrap()
+                .insert(symbol_analysis_key, Arc::clone(&index));
+            index
+        };
 
-        let mut symbols = Vec::new();
-        for module_symbol in &surface.symbols {
-            let Some(path) = surface
-                .session
-                .source_manager
-                .get_file_path(module_symbol.span.file)
-            else {
-                continue;
-            };
-            if normalize_path(path) == target_path {
-                symbols.extend(
-                    module_symbol
-                        .children
-                        .iter()
-                        .map(|symbol| analysis_symbol_to_document_symbol(&surface.session, symbol)),
-                );
-            }
-        }
-
-        self.prune_cache_family_for_insert(cache_key.analysis_key());
-        self.document_symbol_cache
-            .lock()
-            .unwrap()
-            .insert(cache_key, Arc::new(symbols.clone()));
         self.record_analysis_tier(AnalysisTier::Surface);
-        Ok(symbols)
+        Ok(index
+            .document_symbols_by_path
+            .get(&target_path)
+            .map(|symbols| symbols.as_ref().clone())
+            .unwrap_or_default())
     }
 
     #[cfg(test)]
@@ -1188,6 +1160,48 @@ fn workspace_symbol_order(
 
 fn workspace_symbol_matches_query(symbol: &IdeWorkspaceSymbol, query: &str) -> bool {
     query.is_empty() || symbol.name.to_ascii_lowercase().contains(query)
+}
+
+fn surface_symbol_index_from_artifact(
+    surface: &AnalysisSurfaceArtifact,
+    uri_by_path: &BTreeMap<PathBuf, String>,
+) -> SurfaceSymbolIndex {
+    let mut document_symbols_by_path = BTreeMap::<PathBuf, Vec<IdeDocumentSymbol>>::new();
+    let mut workspace_symbols = Vec::new();
+
+    for module_symbol in &surface.symbols {
+        if let Some(path) = surface
+            .session
+            .source_manager
+            .get_file_path(module_symbol.span.file)
+        {
+            let path = normalize_path(path);
+            document_symbols_by_path.entry(path).or_default().extend(
+                module_symbol
+                    .children
+                    .iter()
+                    .map(|symbol| analysis_symbol_to_document_symbol(&surface.session, symbol)),
+            );
+        }
+        analysis_symbol_to_workspace_symbols(
+            &surface.session,
+            module_symbol,
+            None,
+            uri_by_path,
+            &mut workspace_symbols,
+        );
+    }
+
+    workspace_symbols.sort_by(workspace_symbol_order);
+    workspace_symbols.dedup_by(workspace_symbol_same_location);
+
+    SurfaceSymbolIndex {
+        document_symbols_by_path: document_symbols_by_path
+            .into_iter()
+            .map(|(path, symbols)| (path, Arc::new(symbols)))
+            .collect(),
+        workspace_symbols: Arc::new(workspace_symbols),
+    }
 }
 
 fn workspace_symbol_same_location(

@@ -1523,7 +1523,7 @@ fn prepare_rename_request_returns_placeholder_and_range() {
 }
 
 #[test]
-fn completion_item_resolve_returns_eager_item_without_analysis() {
+fn completion_item_resolve_is_not_implemented_when_unadvertised() {
     let mut state = initialized_state();
     assert_eq!(state.analysis.last_analysis_tier(), None);
 
@@ -1544,11 +1544,12 @@ fn completion_item_resolve_returns_eager_item_without_analysis() {
     );
 
     assert_eq!(response["id"], json!(28));
-    assert_eq!(response["result"]["label"], "helper");
-    assert_eq!(response["result"]["kind"], 3);
-    assert_eq!(response["result"]["detail"], "fn helper() void");
-    assert_eq!(response["result"]["insertText"], "helper()");
-    assert_eq!(response["result"]["insertTextFormat"], 1);
+    assert_eq!(response["error"]["code"], json!(METHOD_NOT_FOUND));
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("completionItem/resolve"))
+    );
     assert_eq!(state.analysis.last_analysis_tier(), None);
 }
 

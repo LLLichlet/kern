@@ -265,6 +265,16 @@ fn advertised_request_coverages(capabilities: &Value) -> Vec<CapabilityRequestCo
             methods: &["textDocument/completion"],
             test_markers: &["completion_request_returns_visible_items"],
         });
+        assert_eq!(
+            capabilities["completionProvider"]["resolveProvider"], false,
+            "completionItem/resolve must stay unadvertised unless the server implements nontrivial resolve semantics"
+        );
+        assert!(
+            !coverages
+                .iter()
+                .any(|coverage| coverage.methods.contains(&"completionItem/resolve")),
+            "unadvertised completionItem/resolve must not be counted as supported coverage"
+        );
     }
     if capabilities.get("semanticTokensProvider").is_some() {
         coverages.push(CapabilityRequestCoverage {

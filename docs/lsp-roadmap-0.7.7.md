@@ -636,13 +636,16 @@ Tasks:
 - Type definition, declaration, implementation.
 - Call hierarchy.
 - Semantic token range is done; delta is intentionally unadvertised.
-- Completion is intentionally eager; `completionItem/resolve` is not advertised.
+- Completion is intentionally eager; `completionItem/resolve` is not advertised
+  and unsupported requests are rejected instead of echoing stale item data.
 - Code action resolve.
 
 Exit criteria:
 
 - Each advertised capability has direct server tests and VS Code smoke coverage.
 - Unsupported capabilities are not advertised.
+  Server tests now also guard advertised capability coverage and ensure
+  unadvertised completion resolve is not counted as supported.
 
 ### Phase 7: Stress, Fuzz, and Release Hardening
 

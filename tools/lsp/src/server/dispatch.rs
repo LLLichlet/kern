@@ -15,8 +15,8 @@ use super::{
 };
 use crate::protocol::{
     CallHierarchyIncomingCallsParams, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
-    CancelRequestParams, CodeAction, CodeActionParams, CodeLensParams, CompletionItem,
-    CompletionParams, DefinitionParams, DidChangeConfigurationParams, DidChangeTextDocumentParams,
+    CancelRequestParams, CodeAction, CodeActionParams, CodeLensParams, CompletionParams,
+    DefinitionParams, DidChangeConfigurationParams, DidChangeTextDocumentParams,
     DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, DocumentHighlightParams, DocumentLinkParams, DocumentSymbolParams,
     FoldingRangeParams, FormattingParams, IncomingMessage, InitializeParams, InlayHintParams,
@@ -656,15 +656,6 @@ fn handle_message_with_document_request_policy(
                         })
                 },
             )?;
-        }
-        "completionItem/resolve" => {
-            let request = state.request_context(message.id.ok_or_else(|| {
-                ServerError::Protocol(
-                    "completionItem/resolve must be sent as a request".to_string(),
-                )
-            })?);
-            let item = required_params::<CompletionItem>(message.params)?;
-            write_success_response(state, writer, &request, serde_json::to_value(item)?)?;
         }
         "textDocument/semanticTokens/full" => {
             let id = message.id.ok_or_else(|| {

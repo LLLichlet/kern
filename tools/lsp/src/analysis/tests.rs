@@ -134,7 +134,10 @@ fn change_document_for_full_diagnostics(
 }
 
 fn warm_clean_semantic_artifact(analysis: &AnalysisEngine, uri: &str, _source: &str) {
-    let _ = analysis.analyze_interactive_artifact(uri).unwrap();
+    let snapshot = analysis.snapshot();
+    let _ = analysis
+        .analyze_interactive_artifact_for_snapshot(&snapshot, uri)
+        .unwrap();
 }
 
 fn position_of_nth(source: &str, needle: &str, occurrence: usize, char_offset: u32) -> Position {

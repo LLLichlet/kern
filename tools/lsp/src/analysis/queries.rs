@@ -4,13 +4,16 @@ use std::collections::BTreeSet;
 impl AnalysisEngine {
     fn semantic_query_offset(
         &self,
+        snapshot: &AnalysisSnapshot,
         uri: &str,
         position: &Position,
     ) -> Result<Option<usize>, String> {
-        let Some(target_doc) = self.documents.get(uri) else {
+        let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested semantic query for a document that is not open".to_string());
         };
-        let file = kernc_utils::SourceFile::new(target_doc.path.clone(), target_doc.text.clone());
+        let file = snapshot.document_source_file(uri).ok_or_else(|| {
+            "requested semantic query for a document that is not open".to_string()
+        })?;
         let Some(offset) = position_to_byte_offset(&file, position) else {
             return Ok(None);
         };
@@ -34,11 +37,10 @@ impl AnalysisEngine {
         snapshot: &AnalysisSnapshot,
         uri: &str,
     ) -> Result<Vec<IdeDocumentSymbol>, String> {
-        let context = self.resolve_analysis_context(uri)?;
+        let context = self.resolve_analysis_context_for_snapshot(snapshot, uri)?;
         let surface =
             if snapshot.dirty_documents().is_clean() || !context.resolved.input_file.is_file() {
-                self.analyze_surface_artifact(uri)
-                    .ok()
+                self.analyze_surface_artifact_for_context(&context)
                     .or_else(|| self.analyze_clean_surface_for_context(&context))
             } else {
                 self.analyze_clean_surface_for_context(&context)
@@ -80,17 +82,20 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<IdeLocation>, String> {
-        if self.semantic_query_offset(uri, &position)?.is_none() {
+        let snapshot = self.snapshot();
+        if self
+            .semantic_query_offset(&snapshot, uri, &position)?
+            .is_none()
+        {
             return Ok(None);
         }
         let artifact = self
-            .analyze_interactive_navigation_artifact(uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
             .map_err(|message| format!("definition analysis failed: {message}"))?;
-        let Some(target_doc) = self.documents.get(uri) else {
+        let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested definition for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
-        let uri_by_path = self.uri_by_normalized_path();
 
         Ok(find_definition_location(
             &artifact.session,
@@ -98,7 +103,7 @@ impl AnalysisEngine {
             &artifact.semantic_entries,
             &target_path,
             &position,
-            &uri_by_path,
+            snapshot.uri_by_normalized_path(),
         ))
     }
 
@@ -108,17 +113,20 @@ impl AnalysisEngine {
         position: Position,
         include_declaration: bool,
     ) -> Result<Vec<IdeLocation>, String> {
-        if self.semantic_query_offset(uri, &position)?.is_none() {
+        let snapshot = self.snapshot();
+        if self
+            .semantic_query_offset(&snapshot, uri, &position)?
+            .is_none()
+        {
             return Ok(Vec::new());
         }
         let artifact = self
-            .analyze_interactive_navigation_artifact(uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
             .map_err(|message| format!("references analysis failed: {message}"))?;
-        let Some(target_doc) = self.documents.get(uri) else {
+        let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested references for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
-        let uri_by_path = self.uri_by_normalized_path();
 
         Ok(find_reference_locations(ReferenceLocationQuery {
             session: &artifact.session,
@@ -128,7 +136,7 @@ impl AnalysisEngine {
             target_path: &target_path,
             position: &position,
             include_declaration,
-            uri_by_path: &uri_by_path,
+            uri_by_path: snapshot.uri_by_normalized_path(),
         }))
     }
 
@@ -137,13 +145,17 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Vec<IdeDocumentHighlight>, String> {
-        if self.semantic_query_offset(uri, &position)?.is_none() {
+        let snapshot = self.snapshot();
+        if self
+            .semantic_query_offset(&snapshot, uri, &position)?
+            .is_none()
+        {
             return Ok(Vec::new());
         }
         let artifact = self
-            .analyze_interactive_navigation_artifact(uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
             .map_err(|message| format!("document highlights analysis failed: {message}"))?;
-        let Some(target_doc) = self.documents.get(uri) else {
+        let Some(target_doc) = snapshot.document(uri) else {
             return Err(
                 "requested document highlights for a document that is not open".to_string(),
             );
@@ -161,13 +173,17 @@ impl AnalysisEngine {
     }
 
     pub fn hover(&self, uri: &str, position: Position) -> Result<Option<IdeHover>, String> {
-        if self.semantic_query_offset(uri, &position)?.is_none() {
+        let snapshot = self.snapshot();
+        if self
+            .semantic_query_offset(&snapshot, uri, &position)?
+            .is_none()
+        {
             return Ok(None);
         }
         let artifact = self
-            .analyze_interactive_navigation_artifact(uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
             .map_err(|message| format!("hover analysis failed: {message}"))?;
-        let Some(target_doc) = self.documents.get(uri) else {
+        let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested hover for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
@@ -186,13 +202,14 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<IdeSignatureHelp>, String> {
-        let Some(offset) = self.semantic_query_offset(uri, &position)? else {
+        let snapshot = self.snapshot();
+        let Some(offset) = self.semantic_query_offset(&snapshot, uri, &position)? else {
             return Ok(None);
         };
         let artifact = self
-            .analyze_interactive_artifact(uri)
+            .analyze_interactive_artifact_for_snapshot(&snapshot, uri)
             .map_err(|message| format!("signature help analysis failed: {message}"))?;
-        let Some(target_doc) = self.documents.get(uri) else {
+        let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested signature help for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
@@ -207,11 +224,14 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Vec<IdeCompletionItem>, String> {
-        let Some(target_doc) = self.documents.get(uri) else {
+        let snapshot = self.snapshot();
+        let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested completion for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
-        let file = kernc_utils::SourceFile::new(target_doc.path.clone(), target_doc.text.clone());
+        let file = snapshot
+            .document_source_file(uri)
+            .ok_or_else(|| "requested completion for a document that is not open".to_string())?;
         let Some(offset) = position_to_byte_offset(&file, &position) else {
             return Ok(Vec::new());
         };
@@ -239,7 +259,7 @@ impl AnalysisEngine {
             return Ok(labels.into_iter().map(keyword_completion_item).collect());
         }
 
-        let analysis_context = self.resolve_analysis_context(uri)?;
+        let analysis_context = self.resolve_analysis_context_for_snapshot(&snapshot, uri)?;
         let is_dirty = !analysis_context.dirty_documents.is_clean();
         let surface = if is_dirty {
             self.analyze_clean_surface_for_context(&analysis_context)
@@ -307,13 +327,17 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<IdePrepareRenameResult>, String> {
-        if self.semantic_query_offset(uri, &position)?.is_none() {
+        let snapshot = self.snapshot();
+        if self
+            .semantic_query_offset(&snapshot, uri, &position)?
+            .is_none()
+        {
             return Ok(None);
         }
         let artifact = self
-            .analyze_interactive_navigation_artifact(uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
             .map_err(|message| format!("prepareRename analysis failed: {message}"))?;
-        let Some(target_doc) = self.documents.get(uri) else {
+        let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested prepareRename for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
@@ -342,14 +366,18 @@ impl AnalysisEngine {
         if !is_valid_identifier(new_name) {
             return Err(format!("`{}` is not a valid Kern identifier", new_name));
         }
-        if self.semantic_query_offset(uri, &position)?.is_none() {
+        let snapshot = self.snapshot();
+        if self
+            .semantic_query_offset(&snapshot, uri, &position)?
+            .is_none()
+        {
             return Err("rename target is not a supported identifier".to_string());
         }
 
         let artifact = self
-            .analyze_interactive_navigation_artifact(uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
             .map_err(|message| format!("rename analysis failed: {message}"))?;
-        let Some(target_doc) = self.documents.get(uri) else {
+        let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested rename for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
@@ -362,7 +390,6 @@ impl AnalysisEngine {
         ) else {
             return Err("rename target is not a supported identifier".to_string());
         };
-        let uri_by_path = self.uri_by_normalized_path();
 
         let changes = build_rename_changes(
             &artifact.session,
@@ -370,19 +397,22 @@ impl AnalysisEngine {
             &artifact.semantic_entries,
             &target,
             new_name,
-            &uri_by_path,
+            snapshot.uri_by_normalized_path(),
         );
 
         Ok(IdeWorkspaceEdit { changes })
     }
 
     pub fn semantic_tokens(&self, uri: &str) -> Result<IdeSemanticTokens, String> {
-        let Some(target_doc) = self.documents.get(uri) else {
+        let snapshot = self.snapshot();
+        let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested semantic tokens for a document that is not open".to_string());
         };
-        let file = kernc_utils::SourceFile::new(target_doc.path.clone(), target_doc.text.clone());
+        let file = snapshot.document_source_file(uri).ok_or_else(|| {
+            "requested semantic tokens for a document that is not open".to_string()
+        })?;
 
-        let context = self.resolve_analysis_context(uri)?;
+        let context = self.resolve_analysis_context_for_snapshot(&snapshot, uri)?;
         let target_path = normalize_path(&target_doc.path);
         let token_key = SemanticTokensCacheKey {
             analysis: context.cache_key.clone(),
@@ -418,12 +448,13 @@ impl AnalysisEngine {
     }
 
     pub fn inlay_hints(&self, uri: &str, range: Range) -> Result<Vec<IdeInlayHint>, String> {
-        let Some(target_doc) = self.documents.get(uri) else {
+        let snapshot = self.snapshot();
+        let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested inlay hints for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
         let artifact = self
-            .analyze_interactive_navigation_artifact(uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
             .map_err(|message| format!("inlay hint analysis failed: {message}"))?;
 
         self.record_analysis_tier(AnalysisTier::CleanSemantic);
@@ -449,8 +480,9 @@ impl AnalysisEngine {
     }
 
     pub fn code_actions(&self, uri: &str, range: Range) -> Result<Vec<IdeCodeAction>, String> {
-        let analysis_context = self.resolve_analysis_context(uri)?;
-        let Some(target_doc) = self.documents.get(uri) else {
+        let snapshot = self.snapshot();
+        let analysis_context = self.resolve_analysis_context_for_snapshot(&snapshot, uri)?;
+        let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested code actions for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
@@ -460,7 +492,10 @@ impl AnalysisEngine {
             (artifact.session.clone(), Some(artifact))
         } else {
             self.record_analysis_tier(AnalysisTier::ParseOnly);
-            (self.parse_open_document_session(uri)?, None)
+            (
+                self.parse_open_document_session_for_snapshot(&snapshot, uri)?,
+                None,
+            )
         };
 
         let mut actions = Vec::new();

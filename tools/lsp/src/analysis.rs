@@ -112,6 +112,7 @@ pub enum DocumentSyncAction {
 pub(crate) struct AnalysisSnapshot {
     documents: BTreeMap<String, OpenDocument>,
     dirty_documents: Rc<DirtyDocumentsSnapshot>,
+    open_uri_by_path: Rc<BTreeMap<PathBuf, String>>,
 }
 
 impl AnalysisSnapshot {
@@ -119,8 +120,25 @@ impl AnalysisSnapshot {
         self.documents.get(uri)
     }
 
+    fn document_source_file(&self, uri: &str) -> Option<SourceFile> {
+        let document = self.document(uri)?;
+        Some(SourceFile::new(
+            document.path.clone(),
+            document.text.clone(),
+        ))
+    }
+
     fn dirty_documents(&self) -> &DirtyDocumentsSnapshot {
         &self.dirty_documents
+    }
+
+    fn uri_by_normalized_path(&self) -> &BTreeMap<PathBuf, String> {
+        &self.open_uri_by_path
+    }
+
+    fn analysis_path_exists(&self, path: &Path) -> bool {
+        let normalized = normalize_path(path);
+        self.open_uri_by_path.contains_key(&normalized) || path.is_file()
     }
 }
 
@@ -221,6 +239,7 @@ impl AnalysisEngine {
         AnalysisSnapshot {
             documents: self.documents.clone(),
             dirty_documents: self.dirty_documents_snapshot(),
+            open_uri_by_path: self.open_uri_by_normalized_path(),
         }
     }
 
@@ -311,11 +330,29 @@ impl AnalysisEngine {
     }
 
     fn parse_open_document_session(&self, target_uri: &str) -> Result<Session, String> {
-        self.record_analysis_tier(AnalysisTier::ParseOnly);
         let target_doc = self
             .documents
             .get(target_uri)
             .ok_or_else(|| "document is not open".to_string())?;
+        self.parse_open_document_session_for_document(target_doc)
+    }
+
+    fn parse_open_document_session_for_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        target_uri: &str,
+    ) -> Result<Session, String> {
+        let target_doc = snapshot
+            .document(target_uri)
+            .ok_or_else(|| "document is not open".to_string())?;
+        self.parse_open_document_session_for_document(target_doc)
+    }
+
+    fn parse_open_document_session_for_document(
+        &self,
+        target_doc: &OpenDocument,
+    ) -> Result<Session, String> {
+        self.record_analysis_tier(AnalysisTier::ParseOnly);
         let mut session = kernc_utils::Session::new();
         session.apply_options(&self.settings.compile_options);
         let file_id = session.source_manager.add_file(
@@ -497,10 +534,6 @@ impl AnalysisEngine {
         uri_by_path
     }
 
-    fn uri_by_normalized_path(&self) -> Rc<BTreeMap<PathBuf, String>> {
-        self.open_uri_by_normalized_path()
-    }
-
     fn analyze_diagnostic_report(&self, target_uri: &str) -> Result<AnalysisReport, String> {
         let context = self.resolve_analysis_context(target_uri)?;
         if let Some(artifact) = self.artifact_cache.borrow().get(&context.cache_key) {
@@ -539,42 +572,58 @@ impl AnalysisEngine {
         })
     }
 
-    fn analyze_interactive_artifact(
+    fn analyze_interactive_artifact_for_snapshot(
         &self,
+        snapshot: &AnalysisSnapshot,
         target_uri: &str,
     ) -> Result<Rc<AnalysisArtifact>, String> {
-        let context = self.resolve_analysis_context(target_uri)?;
-        if context.dirty_documents.is_clean() {
-            self.record_analysis_tier(AnalysisTier::CleanSemantic);
-            return Ok(self.analyze_artifact_for_context(&context));
-        }
-
-        if !context.resolved.input_file.is_file() {
-            self.record_analysis_tier(AnalysisTier::DirtySemantic);
-            return Ok(self.analyze_artifact_for_context(&context));
-        }
-
-        self.record_analysis_tier(AnalysisTier::CleanSemantic);
-        Ok(self.analyze_clean_artifact_for_context(&context))
+        let context = self.resolve_analysis_context_for_snapshot(snapshot, target_uri)?;
+        self.analyze_interactive_artifact_for_context(&context)
     }
 
-    fn analyze_interactive_navigation_artifact(
+    fn analyze_interactive_artifact_for_context(
         &self,
-        target_uri: &str,
-    ) -> Result<Rc<AnalysisNavigationArtifact>, String> {
-        let context = self.resolve_analysis_context(target_uri)?;
+        context: &AnalysisRequestContext,
+    ) -> Result<Rc<AnalysisArtifact>, String> {
         if context.dirty_documents.is_clean() {
             self.record_analysis_tier(AnalysisTier::CleanSemantic);
-            return Ok(self.analyze_navigation_artifact_for_context(&context));
+            return Ok(self.analyze_artifact_for_context(context));
         }
 
         if !context.resolved.input_file.is_file() {
             self.record_analysis_tier(AnalysisTier::DirtySemantic);
-            return Ok(self.analyze_navigation_artifact_for_context(&context));
+            return Ok(self.analyze_artifact_for_context(context));
         }
 
         self.record_analysis_tier(AnalysisTier::CleanSemantic);
-        Ok(self.analyze_clean_navigation_artifact_for_context(&context))
+        Ok(self.analyze_clean_artifact_for_context(context))
+    }
+
+    fn analyze_interactive_navigation_artifact_for_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        target_uri: &str,
+    ) -> Result<Rc<AnalysisNavigationArtifact>, String> {
+        let context = self.resolve_analysis_context_for_snapshot(snapshot, target_uri)?;
+        self.analyze_interactive_navigation_artifact_for_context(&context)
+    }
+
+    fn analyze_interactive_navigation_artifact_for_context(
+        &self,
+        context: &AnalysisRequestContext,
+    ) -> Result<Rc<AnalysisNavigationArtifact>, String> {
+        if context.dirty_documents.is_clean() {
+            self.record_analysis_tier(AnalysisTier::CleanSemantic);
+            return Ok(self.analyze_navigation_artifact_for_context(context));
+        }
+
+        if !context.resolved.input_file.is_file() {
+            self.record_analysis_tier(AnalysisTier::DirtySemantic);
+            return Ok(self.analyze_navigation_artifact_for_context(context));
+        }
+
+        self.record_analysis_tier(AnalysisTier::CleanSemantic);
+        Ok(self.analyze_clean_navigation_artifact_for_context(context))
     }
 
     fn analyze_artifact_for_context(
@@ -666,25 +715,30 @@ impl AnalysisEngine {
         target_uri: &str,
     ) -> Result<Rc<AnalysisSurfaceArtifact>, String> {
         let context = self.resolve_analysis_context(target_uri)?;
+        self.analyze_surface_artifact_for_context(&context)
+            .ok_or_else(|| "surface analysis failed".to_string())
+    }
+
+    fn analyze_surface_artifact_for_context(
+        &self,
+        context: &AnalysisRequestContext,
+    ) -> Option<Rc<AnalysisSurfaceArtifact>> {
         if let Some(surface) = self.surface_cache.borrow().get(&context.cache_key) {
-            return Ok(Rc::clone(surface));
+            return Some(Rc::clone(surface));
         }
 
-        let Some(surface) = context
+        let surface = context
             .driver
             .analyze_surface(
                 &context.resolved.input_file.to_string_lossy(),
                 &context.dirty_documents.overrides,
             )
-            .map(Rc::new)
-        else {
-            return Err("surface analysis failed".to_string());
-        };
+            .map(Rc::new)?;
         self.prune_cache_family_for_insert(&context.cache_key);
         self.surface_cache
             .borrow_mut()
             .insert(context.cache_key.clone(), Rc::clone(&surface));
-        Ok(surface)
+        Some(surface)
     }
 
     fn analyze_clean_artifact_for_context(
@@ -773,9 +827,47 @@ impl AnalysisEngine {
     }
 
     fn resolve_analysis_context(&self, target_uri: &str) -> Result<AnalysisRequestContext, String> {
-        let resolved = self.resolve_analysis(target_uri)?;
-        let dirty_documents = self
-            .dirty_documents_snapshot()
+        let target_doc = self
+            .documents
+            .get(target_uri)
+            .ok_or_else(|| "document is not open".to_string())?;
+        self.resolve_analysis_context_for_document(target_doc)
+    }
+
+    fn resolve_analysis_context_for_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        target_uri: &str,
+    ) -> Result<AnalysisRequestContext, String> {
+        let target_doc = snapshot
+            .document(target_uri)
+            .ok_or_else(|| "document is not open".to_string())?;
+        let resolved = self.resolve_analysis_for_snapshot_document(snapshot, target_doc)?;
+        self.analysis_context_for_resolved_and_dirty(resolved, snapshot.dirty_documents())
+    }
+
+    fn resolve_analysis_context_for_document(
+        &self,
+        target_doc: &OpenDocument,
+    ) -> Result<AnalysisRequestContext, String> {
+        let resolved = self.resolve_analysis_for_document(target_doc)?;
+        self.analysis_context_for_resolved(resolved)
+    }
+
+    fn analysis_context_for_resolved(
+        &self,
+        resolved: ResolvedAnalysis,
+    ) -> Result<AnalysisRequestContext, String> {
+        let dirty_documents = self.dirty_documents_snapshot();
+        self.analysis_context_for_resolved_and_dirty(resolved, dirty_documents.as_ref())
+    }
+
+    fn analysis_context_for_resolved_and_dirty(
+        &self,
+        resolved: ResolvedAnalysis,
+        dirty_snapshot: &DirtyDocumentsSnapshot,
+    ) -> Result<AnalysisRequestContext, String> {
+        let dirty_documents = dirty_snapshot
             .filter_for_resolved(&resolved)
             .remap_for(&resolved.source_path_aliases);
         let cache_key = AnalysisCacheKey::from_resolved_dirty_snapshot(&resolved, &dirty_documents);
@@ -805,7 +897,13 @@ impl AnalysisEngine {
         let Some(target_doc) = self.documents.get(target_uri) else {
             return Err("document is not open".to_string());
         };
+        self.resolve_analysis_for_document(target_doc)
+    }
 
+    fn resolve_analysis_for_document(
+        &self,
+        target_doc: &OpenDocument,
+    ) -> Result<ResolvedAnalysis, String> {
         if let Some(project) = self.project_for_path(&target_doc.path)? {
             let mut resolved =
                 project.resolve_for_file(&target_doc.path, &self.settings.compile_options);
@@ -818,6 +916,30 @@ impl AnalysisEngine {
         inject_driver_condition_defines(&mut compile_options);
         Ok(ResolvedAnalysis {
             input_file: self.infer_standalone_analysis_root(&target_doc.path),
+            compile_options,
+            source_path_aliases: BTreeMap::new(),
+            target_roots: Vec::new(),
+        })
+    }
+
+    fn resolve_analysis_for_snapshot_document(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        target_doc: &OpenDocument,
+    ) -> Result<ResolvedAnalysis, String> {
+        if let Some(project) = self.project_for_path(&target_doc.path)? {
+            let mut resolved =
+                project.resolve_for_file(&target_doc.path, &self.settings.compile_options);
+            inject_driver_condition_defines(&mut resolved.compile_options);
+            return Ok(resolved);
+        }
+
+        let mut compile_options = self.settings.compile_options.clone();
+        apply_configured_library_aliases(&mut compile_options);
+        inject_driver_condition_defines(&mut compile_options);
+        Ok(ResolvedAnalysis {
+            input_file: self
+                .infer_standalone_analysis_root_for_snapshot(snapshot, &target_doc.path),
             compile_options,
             source_path_aliases: BTreeMap::new(),
             target_roots: Vec::new(),
@@ -859,12 +981,32 @@ impl AnalysisEngine {
     }
 
     fn infer_standalone_analysis_root(&self, path: &Path) -> PathBuf {
+        self.infer_standalone_analysis_root_with(path, |candidate| {
+            self.analysis_path_exists(candidate)
+        })
+    }
+
+    fn infer_standalone_analysis_root_for_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        path: &Path,
+    ) -> PathBuf {
+        self.infer_standalone_analysis_root_with(path, |candidate| {
+            snapshot.analysis_path_exists(candidate)
+        })
+    }
+
+    fn infer_standalone_analysis_root_with(
+        &self,
+        path: &Path,
+        mut path_exists: impl FnMut(&Path) -> bool,
+    ) -> PathBuf {
         let normalized = normalize_path(path);
         let start = normalized.parent().unwrap_or_else(|| Path::new("."));
 
         for ancestor in start.ancestors() {
             let candidate = ancestor.join("mod.kn");
-            if self.analysis_path_exists(&candidate) {
+            if path_exists(&candidate) {
                 return normalize_path(&candidate);
             }
         }

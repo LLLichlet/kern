@@ -1,7 +1,7 @@
 use super::super::scheduler::{
     drain_scheduler, execute_document_diagnostics, execute_document_request,
-    flush_diagnostics_lane, publish_analysis_outcome, submit_document_request_result,
-    write_success_response,
+    execute_optional_document_request, flush_diagnostics_lane, publish_analysis_outcome,
+    submit_document_request_result, write_success_response,
 };
 use super::super::state::{
     DocumentRequestResponse, DocumentRequestTaskResult, SchedulerDrainDecision,
@@ -464,6 +464,30 @@ fn panicking_document_request_returns_error_response() {
             .unwrap()
             .contains("synthetic analysis panic")
     );
+}
+
+#[test]
+fn optional_document_request_none_returns_null_response() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_optional_null_request", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    execute_optional_document_request::<Value, _>(
+        &mut state,
+        &mut writer,
+        json!(49),
+        &uri,
+        SchedulerLane::Interactive,
+        "textDocument/hover",
+        |_, _| Ok(None),
+    )
+    .unwrap();
+
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["id"], json!(49));
+    assert!(messages[0]["result"].is_null());
 }
 
 #[test]

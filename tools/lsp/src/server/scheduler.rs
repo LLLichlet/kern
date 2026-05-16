@@ -236,13 +236,42 @@ where
         return Ok(());
     }
 
+    let result = run_document_request_task(
+        state,
+        request,
+        target_uri,
+        lane,
+        method,
+        |engine, snapshot| {
+            analysis(engine, snapshot)
+                .and_then(|result| {
+                    serde_json::to_value(result)
+                        .map_err(|err| format!("failed to encode response: {err}"))
+                })
+                .map(DocumentRequestResponse::Success)
+        },
+    );
+    submit_document_request_result(state, writer, result)
+}
+
+fn run_document_request_task<F>(
+    state: &mut ServerState,
+    request: RequestContext,
+    target_uri: &str,
+    lane: SchedulerLane,
+    method: &str,
+    task: F,
+) -> DocumentRequestTaskResult
+where
+    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<DocumentRequestResponse, String>,
+{
     state.analysis.clear_last_analysis_tier();
     let snapshot = state.analysis.snapshot();
     let started_at = Instant::now();
-    let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis, &snapshot)));
+    let result = catch_unwind(AssertUnwindSafe(|| task(&state.analysis, &snapshot)));
     let elapsed_ms = started_at.elapsed().as_millis();
     let response = match result {
-        Ok(Ok(result)) => DocumentRequestResponse::Success(serde_json::to_value(result)?),
+        Ok(Ok(response)) => response,
         Ok(Err(message)) => DocumentRequestResponse::Error {
             code: INVALID_REQUEST,
             message,
@@ -255,18 +284,14 @@ where
             ),
         },
     };
-    submit_document_request_result(
-        state,
-        writer,
-        DocumentRequestTaskResult {
-            request,
-            target_uri: target_uri.to_string(),
-            lane,
-            method: method.to_string(),
-            elapsed_ms,
-            response,
-        },
-    )
+    DocumentRequestTaskResult {
+        request,
+        target_uri: target_uri.to_string(),
+        lane,
+        method: method.to_string(),
+        elapsed_ms,
+        response,
+    }
 }
 
 fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
@@ -297,38 +322,20 @@ where
         return Ok(());
     }
 
-    state.analysis.clear_last_analysis_tier();
-    let snapshot = state.analysis.snapshot();
-    let started_at = Instant::now();
-    let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis, &snapshot)));
-    let elapsed_ms = started_at.elapsed().as_millis();
-    let response = match result {
-        Ok(Ok(Some(result))) => DocumentRequestResponse::Success(serde_json::to_value(result)?),
-        Ok(Ok(None)) => DocumentRequestResponse::Null,
-        Ok(Err(message)) => DocumentRequestResponse::Error {
-            code: INVALID_REQUEST,
-            message,
-        },
-        Err(payload) => DocumentRequestResponse::Error {
-            code: INVALID_REQUEST,
-            message: format!(
-                "kern-lsp analysis panicked: {}",
-                panic_message(payload.as_ref())
-            ),
-        },
-    };
-    submit_document_request_result(
+    let result = run_document_request_task(
         state,
-        writer,
-        DocumentRequestTaskResult {
-            request,
-            target_uri: target_uri.to_string(),
-            lane,
-            method: method.to_string(),
-            elapsed_ms,
-            response,
+        request,
+        target_uri,
+        lane,
+        method,
+        |engine, snapshot| match analysis(engine, snapshot)? {
+            Some(result) => serde_json::to_value(result)
+                .map(DocumentRequestResponse::Success)
+                .map_err(|err| format!("failed to encode response: {err}")),
+            None => Ok(DocumentRequestResponse::Null),
         },
-    )
+    );
+    submit_document_request_result(state, writer, result)
 }
 
 pub(super) fn submit_document_request_result(

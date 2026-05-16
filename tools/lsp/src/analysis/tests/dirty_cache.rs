@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::Arc;
 
 #[test]
 fn analysis_cache_reuses_shared_module_root_between_requests() {
@@ -668,7 +669,7 @@ fn dirty_document_snapshot_reuses_cached_overrides_until_documents_change() {
 
     let clean_snapshot = analysis.dirty_documents_snapshot();
     let clean_snapshot_again = analysis.dirty_documents_snapshot();
-    assert!(std::rc::Rc::ptr_eq(&clean_snapshot, &clean_snapshot_again));
+    assert!(Arc::ptr_eq(&clean_snapshot, &clean_snapshot_again));
     assert!(clean_snapshot.is_clean());
 
     let _ = analysis.change_document(DidChangeTextDocumentParams {
@@ -684,8 +685,8 @@ fn dirty_document_snapshot_reuses_cached_overrides_until_documents_change() {
 
     let dirty_snapshot = analysis.dirty_documents_snapshot();
     let dirty_snapshot_again = analysis.dirty_documents_snapshot();
-    assert!(!std::rc::Rc::ptr_eq(&clean_snapshot, &dirty_snapshot));
-    assert!(std::rc::Rc::ptr_eq(&dirty_snapshot, &dirty_snapshot_again));
+    assert!(!Arc::ptr_eq(&clean_snapshot, &dirty_snapshot));
+    assert!(Arc::ptr_eq(&dirty_snapshot, &dirty_snapshot_again));
     assert_eq!(dirty_snapshot.len(), 1);
 }
 
@@ -755,8 +756,8 @@ fn opening_clean_sibling_document_keeps_cached_artifact() {
         .get(&cache_key)
         .cloned()
         .unwrap();
-    assert!(std::rc::Rc::ptr_eq(&cached_before, &cached_after));
-    assert!(std::rc::Rc::ptr_eq(&structure_before, &structure_after));
+    assert!(Arc::ptr_eq(&cached_before, &cached_after));
+    assert!(Arc::ptr_eq(&structure_before, &structure_after));
 }
 
 #[test]
@@ -833,8 +834,8 @@ fn reverting_dirty_document_reuses_clean_caches() {
         .cloned()
         .unwrap();
 
-    assert!(std::rc::Rc::ptr_eq(&clean_artifact, &reused_artifact));
-    assert!(std::rc::Rc::ptr_eq(&clean_structure, &reused_structure));
+    assert!(Arc::ptr_eq(&clean_artifact, &reused_artifact));
+    assert!(Arc::ptr_eq(&clean_structure, &reused_structure));
 }
 
 #[test]
@@ -894,7 +895,7 @@ fn body_only_dirty_diagnostics_reuse_clean_structure_cache() {
         .get(&clean_key)
         .cloned()
         .unwrap();
-    assert!(std::rc::Rc::ptr_eq(&clean_structure, &reused_structure));
+    assert!(Arc::ptr_eq(&clean_structure, &reused_structure));
 }
 
 #[test]

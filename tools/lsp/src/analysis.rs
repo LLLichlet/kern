@@ -66,7 +66,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct AnalysisSettings {
@@ -111,8 +111,8 @@ pub enum DocumentSyncAction {
 #[derive(Debug, Clone)]
 pub struct AnalysisSnapshot {
     documents: BTreeMap<String, OpenDocument>,
-    dirty_documents: Rc<DirtyDocumentsSnapshot>,
-    open_uri_by_path: Rc<BTreeMap<PathBuf, String>>,
+    dirty_documents: Arc<DirtyDocumentsSnapshot>,
+    open_uri_by_path: Arc<BTreeMap<PathBuf, String>>,
 }
 
 impl AnalysisSnapshot {
@@ -181,23 +181,23 @@ struct AnalysisRequestContext {
     resolved: ResolvedAnalysis,
     dirty_documents: DirtyDocumentsSnapshot,
     cache_key: AnalysisCacheKey,
-    driver: Rc<CompilerDriver>,
+    driver: Arc<CompilerDriver>,
 }
 
 pub struct AnalysisEngine {
     documents: BTreeMap<String, OpenDocument>,
     settings: AnalysisSettings,
     project_cache: RefCell<BTreeMap<PathBuf, Option<AnalysisProject>>>,
-    driver_cache: RefCell<BTreeMap<IncrementalDriverKey, Rc<CompilerDriver>>>,
-    parse_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<ParsedModuleArtifact>>>,
-    surface_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisSurfaceArtifact>>>,
-    structure_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<StructureArtifact>>>,
-    artifact_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisArtifact>>>,
-    navigation_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisNavigationArtifact>>>,
+    driver_cache: RefCell<BTreeMap<IncrementalDriverKey, Arc<CompilerDriver>>>,
+    parse_cache: RefCell<BTreeMap<AnalysisCacheKey, Arc<ParsedModuleArtifact>>>,
+    surface_cache: RefCell<BTreeMap<AnalysisCacheKey, Arc<AnalysisSurfaceArtifact>>>,
+    structure_cache: RefCell<BTreeMap<AnalysisCacheKey, Arc<StructureArtifact>>>,
+    artifact_cache: RefCell<BTreeMap<AnalysisCacheKey, Arc<AnalysisArtifact>>>,
+    navigation_cache: RefCell<BTreeMap<AnalysisCacheKey, Arc<AnalysisNavigationArtifact>>>,
     semantic_tokens_cache: RefCell<BTreeMap<SemanticTokensCacheKey, IdeSemanticTokens>>,
-    lexical_cache: RefCell<BTreeMap<LexicalCacheKey, Rc<LexicalIndex>>>,
-    dirty_documents_snapshot: RefCell<Option<Rc<DirtyDocumentsSnapshot>>>,
-    open_uri_by_path: RefCell<Option<Rc<BTreeMap<PathBuf, String>>>>,
+    lexical_cache: RefCell<BTreeMap<LexicalCacheKey, Arc<LexicalIndex>>>,
+    dirty_documents_snapshot: RefCell<Option<Arc<DirtyDocumentsSnapshot>>>,
+    open_uri_by_path: RefCell<Option<Arc<BTreeMap<PathBuf, String>>>>,
     last_analysis_tier: RefCell<Option<AnalysisTier>>,
 }
 
@@ -490,9 +490,9 @@ impl AnalysisEngine {
         *self.last_analysis_tier.borrow()
     }
 
-    fn dirty_documents_snapshot(&self) -> Rc<DirtyDocumentsSnapshot> {
+    fn dirty_documents_snapshot(&self) -> Arc<DirtyDocumentsSnapshot> {
         if let Some(snapshot) = self.dirty_documents_snapshot.borrow().as_ref() {
-            return Rc::clone(snapshot);
+            return Arc::clone(snapshot);
         }
 
         let mut overrides = SourceOverrides::default();
@@ -507,22 +507,22 @@ impl AnalysisEngine {
             .collect::<Vec<_>>();
         hashed_overrides.sort();
 
-        let snapshot = Rc::new(DirtyDocumentsSnapshot {
+        let snapshot = Arc::new(DirtyDocumentsSnapshot {
             overrides,
             hashed_overrides,
         });
         self.dirty_documents_snapshot
             .borrow_mut()
-            .replace(Rc::clone(&snapshot));
+            .replace(Arc::clone(&snapshot));
         snapshot
     }
 
-    fn open_uri_by_normalized_path(&self) -> Rc<BTreeMap<PathBuf, String>> {
+    fn open_uri_by_normalized_path(&self) -> Arc<BTreeMap<PathBuf, String>> {
         if let Some(uri_by_path) = self.open_uri_by_path.borrow().as_ref() {
-            return Rc::clone(uri_by_path);
+            return Arc::clone(uri_by_path);
         }
 
-        let uri_by_path = Rc::new(
+        let uri_by_path = Arc::new(
             self.documents
                 .iter()
                 .map(|(uri, doc)| (normalize_path(&doc.path), uri.clone()))
@@ -530,7 +530,7 @@ impl AnalysisEngine {
         );
         self.open_uri_by_path
             .borrow_mut()
-            .replace(Rc::clone(&uri_by_path));
+            .replace(Arc::clone(&uri_by_path));
         uri_by_path
     }
 
@@ -545,7 +545,7 @@ impl AnalysisEngine {
 
         let structure =
             if let Some(structure) = self.structure_cache.borrow().get(&context.cache_key) {
-                Some(Rc::clone(structure))
+                Some(Arc::clone(structure))
             } else {
                 context
                     .driver
@@ -553,13 +553,13 @@ impl AnalysisEngine {
                         &context.resolved.input_file.to_string_lossy(),
                         &context.dirty_documents.overrides,
                     )
-                    .map(Rc::new)
+                    .map(Arc::new)
             };
         self.prune_cache_family_for_insert(&context.cache_key);
         if let Some(structure) = &structure {
             self.structure_cache
                 .borrow_mut()
-                .insert(context.cache_key.clone(), Rc::clone(structure));
+                .insert(context.cache_key.clone(), Arc::clone(structure));
         }
 
         Ok(if let Some(structure) = structure {
@@ -576,7 +576,7 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         target_uri: &str,
-    ) -> Result<Rc<AnalysisArtifact>, String> {
+    ) -> Result<Arc<AnalysisArtifact>, String> {
         let context = self.resolve_analysis_context_for_snapshot(snapshot, target_uri)?;
         self.analyze_interactive_artifact_for_context(&context)
     }
@@ -584,7 +584,7 @@ impl AnalysisEngine {
     fn analyze_interactive_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Result<Rc<AnalysisArtifact>, String> {
+    ) -> Result<Arc<AnalysisArtifact>, String> {
         if context.dirty_documents.is_clean() {
             self.record_analysis_tier(AnalysisTier::CleanSemantic);
             return Ok(self.analyze_artifact_for_context(context));
@@ -603,7 +603,7 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         target_uri: &str,
-    ) -> Result<Rc<AnalysisNavigationArtifact>, String> {
+    ) -> Result<Arc<AnalysisNavigationArtifact>, String> {
         let context = self.resolve_analysis_context_for_snapshot(snapshot, target_uri)?;
         self.analyze_interactive_navigation_artifact_for_context(&context)
     }
@@ -611,7 +611,7 @@ impl AnalysisEngine {
     fn analyze_interactive_navigation_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Result<Rc<AnalysisNavigationArtifact>, String> {
+    ) -> Result<Arc<AnalysisNavigationArtifact>, String> {
         if context.dirty_documents.is_clean() {
             self.record_analysis_tier(AnalysisTier::CleanSemantic);
             return Ok(self.analyze_navigation_artifact_for_context(context));
@@ -629,14 +629,14 @@ impl AnalysisEngine {
     fn analyze_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Rc<AnalysisArtifact> {
+    ) -> Arc<AnalysisArtifact> {
         if let Some(artifact) = self.artifact_cache.borrow().get(&context.cache_key) {
-            return Rc::clone(artifact);
+            return Arc::clone(artifact);
         }
 
         let structure =
             if let Some(structure) = self.structure_cache.borrow().get(&context.cache_key) {
-                Some(Rc::clone(structure))
+                Some(Arc::clone(structure))
             } else {
                 context
                     .driver
@@ -644,16 +644,16 @@ impl AnalysisEngine {
                         &context.resolved.input_file.to_string_lossy(),
                         &context.dirty_documents.overrides,
                     )
-                    .map(Rc::new)
+                    .map(Arc::new)
             };
         self.prune_cache_family_for_insert(&context.cache_key);
         if let Some(structure) = &structure {
             self.structure_cache
                 .borrow_mut()
-                .insert(context.cache_key.clone(), Rc::clone(structure));
+                .insert(context.cache_key.clone(), Arc::clone(structure));
         }
 
-        let artifact = Rc::new(if let Some(structure) = structure {
+        let artifact = Arc::new(if let Some(structure) = structure {
             context.driver.analyze_artifact_from_structure(&structure)
         } else {
             context.driver.analyze_artifact(
@@ -663,21 +663,21 @@ impl AnalysisEngine {
         });
         self.artifact_cache
             .borrow_mut()
-            .insert(context.cache_key.clone(), Rc::clone(&artifact));
+            .insert(context.cache_key.clone(), Arc::clone(&artifact));
         artifact
     }
 
     fn analyze_navigation_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Rc<AnalysisNavigationArtifact> {
+    ) -> Arc<AnalysisNavigationArtifact> {
         if let Some(artifact) = self.navigation_cache.borrow().get(&context.cache_key) {
-            return Rc::clone(artifact);
+            return Arc::clone(artifact);
         }
 
         let structure =
             if let Some(structure) = self.structure_cache.borrow().get(&context.cache_key) {
-                Some(Rc::clone(structure))
+                Some(Arc::clone(structure))
             } else {
                 context
                     .driver
@@ -685,16 +685,16 @@ impl AnalysisEngine {
                         &context.resolved.input_file.to_string_lossy(),
                         &context.dirty_documents.overrides,
                     )
-                    .map(Rc::new)
+                    .map(Arc::new)
             };
         self.prune_cache_family_for_insert(&context.cache_key);
         if let Some(structure) = &structure {
             self.structure_cache
                 .borrow_mut()
-                .insert(context.cache_key.clone(), Rc::clone(structure));
+                .insert(context.cache_key.clone(), Arc::clone(structure));
         }
 
-        let artifact = Rc::new(if let Some(structure) = structure {
+        let artifact = Arc::new(if let Some(structure) = structure {
             context
                 .driver
                 .analyze_navigation_artifact_from_structure(&structure)
@@ -706,14 +706,14 @@ impl AnalysisEngine {
         });
         self.navigation_cache
             .borrow_mut()
-            .insert(context.cache_key.clone(), Rc::clone(&artifact));
+            .insert(context.cache_key.clone(), Arc::clone(&artifact));
         artifact
     }
 
     fn analyze_surface_artifact(
         &self,
         target_uri: &str,
-    ) -> Result<Rc<AnalysisSurfaceArtifact>, String> {
+    ) -> Result<Arc<AnalysisSurfaceArtifact>, String> {
         let context = self.resolve_analysis_context(target_uri)?;
         self.analyze_surface_artifact_for_context(&context)
             .ok_or_else(|| "surface analysis failed".to_string())
@@ -722,9 +722,9 @@ impl AnalysisEngine {
     fn analyze_surface_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Option<Rc<AnalysisSurfaceArtifact>> {
+    ) -> Option<Arc<AnalysisSurfaceArtifact>> {
         if let Some(surface) = self.surface_cache.borrow().get(&context.cache_key) {
-            return Some(Rc::clone(surface));
+            return Some(Arc::clone(surface));
         }
 
         let surface = context
@@ -733,59 +733,59 @@ impl AnalysisEngine {
                 &context.resolved.input_file.to_string_lossy(),
                 &context.dirty_documents.overrides,
             )
-            .map(Rc::new)?;
+            .map(Arc::new)?;
         self.prune_cache_family_for_insert(&context.cache_key);
         self.surface_cache
             .borrow_mut()
-            .insert(context.cache_key.clone(), Rc::clone(&surface));
+            .insert(context.cache_key.clone(), Arc::clone(&surface));
         Some(surface)
     }
 
     fn analyze_clean_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Rc<AnalysisArtifact> {
+    ) -> Arc<AnalysisArtifact> {
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
         if let Some(artifact) = self.artifact_cache.borrow().get(&clean_key) {
-            return Rc::clone(artifact);
+            return Arc::clone(artifact);
         }
 
-        let artifact = Rc::new(context.driver.analyze_artifact(
+        let artifact = Arc::new(context.driver.analyze_artifact(
             &context.resolved.input_file.to_string_lossy(),
             &SourceOverrides::new(),
         ));
         self.artifact_cache
             .borrow_mut()
-            .insert(clean_key, Rc::clone(&artifact));
+            .insert(clean_key, Arc::clone(&artifact));
         artifact
     }
 
     fn analyze_clean_navigation_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Rc<AnalysisNavigationArtifact> {
+    ) -> Arc<AnalysisNavigationArtifact> {
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
         if let Some(artifact) = self.navigation_cache.borrow().get(&clean_key) {
-            return Rc::clone(artifact);
+            return Arc::clone(artifact);
         }
 
-        let artifact = Rc::new(context.driver.analyze_navigation_artifact(
+        let artifact = Arc::new(context.driver.analyze_navigation_artifact(
             &context.resolved.input_file.to_string_lossy(),
             &SourceOverrides::new(),
         ));
         self.navigation_cache
             .borrow_mut()
-            .insert(clean_key, Rc::clone(&artifact));
+            .insert(clean_key, Arc::clone(&artifact));
         artifact
     }
 
     fn analyze_clean_surface_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Option<Rc<AnalysisSurfaceArtifact>> {
+    ) -> Option<Arc<AnalysisSurfaceArtifact>> {
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
         if let Some(surface) = self.surface_cache.borrow().get(&clean_key) {
-            return Some(Rc::clone(surface));
+            return Some(Arc::clone(surface));
         }
 
         let surface = context
@@ -794,19 +794,19 @@ impl AnalysisEngine {
                 &context.resolved.input_file.to_string_lossy(),
                 &SourceOverrides::new(),
             )
-            .map(Rc::new)?;
+            .map(Arc::new)?;
         self.surface_cache
             .borrow_mut()
-            .insert(clean_key, Rc::clone(&surface));
+            .insert(clean_key, Arc::clone(&surface));
         Some(surface)
     }
 
     fn parse_modules_for_context(
         &self,
         context: &AnalysisRequestContext,
-    ) -> Result<Rc<ParsedModuleArtifact>, String> {
+    ) -> Result<Arc<ParsedModuleArtifact>, String> {
         if let Some(parsed) = self.parse_cache.borrow().get(&context.cache_key) {
-            return Ok(Rc::clone(parsed));
+            return Ok(Arc::clone(parsed));
         }
 
         let Some(parsed) = context
@@ -815,14 +815,14 @@ impl AnalysisEngine {
                 &context.resolved.input_file.to_string_lossy(),
                 &context.dirty_documents.overrides,
             )
-            .map(Rc::new)
+            .map(Arc::new)
         else {
             return Err("parse analysis failed".to_string());
         };
         self.prune_cache_family_for_insert(&context.cache_key);
         self.parse_cache
             .borrow_mut()
-            .insert(context.cache_key.clone(), Rc::clone(&parsed));
+            .insert(context.cache_key.clone(), Arc::clone(&parsed));
         Ok(parsed)
     }
 
@@ -880,16 +880,16 @@ impl AnalysisEngine {
         })
     }
 
-    fn driver_for_resolved(&self, resolved: &ResolvedAnalysis) -> Rc<CompilerDriver> {
+    fn driver_for_resolved(&self, resolved: &ResolvedAnalysis) -> Arc<CompilerDriver> {
         let family = IncrementalDriverKey::from_options(&resolved.compile_options);
         if let Some(driver) = self.driver_cache.borrow().get(&family) {
-            return Rc::clone(driver);
+            return Arc::clone(driver);
         }
 
-        let driver = Rc::new(CompilerDriver::new(resolved.compile_options.clone()));
+        let driver = Arc::new(CompilerDriver::new(resolved.compile_options.clone()));
         self.driver_cache
             .borrow_mut()
-            .insert(family, Rc::clone(&driver));
+            .insert(family, Arc::clone(&driver));
         driver
     }
 
@@ -1072,20 +1072,20 @@ impl AnalysisEngine {
         self.lexical_cache.borrow_mut().clear();
     }
 
-    fn lexical_index_for_document(&self, uri: &str, document: &OpenDocument) -> Rc<LexicalIndex> {
+    fn lexical_index_for_document(&self, uri: &str, document: &OpenDocument) -> Arc<LexicalIndex> {
         let key = LexicalCacheKey {
             uri: uri.to_string(),
             document_version: document.version,
             text_hash: document.text_hash,
         };
         if let Some(index) = self.lexical_cache.borrow().get(&key) {
-            return Rc::clone(index);
+            return Arc::clone(index);
         }
 
-        let index = Rc::new(LexicalIndex::new(&document.text));
+        let index = Arc::new(LexicalIndex::new(&document.text));
         self.lexical_cache
             .borrow_mut()
-            .insert(key, Rc::clone(&index));
+            .insert(key, Arc::clone(&index));
         index
     }
 

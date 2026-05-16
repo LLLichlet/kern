@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::Arc;
 
 #[test]
 fn full_sync_replaces_document_text() {
@@ -156,7 +157,7 @@ fn open_path_index_reuses_on_text_changes_and_invalidates_on_open_close() {
     });
 
     let changed_index = analysis.open_uri_by_normalized_path();
-    assert!(std::rc::Rc::ptr_eq(&initial_index, &changed_index));
+    assert!(Arc::ptr_eq(&initial_index, &changed_index));
 
     let sibling_uri = temp_file_uri("open_path_index_sibling", "fn sibling() void {}\n");
     let sibling_path = uri_to_file_path(&sibling_uri).unwrap();
@@ -170,7 +171,7 @@ fn open_path_index_reuses_on_text_changes_and_invalidates_on_open_close() {
     });
 
     let sibling_index = analysis.open_uri_by_normalized_path();
-    assert!(!std::rc::Rc::ptr_eq(&changed_index, &sibling_index));
+    assert!(!Arc::ptr_eq(&changed_index, &sibling_index));
     assert_eq!(
         sibling_index.get(&normalize_path(&sibling_path)),
         Some(&sibling_uri)
@@ -181,7 +182,7 @@ fn open_path_index_reuses_on_text_changes_and_invalidates_on_open_close() {
     });
 
     let closed_index = analysis.open_uri_by_normalized_path();
-    assert!(!std::rc::Rc::ptr_eq(&sibling_index, &closed_index));
+    assert!(!Arc::ptr_eq(&sibling_index, &closed_index));
     assert!(!closed_index.contains_key(&normalize_path(&path)));
     assert_eq!(
         closed_index.get(&normalize_path(&sibling_path)),

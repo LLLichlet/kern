@@ -27,12 +27,13 @@ impl AnalysisEngine {
         Ok(Some(offset))
     }
 
+    #[cfg(test)]
     pub fn document_symbols(&self, uri: &str) -> Result<Vec<IdeDocumentSymbol>, String> {
         let snapshot = self.snapshot();
         self.document_symbols_in_snapshot(&snapshot, uri)
     }
 
-    fn document_symbols_in_snapshot(
+    pub fn document_symbols_in_snapshot(
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
@@ -77,20 +78,30 @@ impl AnalysisEngine {
         Ok(symbols)
     }
 
+    #[cfg(test)]
     pub fn goto_definition(
         &self,
         uri: &str,
         position: Position,
     ) -> Result<Option<IdeLocation>, String> {
         let snapshot = self.snapshot();
+        self.goto_definition_in_snapshot(&snapshot, uri, position)
+    }
+
+    pub fn goto_definition_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        position: Position,
+    ) -> Result<Option<IdeLocation>, String> {
         if self
-            .semantic_query_offset(&snapshot, uri, &position)?
+            .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
         {
             return Ok(None);
         }
         let artifact = self
-            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, uri)
             .map_err(|message| format!("definition analysis failed: {message}"))?;
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested definition for a document that is not open".to_string());
@@ -107,6 +118,7 @@ impl AnalysisEngine {
         ))
     }
 
+    #[cfg(test)]
     pub fn references(
         &self,
         uri: &str,
@@ -114,14 +126,24 @@ impl AnalysisEngine {
         include_declaration: bool,
     ) -> Result<Vec<IdeLocation>, String> {
         let snapshot = self.snapshot();
+        self.references_in_snapshot(&snapshot, uri, position, include_declaration)
+    }
+
+    pub fn references_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        position: Position,
+        include_declaration: bool,
+    ) -> Result<Vec<IdeLocation>, String> {
         if self
-            .semantic_query_offset(&snapshot, uri, &position)?
+            .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
         {
             return Ok(Vec::new());
         }
         let artifact = self
-            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, uri)
             .map_err(|message| format!("references analysis failed: {message}"))?;
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested references for a document that is not open".to_string());
@@ -140,20 +162,30 @@ impl AnalysisEngine {
         }))
     }
 
+    #[cfg(test)]
     pub fn document_highlights(
         &self,
         uri: &str,
         position: Position,
     ) -> Result<Vec<IdeDocumentHighlight>, String> {
         let snapshot = self.snapshot();
+        self.document_highlights_in_snapshot(&snapshot, uri, position)
+    }
+
+    pub fn document_highlights_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        position: Position,
+    ) -> Result<Vec<IdeDocumentHighlight>, String> {
         if self
-            .semantic_query_offset(&snapshot, uri, &position)?
+            .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
         {
             return Ok(Vec::new());
         }
         let artifact = self
-            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, uri)
             .map_err(|message| format!("document highlights analysis failed: {message}"))?;
         let Some(target_doc) = snapshot.document(uri) else {
             return Err(
@@ -172,16 +204,26 @@ impl AnalysisEngine {
         ))
     }
 
+    #[cfg(test)]
     pub fn hover(&self, uri: &str, position: Position) -> Result<Option<IdeHover>, String> {
         let snapshot = self.snapshot();
+        self.hover_in_snapshot(&snapshot, uri, position)
+    }
+
+    pub fn hover_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        position: Position,
+    ) -> Result<Option<IdeHover>, String> {
         if self
-            .semantic_query_offset(&snapshot, uri, &position)?
+            .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
         {
             return Ok(None);
         }
         let artifact = self
-            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, uri)
             .map_err(|message| format!("hover analysis failed: {message}"))?;
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested hover for a document that is not open".to_string());
@@ -197,17 +239,27 @@ impl AnalysisEngine {
         ))
     }
 
+    #[cfg(test)]
     pub fn signature_help(
         &self,
         uri: &str,
         position: Position,
     ) -> Result<Option<IdeSignatureHelp>, String> {
         let snapshot = self.snapshot();
-        let Some(offset) = self.semantic_query_offset(&snapshot, uri, &position)? else {
+        self.signature_help_in_snapshot(&snapshot, uri, position)
+    }
+
+    pub fn signature_help_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        position: Position,
+    ) -> Result<Option<IdeSignatureHelp>, String> {
+        let Some(offset) = self.semantic_query_offset(snapshot, uri, &position)? else {
             return Ok(None);
         };
         let artifact = self
-            .analyze_interactive_artifact_for_snapshot(&snapshot, uri)
+            .analyze_interactive_artifact_for_snapshot(snapshot, uri)
             .map_err(|message| format!("signature help analysis failed: {message}"))?;
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested signature help for a document that is not open".to_string());
@@ -219,12 +271,22 @@ impl AnalysisEngine {
             .map(analysis_signature_help_to_ide_help))
     }
 
+    #[cfg(test)]
     pub fn completion(
         &self,
         uri: &str,
         position: Position,
     ) -> Result<Vec<IdeCompletionItem>, String> {
         let snapshot = self.snapshot();
+        self.completion_in_snapshot(&snapshot, uri, position)
+    }
+
+    pub fn completion_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        position: Position,
+    ) -> Result<Vec<IdeCompletionItem>, String> {
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested completion for a document that is not open".to_string());
         };
@@ -259,7 +321,7 @@ impl AnalysisEngine {
             return Ok(labels.into_iter().map(keyword_completion_item).collect());
         }
 
-        let analysis_context = self.resolve_analysis_context_for_snapshot(&snapshot, uri)?;
+        let analysis_context = self.resolve_analysis_context_for_snapshot(snapshot, uri)?;
         let is_dirty = !analysis_context.dirty_documents.is_clean();
         let surface = if is_dirty {
             self.analyze_clean_surface_for_context(&analysis_context)
@@ -322,20 +384,30 @@ impl AnalysisEngine {
         Ok(completions)
     }
 
+    #[cfg(test)]
     pub fn prepare_rename(
         &self,
         uri: &str,
         position: Position,
     ) -> Result<Option<IdePrepareRenameResult>, String> {
         let snapshot = self.snapshot();
+        self.prepare_rename_in_snapshot(&snapshot, uri, position)
+    }
+
+    pub fn prepare_rename_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        position: Position,
+    ) -> Result<Option<IdePrepareRenameResult>, String> {
         if self
-            .semantic_query_offset(&snapshot, uri, &position)?
+            .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
         {
             return Ok(None);
         }
         let artifact = self
-            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, uri)
             .map_err(|message| format!("prepareRename analysis failed: {message}"))?;
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested prepareRename for a document that is not open".to_string());
@@ -357,8 +429,20 @@ impl AnalysisEngine {
         }))
     }
 
+    #[cfg(test)]
     pub fn rename(
         &self,
+        uri: &str,
+        position: Position,
+        new_name: &str,
+    ) -> Result<IdeWorkspaceEdit, String> {
+        let snapshot = self.snapshot();
+        self.rename_in_snapshot(&snapshot, uri, position, new_name)
+    }
+
+    pub fn rename_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
         uri: &str,
         position: Position,
         new_name: &str,
@@ -366,16 +450,15 @@ impl AnalysisEngine {
         if !is_valid_identifier(new_name) {
             return Err(format!("`{}` is not a valid Kern identifier", new_name));
         }
-        let snapshot = self.snapshot();
         if self
-            .semantic_query_offset(&snapshot, uri, &position)?
+            .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
         {
             return Err("rename target is not a supported identifier".to_string());
         }
 
         let artifact = self
-            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, uri)
             .map_err(|message| format!("rename analysis failed: {message}"))?;
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested rename for a document that is not open".to_string());
@@ -403,8 +486,17 @@ impl AnalysisEngine {
         Ok(IdeWorkspaceEdit { changes })
     }
 
+    #[cfg(test)]
     pub fn semantic_tokens(&self, uri: &str) -> Result<IdeSemanticTokens, String> {
         let snapshot = self.snapshot();
+        self.semantic_tokens_in_snapshot(&snapshot, uri)
+    }
+
+    pub fn semantic_tokens_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+    ) -> Result<IdeSemanticTokens, String> {
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested semantic tokens for a document that is not open".to_string());
         };
@@ -412,7 +504,7 @@ impl AnalysisEngine {
             "requested semantic tokens for a document that is not open".to_string()
         })?;
 
-        let context = self.resolve_analysis_context_for_snapshot(&snapshot, uri)?;
+        let context = self.resolve_analysis_context_for_snapshot(snapshot, uri)?;
         let target_path = normalize_path(&target_doc.path);
         let token_key = SemanticTokensCacheKey {
             analysis: context.cache_key.clone(),
@@ -447,14 +539,24 @@ impl AnalysisEngine {
         Ok(tokens)
     }
 
+    #[cfg(test)]
     pub fn inlay_hints(&self, uri: &str, range: Range) -> Result<Vec<IdeInlayHint>, String> {
         let snapshot = self.snapshot();
+        self.inlay_hints_in_snapshot(&snapshot, uri, range)
+    }
+
+    pub fn inlay_hints_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        range: Range,
+    ) -> Result<Vec<IdeInlayHint>, String> {
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested inlay hints for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
         let artifact = self
-            .analyze_interactive_navigation_artifact_for_snapshot(&snapshot, uri)
+            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, uri)
             .map_err(|message| format!("inlay hint analysis failed: {message}"))?;
 
         self.record_analysis_tier(AnalysisTier::CleanSemantic);
@@ -479,9 +581,19 @@ impl AnalysisEngine {
             .collect())
     }
 
+    #[cfg(test)]
     pub fn code_actions(&self, uri: &str, range: Range) -> Result<Vec<IdeCodeAction>, String> {
         let snapshot = self.snapshot();
-        let analysis_context = self.resolve_analysis_context_for_snapshot(&snapshot, uri)?;
+        self.code_actions_in_snapshot(&snapshot, uri, range)
+    }
+
+    pub fn code_actions_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        range: Range,
+    ) -> Result<Vec<IdeCodeAction>, String> {
+        let analysis_context = self.resolve_analysis_context_for_snapshot(snapshot, uri)?;
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested code actions for a document that is not open".to_string());
         };
@@ -493,7 +605,7 @@ impl AnalysisEngine {
         } else {
             self.record_analysis_tier(AnalysisTier::ParseOnly);
             (
-                self.parse_open_document_session_for_snapshot(&snapshot, uri)?,
+                self.parse_open_document_session_for_snapshot(snapshot, uri)?,
                 None,
             )
         };

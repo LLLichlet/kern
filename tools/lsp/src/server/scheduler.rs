@@ -3,7 +3,7 @@ use super::{
     AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, INVALID_REQUEST, RequestContext,
     SchedulerLane, ServerError, ServerState, lifecycle::emit_trace,
 };
-use crate::analysis::{AnalysisOutcome, DocumentSyncAction, cleared_uris};
+use crate::analysis::{AnalysisOutcome, AnalysisSnapshot, DocumentSyncAction, cleared_uris};
 use crate::protocol::{error_response, null_response, publish_diagnostics, success_response};
 use crate::transport::MessageWriter;
 use serde_json::Value;
@@ -228,7 +228,7 @@ pub(super) fn execute_document_request<T, F>(
 ) -> Result<(), ServerError>
 where
     T: serde::Serialize,
-    F: FnOnce(&AnalysisEngine) -> Result<T, String>,
+    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<T, String>,
 {
     let request = state.request_context_for_document(id, target_uri);
     if state.should_skip_request(&request) {
@@ -236,8 +236,9 @@ where
     }
 
     state.analysis.clear_last_analysis_tier();
+    let snapshot = state.analysis.snapshot();
     let started_at = Instant::now();
-    let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis)));
+    let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis, &snapshot)));
     let elapsed_ms = started_at.elapsed().as_millis();
     match result {
         Ok(Ok(result)) => {
@@ -279,7 +280,7 @@ pub(super) fn execute_optional_document_request<T, F>(
 ) -> Result<(), ServerError>
 where
     T: serde::Serialize,
-    F: FnOnce(&AnalysisEngine) -> Result<Option<T>, String>,
+    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<Option<T>, String>,
 {
     let request = state.request_context_for_document(id, target_uri);
     if state.should_skip_request(&request) {
@@ -287,8 +288,9 @@ where
     }
 
     state.analysis.clear_last_analysis_tier();
+    let snapshot = state.analysis.snapshot();
     let started_at = Instant::now();
-    let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis)));
+    let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis, &snapshot)));
     let elapsed_ms = started_at.elapsed().as_millis();
     match result {
         Ok(Ok(Some(result))) => {

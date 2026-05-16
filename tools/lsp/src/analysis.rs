@@ -109,7 +109,7 @@ pub enum DocumentSyncAction {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AnalysisSnapshot {
+pub struct AnalysisSnapshot {
     documents: BTreeMap<String, OpenDocument>,
     dirty_documents: Rc<DirtyDocumentsSnapshot>,
     open_uri_by_path: Rc<BTreeMap<PathBuf, String>>,

@@ -204,9 +204,9 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| {
+                |analysis, snapshot| {
                     analysis
-                        .document_symbols(&params.text_document.uri)
+                        .document_symbols_in_snapshot(snapshot, &params.text_document.uri)
                         .map(|symbols| {
                             symbols
                                 .into_iter()
@@ -230,9 +230,13 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| {
+                |analysis, snapshot| {
                     analysis
-                        .goto_definition(&params.text_document.uri, params.position)
+                        .goto_definition_in_snapshot(
+                            snapshot,
+                            &params.text_document.uri,
+                            params.position,
+                        )
                         .map(|location| location.map(crate::analysis::ide::IdeLocation::into_lsp))
                 },
             )?;
@@ -251,9 +255,13 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| {
+                |analysis, snapshot| {
                     analysis
-                        .document_highlights(&params.text_document.uri, params.position)
+                        .document_highlights_in_snapshot(
+                            snapshot,
+                            &params.text_document.uri,
+                            params.position,
+                        )
                         .map(|highlights| {
                             highlights
                                 .into_iter()
@@ -277,9 +285,10 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| {
+                |analysis, snapshot| {
                     analysis
-                        .references(
+                        .references_in_snapshot(
+                            snapshot,
                             &params.text_document.uri,
                             params.position,
                             params.context.include_declaration,
@@ -305,9 +314,9 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| {
+                |analysis, snapshot| {
                     analysis
-                        .hover(&params.text_document.uri, params.position)
+                        .hover_in_snapshot(snapshot, &params.text_document.uri, params.position)
                         .map(|hover| hover.map(crate::analysis::ide::IdeHover::into_lsp))
                 },
             )?;
@@ -326,9 +335,13 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| {
+                |analysis, snapshot| {
                     analysis
-                        .signature_help(&params.text_document.uri, params.position)
+                        .signature_help_in_snapshot(
+                            snapshot,
+                            &params.text_document.uri,
+                            params.position,
+                        )
                         .map(|help| help.map(crate::analysis::ide::IdeSignatureHelp::into_lsp))
                 },
             )?;
@@ -347,9 +360,13 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| {
+                |analysis, snapshot| {
                     analysis
-                        .completion(&params.text_document.uri, params.position)
+                        .completion_in_snapshot(
+                            snapshot,
+                            &params.text_document.uri,
+                            params.position,
+                        )
                         .map(|items| {
                             items
                                 .into_iter()
@@ -373,9 +390,9 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| {
+                |analysis, snapshot| {
                     analysis
-                        .semantic_tokens(&params.text_document.uri)
+                        .semantic_tokens_in_snapshot(snapshot, &params.text_document.uri)
                         .map(crate::analysis::ide::IdeSemanticTokens::into_lsp)
                 },
             )?;
@@ -394,9 +411,13 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| {
+                |analysis, snapshot| {
                     analysis
-                        .inlay_hints(&params.text_document.uri, params.range.clone())
+                        .inlay_hints_in_snapshot(
+                            snapshot,
+                            &params.text_document.uri,
+                            params.range.clone(),
+                        )
                         .map(|hints| {
                             hints
                                 .into_iter()
@@ -420,9 +441,13 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| {
+                |analysis, snapshot| {
                     analysis
-                        .prepare_rename(&params.text_document.uri, params.position)
+                        .prepare_rename_in_snapshot(
+                            snapshot,
+                            &params.text_document.uri,
+                            params.position,
+                        )
                         .map(|result| {
                             result.map(crate::analysis::ide::IdePrepareRenameResult::into_lsp)
                         })
@@ -441,9 +466,14 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| {
+                |analysis, snapshot| {
                     analysis
-                        .rename(&params.text_document.uri, params.position, &params.new_name)
+                        .rename_in_snapshot(
+                            snapshot,
+                            &params.text_document.uri,
+                            params.position,
+                            &params.new_name,
+                        )
                         .map(crate::analysis::ide::IdeWorkspaceEdit::into_lsp)
                 },
             )?;
@@ -463,7 +493,7 @@ pub(super) fn handle_message(
                     &params.text_document.uri,
                     SchedulerLane::Interactive,
                     method,
-                    |_| Ok::<Value, String>(Value::Array(Vec::new())),
+                    |_, _| Ok::<Value, String>(Value::Array(Vec::new())),
                 )?;
             } else {
                 execute_document_request(
@@ -473,9 +503,13 @@ pub(super) fn handle_message(
                     &params.text_document.uri,
                     SchedulerLane::Interactive,
                     method,
-                    |analysis| {
+                    |analysis, snapshot| {
                         analysis
-                            .code_actions(&params.text_document.uri, params.range.clone())
+                            .code_actions_in_snapshot(
+                                snapshot,
+                                &params.text_document.uri,
+                                params.range.clone(),
+                            )
                             .map(|actions| {
                                 actions
                                     .into_iter()

@@ -419,7 +419,7 @@ fn canceled_document_request_skips_analysis_work() {
         &uri,
         SchedulerLane::Interactive,
         "textDocument/hover",
-        |_| {
+        |_, _| {
             analyzed = true;
             Ok::<Value, String>(json!({ "ok": true }))
         },
@@ -447,7 +447,7 @@ fn panicking_document_request_returns_error_response() {
         &uri,
         SchedulerLane::Interactive,
         "textDocument/hover",
-        |_| panic!("synthetic analysis panic"),
+        |_, _| panic!("synthetic analysis panic"),
     )
     .unwrap();
     std::panic::set_hook(previous_hook);

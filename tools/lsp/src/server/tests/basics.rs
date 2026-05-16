@@ -71,7 +71,7 @@ fn initialize_result_advertises_precise_capabilities() {
     );
     assert_eq!(
         result["capabilities"]["codeActionProvider"]["resolveProvider"],
-        false
+        true
     );
     assert_eq!(
         result["capabilities"]["semanticTokensProvider"]["range"],
@@ -285,8 +285,11 @@ fn advertised_request_coverages(capabilities: &Value) -> Vec<CapabilityRequestCo
     if capabilities.get("codeActionProvider").is_some() {
         coverages.push(CapabilityRequestCoverage {
             capability: "codeActionProvider",
-            methods: &["textDocument/codeAction"],
-            test_markers: &["code_action_request_returns_quick_fix_edits"],
+            methods: &["textDocument/codeAction", "codeAction/resolve"],
+            test_markers: &[
+                "code_action_request_returns_quick_fix_edits",
+                "code_action_resolve_materializes_deferred_edit",
+            ],
         });
     }
     if capabilities.get("renameProvider").is_some() {

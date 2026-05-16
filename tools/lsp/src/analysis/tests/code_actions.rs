@@ -540,17 +540,12 @@ fn code_actions_offer_match_catch_all_fix() {
         .iter()
         .find(|action| action.title == "Add `_ => @unreachable()` arm")
         .unwrap();
-    let edit = action.edit.as_ref().unwrap();
-    let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
-
-    assert_eq!(
-        text_edit.range.start,
-        Position {
-            line: 3,
-            character: 4,
-        }
-    );
-    assert_eq!(text_edit.new_text, "        _ => @unreachable(),\n");
+    assert!(action.edit.is_none());
+    let data = action.resolve_data.as_ref().unwrap();
+    assert_eq!(data.uri, uri);
+    assert_eq!(data.version, 1);
+    assert_eq!(data.fix_id, "add-match-catch-all");
+    assert_eq!(data.diagnostic_code.as_deref(), Some("nonexhaustive-match"));
     assert_eq!(action.is_preferred, Some(false));
 }
 

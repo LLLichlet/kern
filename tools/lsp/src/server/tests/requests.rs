@@ -113,7 +113,125 @@ fn code_action_request_skips_analysis_for_non_quickfix_filters() {
 }
 
 #[test]
-fn code_action_resolve_is_not_implemented_when_unadvertised() {
+fn code_action_resolve_materializes_deferred_edit() {
+    let mut state = initialized_state();
+    let source = "fn main() i32 {\n    return match (1) {\n        1 => 1,\n    };\n}\n";
+    let uri = temp_file_uri("server_code_action_resolve", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let code_action_response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(230)),
+            method: Some("textDocument/codeAction".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 1, "character": 4 },
+                    "end": { "line": 3, "character": 5 }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["quickfix"]
+                }
+            })),
+        },
+    );
+    let code_action = code_action_response["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == json!("Add `_ => @unreachable()` arm"))
+        .unwrap()
+        .clone();
+    assert!(code_action.get("edit").is_none());
+    assert_eq!(code_action["data"]["uri"], json!(uri));
+    assert_eq!(code_action["data"]["version"], json!(1));
+    assert_eq!(code_action["data"]["fixId"], json!("add-match-catch-all"));
+    assert_eq!(
+        code_action["data"]["diagnosticCode"],
+        json!("nonexhaustive-match")
+    );
+
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(231)),
+            method: Some("codeAction/resolve".to_string()),
+            params: Some(code_action),
+        },
+    );
+
+    assert_eq!(response["id"], json!(231));
+    assert_eq!(response["result"]["title"], "Add `_ => @unreachable()` arm");
+    assert_eq!(
+        response["result"]["edit"]["changes"][&uri][0]["range"]["start"],
+        json!({ "line": 3, "character": 4 })
+    );
+    assert_eq!(
+        response["result"]["edit"]["changes"][&uri][0]["newText"],
+        "        _ => @unreachable(),\n"
+    );
+    assert!(response["result"].get("data").is_none());
+}
+
+#[test]
+fn code_action_resolve_does_not_apply_stale_deferred_edit() {
+    let mut state = initialized_state();
+    let source = "fn main() i32 {\n    return match (1) {\n        1 => 1,\n    };\n}\n";
+    let changed = "fn main() i32 {\n    return 1;\n}\n";
+    let uri = temp_file_uri("server_code_action_resolve_stale", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let code_action_response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(232)),
+            method: Some("textDocument/codeAction".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 1, "character": 4 },
+                    "end": { "line": 3, "character": 5 }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["quickfix"]
+                }
+            })),
+        },
+    );
+    let code_action = code_action_response["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == json!("Add `_ => @unreachable()` arm"))
+        .unwrap()
+        .clone();
+    assert!(code_action.get("edit").is_none());
+    assert!(dispatch_messages(&mut state, did_change_message(&uri, changed, 2)).is_empty());
+
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(233)),
+            method: Some("codeAction/resolve".to_string()),
+            params: Some(code_action),
+        },
+    );
+
+    assert_eq!(response["id"], json!(233));
+    assert_eq!(response["result"]["title"], "Add `_ => @unreachable()` arm");
+    assert!(response["result"].get("edit").is_none());
+    assert!(response["result"].get("data").is_none());
+}
+
+#[test]
+fn code_action_resolve_strips_invalid_data_without_analysis() {
     let mut state = initialized_state();
     assert_eq!(state.analysis.last_analysis_tier(), None);
 
@@ -121,36 +239,23 @@ fn code_action_resolve_is_not_implemented_when_unadvertised() {
         &mut state,
         IncomingMessage {
             jsonrpc: JSONRPC_VERSION.to_string(),
-            id: Some(json!(230)),
+            id: Some(json!(234)),
             method: Some("codeAction/resolve".to_string()),
             params: Some(json!({
                 "title": "Insert `;`",
                 "kind": "quickfix",
-                "edit": {
-                    "changes": {
-                        "file:///tmp/main.kn": [
-                            {
-                                "range": {
-                                    "start": { "line": 1, "character": 4 },
-                                    "end": { "line": 1, "character": 4 }
-                                },
-                                "newText": ";"
-                            }
-                        ]
-                    }
-                },
-                "isPreferred": true
+                "data": {
+                    "fixId": "unknown"
+                }
             })),
         },
     );
 
-    assert_eq!(response["id"], json!(230));
-    assert_eq!(response["error"]["code"], json!(METHOD_NOT_FOUND));
-    assert!(
-        response["error"]["message"]
-            .as_str()
-            .is_some_and(|message| message.contains("codeAction/resolve"))
-    );
+    assert_eq!(response["id"], json!(234));
+    assert_eq!(response["result"]["title"], "Insert `;`");
+    assert_eq!(response["result"]["kind"], "quickfix");
+    assert!(response["result"].get("edit").is_none());
+    assert!(response["result"].get("data").is_none());
     assert_eq!(state.analysis.last_analysis_tier(), None);
 }
 

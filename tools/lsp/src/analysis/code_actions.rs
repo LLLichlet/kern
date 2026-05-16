@@ -81,30 +81,35 @@ fn structured_text_quick_fix(
         Some(DiagnosticCode::ExpectedSemicolon) => Some(insert_text_at_diagnostic_start(
             uri,
             "Insert `;`",
+            "insert-semicolon",
             ";",
             ide_diagnostic,
         )),
         Some(DiagnosticCode::UnclosedParen) => Some(insert_text_at_diagnostic_start(
             uri,
             "Insert `)`",
+            "insert-close-paren",
             ")",
             ide_diagnostic,
         )),
         Some(DiagnosticCode::UnclosedBracket) => Some(insert_text_at_diagnostic_start(
             uri,
             "Insert `]`",
+            "insert-close-bracket",
             "]",
             ide_diagnostic,
         )),
         Some(DiagnosticCode::UnclosedBlock) => Some(insert_text_at_diagnostic_start(
             uri,
             "Insert `}`",
+            "insert-close-block",
             "}",
             ide_diagnostic,
         )),
         Some(DiagnosticCode::IgnoredNonvoidValue) => Some(insert_text_at_diagnostic_start(
             uri,
             "Discard value with `let _ =`",
+            "discard-nonvoid-value",
             "let _ = ",
             ide_diagnostic,
         )),
@@ -161,6 +166,7 @@ fn fallback_insert_text_quick_fix(
         return Some(insert_text_at_diagnostic_start(
             uri,
             "Insert `;`",
+            "insert-semicolon",
             ";",
             ide_diagnostic,
         ));
@@ -173,6 +179,7 @@ fn fallback_insert_text_quick_fix(
         return Some(insert_text_at_diagnostic_start(
             uri,
             "Insert `)`",
+            "insert-close-paren",
             ")",
             ide_diagnostic,
         ));
@@ -185,6 +192,7 @@ fn fallback_insert_text_quick_fix(
         return Some(insert_text_at_diagnostic_start(
             uri,
             "Insert `]`",
+            "insert-close-bracket",
             "]",
             ide_diagnostic,
         ));
@@ -193,6 +201,7 @@ fn fallback_insert_text_quick_fix(
         return Some(insert_text_at_diagnostic_start(
             uri,
             "Insert `}`",
+            "insert-close-block",
             "}",
             ide_diagnostic,
         ));
@@ -206,6 +215,7 @@ fn fallback_insert_text_quick_fix(
         return Some(insert_text_at_diagnostic_start(
             uri,
             "Discard value with `let _ =`",
+            "discard-nonvoid-value",
             "let _ = ",
             ide_diagnostic,
         ));
@@ -217,12 +227,14 @@ fn fallback_insert_text_quick_fix(
 fn insert_text_at_diagnostic_start(
     uri: &str,
     title: &str,
+    fix_id: &'static str,
     text: &str,
     diagnostic: IdeDiagnostic,
 ) -> IdeCodeAction {
     insert_text_code_action(
         uri,
         title,
+        fix_id,
         text,
         Range {
             start: diagnostic.range.start.clone(),
@@ -255,6 +267,7 @@ fn fact_driven_quick_fix(
 fn insert_text_code_action(
     uri: &str,
     title: &str,
+    fix_id: &'static str,
     text: &str,
     range: Range,
     diagnostic: IdeDiagnostic,
@@ -262,6 +275,7 @@ fn insert_text_code_action(
     single_edit_code_action(
         uri,
         title,
+        fix_id,
         IdeTextEdit {
             range,
             new_text: text.to_string(),
@@ -274,6 +288,7 @@ fn insert_text_code_action(
 fn single_edit_code_action(
     uri: &str,
     title: &str,
+    fix_id: &'static str,
     edit: IdeTextEdit,
     diagnostic: IdeDiagnostic,
     is_preferred: bool,
@@ -287,6 +302,8 @@ fn single_edit_code_action(
         diagnostics: vec![diagnostic],
         edit: Some(IdeWorkspaceEdit { changes }),
         is_preferred: Some(is_preferred),
+        fix_id: Some(fix_id),
+        resolve_data: None,
     }
 }
 
@@ -306,6 +323,7 @@ fn let_mut_code_action(
     Some(insert_text_code_action(
         uri,
         "Change to `let mut`",
+        "change-let-mut",
         "mut ",
         insertion_range,
         ide_diagnostic,
@@ -326,6 +344,7 @@ fn unused_binding_code_action(
             single_edit_code_action(
                 uri,
                 "Rename binding to `_`",
+                "rename-unused-binding-to-underscore",
                 IdeTextEdit {
                     range: super::span_to_range(&artifact.session, diagnostic.primary_span),
                     new_text: "_".to_string(),
@@ -356,6 +375,7 @@ fn dead_store_code_action(
     Some(single_edit_code_action(
         uri,
         "Remove dead assignment",
+        "remove-dead-assignment",
         IdeTextEdit {
             range: delete_range,
             new_text: String::new(),
@@ -384,6 +404,7 @@ fn unused_private_item_code_action(
     Some(single_edit_code_action(
         uri,
         "Make item public",
+        "make-private-item-public",
         IdeTextEdit {
             range: empty_range_at(file, insertion_offset),
             new_text: "pub ".to_string(),
@@ -420,6 +441,7 @@ fn add_match_catch_all_code_action(
     Some(single_edit_code_action(
         uri,
         "Add `_ => @unreachable()` arm",
+        "add-match-catch-all",
         IdeTextEdit {
             range: insertion_range,
             new_text: insertion_text,
@@ -449,6 +471,7 @@ fn remove_irrefutable_let_else_code_action(
     Some(single_edit_code_action(
         uri,
         "Remove invalid `else` branch",
+        "remove-irrefutable-let-else",
         IdeTextEdit {
             range: delete_range,
             new_text: String::new(),

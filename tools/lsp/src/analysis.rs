@@ -54,8 +54,9 @@ use self::text::{
 pub(crate) use self::text::{single_server_diagnostic, uri_to_file_path};
 use crate::defaults::default_analysis_compile_options;
 use crate::protocol::{
-    CompletionResolveData, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, Position, Range, TextDocumentContentChangeEvent,
+    CodeActionResolveData, CompletionResolveData, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, Position, Range,
+    TextDocumentContentChangeEvent,
 };
 use crate::server::DiagnosticsAnalysisMode;
 use craft::error::Error as CraftError;

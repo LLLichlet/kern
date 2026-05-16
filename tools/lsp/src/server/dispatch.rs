@@ -15,15 +15,15 @@ use super::{
 };
 use crate::protocol::{
     CallHierarchyIncomingCallsParams, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
-    CancelRequestParams, CodeActionParams, CodeLensParams, CompletionItem, CompletionParams,
-    CompletionResolveData, DefinitionParams, DidChangeConfigurationParams,
-    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentHighlightParams,
-    DocumentLinkParams, DocumentSymbolParams, FoldingRangeParams, FormattingParams,
-    IncomingMessage, InitializeParams, InlayHintParams, MarkupContent, RangeFormattingParams,
-    ReferenceParams, RenameParams, SelectionRangeParams, SemanticTokensParams,
-    SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams, WorkspaceSymbolParams,
-    error_response, initialize_result, log_message,
+    CancelRequestParams, CodeAction, CodeActionParams, CodeActionResolveData, CodeLensParams,
+    CompletionItem, CompletionParams, CompletionResolveData, DefinitionParams,
+    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentHighlightParams, DocumentLinkParams, DocumentSymbolParams, FoldingRangeParams,
+    FormattingParams, IncomingMessage, InitializeParams, InlayHintParams, MarkupContent,
+    RangeFormattingParams, ReferenceParams, RenameParams, SelectionRangeParams,
+    SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams,
+    WorkspaceSymbolParams, error_response, initialize_result, log_message,
 };
 use crate::transport::MessageWriter;
 use serde_json::Value;
@@ -1032,6 +1032,42 @@ fn handle_message_with_document_request_policy(
                             })
                     },
                 )?;
+            }
+        }
+        "codeAction/resolve" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol("codeAction/resolve must be sent as a request".to_string())
+            })?;
+            let mut action = required_params::<CodeAction>(message.params)?;
+            let resolve_data = action
+                .data
+                .clone()
+                .and_then(|data| serde_json::from_value::<CodeActionResolveData>(data).ok());
+            if let Some(resolve_data) = resolve_data {
+                let target_uri = resolve_data.uri.clone();
+                execute_document_request(
+                    state,
+                    writer,
+                    id,
+                    &target_uri,
+                    SchedulerLane::Interactive,
+                    method,
+                    move |analysis, snapshot| {
+                        if action.edit.is_none()
+                            && let Some(resolved) =
+                                analysis.resolve_code_action_in_snapshot(snapshot, &resolve_data)?
+                            && let Some(edit) = resolved.edit
+                        {
+                            action.edit = Some(edit.into_lsp());
+                        }
+                        action.data = None;
+                        Ok(action)
+                    },
+                )?;
+            } else {
+                let request = state.request_context(id);
+                action.data = None;
+                write_success_response(state, writer, &request, serde_json::to_value(action)?)?;
             }
         }
         _ => {

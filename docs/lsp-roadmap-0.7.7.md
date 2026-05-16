@@ -667,23 +667,25 @@ quick fixes.
 
 Tasks:
 
-- Add an opaque `CodeActionResolveData` schema with document URI, document
+- Added an opaque `CodeActionResolveData` schema with document URI, document
   version, requested range, diagnostic code, action kind, and stable fix id.
 - Split code action production into lightweight action discovery and edit
   materialization so cheap fixes can stay eager while heavier fixes are resolved
   lazily.
-- Add stable internal fix identifiers for every quick fix instead of matching
+- Added stable internal fix identifiers for every quick fix instead of matching
   actions by title text.
-- Implement `codeAction/resolve` by validating resolve data, checking document
+- Implemented `codeAction/resolve` by validating resolve data, checking document
   staleness, rerunning the relevant analysis path, and materializing the edit or
   command for the selected fix.
-- Define stale-data behavior explicitly: stale or invalid resolve data must not
+- Defined stale-data behavior explicitly: stale or invalid resolve data must not
   return an old edit.
-- Advertise `codeActionProvider.resolveProvider = true` only after the resolve
-  path is real and covered by tests.
-- Add at least one genuinely deferred/heavier action so resolve is not just a
-  protocol echo. Candidate fixes include import insertion, trait impl stubs, or
-  wider multi-edit quick fixes.
+- Advertised `codeActionProvider.resolveProvider = true` after the resolve path
+  became real and covered by tests.
+- Added the nonexhaustive-match catch-all quick fix as a genuinely deferred
+  action: initial code action responses carry resolve data without the edit, and
+  `codeAction/resolve` materializes the catch-all arm edit from analysis.
+- Extend the deferred model to future heavier fixes such as import insertion,
+  trait impl stubs, and wider multi-edit quick fixes.
 
 Exit criteria:
 

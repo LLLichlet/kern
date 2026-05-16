@@ -1,9 +1,10 @@
 use crate::protocol::{
-    CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, CodeAction, CodeLens,
-    Command, CompletionItem, CompletionResolveData, Diagnostic, DiagnosticRelatedInformation,
-    DiagnosticTag, DocumentHighlight, DocumentLink, DocumentSymbol, FoldingRange, InlayHint,
-    Location, ParameterInformation, PrepareRenameResult, Range, SelectionRange, SemanticTokens,
-    SignatureHelp, SignatureInformation, TextEdit, WorkspaceEdit, WorkspaceSymbol,
+    CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, CodeAction,
+    CodeActionResolveData, CodeLens, Command, CompletionItem, CompletionResolveData, Diagnostic,
+    DiagnosticRelatedInformation, DiagnosticTag, DocumentHighlight, DocumentLink, DocumentSymbol,
+    FoldingRange, InlayHint, Location, ParameterInformation, PrepareRenameResult, Range,
+    SelectionRange, SemanticTokens, SignatureHelp, SignatureInformation, TextEdit, WorkspaceEdit,
+    WorkspaceSymbol,
 };
 use std::collections::BTreeMap;
 
@@ -14,6 +15,8 @@ pub(crate) struct IdeCodeAction {
     pub diagnostics: Vec<IdeDiagnostic>,
     pub edit: Option<IdeWorkspaceEdit>,
     pub is_preferred: Option<bool>,
+    pub fix_id: Option<&'static str>,
+    pub resolve_data: Option<CodeActionResolveData>,
 }
 
 #[derive(Debug, Clone)]
@@ -249,6 +252,9 @@ impl IdeCodeAction {
             }),
             edit: self.edit.map(IdeWorkspaceEdit::into_lsp),
             is_preferred: self.is_preferred,
+            data: self
+                .resolve_data
+                .map(|data| serde_json::to_value(data).expect("code action resolve data encodes")),
         }
     }
 }

@@ -1181,6 +1181,16 @@ impl AnalysisEngine {
         uri: &str,
         range: Range,
     ) -> Result<Vec<IdeCodeAction>, String> {
+        self.code_actions_in_snapshot_with_deferred(snapshot, uri, range, true)
+    }
+
+    fn code_actions_in_snapshot_with_deferred(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        range: Range,
+        defer_heavy_actions: bool,
+    ) -> Result<Vec<IdeCodeAction>, String> {
         let analysis_context = self.resolve_analysis_context_for_snapshot(snapshot, uri)?;
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested code actions for a document that is not open".to_string());
@@ -1225,6 +1235,11 @@ impl AnalysisEngine {
             let Some(action) = action else {
                 continue;
             };
+            let action = if defer_heavy_actions {
+                code_action_with_resolve_data(action, uri, target_doc.version, &range)
+            } else {
+                action
+            };
 
             let edit_key = action
                 .edit
@@ -1239,6 +1254,57 @@ impl AnalysisEngine {
 
         Ok(actions)
     }
+
+    pub fn resolve_code_action_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        data: &CodeActionResolveData,
+    ) -> Result<Option<IdeCodeAction>, String> {
+        let Some(document) = snapshot.document(&data.uri) else {
+            return Ok(None);
+        };
+        if document.version != data.version {
+            return Ok(None);
+        }
+        let actions = self.code_actions_in_snapshot_with_deferred(
+            snapshot,
+            &data.uri,
+            data.range.clone(),
+            false,
+        )?;
+        Ok(actions.into_iter().find(|action| {
+            action.fix_id == Some(data.fix_id.as_str())
+                && action.kind == Some(data.action_kind.as_str())
+                && action.diagnostics.first().is_some_and(|diagnostic| {
+                    diagnostic.range == data.diagnostic_range
+                        && diagnostic.code == data.diagnostic_code
+                })
+        }))
+    }
+}
+
+fn code_action_with_resolve_data(
+    mut action: IdeCodeAction,
+    uri: &str,
+    version: i64,
+    request_range: &Range,
+) -> IdeCodeAction {
+    if action.fix_id == Some("add-match-catch-all")
+        && let Some(diagnostic) = action.diagnostics.first()
+        && let Some(action_kind) = action.kind
+    {
+        action.resolve_data = Some(CodeActionResolveData {
+            uri: uri.to_string(),
+            version,
+            range: request_range.clone(),
+            diagnostic_range: diagnostic.range.clone(),
+            diagnostic_code: diagnostic.code.clone(),
+            action_kind: action_kind.to_string(),
+            fix_id: "add-match-catch-all".to_string(),
+        });
+        action.edit = None;
+    }
+    action
 }
 
 fn workspace_symbol_order(

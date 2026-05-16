@@ -240,6 +240,18 @@ pub struct CompletionResolveData {
     pub label: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionResolveData {
+    pub uri: String,
+    pub version: i64,
+    pub range: Range,
+    pub diagnostic_range: Range,
+    pub diagnostic_code: Option<String>,
+    pub action_kind: String,
+    pub fix_id: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentSymbolParams {
@@ -470,7 +482,7 @@ pub struct WorkspaceEdit {
     pub changes: BTreeMap<String, Vec<TextEdit>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeAction {
     pub title: String,
@@ -482,6 +494,8 @@ pub struct CodeAction {
     pub edit: Option<WorkspaceEdit>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_preferred: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -876,7 +890,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
         if options.code_action_literals {
             json!({
                 "codeActionKinds": ["quickfix"],
-                "resolveProvider": false
+                "resolveProvider": true
             })
         } else {
             Value::Bool(false)

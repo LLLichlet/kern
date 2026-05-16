@@ -145,9 +145,10 @@ impl AnalysisEngine {
     ) -> Result<Arc<SurfaceSymbolIndex>, String> {
         context.check_canceled()?;
         if let Some(index) = self
-            .surface_symbol_cache
+            .workspace_index
             .lock()
             .unwrap()
+            .symbol_indexes
             .get(&context.cache_key)
             .cloned()
         {
@@ -160,17 +161,19 @@ impl AnalysisEngine {
                 workspace_symbols: Arc::new(Vec::new()),
             });
             self.prune_cache_family_for_insert(&context.cache_key);
-            self.surface_symbol_cache
+            self.workspace_index
                 .lock()
                 .unwrap()
+                .symbol_indexes
                 .insert(context.cache_key.clone(), Arc::clone(&index));
             return Ok(index);
         };
         let index = Arc::new(surface_symbol_index_from_artifact(&surface, uri_by_path));
         self.prune_cache_family_for_insert(&context.cache_key);
-        self.surface_symbol_cache
+        self.workspace_index
             .lock()
             .unwrap()
+            .symbol_indexes
             .insert(context.cache_key.clone(), Arc::clone(&index));
         Ok(index)
     }
@@ -236,9 +239,10 @@ impl AnalysisEngine {
         };
         let target_path = normalize_path(&target_doc.path);
         let index = if let Some(index) = self
-            .surface_symbol_cache
+            .workspace_index
             .lock()
             .unwrap()
+            .symbol_indexes
             .get(&symbol_analysis_key)
             .cloned()
         {
@@ -249,9 +253,10 @@ impl AnalysisEngine {
                 snapshot.uri_by_normalized_path(),
             ));
             self.prune_cache_family_for_insert(&symbol_analysis_key);
-            self.surface_symbol_cache
+            self.workspace_index
                 .lock()
                 .unwrap()
+                .symbol_indexes
                 .insert(symbol_analysis_key, Arc::clone(&index));
             index
         };

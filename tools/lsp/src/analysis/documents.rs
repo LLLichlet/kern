@@ -173,10 +173,12 @@ impl AnalysisEngine {
         self.invalidate_render_caches();
         let targets = self.workspace_refresh_targets();
         let (indexed_targets, failed_targets) = self.warm_workspace_symbol_indexes(workspace_root);
+        let stats = self.finish_workspace_index_refresh(indexed_targets, failed_targets);
         WorkspaceIndexRefresh {
             targets,
-            indexed_targets,
-            failed_targets,
+            indexed_targets: stats.indexed_targets,
+            failed_targets: stats.failed_targets,
+            generation: stats.generation,
         }
     }
 

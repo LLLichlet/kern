@@ -224,6 +224,7 @@ fn submit_workspace_refresh_result(
             let target_count = refresh.targets.len();
             let indexed_targets = refresh.indexed_targets;
             let failed_targets = refresh.failed_targets;
+            let generation = refresh.generation;
             for (target_uri, mode) in refresh.targets {
                 let generation = state.begin_target_analysis(&target_uri);
                 state.queue_target_diagnostics_task(target_uri, generation, mode);
@@ -236,6 +237,7 @@ fn submit_workspace_refresh_result(
                 target_count,
                 indexed_targets,
                 failed_targets,
+                generation,
                 result.queue_wait_ms,
                 result.elapsed_ms,
             )
@@ -262,6 +264,7 @@ fn submit_workspace_refresh_result(
                 target_count,
                 0,
                 1,
+                0,
                 result.queue_wait_ms,
                 result.elapsed_ms,
             )
@@ -850,6 +853,7 @@ fn emit_workspace_refresh_queued_trace(
     target_count: usize,
     indexed_targets: usize,
     failed_targets: usize,
+    generation: u64,
     queue_wait_ms: u128,
     elapsed_ms: u128,
 ) -> Result<(), ServerError> {
@@ -867,11 +871,12 @@ fn emit_workspace_refresh_queued_trace(
         writer,
         "workspace refresh queued",
         Some(format!(
-            "reason={} targets={} indexed_targets={} failed_targets={} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?}",
+            "reason={} targets={} indexed_targets={} failed_targets={} index_generation={} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?}",
             reason,
             target_count,
             indexed_targets,
             failed_targets,
+            generation,
             queue_wait_ms,
             elapsed_ms,
             state

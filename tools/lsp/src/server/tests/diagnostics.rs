@@ -316,6 +316,13 @@ fn verbose_trace_marks_exceeded_workspace_refresh_budget() {
                 .as_str()
                 .is_some_and(|verbose| verbose.contains("indexed_targets=1"))
     }));
+    assert!(messages.iter().any(|message| {
+        message["method"] == "$/logTrace"
+            && message["params"]["message"] == "workspace refresh queued"
+            && message["params"]["verbose"]
+                .as_str()
+                .is_some_and(|verbose| verbose.contains("index_generation="))
+    }));
 }
 
 #[test]

@@ -279,7 +279,7 @@ Completed foundation work:
   advertises `completionItem/resolve`. The resolve handler remains tolerant of
   clients that send the request anyway and returns the item unchanged.
 
-Still to complete before calling the scheduler done:
+Release hardening follow-up, not a Phase 4 blocker:
 
 - Decide, based on profiling and stress tests, whether cancellation must be
   threaded into the inner parsing, lowering, and type-checking loops rather
@@ -600,7 +600,9 @@ Purpose: support workspace features without recomputing everything on demand.
 
 Tasks:
 
-- Build a project/workspace index abstraction.
+- Build a project/workspace index abstraction. The LSP now has a coordinator-
+  shared workspace index state with a refresh generation, last refresh stats,
+  and per-target surface symbol indexes.
 - Track `Craft.toml`, workspace members, package roots, source roots, generated
   aliases, and analysis context files.
 - Cache document symbols and top-level definitions per package target. Surface

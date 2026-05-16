@@ -110,11 +110,26 @@ pub struct WorkspaceIndexRefresh {
     pub targets: Vec<(String, DiagnosticsAnalysisMode)>,
     pub indexed_targets: usize,
     pub failed_targets: usize,
+    pub generation: u64,
 }
 
 struct SurfaceSymbolIndex {
     document_symbols_by_path: BTreeMap<PathBuf, Arc<Vec<IdeDocumentSymbol>>>,
     workspace_symbols: Arc<Vec<IdeWorkspaceSymbol>>,
+}
+
+#[derive(Default)]
+struct WorkspaceIndex {
+    generation: u64,
+    symbol_indexes: BTreeMap<AnalysisCacheKey, Arc<SurfaceSymbolIndex>>,
+    last_refresh: Option<WorkspaceIndexStats>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WorkspaceIndexStats {
+    generation: u64,
+    indexed_targets: usize,
+    failed_targets: usize,
 }
 
 pub enum DocumentSyncAction {
@@ -236,7 +251,7 @@ pub struct AnalysisEngine {
     structure_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<StructureArtifact>>>>,
     artifact_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisArtifact>>>>,
     navigation_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisNavigationArtifact>>>>,
-    surface_symbol_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<SurfaceSymbolIndex>>>>,
+    workspace_index: Arc<Mutex<WorkspaceIndex>>,
     semantic_tokens_cache: Arc<Mutex<BTreeMap<SemanticTokensCacheKey, IdeSemanticTokens>>>,
     lexical_cache: Arc<Mutex<BTreeMap<LexicalCacheKey, Arc<LexicalIndex>>>>,
     dirty_documents_snapshot: Arc<Mutex<Option<Arc<DirtyDocumentsSnapshot>>>>,
@@ -256,7 +271,7 @@ impl Clone for AnalysisEngine {
             structure_cache: self.structure_cache.clone(),
             artifact_cache: self.artifact_cache.clone(),
             navigation_cache: self.navigation_cache.clone(),
-            surface_symbol_cache: self.surface_symbol_cache.clone(),
+            workspace_index: self.workspace_index.clone(),
             semantic_tokens_cache: self.semantic_tokens_cache.clone(),
             lexical_cache: self.lexical_cache.clone(),
             dirty_documents_snapshot: self.dirty_documents_snapshot.clone(),
@@ -284,7 +299,7 @@ impl AnalysisEngine {
             structure_cache: Arc::new(Mutex::new(BTreeMap::new())),
             artifact_cache: Arc::new(Mutex::new(BTreeMap::new())),
             navigation_cache: Arc::new(Mutex::new(BTreeMap::new())),
-            surface_symbol_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            workspace_index: Arc::new(Mutex::new(WorkspaceIndex::default())),
             semantic_tokens_cache: Arc::new(Mutex::new(BTreeMap::new())),
             lexical_cache: Arc::new(Mutex::new(BTreeMap::new())),
             dirty_documents_snapshot: Arc::new(Mutex::new(None)),
@@ -1245,7 +1260,7 @@ impl AnalysisEngine {
         self.structure_cache.lock().unwrap().clear();
         self.artifact_cache.lock().unwrap().clear();
         self.navigation_cache.lock().unwrap().clear();
-        self.surface_symbol_cache.lock().unwrap().clear();
+        self.invalidate_workspace_index();
     }
 
     fn invalidate_dirty_document_snapshot(&self) {
@@ -1301,10 +1316,34 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
-        self.surface_symbol_cache
+        self.workspace_index
             .lock()
             .unwrap()
+            .symbol_indexes
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
+    }
+
+    fn invalidate_workspace_index(&self) {
+        let mut index = self.workspace_index.lock().unwrap();
+        index.generation = index.generation.saturating_add(1);
+        index.symbol_indexes.clear();
+        index.last_refresh = None;
+    }
+
+    fn finish_workspace_index_refresh(
+        &self,
+        indexed_targets: usize,
+        failed_targets: usize,
+    ) -> WorkspaceIndexStats {
+        let mut index = self.workspace_index.lock().unwrap();
+        index.generation = index.generation.saturating_add(1);
+        let stats = WorkspaceIndexStats {
+            generation: index.generation,
+            indexed_targets,
+            failed_targets,
+        };
+        index.last_refresh = Some(stats);
+        stats
     }
 
     #[cfg(test)]
@@ -1319,12 +1358,12 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub(crate) fn cached_workspace_symbol_index_count(&self) -> usize {
-        self.surface_symbol_cache.lock().unwrap().len()
+        self.workspace_index.lock().unwrap().symbol_indexes.len()
     }
 
     #[cfg(test)]
     pub(crate) fn cached_document_symbol_index_count(&self) -> usize {
-        self.surface_symbol_cache.lock().unwrap().len()
+        self.workspace_index.lock().unwrap().symbol_indexes.len()
     }
 
     fn document_differs_from_disk(path: &Path, text: &str) -> bool {

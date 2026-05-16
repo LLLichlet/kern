@@ -184,15 +184,19 @@ root = \"src/lib.kn\"
     assert_eq!(refresh.targets.len(), 1);
     assert_eq!(refresh.indexed_targets, 1);
     assert_eq!(refresh.failed_targets, 0);
+    assert!(refresh.generation > 0);
     assert_eq!(analysis.cached_workspace_symbol_index_count(), 1);
 
-    let snapshot = analysis.snapshot(Some(root), CancellationToken::new());
+    let snapshot = analysis.snapshot(Some(root.clone()), CancellationToken::new());
     let symbols = analysis
         .workspace_symbols_in_snapshot(&snapshot, "warmed")
         .unwrap();
     assert_eq!(symbols.len(), 1);
     assert_eq!(symbols[0].name, "WarmedNeedle");
     assert_eq!(analysis.cached_workspace_symbol_index_count(), 1);
+
+    let next_refresh = analysis.refresh_workspace_index(Some(root));
+    assert!(next_refresh.generation > refresh.generation);
 }
 
 #[test]

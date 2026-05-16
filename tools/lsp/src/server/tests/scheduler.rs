@@ -393,6 +393,54 @@ fn interactive_requests_do_not_auto_drain_deferred_diagnostics() {
 }
 
 #[test]
+fn interactive_requests_do_not_force_drain_when_diagnostics_budget_is_reached() {
+    let mut state = initialized_state();
+    let source = "fn main() i32 {\n    let value = 1i32;\n    return value;\n}\n";
+    let uri_a = temp_file_uri("server_interactive_budget_a", source);
+    let uri_b = temp_file_uri("server_interactive_budget_b", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri_a, source, 1));
+    let _ = dispatch_messages(&mut state, did_open_message(&uri_b, source, 1));
+    state.pending_diagnostics_targets.clear();
+    let generation_a = state.begin_target_analysis(&uri_a);
+    let generation_b = state.begin_target_analysis(&uri_b);
+    state.queue_target_diagnostics_task(
+        uri_a.clone(),
+        generation_a,
+        DiagnosticsAnalysisMode::Structure,
+    );
+    state.queue_target_diagnostics_task(
+        uri_b.clone(),
+        generation_b,
+        DiagnosticsAnalysisMode::Structure,
+    );
+    assert_eq!(
+        state.pending_diagnostics_targets.len(),
+        state.diagnostics_flush_policy.target_task_budget
+    );
+
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(53)),
+            method: Some("textDocument/hover".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri_a },
+                "position": { "line": 0, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["id"], json!(53));
+    assert_eq!(
+        state.pending_diagnostics_targets.len(),
+        state.diagnostics_flush_policy.target_task_budget
+    );
+}
+
+#[test]
 fn canceled_request_drops_response() {
     let mut state = initialized_state();
     state.cancel_request(json!(42));

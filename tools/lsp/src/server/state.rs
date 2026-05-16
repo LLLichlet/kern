@@ -127,7 +127,19 @@ impl DiagnosticsFlushPolicy {
         }
     }
 
-    pub(super) fn should_force_drain_for_pending_work(self, state: &ServerState) -> bool {
+    pub(super) fn should_force_drain_after_message(
+        self,
+        method: &str,
+        state: &ServerState,
+    ) -> bool {
+        if !matches!(
+            method,
+            "textDocument/didChange"
+                | "workspace/didChangeConfiguration"
+                | "workspace/didChangeWatchedFiles"
+        ) {
+            return false;
+        }
         state.pending_workspace_refresh_reason.is_some()
             || state.pending_diagnostics_targets.len() >= self.target_task_budget
     }
@@ -313,6 +325,6 @@ impl ServerState {
                 == SchedulerDrainDecision::Drain
                 || self
                     .diagnostics_flush_policy
-                    .should_force_drain_for_pending_work(self))
+                    .should_force_drain_after_message(method, self))
     }
 }

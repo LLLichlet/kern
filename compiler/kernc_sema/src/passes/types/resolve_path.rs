@@ -282,6 +282,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         env_scope: ScopeId,
         span: Span,
     ) -> TypeId {
+        self.record_type_symbol_reference(segment, final_sym);
+
         let (resolved_generics, resolved_assoc_bindings) = if let Some(def_id) = final_sym.def_id {
             self.resolve_generic_args_for_def(def_id, &segment.args, env_scope, span)
         } else {
@@ -509,6 +511,26 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 TypeId::ERROR
             }
         }
+    }
+
+    fn record_type_symbol_reference(
+        &mut self,
+        segment: &ast::TypePathSegment,
+        symbol: &crate::scope::SymbolInfo,
+    ) {
+        if symbol.span.end <= symbol.span.start
+            || self
+                .ctx
+                .sess
+                .source_manager
+                .get_file(symbol.span.file)
+                .is_none()
+        {
+            return;
+        }
+
+        self.ctx
+            .record_identifier_reference(segment.name_span, symbol.span);
     }
 
     fn resolve_type_args(

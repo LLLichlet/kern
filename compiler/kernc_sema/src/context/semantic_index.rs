@@ -7,13 +7,6 @@ pub(crate) struct SemanticIndexState {
     semantic_definitions: BTreeMap<Span, SemanticDefinition>,
 }
 
-impl SemanticIndexState {
-    pub(crate) fn clear(&mut self) {
-        self.identifier_references.clear();
-        self.semantic_definitions.clear();
-    }
-}
-
 impl<'a> SemaContext<'a> {
     pub fn record_identifier_reference(&mut self, reference_span: Span, definition_span: Span) {
         if reference_span.end <= reference_span.start

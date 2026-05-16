@@ -164,6 +164,7 @@ impl<'a> SemaContext<'a> {
             scopes: self.scopes.clone(),
             resolution: self.resolution.clone(),
             impl_index: self.impl_index.clone(),
+            semantic_index: self.analysis.semantic_index.clone(),
             recursive_reports: self.analysis.recursive_reports.clone(),
         }
     }
@@ -176,6 +177,7 @@ impl<'a> SemaContext<'a> {
             scopes: self.scopes,
             resolution: self.resolution,
             impl_index: self.impl_index,
+            semantic_index: self.analysis.semantic_index,
             recursive_reports: self.analysis.recursive_reports,
         }
     }
@@ -192,11 +194,11 @@ impl<'a> SemaContext<'a> {
         self.scopes = snapshot.scopes;
         self.impl_index = snapshot.impl_index;
         self.resolution = snapshot.resolution;
+        self.analysis.semantic_index = snapshot.semantic_index;
         self.analysis.recursive_reports = snapshot.recursive_reports;
         self.analysis.expr_timing_stats = ExprTimingStats::default();
         self.analysis.query_caches.clear_all();
         self.clear_active_bound_caches();
-        self.analysis.semantic_index.clear();
         self.analysis.escape_summaries.clear();
         self.analysis.pending_escape_checks.clear();
     }

@@ -204,7 +204,16 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| analysis.document_symbols(&params.text_document.uri),
+                |analysis| {
+                    analysis
+                        .document_symbols(&params.text_document.uri)
+                        .map(|symbols| {
+                            symbols
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeDocumentSymbol::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
             )?;
         }
         "textDocument/definition" => {
@@ -221,7 +230,11 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| analysis.goto_definition(&params.text_document.uri, params.position),
+                |analysis| {
+                    analysis
+                        .goto_definition(&params.text_document.uri, params.position)
+                        .map(|location| location.map(crate::analysis::ide::IdeLocation::into_lsp))
+                },
             )?;
         }
         "textDocument/documentHighlight" => {
@@ -238,7 +251,16 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| analysis.document_highlights(&params.text_document.uri, params.position),
+                |analysis| {
+                    analysis
+                        .document_highlights(&params.text_document.uri, params.position)
+                        .map(|highlights| {
+                            highlights
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeDocumentHighlight::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
             )?;
         }
         "textDocument/references" => {
@@ -256,11 +278,18 @@ pub(super) fn handle_message(
                 SchedulerLane::Interactive,
                 method,
                 |analysis| {
-                    analysis.references(
-                        &params.text_document.uri,
-                        params.position,
-                        params.context.include_declaration,
-                    )
+                    analysis
+                        .references(
+                            &params.text_document.uri,
+                            params.position,
+                            params.context.include_declaration,
+                        )
+                        .map(|locations| {
+                            locations
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeLocation::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
                 },
             )?;
         }
@@ -297,7 +326,11 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| analysis.signature_help(&params.text_document.uri, params.position),
+                |analysis| {
+                    analysis
+                        .signature_help(&params.text_document.uri, params.position)
+                        .map(|help| help.map(crate::analysis::ide::IdeSignatureHelp::into_lsp))
+                },
             )?;
         }
         "textDocument/completion" => {
@@ -361,7 +394,16 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| analysis.inlay_hints(&params.text_document.uri, params.range.clone()),
+                |analysis| {
+                    analysis
+                        .inlay_hints(&params.text_document.uri, params.range.clone())
+                        .map(|hints| {
+                            hints
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeInlayHint::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
             )?;
         }
         "textDocument/prepareRename" => {
@@ -378,7 +420,13 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| analysis.prepare_rename(&params.text_document.uri, params.position),
+                |analysis| {
+                    analysis
+                        .prepare_rename(&params.text_document.uri, params.position)
+                        .map(|result| {
+                            result.map(crate::analysis::ide::IdePrepareRenameResult::into_lsp)
+                        })
+                },
             )?;
         }
         "textDocument/rename" => {
@@ -394,7 +442,9 @@ pub(super) fn handle_message(
                 SchedulerLane::Interactive,
                 method,
                 |analysis| {
-                    analysis.rename(&params.text_document.uri, params.position, &params.new_name)
+                    analysis
+                        .rename(&params.text_document.uri, params.position, &params.new_name)
+                        .map(crate::analysis::ide::IdeWorkspaceEdit::into_lsp)
                 },
             )?;
         }

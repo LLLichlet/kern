@@ -19,7 +19,8 @@ use super::{
 };
 use crate::analysis::DocumentSyncAction;
 use crate::analysis::ide::{
-    IdeCompletionItem, IdeDiagnosticSeverity, IdeDiagnosticTag, IdeSemanticTokens,
+    IdeCompletionItem, IdeDiagnosticSeverity, IdeDiagnosticTag, IdeDocumentHighlightKind,
+    IdeSemanticTokens,
 };
 use crate::protocol::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, Position,

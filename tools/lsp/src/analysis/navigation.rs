@@ -1,9 +1,10 @@
-use super::ide::{IdeCompletionItem, IdeCompletionKind, IdeHover};
-use super::{RenameBehavior, RenameTarget};
-use crate::protocol::{
-    DocumentHighlight, DocumentSymbol, InlayHint, Location, ParameterInformation, Position,
-    SignatureHelp, SignatureInformation, TextEdit,
+use super::ide::{
+    IdeCompletionItem, IdeCompletionKind, IdeDocumentHighlight, IdeDocumentHighlightKind,
+    IdeDocumentSymbol, IdeHover, IdeInlayHint, IdeInlayHintKind, IdeLocation,
+    IdeParameterInformation, IdeSignatureHelp, IdeSignatureInformation, IdeSymbolKind, IdeTextEdit,
 };
+use super::{RenameBehavior, RenameTarget};
+use crate::protocol::Position;
 use kernc_driver::{
     AnalysisCompletionItem, AnalysisCompletionKind, AnalysisDefinitionLink, AnalysisHover,
     AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSignatureHelp,
@@ -26,11 +27,11 @@ pub(super) struct ReferenceLocationQuery<'a> {
 pub(super) fn analysis_symbol_to_document_symbol(
     session: &kernc_utils::Session,
     symbol: &AnalysisSymbol,
-) -> DocumentSymbol {
-    DocumentSymbol {
+) -> IdeDocumentSymbol {
+    IdeDocumentSymbol {
         name: symbol.name.clone(),
         detail: symbol.detail.clone(),
-        kind: lsp_symbol_kind(symbol.kind),
+        kind: ide_symbol_kind(symbol.kind),
         range: super::span_to_range(session, symbol.span),
         selection_range: super::span_to_range(session, symbol.selection_span),
         children: symbol
@@ -41,17 +42,17 @@ pub(super) fn analysis_symbol_to_document_symbol(
     }
 }
 
-pub(super) fn analysis_signature_help_to_lsp_help(help: AnalysisSignatureHelp) -> SignatureHelp {
-    SignatureHelp {
+pub(super) fn analysis_signature_help_to_ide_help(help: AnalysisSignatureHelp) -> IdeSignatureHelp {
+    IdeSignatureHelp {
         signatures: help
             .signatures
             .into_iter()
-            .map(|signature| SignatureInformation {
+            .map(|signature| IdeSignatureInformation {
                 label: signature.label,
                 parameters: signature
                     .parameters
                     .into_iter()
-                    .map(|parameter| ParameterInformation {
+                    .map(|parameter| IdeParameterInformation {
                         label: parameter.label,
                     })
                     .collect(),
@@ -62,10 +63,10 @@ pub(super) fn analysis_signature_help_to_lsp_help(help: AnalysisSignatureHelp) -
     }
 }
 
-pub(super) fn analysis_type_hint_to_lsp_hint(
+pub(super) fn analysis_type_hint_to_ide_hint(
     session: &kernc_utils::Session,
     hint: &AnalysisTypeHint,
-) -> InlayHint {
+) -> IdeInlayHint {
     let range = super::span_to_range(session, hint.span);
     let (position, padding_right) = match hint.kind {
         AnalysisTypeHintKind::ConstructorPrefix => (range.start, Some(false)),
@@ -73,20 +74,20 @@ pub(super) fn analysis_type_hint_to_lsp_hint(
             (range.end, Some(true))
         }
     };
-    InlayHint {
+    IdeInlayHint {
         position,
         label: hint.label.clone(),
-        kind: Some(lsp_inlay_hint_kind(hint.kind)),
+        kind: Some(ide_inlay_hint_kind(hint.kind)),
         padding_left: Some(false),
         padding_right,
     }
 }
 
-fn lsp_inlay_hint_kind(kind: AnalysisTypeHintKind) -> u8 {
+fn ide_inlay_hint_kind(kind: AnalysisTypeHintKind) -> IdeInlayHintKind {
     match kind {
         AnalysisTypeHintKind::Variable
         | AnalysisTypeHintKind::Expression
-        | AnalysisTypeHintKind::ConstructorPrefix => 1,
+        | AnalysisTypeHintKind::ConstructorPrefix => IdeInlayHintKind::Type,
     }
 }
 
@@ -124,13 +125,13 @@ pub(super) fn find_definition_location(
     target_path: &Path,
     position: &Position,
     uri_by_path: &BTreeMap<PathBuf, String>,
-) -> Option<Location> {
+) -> Option<IdeLocation> {
     let definition_span =
         find_target_definition_span(session, hovers, semantic_entries, target_path, position)?;
     location_from_span(session, definition_span, uri_by_path)
 }
 
-pub(super) fn find_reference_locations(query: ReferenceLocationQuery<'_>) -> Vec<Location> {
+pub(super) fn find_reference_locations(query: ReferenceLocationQuery<'_>) -> Vec<IdeLocation> {
     let Some(definition_span) = find_target_definition_span(
         query.session,
         query.hovers,
@@ -186,7 +187,7 @@ pub(super) fn find_document_highlights(
     hovers: &[AnalysisHover],
     target_path: &Path,
     position: &Position,
-) -> Vec<DocumentHighlight> {
+) -> Vec<IdeDocumentHighlight> {
     let Some(definition_span) =
         find_target_definition_span(session, hovers, semantic_entries, target_path, position)
             .or_else(|| {
@@ -207,9 +208,9 @@ pub(super) fn find_document_highlights(
         if !super::span_in_path(session, *definition_span, target_path) {
             continue;
         }
-        highlights.push(DocumentHighlight {
+        highlights.push(IdeDocumentHighlight {
             range: super::span_to_range(session, *definition_span),
-            kind: Some(1),
+            kind: Some(IdeDocumentHighlightKind::Text),
         });
     }
 
@@ -221,9 +222,9 @@ pub(super) fn find_document_highlights(
             continue;
         }
 
-        highlights.push(DocumentHighlight {
+        highlights.push(IdeDocumentHighlight {
             range: super::span_to_range(session, entry.span),
-            kind: Some(1),
+            kind: Some(IdeDocumentHighlightKind::Text),
         });
     }
 
@@ -351,8 +352,8 @@ pub(super) fn build_rename_changes(
     target: &RenameTarget,
     new_name: &str,
     uri_by_path: &BTreeMap<PathBuf, String>,
-) -> BTreeMap<String, Vec<TextEdit>> {
-    let mut edits_by_uri = BTreeMap::<String, Vec<TextEdit>>::new();
+) -> BTreeMap<String, Vec<IdeTextEdit>> {
+    let mut edits_by_uri = BTreeMap::<String, Vec<IdeTextEdit>>::new();
     let definition_spans = rename_definition_span_group(target.definition_span, definition_links);
 
     let definition_edit = match &target.behavior {
@@ -431,12 +432,12 @@ fn rename_edit_from_span(
     span: kernc_utils::Span,
     new_name: &str,
     uri_by_path: &BTreeMap<PathBuf, String>,
-) -> Option<(String, TextEdit)> {
+) -> Option<(String, IdeTextEdit)> {
     let path = session.source_manager.get_file_path(span.file)?;
     let uri = uri_for_path(path, uri_by_path)?;
     Some((
         uri,
-        TextEdit {
+        IdeTextEdit {
             range: super::span_to_range(session, span),
             new_text: new_name.to_string(),
         },
@@ -468,19 +469,18 @@ fn ide_completion_kind(kind: AnalysisCompletionKind) -> IdeCompletionKind {
     }
 }
 
-fn lsp_symbol_kind(kind: AnalysisSymbolKind) -> u8 {
+fn ide_symbol_kind(kind: AnalysisSymbolKind) -> IdeSymbolKind {
     match kind {
-        AnalysisSymbolKind::Module => 2,
-        AnalysisSymbolKind::Namespace => 3,
-        AnalysisSymbolKind::Struct => 23,
-        AnalysisSymbolKind::Union => 23,
-        AnalysisSymbolKind::Trait => 11,
-        AnalysisSymbolKind::Method => 6,
-        AnalysisSymbolKind::Function => 12,
-        AnalysisSymbolKind::Enum => 10,
-        AnalysisSymbolKind::TypeAlias => 13,
-        AnalysisSymbolKind::Constant => 14,
-        AnalysisSymbolKind::Static => 13,
+        AnalysisSymbolKind::Module => IdeSymbolKind::Module,
+        AnalysisSymbolKind::Namespace => IdeSymbolKind::Namespace,
+        AnalysisSymbolKind::Struct | AnalysisSymbolKind::Union => IdeSymbolKind::Struct,
+        AnalysisSymbolKind::Trait => IdeSymbolKind::Trait,
+        AnalysisSymbolKind::Method => IdeSymbolKind::Method,
+        AnalysisSymbolKind::Function => IdeSymbolKind::Function,
+        AnalysisSymbolKind::Enum => IdeSymbolKind::Enum,
+        AnalysisSymbolKind::TypeAlias => IdeSymbolKind::TypeAlias,
+        AnalysisSymbolKind::Constant => IdeSymbolKind::Constant,
+        AnalysisSymbolKind::Static => IdeSymbolKind::Static,
     }
 }
 
@@ -488,10 +488,10 @@ fn location_from_span(
     session: &kernc_utils::Session,
     span: kernc_utils::Span,
     uri_by_path: &BTreeMap<PathBuf, String>,
-) -> Option<Location> {
+) -> Option<IdeLocation> {
     let path = session.source_manager.get_file_path(span.file)?;
     let uri = uri_for_path(path, uri_by_path)?;
-    Some(Location {
+    Some(IdeLocation {
         uri,
         range: super::span_to_range(session, span),
     })

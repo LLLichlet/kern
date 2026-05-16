@@ -545,7 +545,11 @@ fn document_highlights_include_definition_and_same_file_references() {
         highlights[2].range.start,
         position_of_nth(source, "helper", 2, 0)
     );
-    assert!(highlights.iter().all(|highlight| highlight.kind == Some(1)));
+    assert!(
+        highlights
+            .iter()
+            .all(|highlight| highlight.kind == Some(IdeDocumentHighlightKind::Text))
+    );
 }
 
 #[test]

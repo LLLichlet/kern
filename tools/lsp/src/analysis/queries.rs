@@ -24,7 +24,7 @@ impl AnalysisEngine {
         Ok(Some(offset))
     }
 
-    pub fn document_symbols(&self, uri: &str) -> Result<Vec<DocumentSymbol>, String> {
+    pub fn document_symbols(&self, uri: &str) -> Result<Vec<IdeDocumentSymbol>, String> {
         let context = self.resolve_analysis_context(uri)?;
         let surface =
             if context.dirty_documents.is_clean() || !context.resolved.input_file.is_file() {
@@ -70,7 +70,7 @@ impl AnalysisEngine {
         &self,
         uri: &str,
         position: Position,
-    ) -> Result<Option<Location>, String> {
+    ) -> Result<Option<IdeLocation>, String> {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(None);
         }
@@ -98,7 +98,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
         include_declaration: bool,
-    ) -> Result<Vec<Location>, String> {
+    ) -> Result<Vec<IdeLocation>, String> {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(Vec::new());
         }
@@ -127,7 +127,7 @@ impl AnalysisEngine {
         &self,
         uri: &str,
         position: Position,
-    ) -> Result<Vec<DocumentHighlight>, String> {
+    ) -> Result<Vec<IdeDocumentHighlight>, String> {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(Vec::new());
         }
@@ -176,7 +176,7 @@ impl AnalysisEngine {
         &self,
         uri: &str,
         position: Position,
-    ) -> Result<Option<SignatureHelp>, String> {
+    ) -> Result<Option<IdeSignatureHelp>, String> {
         let Some(offset) = self.semantic_query_offset(uri, &position)? else {
             return Ok(None);
         };
@@ -190,7 +190,7 @@ impl AnalysisEngine {
 
         Ok(artifact
             .signature_help(&target_path, offset)
-            .map(analysis_signature_help_to_lsp_help))
+            .map(analysis_signature_help_to_ide_help))
     }
 
     pub fn completion(
@@ -297,7 +297,7 @@ impl AnalysisEngine {
         &self,
         uri: &str,
         position: Position,
-    ) -> Result<Option<PrepareRenameResult>, String> {
+    ) -> Result<Option<IdePrepareRenameResult>, String> {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(None);
         }
@@ -318,7 +318,7 @@ impl AnalysisEngine {
             return Ok(None);
         };
 
-        Ok(Some(PrepareRenameResult {
+        Ok(Some(IdePrepareRenameResult {
             range: span_to_range(&artifact.session, target.query_span),
             placeholder: target.placeholder,
         }))
@@ -329,7 +329,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
         new_name: &str,
-    ) -> Result<WorkspaceEdit, String> {
+    ) -> Result<IdeWorkspaceEdit, String> {
         if !is_valid_identifier(new_name) {
             return Err(format!("`{}` is not a valid Kern identifier", new_name));
         }
@@ -364,7 +364,7 @@ impl AnalysisEngine {
             &uri_by_path,
         );
 
-        Ok(WorkspaceEdit { changes })
+        Ok(IdeWorkspaceEdit { changes })
     }
 
     pub fn semantic_tokens(&self, uri: &str) -> Result<IdeSemanticTokens, String> {
@@ -408,7 +408,7 @@ impl AnalysisEngine {
         Ok(tokens)
     }
 
-    pub fn inlay_hints(&self, uri: &str, range: Range) -> Result<Vec<InlayHint>, String> {
+    pub fn inlay_hints(&self, uri: &str, range: Range) -> Result<Vec<IdeInlayHint>, String> {
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested inlay hints for a document that is not open".to_string());
         };
@@ -428,7 +428,7 @@ impl AnalysisEngine {
                     .get_file_path(hint.span.file)?;
                 (normalize_path(path) == target_path).then_some(hint)
             })
-            .map(|hint| analysis_type_hint_to_lsp_hint(&artifact.session, hint))
+            .map(|hint| analysis_type_hint_to_ide_hint(&artifact.session, hint))
             .filter(|hint| {
                 let hint_range = Range {
                     start: hint.position.clone(),

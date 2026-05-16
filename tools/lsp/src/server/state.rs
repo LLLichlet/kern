@@ -525,6 +525,9 @@ impl ServerState {
     pub(super) fn queue_workspace_refresh_task(&mut self, reason: String) {
         self.pending_workspace_refresh_reason = Some(reason);
         self.pending_diagnostics_targets.clear();
+        for uri in self.analysis.document_uris() {
+            self.begin_target_analysis(&uri);
+        }
     }
 
     pub(super) fn has_pending_diagnostics_work(&self) -> bool {

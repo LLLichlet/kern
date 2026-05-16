@@ -398,7 +398,12 @@ Required 0.7.7 protocol work:
 - `workspace/workspaceFolders` support or explicit single-folder policy. The
   0.7.7 line currently uses an explicit single-folder policy and advertises
   `workspace.workspaceFolders.supported = false`.
-- `workspace/didChangeConfiguration`
+- `workspace/didChangeConfiguration`. The 0.7.7 server now parses supported
+  `kern.project` analysis settings from the synchronized `kern` configuration
+  payload, applies safe hot updates through the analysis engine, invalidates
+  analysis caches, and schedules a workspace refresh only when the effective
+  settings change. Unsupported settings are logged instead of being silently
+  accepted.
 - dynamic client capability handling where needed
 - request tracing with IDs, method names, generation, and elapsed time
 

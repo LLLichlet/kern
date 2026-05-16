@@ -222,6 +222,125 @@ fn accepts_common_post_initialize_notifications() {
 }
 
 #[test]
+fn did_change_configuration_updates_analysis_settings_and_refreshes_workspace() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_configuration_refresh", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        did_open_message(&uri, "fn main() void {}\n", 1),
+    )
+    .unwrap();
+    drain_scheduler_to_quiescence(&mut state, &mut writer);
+    drop(writer);
+    output.clear();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeConfiguration".to_string()),
+            params: Some(json!({
+                "settings": {
+                    "project": {
+                        "features": [" experimental ", "experimental", "simd"],
+                        "noDefaultFeatures": true,
+                        "libraryBundle": "base"
+                    }
+                }
+            })),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        state.analysis.settings().compile_options.craft_features,
+        vec!["experimental".to_string(), "simd".to_string()]
+    );
+    assert!(
+        !state
+            .analysis
+            .settings()
+            .compile_options
+            .craft_default_features
+    );
+    assert_eq!(
+        state.analysis.settings().compile_options.library_bundle,
+        kernc_utils::config::LibraryBundle::Base
+    );
+    drain_scheduler_to_quiescence(&mut state, &mut writer);
+    let messages = read_all_messages(&output);
+    assert!(messages.iter().any(|message| {
+        message["method"] == "textDocument/publishDiagnostics"
+            && message["params"]["uri"] == json!(uri)
+    }));
+}
+
+#[test]
+fn did_change_configuration_ignores_equal_settings_without_refresh() {
+    let mut state = initialized_state();
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeConfiguration".to_string()),
+            params: Some(json!({
+                "settings": {
+                    "project": {
+                        "features": [],
+                        "noDefaultFeatures": false,
+                        "libraryBundle": "std"
+                    }
+                }
+            })),
+        },
+    )
+    .unwrap();
+
+    assert!(state.pending_workspace_refresh_reason.is_none());
+    assert!(output.is_empty());
+}
+
+#[test]
+fn did_change_configuration_reports_invalid_supported_settings() {
+    let mut state = initialized_state();
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    let err = handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeConfiguration".to_string()),
+            params: Some(json!({
+                "settings": {
+                    "project": {
+                        "features": ["ok", ""]
+                    }
+                }
+            })),
+        },
+    )
+    .unwrap_err();
+
+    assert!(matches!(err, ServerError::Protocol(message) if message.contains("empty feature")));
+    assert!(state.pending_workspace_refresh_reason.is_none());
+}
+
+#[test]
 fn rejects_requests_after_shutdown() {
     let mut state = ServerState::new();
     state.initialized = true;

@@ -68,7 +68,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalysisSettings {
     pub compile_options: CompileOptions,
 }
@@ -266,6 +266,22 @@ impl AnalysisEngine {
             open_uri_by_path: Arc::new(Mutex::new(None)),
             last_analysis_tier: Arc::new(Mutex::new(None)),
         }
+    }
+
+    pub fn settings(&self) -> &AnalysisSettings {
+        &self.settings
+    }
+
+    pub fn replace_settings(&mut self, settings: AnalysisSettings) -> bool {
+        if self.settings == settings {
+            return false;
+        }
+        self.settings = settings;
+        self.project_cache.lock().unwrap().clear();
+        self.driver_cache.lock().unwrap().clear();
+        self.invalidate_artifact_cache();
+        self.invalidate_render_caches();
+        true
     }
 
     fn record_analysis_tier(&self, tier: AnalysisTier) {

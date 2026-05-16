@@ -233,7 +233,7 @@ impl OfficialLibrary {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetMachine {
     pub triple: Triple,
     pub pointer_size: u64,
@@ -305,7 +305,7 @@ impl AsmDialect {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileOptions {
     pub input_file: Option<String>,
     pub output_file: String,

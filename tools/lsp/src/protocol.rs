@@ -149,6 +149,12 @@ pub struct CancelRequestParams {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DidChangeConfigurationParams {
+    #[serde(default)]
+    pub settings: Value,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DidOpenTextDocumentParams {
     pub text_document: TextDocumentItem,

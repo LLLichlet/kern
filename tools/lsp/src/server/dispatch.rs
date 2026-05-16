@@ -1,3 +1,4 @@
+use super::configuration::{ConfigurationChange, handle_configuration_change};
 use super::lifecycle::{
     TraceValue, emit_initialize_followups, emit_trace, ensure_utf16_position_encoding,
     negotiate_capabilities, select_workspace_root,
@@ -13,10 +14,11 @@ use super::{
 };
 use crate::protocol::{
     CancelRequestParams, CodeActionParams, CompletionParams, DefinitionParams,
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentHighlightParams, DocumentSymbolParams, IncomingMessage,
-    InitializeParams, InlayHintParams, ReferenceParams, RenameParams, SemanticTokensParams,
-    SetTraceParams, SignatureHelpParams, error_response, initialize_result, log_message,
+    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentHighlightParams,
+    DocumentSymbolParams, IncomingMessage, InitializeParams, InlayHintParams, ReferenceParams,
+    RenameParams, SemanticTokensParams, SetTraceParams, SignatureHelpParams, error_response,
+    initialize_result, log_message,
 };
 use crate::transport::MessageWriter;
 use serde_json::Value;
@@ -150,7 +152,16 @@ fn handle_message_with_document_request_policy(
             }
         }
         "workspace/didChangeConfiguration" => {
-            schedule_workspace_refresh(state, writer, "workspace configuration changed")?;
+            let params = message
+                .params
+                .map(serde_json::from_value::<DidChangeConfigurationParams>)
+                .transpose()?
+                .unwrap_or(DidChangeConfigurationParams {
+                    settings: Value::Null,
+                });
+            if handle_configuration_change(state, writer, params)? == ConfigurationChange::Changed {
+                schedule_workspace_refresh(state, writer, "workspace configuration changed")?;
+            }
         }
         "workspace/didChangeWatchedFiles" => {
             schedule_workspace_refresh(state, writer, "workspace files changed")?;

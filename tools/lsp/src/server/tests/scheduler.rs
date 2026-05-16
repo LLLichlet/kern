@@ -1,8 +1,11 @@
 use super::super::scheduler::{
     drain_scheduler, execute_document_diagnostics, execute_document_request,
-    flush_diagnostics_lane, publish_analysis_outcome, write_success_response,
+    flush_diagnostics_lane, publish_analysis_outcome, submit_document_request_result,
+    write_success_response,
 };
-use super::super::state::SchedulerDrainDecision;
+use super::super::state::{
+    DocumentRequestResponse, DocumentRequestTaskResult, SchedulerDrainDecision,
+};
 use super::super::*;
 use super::*;
 
@@ -474,6 +477,37 @@ fn stale_document_request_generation_drops_response() {
     let mut writer = MessageWriter::new(&mut output);
 
     write_success_response(&mut state, &mut writer, &request, json!({ "ok": true })).unwrap();
+
+    assert!(output.is_empty());
+}
+
+#[test]
+fn stale_document_request_task_result_drops_response() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_stale_task_result", "fn main() void {}\n");
+    let stale_generation = state.begin_target_analysis(&uri);
+    let request = RequestContext {
+        id: json!(48),
+        target_uri: Some(uri.clone()),
+        generation: Some(stale_generation),
+    };
+    let _newer = state.begin_target_analysis(&uri);
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    submit_document_request_result(
+        &mut state,
+        &mut writer,
+        DocumentRequestTaskResult {
+            request,
+            target_uri: uri,
+            lane: SchedulerLane::Interactive,
+            method: "textDocument/hover".to_string(),
+            elapsed_ms: 0,
+            response: DocumentRequestResponse::Success(json!({ "ok": true })),
+        },
+    )
+    .unwrap();
 
     assert!(output.is_empty());
 }

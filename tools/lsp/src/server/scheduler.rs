@@ -1,7 +1,8 @@
 use super::state::{RequestBudgetKind, RequestBudgetStatus};
 use super::{
-    AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, INVALID_REQUEST, RequestContext,
-    SchedulerLane, ServerError, ServerState, lifecycle::emit_trace,
+    AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, DocumentRequestResponse,
+    DocumentRequestTaskResult, INVALID_REQUEST, RequestContext, SchedulerLane, ServerError,
+    ServerState, lifecycle::emit_trace,
 };
 use crate::analysis::{AnalysisOutcome, AnalysisSnapshot, DocumentSyncAction, cleared_uris};
 use crate::protocol::{error_response, null_response, publish_diagnostics, success_response};
@@ -240,23 +241,32 @@ where
     let started_at = Instant::now();
     let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis, &snapshot)));
     let elapsed_ms = started_at.elapsed().as_millis();
-    match result {
-        Ok(Ok(result)) => {
-            write_success_response(state, writer, &request, serde_json::to_value(result)?)
-        }
-        Ok(Err(message)) => write_error_response(state, writer, &request, INVALID_REQUEST, message),
-        Err(payload) => write_error_response(
-            state,
-            writer,
-            &request,
-            INVALID_REQUEST,
-            format!(
+    let response = match result {
+        Ok(Ok(result)) => DocumentRequestResponse::Success(serde_json::to_value(result)?),
+        Ok(Err(message)) => DocumentRequestResponse::Error {
+            code: INVALID_REQUEST,
+            message,
+        },
+        Err(payload) => DocumentRequestResponse::Error {
+            code: INVALID_REQUEST,
+            message: format!(
                 "kern-lsp analysis panicked: {}",
                 panic_message(payload.as_ref())
             ),
-        ),
-    }?;
-    emit_analysis_tier_trace(state, writer, target_uri, lane, method, elapsed_ms)
+        },
+    };
+    submit_document_request_result(
+        state,
+        writer,
+        DocumentRequestTaskResult {
+            request,
+            target_uri: target_uri.to_string(),
+            lane,
+            method: method.to_string(),
+            elapsed_ms,
+            response,
+        },
+    )
 }
 
 fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
@@ -292,24 +302,57 @@ where
     let started_at = Instant::now();
     let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis, &snapshot)));
     let elapsed_ms = started_at.elapsed().as_millis();
-    match result {
-        Ok(Ok(Some(result))) => {
-            write_success_response(state, writer, &request, serde_json::to_value(result)?)
-        }
-        Ok(Ok(None)) => write_null_response(state, writer, &request),
-        Ok(Err(message)) => write_error_response(state, writer, &request, INVALID_REQUEST, message),
-        Err(payload) => write_error_response(
-            state,
-            writer,
-            &request,
-            INVALID_REQUEST,
-            format!(
+    let response = match result {
+        Ok(Ok(Some(result))) => DocumentRequestResponse::Success(serde_json::to_value(result)?),
+        Ok(Ok(None)) => DocumentRequestResponse::Null,
+        Ok(Err(message)) => DocumentRequestResponse::Error {
+            code: INVALID_REQUEST,
+            message,
+        },
+        Err(payload) => DocumentRequestResponse::Error {
+            code: INVALID_REQUEST,
+            message: format!(
                 "kern-lsp analysis panicked: {}",
                 panic_message(payload.as_ref())
             ),
-        ),
-    }?;
-    emit_analysis_tier_trace(state, writer, target_uri, lane, method, elapsed_ms)
+        },
+    };
+    submit_document_request_result(
+        state,
+        writer,
+        DocumentRequestTaskResult {
+            request,
+            target_uri: target_uri.to_string(),
+            lane,
+            method: method.to_string(),
+            elapsed_ms,
+            response,
+        },
+    )
+}
+
+pub(super) fn submit_document_request_result(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    result: DocumentRequestTaskResult,
+) -> Result<(), ServerError> {
+    match result.response {
+        DocumentRequestResponse::Success(value) => {
+            write_success_response(state, writer, &result.request, value)?
+        }
+        DocumentRequestResponse::Null => write_null_response(state, writer, &result.request)?,
+        DocumentRequestResponse::Error { code, message } => {
+            write_error_response(state, writer, &result.request, code, message)?
+        }
+    }
+    emit_analysis_tier_trace(
+        state,
+        writer,
+        &result.target_uri,
+        result.lane,
+        &result.method,
+        result.elapsed_ms,
+    )
 }
 
 fn emit_analysis_tier_trace(

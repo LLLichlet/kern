@@ -10,7 +10,10 @@ use self::dispatch::{
     report_message_error as dispatch_report_message_error,
 };
 pub(crate) use self::state::DiagnosticsAnalysisMode;
-use self::state::{AnalysisGeneration, RequestContext, SchedulerLane, ServerState};
+use self::state::{
+    AnalysisGeneration, DocumentRequestResponse, DocumentRequestTaskResult, RequestContext,
+    SchedulerLane, ServerState,
+};
 use crate::analysis::AnalysisEngine;
 use crate::protocol::{IncomingMessage, error_response};
 use crate::transport::{MessageReader, MessageWriter};

@@ -29,6 +29,23 @@ pub(super) struct RequestContext {
     pub(super) generation: Option<AnalysisGeneration>,
 }
 
+#[derive(Debug)]
+pub(super) struct DocumentRequestTaskResult {
+    pub(super) request: RequestContext,
+    pub(super) target_uri: String,
+    pub(super) lane: SchedulerLane,
+    pub(super) method: String,
+    pub(super) elapsed_ms: u128,
+    pub(super) response: DocumentRequestResponse,
+}
+
+#[derive(Debug)]
+pub(super) enum DocumentRequestResponse {
+    Success(Value),
+    Null,
+    Error { code: i64, message: String },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SchedulerLane {
     Interactive,

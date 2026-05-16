@@ -61,6 +61,39 @@ fn close_document_clears_open_state_and_returns_empty_bundle() {
 }
 
 #[test]
+fn snapshot_preserves_open_document_view_after_later_changes() {
+    let mut analysis = AnalysisEngine::default();
+    let uri = temp_file_uri("snapshot_open_document", "let value = 1;");
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: "let value = 1;".to_string(),
+        },
+    });
+
+    let snapshot = analysis.snapshot();
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: "let value = 2;".to_string(),
+        }],
+    });
+
+    assert_eq!(snapshot.document(&uri).unwrap().version, 1);
+    assert_eq!(snapshot.document(&uri).unwrap().text, "let value = 1;");
+    assert_eq!(analysis.documents.get(&uri).unwrap().version, 2);
+    assert_eq!(analysis.documents.get(&uri).unwrap().text, "let value = 2;");
+}
+
+#[test]
 fn analysis_reuses_driver_for_repeated_requests_on_same_document() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn main() i32 { return 1; }\n";

@@ -108,6 +108,22 @@ pub enum DocumentSyncAction {
     Immediate(AnalysisOutcome),
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct AnalysisSnapshot {
+    documents: BTreeMap<String, OpenDocument>,
+    dirty_documents: Rc<DirtyDocumentsSnapshot>,
+}
+
+impl AnalysisSnapshot {
+    fn document(&self, uri: &str) -> Option<&OpenDocument> {
+        self.documents.get(uri)
+    }
+
+    fn dirty_documents(&self) -> &DirtyDocumentsSnapshot {
+        &self.dirty_documents
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AnalysisTier {
     Lexical,
@@ -199,6 +215,13 @@ impl AnalysisEngine {
 
     pub(crate) fn clear_last_analysis_tier(&self) {
         self.last_analysis_tier.borrow_mut().take();
+    }
+
+    pub(crate) fn snapshot(&self) -> AnalysisSnapshot {
+        AnalysisSnapshot {
+            documents: self.documents.clone(),
+            dirty_documents: self.dirty_documents_snapshot(),
+        }
     }
 
     fn analyze_document(&self, target_uri: &str) -> AnalysisOutcome {

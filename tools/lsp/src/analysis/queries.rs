@@ -25,9 +25,18 @@ impl AnalysisEngine {
     }
 
     pub fn document_symbols(&self, uri: &str) -> Result<Vec<IdeDocumentSymbol>, String> {
+        let snapshot = self.snapshot();
+        self.document_symbols_in_snapshot(&snapshot, uri)
+    }
+
+    fn document_symbols_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+    ) -> Result<Vec<IdeDocumentSymbol>, String> {
         let context = self.resolve_analysis_context(uri)?;
         let surface =
-            if context.dirty_documents.is_clean() || !context.resolved.input_file.is_file() {
+            if snapshot.dirty_documents().is_clean() || !context.resolved.input_file.is_file() {
                 self.analyze_surface_artifact(uri)
                     .ok()
                     .or_else(|| self.analyze_clean_surface_for_context(&context))
@@ -39,7 +48,7 @@ impl AnalysisEngine {
         };
         self.record_analysis_tier(AnalysisTier::Surface);
 
-        let Some(target_doc) = self.documents.get(uri) else {
+        let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested document symbols for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);

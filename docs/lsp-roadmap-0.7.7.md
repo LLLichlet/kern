@@ -204,6 +204,20 @@ LSP conversion should happen after the IDE query returns.
 This prevents protocol details from leaking into compiler-oriented logic and
 makes it practical to test IDE behavior without JSON-RPC framing.
 
+The 0.7.7 IDE boundary intentionally still allows a small set of protocol
+types inside `tools/lsp/src/analysis/*`:
+
+- `Position` and `Range` are currently shared text-coordinate primitives.
+- document synchronization parameter types are accepted by the state-mutation
+  entry points.
+- diagnostic related information may still use `Location` until diagnostics get
+  their own text-coordinate model.
+- `tools/lsp/src/analysis/ide.rs` owns `into_lsp` conversion methods and is the
+  intended boundary back to protocol payloads.
+
+Any other direct LSP feature payload in analysis code should be treated as
+architectural drift.
+
 ### 2. Introduce Snapshots
 
 Replace direct request access to a mutable `AnalysisEngine` with snapshots.

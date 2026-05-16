@@ -540,6 +540,7 @@ fn queued_document_request_cancel_skips_analysis_work() {
 #[test]
 fn running_document_request_cancel_drops_response() {
     let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
     let uri = temp_file_uri("server_canceled_running_request", "fn main() void {}\n");
     let mut output = Vec::new();
     let mut writer = MessageWriter::new(&mut output);
@@ -574,7 +575,15 @@ fn running_document_request_cancel_drops_response() {
     flush_document_request_results(&mut state, &mut writer, true).unwrap();
 
     assert!(analyzed.load(std::sync::atomic::Ordering::SeqCst));
-    assert!(output.is_empty());
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["method"], "$/logTrace");
+    assert_eq!(messages[0]["params"]["message"], "request canceled");
+    let verbose = messages[0]["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("queue_wait_ms="), "{verbose}");
+    assert!(verbose.contains("elapsed_ms="), "{verbose}");
+    assert!(verbose.contains("status=canceled"), "{verbose}");
+    assert!(verbose.contains("method=textDocument/hover"), "{verbose}");
     assert!(state.canceled_request_ids.is_empty());
 }
 
@@ -798,8 +807,10 @@ fn stale_document_request_task_result_drops_response() {
             target_uri: uri,
             lane: SchedulerLane::Interactive,
             method: "textDocument/hover".to_string(),
+            queue_wait_ms: 0,
             elapsed_ms: 0,
             analysis_tier: None,
+            canceled: false,
             response: DocumentRequestResponse::Success(json!({ "ok": true })),
         },
     )

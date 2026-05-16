@@ -128,7 +128,19 @@ fn verbose_trace_reports_completion_analysis_tier() {
         messages[1]["params"]["verbose"]
             .as_str()
             .unwrap()
+            .contains("queue_wait_ms=")
+    );
+    assert!(
+        messages[1]["params"]["verbose"]
+            .as_str()
+            .unwrap()
             .contains("elapsed_ms=")
+    );
+    assert!(
+        messages[1]["params"]["verbose"]
+            .as_str()
+            .unwrap()
+            .contains("status=completed")
     );
     assert!(
         messages[1]["params"]["verbose"]

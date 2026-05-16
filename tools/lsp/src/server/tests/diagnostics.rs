@@ -39,7 +39,9 @@ fn verbose_trace_reports_diagnostics_lane_analysis() {
     let verbose = messages[0]["params"]["verbose"].as_str().unwrap();
     assert!(verbose.contains("tier=parse-only"), "{verbose}");
     assert!(verbose.contains("mode=Structure"), "{verbose}");
+    assert!(verbose.contains("queue_wait_ms="), "{verbose}");
     assert!(verbose.contains("elapsed_ms="), "{verbose}");
+    assert!(verbose.contains("status=completed"), "{verbose}");
     assert!(verbose.contains("budget=ok"), "{verbose}");
     assert_eq!(messages[1]["method"], "textDocument/publishDiagnostics");
 }
@@ -78,6 +80,8 @@ fn verbose_trace_reports_interactive_request_method() {
         "{verbose}"
     );
     assert!(verbose.contains("elapsed_ms="), "{verbose}");
+    assert!(verbose.contains("queue_wait_ms="), "{verbose}");
+    assert!(verbose.contains("status=completed"), "{verbose}");
     assert!(verbose.contains("budget=ok"), "{verbose}");
 }
 
@@ -109,7 +113,9 @@ fn verbose_trace_reports_workspace_refresh_latency() {
                 .is_some_and(|verbose| {
                     verbose.contains("reason=workspace files changed")
                         && verbose.contains("targets=")
+                        && verbose.contains("queue_wait_ms=")
                         && verbose.contains("elapsed_ms=")
+                        && verbose.contains("status=completed")
                         && verbose.contains("budget=ok")
                 })
     }));

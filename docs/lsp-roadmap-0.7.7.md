@@ -211,14 +211,15 @@ Completed foundation work:
 - LSP document requests now carry scheduler-level cancellation tokens. A
   canceled queued request skips analysis before the worker closure runs, and a
   canceled running request becomes inert before its response is written.
+- Worker traces now include queue wait time, completion/cancellation status, and
+  execution latency for document requests, diagnostics, and workspace refresh
+  work.
 
 Still to complete before calling the scheduler done:
 
 - Push cancellation checks deeper into analysis/compiler query boundaries so
   long-running requests can stop before returning to the scheduler.
 - Make worker limits configurable if real-world projects need tuning.
-- Track queue wait time, worker execution status, and cancellation status in
-  traces.
 - Keep the intentional protocol references in analysis limited to the documented
   coordinate, sync-input, diagnostics-location, and `ide.rs` conversion
   exceptions.

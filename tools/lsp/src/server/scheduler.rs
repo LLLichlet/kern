@@ -104,6 +104,7 @@ pub(super) fn flush_diagnostics_lane(
 
 fn submit_workspace_refresh_task(state: &mut ServerState, reason: String) {
     let mut analysis = state.analysis.clone();
+    let queued_at = Instant::now();
     state.queue_workspace_refresh_worker_task();
     let task = LspWorkerTask::WorkspaceRefresh(Box::new(move || {
         let started_at = Instant::now();
@@ -111,6 +112,7 @@ fn submit_workspace_refresh_task(state: &mut ServerState, reason: String) {
             .map_err(|payload| panic_message(payload.as_ref()));
         WorkspaceRefreshTaskResult {
             reason,
+            queue_wait_ms: started_at.duration_since(queued_at).as_millis(),
             elapsed_ms: started_at.elapsed().as_millis(),
             targets,
         }
@@ -127,9 +129,10 @@ fn submit_diagnostics_task(
     mode: DiagnosticsAnalysisMode,
 ) {
     let analysis = state.analysis.clone();
+    let queued_at = Instant::now();
     state.queue_diagnostics_worker_task();
     let task = LspWorkerTask::Diagnostics(Box::new(move || {
-        run_diagnostics_task(analysis, target_uri, generation, mode)
+        run_diagnostics_task(analysis, target_uri, generation, mode, queued_at)
     }));
     if state.worker_task_tx.send(task).is_err() {
         state.complete_diagnostics_worker_task();
@@ -141,6 +144,7 @@ fn run_diagnostics_task(
     target_uri: String,
     generation: AnalysisGeneration,
     mode: DiagnosticsAnalysisMode,
+    queued_at: Instant,
 ) -> DiagnosticsTaskResult {
     analysis.clear_last_analysis_tier();
     let started_at = Instant::now();
@@ -161,6 +165,7 @@ fn run_diagnostics_task(
         target_uri,
         generation,
         mode,
+        queue_wait_ms: started_at.duration_since(queued_at).as_millis(),
         elapsed_ms: started_at.elapsed().as_millis(),
         analysis_tier: analysis.last_analysis_tier(),
         outcome,
@@ -205,6 +210,7 @@ fn submit_workspace_refresh_result(
                 writer,
                 &result.reason,
                 target_count,
+                result.queue_wait_ms,
                 result.elapsed_ms,
             )
         }
@@ -227,6 +233,7 @@ fn submit_workspace_refresh_result(
                 writer,
                 &result.reason,
                 target_count,
+                result.queue_wait_ms,
                 result.elapsed_ms,
             )
         }
@@ -267,6 +274,7 @@ fn submit_diagnostics_result(
         writer,
         &result.target_uri,
         result.mode,
+        result.queue_wait_ms,
         result.elapsed_ms,
         result.analysis_tier,
     )?;
@@ -357,6 +365,7 @@ where
             target_uri: target_uri.to_string(),
             lane,
             method: method.to_string(),
+            queued_at: Instant::now(),
         },
         |engine, snapshot| {
             analysis(engine, snapshot)
@@ -403,7 +412,8 @@ where
     F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<DocumentRequestResponse, String> + Send,
 {
     let started_at = Instant::now();
-    let result = if task_info.request.is_canceled() {
+    let canceled = task_info.request.is_canceled();
+    let result = if canceled {
         Ok(Err("request was canceled".to_string()))
     } else {
         catch_unwind(AssertUnwindSafe(|| task(&analysis, &snapshot)))
@@ -429,8 +439,10 @@ where
         target_uri: task_info.target_uri,
         lane: task_info.lane,
         method: task_info.method,
+        queue_wait_ms: started_at.duration_since(task_info.queued_at).as_millis(),
         elapsed_ms,
         analysis_tier,
+        canceled,
         response,
     }
 }
@@ -471,6 +483,7 @@ where
             target_uri: target_uri.to_string(),
             lane,
             method: method.to_string(),
+            queued_at: Instant::now(),
         },
         |engine, snapshot| match analysis(engine, snapshot)? {
             Some(result) => serde_json::to_value(result)
@@ -510,7 +523,8 @@ pub(super) fn submit_document_request_result(
     writer: &mut MessageWriter<impl io::Write>,
     result: DocumentRequestTaskResult,
 ) -> Result<(), ServerError> {
-    if result.request.is_canceled() {
+    if result.request.is_canceled() || result.canceled {
+        emit_request_canceled_trace(state, writer, &result)?;
         state.finish_request_cancellation(&result.request.id);
         return Ok(());
     }
@@ -529,8 +543,26 @@ pub(super) fn submit_document_request_result(
         &result.target_uri,
         result.lane,
         &result.method,
+        result.queue_wait_ms,
         result.elapsed_ms,
         result.analysis_tier,
+    )
+}
+
+fn emit_request_canceled_trace(
+    state: &ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    result: &DocumentRequestTaskResult,
+) -> Result<(), ServerError> {
+    emit_trace(
+        state,
+        writer,
+        "request canceled",
+        Some(format!(
+            "queue_wait_ms={} elapsed_ms={} status=canceled lane={:?} method={} target={}",
+            result.queue_wait_ms, result.elapsed_ms, result.lane, result.method, result.target_uri
+        )),
+        true,
     )
 }
 
@@ -540,6 +572,7 @@ fn emit_analysis_tier_trace(
     target_uri: &str,
     lane: SchedulerLane,
     method: &str,
+    queue_wait_ms: u128,
     elapsed_ms: u128,
     analysis_tier: Option<crate::analysis::AnalysisTier>,
 ) -> Result<(), ServerError> {
@@ -555,8 +588,9 @@ fn emit_analysis_tier_trace(
         writer,
         "analysis tier selected",
         Some(format!(
-            "tier={} elapsed_ms={} budget={} lane={:?} method={} target={}",
+            "tier={} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?} method={} target={}",
             tier.as_str(),
+            queue_wait_ms,
             elapsed_ms,
             budget_status,
             lane,
@@ -572,13 +606,15 @@ fn emit_diagnostics_analysis_trace(
     writer: &mut MessageWriter<impl io::Write>,
     target_uri: &str,
     mode: DiagnosticsAnalysisMode,
+    queue_wait_ms: u128,
     elapsed_ms: u128,
     analysis_tier: Option<crate::analysis::AnalysisTier>,
 ) -> Result<(), ServerError> {
     let tier = analysis_tier.map(|tier| tier.as_str());
     let mut verbose = format!(
-        "mode={:?} elapsed_ms={} budget={} lane={:?} target={}",
+        "mode={:?} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?} target={}",
         mode,
+        queue_wait_ms,
         elapsed_ms,
         state
             .request_budget_policy
@@ -604,6 +640,7 @@ fn emit_workspace_refresh_queued_trace(
     writer: &mut MessageWriter<impl io::Write>,
     reason: &str,
     target_count: usize,
+    queue_wait_ms: u128,
     elapsed_ms: u128,
 ) -> Result<(), ServerError> {
     emit_trace(
@@ -611,9 +648,10 @@ fn emit_workspace_refresh_queued_trace(
         writer,
         "workspace refresh queued",
         Some(format!(
-            "reason={} targets={} elapsed_ms={} budget={} lane={:?}",
+            "reason={} targets={} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?}",
             reason,
             target_count,
+            queue_wait_ms,
             elapsed_ms,
             state
                 .request_budget_policy

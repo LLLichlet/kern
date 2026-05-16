@@ -87,8 +87,10 @@ pub(super) struct DocumentRequestTaskResult {
     pub(super) target_uri: String,
     pub(super) lane: SchedulerLane,
     pub(super) method: String,
+    pub(super) queue_wait_ms: u128,
     pub(super) elapsed_ms: u128,
     pub(super) analysis_tier: Option<AnalysisTier>,
+    pub(super) canceled: bool,
     pub(super) response: DocumentRequestResponse,
 }
 
@@ -98,12 +100,14 @@ pub(super) struct ScheduledDocumentRequestTask {
     pub(super) target_uri: String,
     pub(super) lane: SchedulerLane,
     pub(super) method: String,
+    pub(super) queued_at: std::time::Instant,
 }
 
 pub(super) struct DiagnosticsTaskResult {
     pub(super) target_uri: String,
     pub(super) generation: AnalysisGeneration,
     pub(super) mode: DiagnosticsAnalysisMode,
+    pub(super) queue_wait_ms: u128,
     pub(super) elapsed_ms: u128,
     pub(super) analysis_tier: Option<AnalysisTier>,
     pub(super) outcome: AnalysisOutcome,
@@ -111,6 +115,7 @@ pub(super) struct DiagnosticsTaskResult {
 
 pub(super) struct WorkspaceRefreshTaskResult {
     pub(super) reason: String,
+    pub(super) queue_wait_ms: u128,
     pub(super) elapsed_ms: u128,
     pub(super) targets: Result<Vec<(String, DiagnosticsAnalysisMode)>, String>,
 }

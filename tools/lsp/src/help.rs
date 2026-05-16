@@ -28,6 +28,10 @@ pub fn render_help(color: ColorChoice) -> String {
                     "Map an imported metadata module alias to a root directory",
                 ),
         )
+        .section(HelpSection::new("Server Options").entry(
+            "--worker-threads <N>",
+            "Set the bounded worker pool size for LSP analysis tasks",
+        ))
         .section(
             HelpSection::new("Information")
                 .entry("-v, -V, --version", "Show version information and exit")

@@ -12,9 +12,15 @@ use shared_cli::{ColorChoice, ErrorReport};
 
 #[derive(Debug)]
 enum CliAction {
-    Run(Box<CompileOptions>),
+    Run(Box<RunOptions>),
     Help,
     Version,
+}
+
+#[derive(Debug)]
+struct RunOptions {
+    compile_options: CompileOptions,
+    server_options: server::ServerOptions,
 }
 
 fn main() {
@@ -40,10 +46,10 @@ fn main() {
         }
         CliAction::Run(options) => {
             let analysis = analysis::AnalysisEngine::new(analysis::AnalysisSettings {
-                compile_options: *options,
+                compile_options: options.compile_options,
             });
 
-            if let Err(err) = server::run_with_analysis(analysis) {
+            if let Err(err) = server::run_with_analysis_options(analysis, options.server_options) {
                 eprint!(
                     "{}",
                     ErrorReport::new("kern-lsp error", err.to_string()).render(ColorChoice::Auto)
@@ -59,6 +65,7 @@ where
     I: IntoIterator<Item = String>,
 {
     let mut options = default_analysis_compile_options();
+    let mut server_options = server::ServerOptions::default();
     let args: Vec<String> = args.into_iter().collect();
     if args.first().is_some_and(|arg| arg == "help") {
         if args.len() > 1 {
@@ -110,6 +117,11 @@ where
             options.module_interface_aliases.insert(name, path);
             continue;
         }
+        if let Some(value) = consume_long_option_value(&arg, "--worker-threads", &mut args, "<n>")?
+        {
+            server_options.worker_threads = parse_worker_threads(&value)?;
+            continue;
+        }
 
         match arg.as_str() {
             "--help" | "-h" => {
@@ -123,7 +135,10 @@ where
         }
     }
 
-    Ok(CliAction::Run(Box::new(options)))
+    Ok(CliAction::Run(Box::new(RunOptions {
+        compile_options: options,
+        server_options,
+    })))
 }
 
 fn parse_key_value(value: &str, flag: &str) -> Result<(String, String), String> {
@@ -150,6 +165,16 @@ fn consume_long_option_value(
 
     let prefix = format!("{flag}=");
     Ok(arg.strip_prefix(&prefix).map(|value| value.to_string()))
+}
+
+fn parse_worker_threads(value: &str) -> Result<usize, String> {
+    let worker_threads = value.parse::<usize>().map_err(|_| {
+        format!("invalid worker thread count `{value}`; expected a positive integer")
+    })?;
+    if worker_threads == 0 {
+        return Err("worker thread count must be greater than zero".to_string());
+    }
+    Ok(worker_threads)
 }
 
 fn print_usage() {
@@ -197,18 +222,23 @@ mod tests {
         let CliAction::Run(options) = action else {
             panic!("expected run action");
         };
-        assert_eq!(options.library_bundle, LibraryBundle::Base);
-        assert!(!options.craft_default_features);
+        assert_eq!(options.compile_options.library_bundle, LibraryBundle::Base);
+        assert!(!options.compile_options.craft_default_features);
         assert_eq!(
-            options.craft_features,
+            options.compile_options.craft_features,
             vec!["tls".to_string(), "simd".to_string()]
         );
         assert_eq!(
-            options.module_aliases.get("toml").map(String::as_str),
+            options
+                .compile_options
+                .module_aliases
+                .get("toml")
+                .map(String::as_str),
             Some("./src")
         );
         assert_eq!(
             options
+                .compile_options
                 .module_interface_aliases
                 .get("std")
                 .map(String::as_str),
@@ -223,7 +253,8 @@ mod tests {
         let CliAction::Run(options) = action else {
             panic!("expected run action");
         };
-        assert_eq!(options.library_bundle, LibraryBundle::Std);
+        assert_eq!(options.compile_options.library_bundle, LibraryBundle::Std);
+        assert_eq!(options.server_options.worker_threads, 4);
     }
 
     #[test]
@@ -233,5 +264,21 @@ mod tests {
             err.contains("empty feature name"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn parses_worker_thread_count() {
+        let action = parse_args(["--worker-threads=2".to_string()]).unwrap();
+
+        let CliAction::Run(options) = action else {
+            panic!("expected run action");
+        };
+        assert_eq!(options.server_options.worker_threads, 2);
+    }
+
+    #[test]
+    fn rejects_invalid_worker_thread_count() {
+        let err = parse_args(["--worker-threads".to_string(), "0".to_string()]).unwrap_err();
+        assert!(err.contains("greater than zero"), "unexpected error: {err}");
     }
 }

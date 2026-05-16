@@ -10,6 +10,7 @@ use self::dispatch::{
     report_message_error as dispatch_report_message_error,
 };
 pub(crate) use self::state::DiagnosticsAnalysisMode;
+pub use self::state::ServerOptions;
 use self::state::{
     AnalysisGeneration, DiagnosticsTaskResult, DocumentRequestResponse, DocumentRequestTaskResult,
     LspWorkerTask, RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerState,
@@ -66,12 +67,15 @@ impl From<serde_json::Error> for ServerError {
     }
 }
 
-pub fn run_with_analysis(analysis: AnalysisEngine) -> Result<(), ServerError> {
+pub fn run_with_analysis_options(
+    analysis: AnalysisEngine,
+    options: ServerOptions,
+) -> Result<(), ServerError> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let reader = MessageReader::new(BufReader::new(stdin));
     let mut writer = MessageWriter::new(BufWriter::new(stdout));
-    let mut state = ServerState::with_analysis(analysis);
+    let mut state = ServerState::with_options(analysis, options);
 
     run_message_loop(&mut state, reader, &mut writer)
 }

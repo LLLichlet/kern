@@ -11,6 +11,19 @@ use std::thread;
 
 const DEFAULT_WORKER_COUNT: usize = 4;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ServerOptions {
+    pub worker_threads: usize,
+}
+
+impl Default for ServerOptions {
+    fn default() -> Self {
+        Self {
+            worker_threads: DEFAULT_WORKER_COUNT,
+        }
+    }
+}
+
 pub(super) struct ServerState {
     pub(super) initialized: bool,
     pub(super) shutdown_requested: bool,
@@ -273,12 +286,17 @@ impl ServerState {
         Self::with_analysis(AnalysisEngine::default())
     }
 
+    #[cfg(test)]
     pub(super) fn with_analysis(analysis: AnalysisEngine) -> Self {
+        Self::with_options(analysis, ServerOptions::default())
+    }
+
+    pub(super) fn with_options(analysis: AnalysisEngine, options: ServerOptions) -> Self {
         let (document_request_results_tx, document_request_results_rx) = mpsc::channel();
         let (diagnostics_results_tx, diagnostics_results_rx) = mpsc::channel();
         let (workspace_refresh_results_tx, workspace_refresh_results_rx) = mpsc::channel();
         let worker_task_tx = spawn_worker_threads(
-            DEFAULT_WORKER_COUNT,
+            options.worker_threads,
             document_request_results_tx,
             diagnostics_results_tx,
             workspace_refresh_results_tx,

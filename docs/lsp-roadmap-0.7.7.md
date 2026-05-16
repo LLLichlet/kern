@@ -214,12 +214,13 @@ Completed foundation work:
 - Worker traces now include queue wait time, completion/cancellation status, and
   execution latency for document requests, diagnostics, and workspace refresh
   work.
+- The bounded worker pool size is configurable with `kern-lsp
+  --worker-threads <N>`, while the default remains conservative.
 
 Still to complete before calling the scheduler done:
 
 - Push cancellation checks deeper into analysis/compiler query boundaries so
   long-running requests can stop before returning to the scheduler.
-- Make worker limits configurable if real-world projects need tuning.
 - Keep the intentional protocol references in analysis limited to the documented
   coordinate, sync-input, diagnostics-location, and `ide.rs` conversion
   exceptions.

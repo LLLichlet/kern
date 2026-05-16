@@ -228,8 +228,12 @@ impl CompilerDriver {
                 call.call_span.file.0,
                 call.call_span.start,
                 call.call_span.end,
-                call.callee_definition_span.file.0,
-                call.callee_definition_span.start,
+                call.callee_definition_span
+                    .map(|span| span.file.0)
+                    .unwrap_or(usize::MAX),
+                call.callee_definition_span
+                    .map(|span| span.start)
+                    .unwrap_or(usize::MAX),
             )
         });
         calls.dedup();
@@ -1120,25 +1124,55 @@ fn collect_calls_in_decl(
     }
 }
 
-fn analysis_call_kind(ctx: &SemaContext<'_>, callee: &ast::Expr) -> AnalysisCallKind {
+fn analysis_call_kind(ctx: &SemaContext<'_>, callee: &ast::Expr) -> Option<AnalysisCallKind> {
+    let Some(callee_ty) = ctx.node_type(callee.id) else {
+        return None;
+    };
+    let callee_ty = ctx.type_registry.normalize(callee_ty);
     if matches!(
-        ctx.node_type(callee.id)
-            .map(|ty| ctx.type_registry.get(ctx.type_registry.normalize(ty))),
-        Some(TypeKind::Function { .. })
+        ctx.type_registry.get(callee_ty),
+        TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. }
+            if matches!(
+                ctx.type_registry.get(ctx.type_registry.normalize(*elem)),
+                TypeKind::ClosureInterface { .. } | TypeKind::Function { .. }
+            )
+    ) {
+        return Some(AnalysisCallKind::Indirect);
+    }
+    if matches!(ctx.type_registry.get(callee_ty), TypeKind::Function { .. })
+        && let Some(owner_ty) = ctx.method_owner_ty(callee.id)
+        && matches!(
+            ctx.type_registry.get(ctx.type_registry.normalize(owner_ty)),
+            TypeKind::TraitObject(..)
+        )
+    {
+        return Some(AnalysisCallKind::DynamicDispatch);
+    }
+
+    if matches!(
+        ctx.type_registry.get(callee_ty),
+        TypeKind::Function { .. } | TypeKind::FnDef(..)
     ) && let Some(owner_ty) = ctx.method_owner_ty(callee.id)
         && matches!(
             ctx.type_registry.get(ctx.type_registry.normalize(owner_ty)),
             TypeKind::TraitObject(..)
         )
     {
-        return AnalysisCallKind::DynamicDispatch;
+        return Some(AnalysisCallKind::Direct);
     }
 
-    AnalysisCallKind::Direct
+    if matches!(
+        ctx.type_registry.get(callee_ty),
+        TypeKind::Function { .. } | TypeKind::FnDef(..)
+    ) {
+        Some(AnalysisCallKind::Direct)
+    } else {
+        None
+    }
 }
 
 fn dynamic_dispatch_targets(ctx: &mut SemaContext<'_>, callee: &ast::Expr) -> Vec<Span> {
-    if analysis_call_kind(ctx, callee) != AnalysisCallKind::DynamicDispatch {
+    if analysis_call_kind(ctx, callee) != Some(AnalysisCallKind::DynamicDispatch) {
         return Vec::new();
     }
 
@@ -1425,16 +1459,22 @@ fn collect_calls_in_expr(
                     calls,
                 );
             }
-            if let Some(callee_definition_span) =
-                callable_entries.get(&callee_reference_span(callee))
+            let callee_definition_span = callable_entries
+                .get(&callee_reference_span(callee))
+                .copied();
+            let call_kind = analysis_call_kind(ctx, callee);
+            if let Some(mut kind) = call_kind
                 && let Some(caller_def_id) = flow_model.owner_def_id(expr.span)
                 && let Some(caller_definition_span) = function_definition_spans.get(&caller_def_id)
             {
+                if kind == AnalysisCallKind::Direct && callee_definition_span.is_none() {
+                    kind = AnalysisCallKind::Indirect;
+                }
                 calls.push(AnalysisCall {
-                    kind: analysis_call_kind(ctx, callee),
+                    kind,
                     call_span: expr.span,
                     callee_span: callee.span,
-                    callee_definition_span: *callee_definition_span,
+                    callee_definition_span,
                     caller_definition_span: *caller_definition_span,
                     dynamic_dispatch_targets: dynamic_dispatch_targets(ctx, callee),
                 });

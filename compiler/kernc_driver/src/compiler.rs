@@ -179,7 +179,7 @@ pub struct AnalysisCall {
     pub kind: AnalysisCallKind,
     pub call_span: kernc_utils::Span,
     pub callee_span: kernc_utils::Span,
-    pub callee_definition_span: kernc_utils::Span,
+    pub callee_definition_span: Option<kernc_utils::Span>,
     pub caller_definition_span: kernc_utils::Span,
     pub dynamic_dispatch_targets: Vec<kernc_utils::Span>,
 }
@@ -188,6 +188,7 @@ pub struct AnalysisCall {
 pub enum AnalysisCallKind {
     Direct,
     DynamicDispatch,
+    Indirect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

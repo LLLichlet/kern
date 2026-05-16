@@ -887,6 +887,51 @@ fn call_hierarchy_expands_dynamic_dispatch_targets() {
 }
 
 #[test]
+fn call_hierarchy_excludes_unresolved_indirect_calls() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "fn leaf() i32 { return 1; }\n",
+        "fn apply(cb: &fn() i32) i32 { return cb(); }\n",
+        "fn main() i32 { return apply(leaf); }\n",
+    );
+    let uri = temp_file_uri("server_call_hierarchy_indirect_call", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let prepare = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25077)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare["id"], json!(25077));
+    let items = prepare["result"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["name"], "apply");
+
+    let outgoing = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25078)),
+            method: Some("callHierarchy/outgoingCalls".to_string()),
+            params: Some(json!({
+                "item": items[0]
+            })),
+        },
+    );
+
+    assert_eq!(outgoing["id"], json!(25078));
+    assert_eq!(outgoing["result"], json!([]));
+}
+
+#[test]
 fn call_hierarchy_request_reports_analysis_errors() {
     let mut state = initialized_state();
     let source = "fn leaf() i32 { return 1; }\nfn main() i32 { return leaf(); }\n";

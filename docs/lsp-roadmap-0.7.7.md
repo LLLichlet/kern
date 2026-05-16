@@ -251,7 +251,9 @@ Completed foundation work:
   by compiler semantic analysis. `kernc_driver` classifies dynamic-dispatch call
   edges and records candidate implementation targets, so LSP call hierarchy
   expansion is based on compiler facts rather than string-level guesses.
-  Indirect function-value calls remain future work.
+  Function-value and closure-object calls are classified as indirect call edges
+  without fabricated targets; expanding them requires future data-flow-backed
+  target recovery.
 - Diagnostics scheduling tracks the most recently active document from sync and
   document requests, and drains that target first within the existing
   diagnostics budget before returning to stable workspace ordering.
@@ -475,8 +477,9 @@ implemented by adding more direct compiler calls inside request dispatch.
 - declaration
 - implementation
 - call hierarchy: direct resolved function/method calls and trait-object
-  dynamic-dispatch target expansion are done; indirect function-value calls
-  remain open
+  dynamic-dispatch target expansion are done; indirect function-value and
+  closure-object calls are classified but not expanded until data-flow-backed
+  target recovery exists
 - document links for imports/modules/packages: file-backed module declarations,
   semantically resolved import/use bindings, and local Craft dependency package
   references are done

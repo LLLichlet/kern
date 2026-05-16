@@ -262,13 +262,16 @@ pub(super) fn find_call_hierarchy_incoming_calls(
 
     let mut grouped = BTreeMap::<kernc_utils::Span, (IdeCallHierarchyItem, Vec<Range>)>::new();
     for call in calls.iter().filter(|call| match call.kind {
-        AnalysisCallKind::Direct => call.callee_definition_span == target_entry.definition_span,
+        AnalysisCallKind::Direct => {
+            call.callee_definition_span == Some(target_entry.definition_span)
+        }
         AnalysisCallKind::DynamicDispatch => {
-            call.callee_definition_span == target_entry.definition_span
+            call.callee_definition_span == Some(target_entry.definition_span)
                 || call
                     .dynamic_dispatch_targets
                     .contains(&target_entry.definition_span)
         }
+        AnalysisCallKind::Indirect => false,
     }) {
         let Some(from) = call_hierarchy_item_for_definition(
             session,
@@ -318,12 +321,15 @@ pub(super) fn find_call_hierarchy_outgoing_calls(
     {
         match call.kind {
             AnalysisCallKind::Direct => {
+                let Some(callee_definition_span) = call.callee_definition_span else {
+                    continue;
+                };
                 add_outgoing_call_target(
                     session,
                     semantic_entries,
                     uri_by_path,
                     &mut grouped,
-                    call.callee_definition_span,
+                    callee_definition_span,
                     call.callee_span,
                 );
             }
@@ -339,6 +345,7 @@ pub(super) fn find_call_hierarchy_outgoing_calls(
                     );
                 }
             }
+            AnalysisCallKind::Indirect => {}
         }
     }
 

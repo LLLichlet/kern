@@ -604,7 +604,9 @@ Tasks:
 - Build a project/workspace index abstraction.
 - Track `Craft.toml`, workspace members, package roots, source roots, generated
   aliases, and analysis context files.
-- Cache document symbols and top-level definitions per package target.
+- Cache document symbols and top-level definitions per package target. Workspace
+  symbol requests now cache the unfiltered per-target symbol index and reuse it
+  across query strings, while preserving the clean/dirty analysis cache split.
 - Invalidate precisely on watched file changes.
 
 Exit criteria:

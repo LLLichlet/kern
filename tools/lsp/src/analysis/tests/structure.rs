@@ -128,6 +128,49 @@ fn workspace_symbols_filter_open_document_symbols() {
 }
 
 #[test]
+fn workspace_symbols_reuse_symbol_index_across_queries() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "struct SearchTarget { value: i32 }\nfn helper() void {}\n";
+    let uri = temp_file_uri("workspace_symbols_index", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let target_symbols = analysis.workspace_symbols("target").unwrap();
+    assert_eq!(target_symbols.len(), 1);
+    assert_eq!(analysis.cached_workspace_symbol_index_count(), 1);
+
+    let helper_symbols = analysis.workspace_symbols("helper").unwrap();
+    assert_eq!(helper_symbols.len(), 1);
+    assert_eq!(helper_symbols[0].name, "helper");
+    assert_eq!(analysis.cached_workspace_symbol_index_count(), 1);
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier { uri, version: 2 },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: "struct ChangedTarget { value: i32 }\nfn helper() void {}\n".to_string(),
+        }],
+    });
+    assert_eq!(analysis.cached_workspace_symbol_index_count(), 1);
+
+    let changed_symbols = analysis.workspace_symbols("changed").unwrap();
+    assert_eq!(changed_symbols.len(), 1);
+    assert_eq!(changed_symbols[0].name, "ChangedTarget");
+    assert_eq!(analysis.cached_workspace_symbol_index_count(), 2);
+
+    let helper_symbols = analysis.workspace_symbols("helper").unwrap();
+    assert_eq!(helper_symbols.len(), 1);
+    assert_eq!(analysis.cached_workspace_symbol_index_count(), 2);
+}
+
+#[test]
 fn document_links_return_external_module_links() {
     let root = unique_temp_dir("document_links_external_module");
     fs::write(root.join("mod.kn"), "mod child;\nmod inline {}\n").unwrap();

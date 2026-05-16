@@ -225,6 +225,7 @@ pub struct AnalysisEngine {
     structure_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<StructureArtifact>>>>,
     artifact_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisArtifact>>>>,
     navigation_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisNavigationArtifact>>>>,
+    workspace_symbol_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<Vec<IdeWorkspaceSymbol>>>>>,
     semantic_tokens_cache: Arc<Mutex<BTreeMap<SemanticTokensCacheKey, IdeSemanticTokens>>>,
     lexical_cache: Arc<Mutex<BTreeMap<LexicalCacheKey, Arc<LexicalIndex>>>>,
     dirty_documents_snapshot: Arc<Mutex<Option<Arc<DirtyDocumentsSnapshot>>>>,
@@ -244,6 +245,7 @@ impl Clone for AnalysisEngine {
             structure_cache: self.structure_cache.clone(),
             artifact_cache: self.artifact_cache.clone(),
             navigation_cache: self.navigation_cache.clone(),
+            workspace_symbol_cache: self.workspace_symbol_cache.clone(),
             semantic_tokens_cache: self.semantic_tokens_cache.clone(),
             lexical_cache: self.lexical_cache.clone(),
             dirty_documents_snapshot: self.dirty_documents_snapshot.clone(),
@@ -271,6 +273,7 @@ impl AnalysisEngine {
             structure_cache: Arc::new(Mutex::new(BTreeMap::new())),
             artifact_cache: Arc::new(Mutex::new(BTreeMap::new())),
             navigation_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            workspace_symbol_cache: Arc::new(Mutex::new(BTreeMap::new())),
             semantic_tokens_cache: Arc::new(Mutex::new(BTreeMap::new())),
             lexical_cache: Arc::new(Mutex::new(BTreeMap::new())),
             dirty_documents_snapshot: Arc::new(Mutex::new(None)),
@@ -1231,6 +1234,7 @@ impl AnalysisEngine {
         self.structure_cache.lock().unwrap().clear();
         self.artifact_cache.lock().unwrap().clear();
         self.navigation_cache.lock().unwrap().clear();
+        self.workspace_symbol_cache.lock().unwrap().clear();
     }
 
     fn invalidate_dirty_document_snapshot(&self) {
@@ -1286,6 +1290,10 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
+        self.workspace_symbol_cache
+            .lock()
+            .unwrap()
+            .retain(|key, _| key.family() != family || key == keep || key.is_clean());
     }
 
     #[cfg(test)]
@@ -1296,6 +1304,11 @@ impl AnalysisEngine {
     #[cfg(test)]
     fn cached_project_count(&self) -> usize {
         self.project_cache.lock().unwrap().len()
+    }
+
+    #[cfg(test)]
+    fn cached_workspace_symbol_index_count(&self) -> usize {
+        self.workspace_symbol_cache.lock().unwrap().len()
     }
 
     fn document_differs_from_disk(path: &Path, text: &str) -> bool {

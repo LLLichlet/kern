@@ -35,12 +35,15 @@ impl AnalysisEngine {
                         snapshot.dirty_documents(),
                         snapshot.cancellation.clone(),
                     )?;
-                    self.collect_workspace_symbols_for_context(
-                        &context,
-                        &needle,
-                        snapshot.uri_by_normalized_path(),
-                        &mut symbols,
-                    )?;
+                    symbols.extend(
+                        self.workspace_symbol_index_for_context(
+                            &context,
+                            snapshot.uri_by_normalized_path(),
+                        )?
+                        .iter()
+                        .filter(|symbol| workspace_symbol_matches_query(symbol, &needle))
+                        .cloned(),
+                    );
                 }
                 symbols.sort_by(workspace_symbol_order);
                 symbols.dedup_by(workspace_symbol_same_location);
@@ -57,12 +60,15 @@ impl AnalysisEngine {
                 snapshot.dirty_documents(),
                 snapshot.cancellation.clone(),
             )?;
-            self.collect_workspace_symbols_for_context(
-                &context,
-                &needle,
-                snapshot.uri_by_normalized_path(),
-                &mut symbols,
-            )?;
+            symbols.extend(
+                self.workspace_symbol_index_for_context(
+                    &context,
+                    snapshot.uri_by_normalized_path(),
+                )?
+                .iter()
+                .filter(|symbol| workspace_symbol_matches_query(symbol, &needle))
+                .cloned(),
+            );
         }
 
         symbols.sort_by(workspace_symbol_order);
@@ -71,30 +77,51 @@ impl AnalysisEngine {
         Ok(symbols)
     }
 
-    fn collect_workspace_symbols_for_context(
+    fn workspace_symbol_index_for_context(
         &self,
         context: &AnalysisRequestContext,
-        query: &str,
         uri_by_path: &BTreeMap<PathBuf, String>,
-        out: &mut Vec<IdeWorkspaceSymbol>,
-    ) -> Result<(), String> {
+    ) -> Result<Arc<Vec<IdeWorkspaceSymbol>>, String> {
         context.check_canceled()?;
+        if let Some(symbols) = self
+            .workspace_symbol_cache
+            .lock()
+            .unwrap()
+            .get(&context.cache_key)
+            .cloned()
+        {
+            return Ok(symbols);
+        }
+
         let Some(surface) = self.analyze_surface_artifact_for_context(context)? else {
-            return Ok(());
+            let symbols = Arc::new(Vec::new());
+            self.prune_cache_family_for_insert(&context.cache_key);
+            self.workspace_symbol_cache
+                .lock()
+                .unwrap()
+                .insert(context.cache_key.clone(), Arc::clone(&symbols));
+            return Ok(symbols);
         };
+        let mut symbols = Vec::new();
         for module_symbol in &surface.symbols {
             analysis_symbol_to_workspace_symbols(
                 &surface.session,
                 module_symbol,
                 None,
                 uri_by_path,
-                out,
+                &mut symbols,
             );
         }
-        if !query.is_empty() {
-            out.retain(|symbol| symbol.name.to_ascii_lowercase().contains(query));
-        }
-        Ok(())
+        symbols.sort_by(workspace_symbol_order);
+        symbols.dedup_by(workspace_symbol_same_location);
+
+        let symbols = Arc::new(symbols);
+        self.prune_cache_family_for_insert(&context.cache_key);
+        self.workspace_symbol_cache
+            .lock()
+            .unwrap()
+            .insert(context.cache_key.clone(), Arc::clone(&symbols));
+        Ok(symbols)
     }
 
     fn semantic_query_offset(
@@ -1129,6 +1156,10 @@ fn workspace_symbol_order(
             rhs_range.end.line,
             rhs_range.end.character,
         ))
+}
+
+fn workspace_symbol_matches_query(symbol: &IdeWorkspaceSymbol, query: &str) -> bool {
+    query.is_empty() || symbol.name.to_ascii_lowercase().contains(query)
 }
 
 fn workspace_symbol_same_location(

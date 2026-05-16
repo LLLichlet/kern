@@ -45,6 +45,68 @@ fn canceled_analysis_artifact_stops_before_driver_work() {
     let _ = fs::remove_dir_all(&root);
 }
 
+#[test]
+fn analysis_artifact_cancellation_reaches_typeck_body_worklist() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_driver_typeck_canceled_artifact_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let mut source = String::new();
+    source.push_str("fn main() i32 { return f0(); }\n");
+    for index in 0..64 {
+        source.push_str(&format!("fn f{index}() i32 {{ return {index}; }}\n"));
+    }
+    fs::write(&main, source).unwrap();
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let structure = driver
+        .analyze_structure(main.to_str().unwrap(), &SourceOverrides::new())
+        .expect("large test source should structure-check");
+    let cancellation = CancellationToken::with_check_budget_for_testing(6);
+
+    let result = driver.analyze_artifact_from_structure(&structure, &cancellation);
+
+    assert!(result.is_err());
+    assert!(cancellation.is_canceled());
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn navigation_artifact_cancellation_reaches_typeck_body_worklist() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_driver_typeck_canceled_navigation_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let mut source = String::new();
+    source.push_str("fn main() i32 { return f0(); }\n");
+    for index in 0..64 {
+        source.push_str(&format!("fn f{index}() i32 {{ return {index}; }}\n"));
+    }
+    fs::write(&main, source).unwrap();
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let structure = driver
+        .analyze_structure(main.to_str().unwrap(), &SourceOverrides::new())
+        .expect("large test source should structure-check");
+    let cancellation = CancellationToken::with_check_budget_for_testing(6);
+
+    let result = driver.analyze_navigation_artifact_from_structure(&structure, &cancellation);
+
+    assert!(result.is_err());
+    assert!(cancellation.is_canceled());
+    let _ = fs::remove_dir_all(&root);
+}
+
 fn count_assignments_in_block(block: &MastBlock) -> usize {
     let stmt_count: usize = block.stmts.iter().map(count_assignments_in_stmt).sum();
     let result_count = block

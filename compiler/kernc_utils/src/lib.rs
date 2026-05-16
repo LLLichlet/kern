@@ -1,4 +1,5 @@
 pub mod atomic;
+mod cancel;
 pub mod config;
 mod diagnostic;
 mod fast_hash;
@@ -11,6 +12,7 @@ mod source;
 mod span;
 
 pub use atomic::{AtomicOrdering, AtomicRmwOp};
+pub use cancel::{Canceled, CancellationToken};
 pub use diagnostic::{
     Diagnostic, DiagnosticBuilder, DiagnosticCode, DiagnosticLevel, DiagnosticTag,
 };

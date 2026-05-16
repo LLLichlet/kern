@@ -585,11 +585,16 @@ impl AnalysisEngine {
         let mut bundles_by_uri = diagnostics_from_session(&clean_artifact.session, &self.documents);
 
         let parsed = self.parse_modules_for_context(&context)?;
-        let Some(report) = context.driver.analyze_report_with_function_body_reuse(
-            &clean_artifact,
-            &clean_structure,
-            &parsed,
-        ) else {
+        let Some(report) = context
+            .driver
+            .analyze_report_with_function_body_reuse(
+                &clean_artifact,
+                &clean_structure,
+                &parsed,
+                &context.cancellation,
+            )
+            .map_err(|_| "request was canceled".to_string())?
+        else {
             return Ok(None);
         };
 
@@ -665,7 +670,12 @@ impl AnalysisEngine {
         let parsed = self.parse_modules_for_context(&context)?;
         let report = context
             .driver
-            .analyze_report_from_structure_and_parsed(&clean_structure, &parsed)
+            .analyze_report_from_structure_and_parsed(
+                &clean_structure,
+                &parsed,
+                &context.cancellation,
+            )
+            .map_err(|_| "request was canceled".to_string())?
             .filter(|_| !context.dirty_documents.is_clean());
         if report.is_some() {
             self.record_analysis_tier(AnalysisTier::DirtySemantic);

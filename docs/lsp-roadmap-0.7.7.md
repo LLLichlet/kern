@@ -836,12 +836,21 @@ stopping only at driver phase boundaries.
 
 Tasks:
 
+- In progress: compiler cancellation token has been moved to `kernc_utils`
+  and re-exported by `kernc_driver`, so lower compiler crates can share the
+  same cancellation contract without depending on the driver.
+- Done: LSP semantic/navigation analysis paths now use cancelable body
+  pipelines. Type-checker global/body worklists check cancellation between
+  work items, including dirty function-body reuse and dirty
+  structure-plus-parsed report paths. Deterministic tests use a check-budgeted
+  token to cancel after structure analysis and inside the type-checking
+  worklist, not merely at the request boundary.
 - Thread `CancellationToken` through parser module loading and parse loops,
   including token-stream traversal, recursive descent recovery paths, and
   multi-module loading.
 - Thread cancellation through structure collection, import resolution, type
   resolution, lowering preparation, and body worklist construction.
-- Thread cancellation through type-checker global/body worklists and large
+- Continue type-checker cancellation from worklist boundaries into large
   expression/pattern traversal loops.
 - Thread cancellation through flow analysis, unused/dead-store passes, linkage
   checks, semantic token/reference collection, and workspace target iteration.

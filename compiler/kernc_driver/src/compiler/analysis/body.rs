@@ -14,7 +14,7 @@ impl CompilerDriver {
         let mut ctx = self.build_sema_context(&mut session);
         ctx.restore_structure(structure.snapshot.clone());
         cancellation.check()?;
-        let succeeded = self.run_body_pipeline(&mut ctx);
+        let succeeded = self.run_body_pipeline_cancelable(&mut ctx, cancellation)?;
         cancellation.check()?;
         let symbols = self.collect_analysis_symbols(&ctx, &analysis_asts);
         let references = ctx
@@ -78,7 +78,7 @@ impl CompilerDriver {
         let mut ctx = self.build_sema_context(&mut session);
         ctx.restore_structure(structure.snapshot.clone());
         cancellation.check()?;
-        let succeeded = self.run_navigation_pipeline(&mut ctx);
+        let succeeded = self.run_navigation_pipeline_cancelable(&mut ctx, cancellation)?;
         cancellation.check()?;
         let symbols = self.collect_analysis_symbols(&ctx, &analysis_asts);
         let references = ctx
@@ -122,7 +122,7 @@ impl CompilerDriver {
         let mut ctx = self.build_sema_context(&mut session);
         ctx.restore_structure(structure.snapshot.clone());
         cancellation.check()?;
-        let succeeded = self.run_body_pipeline(&mut ctx);
+        let succeeded = self.run_body_pipeline_cancelable(&mut ctx, cancellation)?;
         drop(ctx);
         cancellation.check()?;
 
@@ -173,17 +173,21 @@ impl CompilerDriver {
         &self,
         structure: &StructureArtifact,
         parsed: &ParsedModuleArtifact,
-    ) -> Option<AnalysisReport> {
+        cancellation: &CancellationToken,
+    ) -> Result<Option<AnalysisReport>, Canceled> {
+        cancellation.check()?;
         let mut session = parsed.session.clone();
         let mut ctx = self.build_sema_context(&mut session);
         ctx.restore_structure(structure.snapshot.clone());
+        cancellation.check()?;
         if !self.rebind_body_only_modules(&mut ctx, &structure.session, &structure.asts, parsed) {
-            return None;
+            return Ok(None);
         }
-        let succeeded = self.run_body_pipeline(&mut ctx);
+        let succeeded = self.run_body_pipeline_cancelable(&mut ctx, cancellation)?;
         drop(ctx);
+        cancellation.check()?;
 
-        Some(AnalysisReport { session, succeeded })
+        Ok(Some(AnalysisReport { session, succeeded }))
     }
 
     pub fn parsed_modules_match_structure_body_only(
@@ -274,57 +278,90 @@ impl CompilerDriver {
         clean_artifact: &AnalysisArtifact,
         structure: &StructureArtifact,
         parsed: &ParsedModuleArtifact,
-    ) -> Option<TargetedAnalysisReport> {
+        cancellation: &CancellationToken,
+    ) -> Result<Option<TargetedAnalysisReport>, Canceled> {
+        cancellation.check()?;
         let mut session = parsed.session.clone();
         let mut ctx = self.build_sema_context(&mut session);
         ctx.restore_structure(structure.snapshot.clone());
         self.apply_resolved_globals(&mut ctx, &clean_artifact.resolved_globals);
+        cancellation.check()?;
 
-        let plan = self.build_function_body_reuse_plan(&ctx, &clean_artifact.asts, parsed)?;
+        let Some(plan) = self.build_function_body_reuse_plan(&ctx, &clean_artifact.asts, parsed)
+        else {
+            return Ok(None);
+        };
         if plan.worklist.is_empty() {
-            return None;
+            return Ok(None);
         }
         if !self.rebind_body_only_modules(&mut ctx, &structure.session, &structure.asts, parsed) {
-            return None;
+            return Ok(None);
         }
+        cancellation.check()?;
 
         let mut typeck = TypeckDriver::new(&mut ctx);
-        typeck.check_body_worklist(&plan.worklist);
+        typeck.check_body_worklist_cancelable(&plan.worklist, cancellation)?;
         let ctx = typeck.into_context();
+        cancellation.check()?;
         let references = self.merge_targeted_identifier_references(
             clean_artifact,
             &plan.replaced_spans,
             ctx.identifier_references(),
         );
+        cancellation.check()?;
         let flow_model = self.collect_flow_model_from_raw_references(ctx, &references);
+        cancellation.check()?;
         self.emit_unused_private_item_warnings(ctx, &references, &flow_model);
+        cancellation.check()?;
         self.emit_unused_binding_warnings(ctx, &flow_model);
+        cancellation.check()?;
         self.emit_dead_store_warnings(ctx, &references, &flow_model);
+        cancellation.check()?;
         let succeeded = Self::report_diagnostics_if_errors(ctx);
 
-        Some(TargetedAnalysisReport {
+        Ok(Some(TargetedAnalysisReport {
             report: AnalysisReport { session, succeeded },
             replaced_spans: plan.replaced_spans,
-        })
+        }))
     }
 
     pub(in crate::compiler) fn run_body_pipeline<'a>(&self, ctx: &mut SemaContext<'a>) -> bool {
         self.run_body_pipeline_with_report(ctx).is_some()
     }
 
-    pub(in crate::compiler) fn run_navigation_pipeline<'a>(
+    pub(in crate::compiler) fn run_body_pipeline_cancelable<'a>(
         &self,
         ctx: &mut SemaContext<'a>,
-    ) -> bool {
+        cancellation: &CancellationToken,
+    ) -> Result<bool, Canceled> {
+        Ok(self
+            .run_body_pipeline_with_report_cancelable(ctx, cancellation)?
+            .is_some())
+    }
+
+    pub(in crate::compiler) fn run_navigation_pipeline_cancelable<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, Canceled> {
         let mut typeck = TypeckDriver::new(ctx);
         let (globals, worklist) = typeck.worklists();
-        typeck.resolve_global_worklist(&globals);
-        typeck.check_body_worklist(&worklist);
+        cancellation.check()?;
+        typeck.resolve_global_worklist_cancelable(&globals, cancellation)?;
+        typeck.check_body_worklist_cancelable(&worklist, cancellation)?;
         let ctx = typeck.into_context();
-        Self::report_diagnostics_if_errors(ctx)
+        cancellation.check()?;
+        Ok(Self::report_diagnostics_if_errors(ctx))
     }
 
     pub(in crate::compiler) fn run_body_pipeline_with_report<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+    ) -> Option<BodyPipelineReport> {
+        self.run_body_pipeline_with_report_uncancelable(ctx)
+    }
+
+    fn run_body_pipeline_with_report_uncancelable<'a>(
         &self,
         ctx: &mut SemaContext<'a>,
     ) -> Option<BodyPipelineReport> {
@@ -387,6 +424,82 @@ impl CompilerDriver {
             lowered_module_items,
             phase_timings,
         })
+    }
+
+    pub(in crate::compiler) fn run_body_pipeline_with_report_cancelable<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<BodyPipelineReport>, Canceled> {
+        let mut phase_timings = Vec::new();
+        let mut typeck = TypeckDriver::new(ctx);
+        let (globals, worklist) = typeck.worklists();
+        cancellation.check()?;
+        measure_body_phase(&mut phase_timings, "typeck_globals", || {
+            typeck.resolve_global_worklist_cancelable(&globals, cancellation)
+        })?;
+        let _ = measure_body_phase(&mut phase_timings, "typeck_bodies", || {
+            typeck.check_body_worklist_cancelable(&worklist, cancellation)
+        })?;
+        phase_timings.extend(
+            typeck
+                .body_phase_timings()
+                .into_iter()
+                .map(|timing| PhaseTiming {
+                    name: timing.name,
+                    duration: timing.duration,
+                }),
+        );
+        let ctx = typeck.into_context();
+        cancellation.check()?;
+        if !Self::report_diagnostics_if_errors(ctx) {
+            return Ok(None);
+        }
+        let references = ctx.identifier_references().to_vec();
+        cancellation.check()?;
+        let flow_model = measure_body_phase(&mut phase_timings, "flow", || {
+            self.collect_compile_flow_model_from_raw_references(ctx, &references)
+        });
+        cancellation.check()?;
+        phase_timings.extend(flow_model.phase_timings().iter().copied().map(|timing| {
+            PhaseTiming {
+                name: timing.name,
+                duration: timing.duration,
+            }
+        }));
+        let flow_lowering_hints = flow_model.lowering_hints(ctx);
+        cancellation.check()?;
+        let reachability = self.compute_module_item_reachability(ctx, &references, &flow_model);
+        let lowered_module_items = reachability.lowered_reachable.clone();
+        cancellation.check()?;
+        measure_body_phase(&mut phase_timings, "warn_unused_items", || {
+            self.emit_unused_private_item_warnings_with_reachability(ctx, &reachability);
+        });
+        cancellation.check()?;
+        measure_body_phase(&mut phase_timings, "warn_unused_bindings", || {
+            self.emit_unused_binding_warnings(ctx, &flow_model);
+        });
+        cancellation.check()?;
+        measure_body_phase(&mut phase_timings, "warn_dead_stores", || {
+            self.emit_dead_store_warnings(ctx, &references, &flow_model);
+        });
+        cancellation.check()?;
+
+        let mut linkage_checker = LinkageChecker::new(ctx);
+        measure_body_phase(&mut phase_timings, "linkage", || {
+            linkage_checker.check_all();
+        });
+        let ctx = linkage_checker.context();
+        cancellation.check()?;
+        if !Self::report_diagnostics_if_errors(ctx) {
+            return Ok(None);
+        }
+
+        Ok(Some(BodyPipelineReport {
+            flow_lowering_hints,
+            lowered_module_items,
+            phase_timings,
+        }))
     }
 
     fn merge_targeted_identifier_references(

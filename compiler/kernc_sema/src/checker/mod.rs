@@ -11,7 +11,7 @@ use crate::scope::{ScopeId, SymbolInfo, SymbolKind, SymbolNamespace};
 use crate::semantic::SemanticSymbolKind;
 use crate::ty::{ConstGeneric, GenericArg, TypeId, TypeKind};
 use kernc_ast::{self as ast, Visibility};
-use kernc_utils::Span;
+use kernc_utils::{Canceled, CancellationToken, Span};
 use std::time::{Duration, Instant};
 
 /// Main entry point for semantic type checking.
@@ -359,15 +359,26 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     }
 
     pub fn resolve_global_worklist(&mut self, globals: &[(DefId, ScopeId)]) {
+        self.resolve_global_worklist_cancelable(globals, &CancellationToken::new())
+            .expect("fresh cancellation token cannot be canceled");
+    }
+
+    pub fn resolve_global_worklist_cancelable(
+        &mut self,
+        globals: &[(DefId, ScopeId)],
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
         let mut changed = true;
         let mut max_iters = 100;
         let mut resolved_globals = std::collections::HashSet::new();
 
         while changed && max_iters > 0 {
+            cancellation.check()?;
             changed = false;
             max_iters -= 1;
 
             for &(item_id, scope_id) in globals {
+                cancellation.check()?;
                 if resolved_globals.contains(&item_id) {
                     continue;
                 }
@@ -420,6 +431,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
         if resolved_globals.len() < globals.len() {
             for &(item_id, scope_id) in globals {
+                cancellation.check()?;
                 if !resolved_globals.contains(&item_id) {
                     let Some(global) =
                         self.global_def_ptr(item_id, "re-check an unresolved global")
@@ -447,6 +459,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 }
             }
         }
+        Ok(())
     }
 
     pub fn body_worklist(&self) -> Vec<BodyWorkItem> {
@@ -454,13 +467,24 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     }
 
     pub fn check_body_worklist(&mut self, worklist: &[BodyWorkItem]) -> TypeckBodyTimings {
+        self.check_body_worklist_cancelable(worklist, &CancellationToken::new())
+            .expect("fresh cancellation token cannot be canceled")
+    }
+
+    pub fn check_body_worklist_cancelable(
+        &mut self,
+        worklist: &[BodyWorkItem],
+        cancellation: &CancellationToken,
+    ) -> Result<TypeckBodyTimings, Canceled> {
         self.ctx.analysis.expr_timing_stats = Default::default();
         for &(def_id, parent_scope) in worklist {
+            cancellation.check()?;
             self.ctx.scopes.set_current_scope(parent_scope);
             self.check_item(def_id, parent_scope);
         }
+        cancellation.check()?;
         self.emit_pending_temporary_address_escape_checks();
-        self.body_timings
+        Ok(self.body_timings)
     }
 
     fn check_global_initializer(&mut self, scope_id: ScopeId, global: &GlobalDef) -> TypeId {

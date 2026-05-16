@@ -40,6 +40,10 @@ fn initialize_result_advertises_precise_capabilities() {
         result["capabilities"]["callHierarchyProvider"]["workDoneProgress"],
         false
     );
+    assert_eq!(
+        result["capabilities"]["referencesProvider"]["workDoneProgress"],
+        true
+    );
     assert_eq!(result["capabilities"]["foldingRangeProvider"], true);
     assert_eq!(result["capabilities"]["selectionRangeProvider"], true);
     assert_eq!(

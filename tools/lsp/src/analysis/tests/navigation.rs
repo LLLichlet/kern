@@ -542,6 +542,96 @@ fn finds_references_from_definition_position_including_declaration() {
 }
 
 #[test]
+fn references_include_workspace_package_uses() {
+    let root = unique_temp_dir("references_workspace_packages");
+    let dep_dir = root.join("dep/src");
+    let app_dir = root.join("app/src");
+    fs::create_dir_all(&dep_dir).unwrap();
+    fs::create_dir_all(&app_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        "[workspace]\nname = \"workspace\"\nmembers = [\"dep\", \"app\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("dep/Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"dep\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    let dep_source = "pub fn helper() i32 { return 1; }\n";
+    fs::write(dep_dir.join("lib.kn"), dep_source).unwrap();
+    fs::write(
+        root.join("app/Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+
+[dependencies]
+dep = {{ path = \"../dep\" }}
+"
+        ),
+    )
+    .unwrap();
+    let app_source = "use dep.helper;\npub fn run() i32 { return helper(); }\n";
+    fs::write(app_dir.join("lib.kn"), app_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let uri = file_path_to_uri(&dep_dir.join("lib.kn")).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: dep_source.to_string(),
+        },
+    });
+
+    let references = analysis
+        .references(&uri, position_of_nth(dep_source, "helper", 0, 1), true)
+        .unwrap();
+
+    assert_eq!(references.len(), 3, "{references:#?}");
+    assert!(
+        references.iter().any(|location| location.uri == uri
+            && location.range.start == position_of_nth(dep_source, "helper", 0, 0)),
+        "{references:#?}"
+    );
+    let app_references = references
+        .iter()
+        .filter(|location| location.uri.ends_with("/app/src/lib.kn"))
+        .collect::<Vec<_>>();
+    assert_eq!(app_references.len(), 2, "{references:#?}");
+    assert!(
+        app_references
+            .iter()
+            .any(|location| location.range.start == position_of_nth(app_source, "helper", 0, 0)),
+        "{references:#?}"
+    );
+    assert!(
+        app_references
+            .iter()
+            .any(|location| location.range.start == position_of_nth(app_source, "helper", 1, 0)),
+        "{references:#?}"
+    );
+}
+
+#[test]
 fn document_highlights_include_definition_and_same_file_references() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper() + helper(); }\n";

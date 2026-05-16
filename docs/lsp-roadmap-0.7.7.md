@@ -258,6 +258,10 @@ Completed foundation work:
   `Craft.toml`, `Craft.lock`, and `.craft/analysis.toml` clear project and
   driver state before queuing diagnostics; ordinary source changes refresh
   analysis without dropping the project resolution cache.
+- `textDocument/references` now searches all resolved workspace analysis
+  targets when the query belongs to a Craft project, deduplicates repeated target
+  contexts, and reports standard work-done progress when the client supplies a
+  `workDoneToken`. Standalone files keep the previous single-target behavior.
 
 Still to complete before calling the scheduler done:
 
@@ -459,7 +463,8 @@ implemented by adding more direct compiler calls inside request dispatch.
   semantically resolved import/use bindings, and local Craft dependency package
   references are done
 - code lens for tests/build targets once test/build metadata is stable
-- workspace-wide references with progress reporting
+- workspace-wide references with progress reporting are done for resolved Craft
+  workspace targets
 
 ### Can Wait Until After 0.7.7
 
@@ -556,10 +561,11 @@ Tasks:
 - Return proper cancellation errors for requests. This is implemented for
   document requests: canceled requests return LSP `RequestCancelled` (`-32800`)
   instead of being silently dropped.
-- Add progress notifications for workspace refresh/indexing. Workspace refresh
-  progress is implemented with `window/workDoneProgress/create` and
-  `$/progress`; indexing progress remains tied to future workspace indexing
-  work.
+- Add progress notifications for workspace refresh/indexing and long workspace
+  queries. Workspace refresh progress is implemented with
+  `window/workDoneProgress/create` and `$/progress`; workspace references use
+  request-provided `workDoneToken`; indexing progress remains tied to future
+  workspace indexing work.
 
 Exit criteria:
 

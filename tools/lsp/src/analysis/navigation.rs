@@ -27,6 +27,15 @@ pub(super) struct ReferenceLocationQuery<'a> {
     pub uri_by_path: &'a BTreeMap<PathBuf, String>,
 }
 
+pub(super) struct KnownReferenceLocationQuery<'a> {
+    pub session: &'a kernc_utils::Session,
+    pub definition_links: &'a [AnalysisDefinitionLink],
+    pub semantic_entries: &'a [AnalysisSemanticEntry],
+    pub definition_span: kernc_utils::Span,
+    pub include_declaration: bool,
+    pub uri_by_path: &'a BTreeMap<PathBuf, String>,
+}
+
 pub(super) fn analysis_symbol_to_document_symbol(
     session: &kernc_utils::Session,
     symbol: &AnalysisSymbol,
@@ -380,6 +389,40 @@ pub(super) fn find_reference_locations(query: ReferenceLocationQuery<'_>) -> Vec
     locations
 }
 
+pub(super) fn find_reference_locations_for_definition(
+    query: KnownReferenceLocationQuery<'_>,
+) -> Vec<IdeLocation> {
+    let definition_spans =
+        rename_definition_span_group(query.definition_span, query.definition_links);
+
+    let mut locations = Vec::new();
+    if query.include_declaration {
+        for definition_span in &definition_spans {
+            if let Some(location) =
+                location_from_span(query.session, *definition_span, query.uri_by_path)
+            {
+                locations.push(location);
+            }
+        }
+    }
+
+    for entry in query.semantic_entries {
+        if entry.role != AnalysisSemanticRole::Reference
+            || !definition_spans.contains(&entry.definition_span)
+        {
+            continue;
+        }
+
+        if let Some(location) = location_from_span(query.session, entry.span, query.uri_by_path) {
+            locations.push(location);
+        }
+    }
+
+    locations.sort_by_key(location_order_key);
+    locations.dedup();
+    locations
+}
+
 fn location_order_key(location: &IdeLocation) -> (String, u32, u32, u32, u32) {
     let range = &location.range;
     (
@@ -461,6 +504,16 @@ fn find_target_definition_span(
     let matching_entries =
         semantic_entries_at_position(session, semantic_entries, target_path, position);
     best_target_entry(session, hovers, &matching_entries).map(|entry| entry.definition_span)
+}
+
+pub(super) fn navigation_definition_span_for_position(
+    session: &kernc_utils::Session,
+    hovers: &[AnalysisHover],
+    semantic_entries: &[AnalysisSemanticEntry],
+    target_path: &Path,
+    position: &Position,
+) -> Option<kernc_utils::Span> {
+    find_target_definition_span(session, hovers, semantic_entries, target_path, position)
 }
 
 pub(super) fn find_hover(

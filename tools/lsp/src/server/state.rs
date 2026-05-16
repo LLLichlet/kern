@@ -66,6 +66,7 @@ pub(super) struct RequestContext {
     pub(super) target_uri: Option<String>,
     pub(super) generation: Option<AnalysisGeneration>,
     pub(super) cancellation: Option<CancellationToken>,
+    pub(super) work_done_token: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -386,6 +387,7 @@ impl ServerState {
             target_uri: None,
             generation: None,
             cancellation: None,
+            work_done_token: None,
         }
     }
 
@@ -399,6 +401,7 @@ impl ServerState {
             target_uri: Some(target_uri.to_string()),
             generation: self.latest_generation_by_target.get(target_uri).copied(),
             cancellation: None,
+            work_done_token: None,
         }
     }
 

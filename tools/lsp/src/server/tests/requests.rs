@@ -1085,6 +1085,109 @@ fn references_request_returns_sorted_locations() {
 }
 
 #[test]
+fn references_request_reports_workspace_progress_and_package_uses() {
+    let root = unique_temp_dir("server_workspace_references_progress");
+    let dep_dir = root.join("dep/src");
+    let app_dir = root.join("app/src");
+    fs::create_dir_all(&dep_dir).unwrap();
+    fs::create_dir_all(&app_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        "[workspace]\nname = \"workspace\"\nmembers = [\"dep\", \"app\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("dep/Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"dep\"
+version = \"0.1.0\"
+kern = \"{}\"\n
+[lib]
+root = \"src/lib.kn\"
+",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    let dep_source = "pub fn helper() i32 { return 1; }\n";
+    fs::write(dep_dir.join("lib.kn"), dep_source).unwrap();
+    fs::write(
+        root.join("app/Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{}\"\n
+[lib]
+root = \"src/lib.kn\"
+
+[dependencies]
+dep = {{ path = \"../dep\" }}
+",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    let app_source = "use dep.helper;\npub fn run() i32 { return helper(); }\n";
+    fs::write(app_dir.join("lib.kn"), app_source).unwrap();
+    let uri = format!("file://{}", dep_dir.join("lib.kn").to_string_lossy());
+
+    let mut state = initialized_state();
+    state.work_done_progress = true;
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, dep_source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(261)),
+            method: Some("textDocument/references".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 8 },
+                "context": { "includeDeclaration": true },
+                "workDoneToken": "refs-token"
+            })),
+        },
+    );
+
+    assert_eq!(messages.len(), 3, "{messages:#?}");
+    assert_eq!(messages[0]["method"], "$/progress");
+    assert_eq!(messages[0]["params"]["token"], "refs-token");
+    assert_eq!(messages[0]["params"]["value"]["kind"], "begin");
+    let response = messages
+        .iter()
+        .find(|message| message["id"] == json!(261))
+        .unwrap();
+    let locations = response["result"].as_array().unwrap();
+    assert_eq!(locations.len(), 3, "{locations:#?}");
+    assert!(
+        locations.iter().any(|location| location["uri"]
+            .as_str()
+            .unwrap()
+            .ends_with("/dep/src/lib.kn")),
+        "{locations:#?}"
+    );
+    let app_locations = locations
+        .iter()
+        .filter(|location| {
+            location["uri"]
+                .as_str()
+                .unwrap()
+                .ends_with("/app/src/lib.kn")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(app_locations.len(), 2, "{locations:#?}");
+    assert!(messages.iter().any(|message| {
+        message["method"] == "$/progress"
+            && message["params"]["token"] == "refs-token"
+            && message["params"]["value"]["kind"] == "end"
+    }));
+}
+
+#[test]
 fn hover_request_returns_signature_markup() {
     let mut state = initialized_state();
     let source = "fn helper(x: i32) i32 { return x; }\nfn main() i32 { return helper(1); }\n";

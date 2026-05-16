@@ -34,12 +34,14 @@ use self::ide::{
     IdeWorkspaceEdit, IdeWorkspaceSymbol,
 };
 use self::navigation::{
-    ReferenceLocationQuery, analysis_completion_to_ide_item, analysis_signature_help_to_ide_help,
-    analysis_symbol_to_document_symbol, analysis_symbol_to_workspace_symbols,
-    analysis_type_hint_to_ide_hint, build_rename_changes, find_call_hierarchy_incoming_calls,
-    find_call_hierarchy_item, find_call_hierarchy_outgoing_calls, find_definition_location,
-    find_document_highlights, find_hover, find_implementation_locations, find_reference_locations,
-    find_rename_target, find_type_definition_location,
+    KnownReferenceLocationQuery, ReferenceLocationQuery, analysis_completion_to_ide_item,
+    analysis_signature_help_to_ide_help, analysis_symbol_to_document_symbol,
+    analysis_symbol_to_workspace_symbols, analysis_type_hint_to_ide_hint, build_rename_changes,
+    find_call_hierarchy_incoming_calls, find_call_hierarchy_item,
+    find_call_hierarchy_outgoing_calls, find_definition_location, find_document_highlights,
+    find_hover, find_implementation_locations, find_reference_locations,
+    find_reference_locations_for_definition, find_rename_target, find_type_definition_location,
+    navigation_definition_span_for_position,
 };
 use self::text::{
     LexicalIndex, apply_content_change, byte_offset_to_position, completion_context,

@@ -270,17 +270,109 @@ impl AnalysisEngine {
             return Err("requested references for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
+        let Some(definition_span) = navigation_definition_span_for_position(
+            &artifact.session,
+            &artifact.hovers,
+            &artifact.semantic_entries,
+            &target_path,
+            &position,
+        ) else {
+            return Ok(Vec::new());
+        };
 
-        Ok(find_reference_locations(ReferenceLocationQuery {
-            session: &artifact.session,
-            hovers: &artifact.hovers,
-            definition_links: &artifact.definition_links,
-            semantic_entries: &artifact.semantic_entries,
-            target_path: &target_path,
-            position: &position,
+        let Some(definition_key) = span_identity_key(&artifact.session, definition_span) else {
+            return Ok(find_reference_locations(ReferenceLocationQuery {
+                session: &artifact.session,
+                hovers: &artifact.hovers,
+                definition_links: &artifact.definition_links,
+                semantic_entries: &artifact.semantic_entries,
+                target_path: &target_path,
+                position: &position,
+                include_declaration,
+                uri_by_path: snapshot.uri_by_normalized_path(),
+            }));
+        };
+
+        if let Some(workspace_locations) = self.workspace_reference_locations(
+            snapshot,
+            target_doc,
+            &definition_key,
             include_declaration,
-            uri_by_path: snapshot.uri_by_normalized_path(),
-        }))
+        )? {
+            return Ok(workspace_locations);
+        }
+
+        Ok(find_reference_locations_for_definition(
+            KnownReferenceLocationQuery {
+                session: &artifact.session,
+                definition_links: &artifact.definition_links,
+                semantic_entries: &artifact.semantic_entries,
+                definition_span,
+                include_declaration,
+                uri_by_path: snapshot.uri_by_normalized_path(),
+            },
+        ))
+    }
+
+    fn workspace_reference_locations(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        target_doc: &OpenDocument,
+        definition_key: &SpanIdentityKey,
+        include_declaration: bool,
+    ) -> Result<Option<Vec<IdeLocation>>, String> {
+        let Some(project) = self.project_for_path(&target_doc.path)? else {
+            return Ok(None);
+        };
+        let targets = project
+            .workspace_targets(&self.settings.compile_options)
+            .map_err(|err| {
+                format!(
+                    "workspace references project analysis failed for `{}`: {err}",
+                    project.manifest_path().display()
+                )
+            })?;
+        if targets.len() <= 1 {
+            return Ok(None);
+        }
+
+        let mut locations = Vec::new();
+        let mut seen_contexts = BTreeSet::new();
+        for resolved in targets {
+            snapshot.check_canceled()?;
+            let context = self.analysis_context_for_resolved_and_dirty(
+                resolved,
+                snapshot.dirty_documents(),
+                snapshot.cancellation.clone(),
+            )?;
+            if !seen_contexts.insert(context.cache_key.clone()) {
+                continue;
+            }
+            let artifact = self
+                .analyze_interactive_navigation_artifact_for_context(&context)
+                .map_err(|message| format!("workspace references analysis failed: {message}"))?;
+            let Some(definition_span) = find_definition_span_by_identity_key(
+                &artifact.session,
+                &artifact.semantic_entries,
+                definition_key,
+            ) else {
+                continue;
+            };
+            locations.extend(find_reference_locations_for_definition(
+                KnownReferenceLocationQuery {
+                    session: &artifact.session,
+                    definition_links: &artifact.definition_links,
+                    semantic_entries: &artifact.semantic_entries,
+                    definition_span,
+                    include_declaration,
+                    uri_by_path: snapshot.uri_by_normalized_path(),
+                },
+            ));
+        }
+
+        locations.sort_by(workspace_location_order);
+        locations.dedup();
+        Ok(Some(locations))
     }
 
     pub fn implementation_locations_in_snapshot(
@@ -945,4 +1037,54 @@ fn workspace_symbol_same_location(
     rhs: &mut IdeWorkspaceSymbol,
 ) -> bool {
     lhs.name == rhs.name && lhs.kind == rhs.kind && lhs.location == rhs.location
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SpanIdentityKey {
+    path: PathBuf,
+    start: usize,
+    end: usize,
+}
+
+fn span_identity_key(session: &Session, span: Span) -> Option<SpanIdentityKey> {
+    let path = session.source_manager.get_file_path(span.file)?;
+    Some(SpanIdentityKey {
+        path: normalize_path(path),
+        start: span.start,
+        end: span.end,
+    })
+}
+
+fn find_definition_span_by_identity_key(
+    session: &Session,
+    semantic_entries: &[kernc_driver::AnalysisSemanticEntry],
+    key: &SpanIdentityKey,
+) -> Option<Span> {
+    semantic_entries
+        .iter()
+        .filter_map(|entry| {
+            span_identity_key(session, entry.definition_span)
+                .filter(|candidate| candidate == key)
+                .map(|_| entry.definition_span)
+        })
+        .next()
+}
+
+fn workspace_location_order(lhs: &IdeLocation, rhs: &IdeLocation) -> std::cmp::Ordering {
+    let lhs_range = &lhs.range;
+    let rhs_range = &rhs.range;
+    (
+        lhs.uri.as_str(),
+        lhs_range.start.line,
+        lhs_range.start.character,
+        lhs_range.end.line,
+        lhs_range.end.character,
+    )
+        .cmp(&(
+            rhs.uri.as_str(),
+            rhs_range.start.line,
+            rhs_range.start.character,
+            rhs_range.end.line,
+            rhs_range.end.character,
+        ))
 }

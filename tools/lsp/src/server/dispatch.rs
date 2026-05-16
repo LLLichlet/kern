@@ -5,8 +5,9 @@ use super::lifecycle::{
 };
 use super::scheduler::{
     drain_scheduler, execute_document_diagnostics, execute_document_request,
-    execute_optional_document_request, execute_request, flush_document_request_results,
-    schedule_workspace_refresh, write_error_response, write_null_response, write_success_response,
+    execute_document_request_with_progress, execute_optional_document_request, execute_request,
+    flush_document_request_results, schedule_workspace_refresh, write_error_response,
+    write_null_response, write_success_response,
 };
 use super::{
     INVALID_REQUEST, METHOD_NOT_FOUND, SERVER_NOT_INITIALIZED, SchedulerLane, ServerError,
@@ -545,13 +546,17 @@ fn handle_message_with_document_request_policy(
             let query_uri = target_uri.clone();
             let position = params.position;
             let include_declaration = params.context.include_declaration;
-            execute_document_request(
+            let work_done_token = params.work_done_token;
+            execute_document_request_with_progress(
                 state,
                 writer,
                 id,
                 &target_uri,
                 SchedulerLane::Interactive,
                 method,
+                work_done_token,
+                "Kern workspace references",
+                "Searching workspace references",
                 move |analysis, snapshot| {
                     analysis
                         .references_in_snapshot(snapshot, &query_uri, position, include_declaration)

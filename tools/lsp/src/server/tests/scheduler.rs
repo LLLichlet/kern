@@ -995,6 +995,7 @@ fn stale_document_request_task_result_drops_response() {
         target_uri: Some(uri.clone()),
         generation: Some(stale_generation),
         cancellation: None,
+        work_done_token: None,
     };
     let _newer = state.begin_target_analysis(&uri);
     let mut output = Vec::new();
@@ -1031,6 +1032,7 @@ fn stale_document_request_skips_analysis_work() {
         target_uri: Some(uri),
         generation: Some(stale_generation),
         cancellation: None,
+        work_done_token: None,
     };
 
     assert!(state.should_skip_request(&stale_request));

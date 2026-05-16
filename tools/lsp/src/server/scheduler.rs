@@ -410,6 +410,70 @@ where
     Ok(())
 }
 
+pub(super) fn execute_document_request_with_progress<T, F>(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    id: Value,
+    target_uri: &str,
+    lane: SchedulerLane,
+    method: &str,
+    work_done_token: Option<Value>,
+    progress_title: &str,
+    progress_message: &str,
+    analysis: F,
+) -> Result<(), ServerError>
+where
+    T: serde::Serialize,
+    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<T, String> + Send + 'static,
+{
+    state.mark_active_document(target_uri);
+    let mut request = state.request_context_for_document(id, target_uri);
+    if state.should_skip_request(&request) {
+        return Ok(());
+    }
+    let was_canceled_before_registration = state.take_pending_cancel(&request.id);
+    state.register_request_cancellation(&mut request);
+    if was_canceled_before_registration {
+        if let Some(cancellation) = &request.cancellation {
+            cancellation.cancel();
+        }
+    }
+    if let Some(token) = work_done_token
+        && state.work_done_progress
+    {
+        writer.write_json(&progress(
+            token.clone(),
+            WorkDoneProgressValue::Begin {
+                title: progress_title.to_string(),
+                message: progress_message.to_string(),
+                percentage: None,
+            },
+        ))?;
+        request.work_done_token = Some(token);
+    }
+
+    submit_document_request_task(
+        state,
+        ScheduledDocumentRequestTask {
+            request,
+            target_uri: target_uri.to_string(),
+            lane,
+            method: method.to_string(),
+            queued_at: Instant::now(),
+        },
+        state.workspace_root.clone(),
+        |engine, snapshot| {
+            analysis(engine, snapshot)
+                .and_then(|result| {
+                    serde_json::to_value(result)
+                        .map_err(|err| format!("failed to encode response: {err}"))
+                })
+                .map(DocumentRequestResponse::Success)
+        },
+    );
+    Ok(())
+}
+
 pub(super) fn execute_request<T, F>(
     state: &mut ServerState,
     writer: &mut MessageWriter<impl io::Write>,
@@ -615,6 +679,7 @@ pub(super) fn submit_document_request_result(
 ) -> Result<(), ServerError> {
     if result.request.is_canceled() || result.canceled {
         emit_request_canceled_trace(state, writer, &result)?;
+        emit_request_progress_end(writer, &result.request, "Canceled")?;
         write_error_response(
             state,
             writer,
@@ -626,10 +691,15 @@ pub(super) fn submit_document_request_result(
     }
     match result.response {
         DocumentRequestResponse::Success(value) => {
+            emit_request_progress_end(writer, &result.request, "Complete")?;
             write_success_response(state, writer, &result.request, value)?
         }
-        DocumentRequestResponse::Null => write_null_response(state, writer, &result.request)?,
+        DocumentRequestResponse::Null => {
+            emit_request_progress_end(writer, &result.request, "Complete")?;
+            write_null_response(state, writer, &result.request)?
+        }
         DocumentRequestResponse::Error { code, message } => {
+            emit_request_progress_end(writer, &result.request, "Failed")?;
             write_error_response(state, writer, &result.request, code, message)?
         }
     }
@@ -643,6 +713,23 @@ pub(super) fn submit_document_request_result(
         result.elapsed_ms,
         result.analysis_tier,
     )
+}
+
+fn emit_request_progress_end(
+    writer: &mut MessageWriter<impl io::Write>,
+    request: &RequestContext,
+    message: &str,
+) -> Result<(), ServerError> {
+    let Some(token) = &request.work_done_token else {
+        return Ok(());
+    };
+    writer.write_json(&progress(
+        token.clone(),
+        WorkDoneProgressValue::End {
+            message: message.to_string(),
+        },
+    ))?;
+    Ok(())
 }
 
 fn emit_request_canceled_trace(
@@ -778,6 +865,7 @@ fn emit_workspace_refresh_progress_begin(
         WorkDoneProgressValue::Begin {
             title: "Kern workspace refresh".to_string(),
             message: reason.to_string(),
+            percentage: None,
         },
     ))?;
     Ok(Some(token))

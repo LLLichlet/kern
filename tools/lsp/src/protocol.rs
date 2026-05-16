@@ -288,6 +288,8 @@ pub struct ReferenceParams {
     pub text_document: TextDocumentIdentifier,
     pub position: Position,
     pub context: ReferenceContext,
+    #[serde(default, rename = "workDoneToken")]
+    pub work_done_token: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -543,8 +545,15 @@ pub struct ProgressParams<T> {
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum WorkDoneProgressValue {
-    Begin { title: String, message: String },
-    End { message: String },
+    Begin {
+        title: String,
+        message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        percentage: Option<u32>,
+    },
+    End {
+        message: String,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -763,7 +772,10 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
         json!({ "workDoneProgress": false }),
     );
     capabilities.insert("documentHighlightProvider".to_string(), Value::Bool(true));
-    capabilities.insert("referencesProvider".to_string(), Value::Bool(true));
+    capabilities.insert(
+        "referencesProvider".to_string(),
+        json!({ "workDoneProgress": true }),
+    );
     capabilities.insert("hoverProvider".to_string(), Value::Bool(true));
     capabilities.insert("foldingRangeProvider".to_string(), Value::Bool(true));
     capabilities.insert("selectionRangeProvider".to_string(), Value::Bool(true));

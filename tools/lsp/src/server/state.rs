@@ -145,7 +145,7 @@ pub(super) struct WorkspaceRefreshTaskResult {
     pub(super) progress_token: Option<Value>,
     pub(super) queue_wait_ms: u128,
     pub(super) elapsed_ms: u128,
-    pub(super) targets: Result<Vec<(String, DiagnosticsAnalysisMode)>, String>,
+    pub(super) refresh: Result<crate::analysis::WorkspaceIndexRefresh, String>,
 }
 
 pub(super) enum LspWorkerTask {

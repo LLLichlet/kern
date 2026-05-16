@@ -116,14 +116,17 @@ fn submit_workspace_refresh_task(
     kind: WorkspaceRefreshKind,
 ) -> Result<(), ServerError> {
     let mut analysis = state.analysis.clone();
+    let workspace_root = state.workspace_root.clone();
     let queued_at = Instant::now();
     let progress_token = emit_workspace_refresh_progress_begin(state, writer, &reason)?;
     state.queue_workspace_refresh_worker_task();
     let task = LspWorkerTask::WorkspaceRefresh(Box::new(move || {
         let started_at = Instant::now();
-        let targets = catch_unwind(AssertUnwindSafe(|| match kind {
-            WorkspaceRefreshKind::Sources => analysis.refresh_workspace_targets(),
-            WorkspaceRefreshKind::ProjectMetadata => analysis.reload_project_metadata_targets(),
+        let refresh = catch_unwind(AssertUnwindSafe(|| match kind {
+            WorkspaceRefreshKind::Sources => analysis.refresh_workspace_index(workspace_root),
+            WorkspaceRefreshKind::ProjectMetadata => {
+                analysis.reload_project_metadata_index(workspace_root)
+            }
         }))
         .map_err(|payload| panic_message(payload.as_ref()));
         WorkspaceRefreshTaskResult {
@@ -131,7 +134,7 @@ fn submit_workspace_refresh_task(
             progress_token,
             queue_wait_ms: started_at.duration_since(queued_at).as_millis(),
             elapsed_ms: started_at.elapsed().as_millis(),
-            targets,
+            refresh,
         }
     }));
     if state.worker_task_tx.send(task).is_err() {
@@ -216,10 +219,12 @@ fn submit_workspace_refresh_result(
     writer: &mut MessageWriter<impl io::Write>,
     result: WorkspaceRefreshTaskResult,
 ) -> Result<(), ServerError> {
-    match result.targets {
-        Ok(targets) => {
-            let target_count = targets.len();
-            for (target_uri, mode) in targets {
+    match result.refresh {
+        Ok(refresh) => {
+            let target_count = refresh.targets.len();
+            let indexed_targets = refresh.indexed_targets;
+            let failed_targets = refresh.failed_targets;
+            for (target_uri, mode) in refresh.targets {
                 let generation = state.begin_target_analysis(&target_uri);
                 state.queue_target_diagnostics_task(target_uri, generation, mode);
             }
@@ -229,6 +234,8 @@ fn submit_workspace_refresh_result(
                 result.progress_token,
                 &result.reason,
                 target_count,
+                indexed_targets,
+                failed_targets,
                 result.queue_wait_ms,
                 result.elapsed_ms,
             )
@@ -253,6 +260,8 @@ fn submit_workspace_refresh_result(
                 result.progress_token,
                 &result.reason,
                 target_count,
+                0,
+                1,
                 result.queue_wait_ms,
                 result.elapsed_ms,
             )
@@ -824,18 +833,30 @@ fn emit_workspace_refresh_queued_trace(
     progress_token: Option<Value>,
     reason: &str,
     target_count: usize,
+    indexed_targets: usize,
+    failed_targets: usize,
     queue_wait_ms: u128,
     elapsed_ms: u128,
 ) -> Result<(), ServerError> {
-    emit_workspace_refresh_progress_end(state, writer, progress_token, target_count, elapsed_ms)?;
+    emit_workspace_refresh_progress_end(
+        state,
+        writer,
+        progress_token,
+        target_count,
+        indexed_targets,
+        failed_targets,
+        elapsed_ms,
+    )?;
     emit_trace(
         state,
         writer,
         "workspace refresh queued",
         Some(format!(
-            "reason={} targets={} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?}",
+            "reason={} targets={} indexed_targets={} failed_targets={} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?}",
             reason,
             target_count,
+            indexed_targets,
+            failed_targets,
             queue_wait_ms,
             elapsed_ms,
             state
@@ -876,6 +897,8 @@ fn emit_workspace_refresh_progress_end(
     writer: &mut MessageWriter<impl io::Write>,
     progress_token: Option<Value>,
     target_count: usize,
+    indexed_targets: usize,
+    failed_targets: usize,
     elapsed_ms: u128,
 ) -> Result<(), ServerError> {
     let Some(token) = progress_token else {
@@ -888,7 +911,9 @@ fn emit_workspace_refresh_progress_end(
     writer.write_json(&progress(
         token,
         WorkDoneProgressValue::End {
-            message: format!("refreshed {target_count} workspace targets in {elapsed_ms}ms"),
+            message: format!(
+                "refreshed {target_count} workspace targets, indexed {indexed_targets} targets, {failed_targets} index failures in {elapsed_ms}ms"
+            ),
         },
     ))?;
     Ok(())

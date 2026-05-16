@@ -242,6 +242,12 @@ fn workspace_refresh_reports_work_done_progress() {
             .unwrap()
             .contains("refreshed")
     );
+    assert!(
+        progress_messages[1]["params"]["value"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("indexed 1 targets")
+    );
 }
 
 #[test]
@@ -302,6 +308,13 @@ fn verbose_trace_marks_exceeded_workspace_refresh_budget() {
             && message["params"]["verbose"]
                 .as_str()
                 .is_some_and(|verbose| verbose.contains("budget=exceeded"))
+    }));
+    assert!(messages.iter().any(|message| {
+        message["method"] == "$/logTrace"
+            && message["params"]["message"] == "workspace refresh queued"
+            && message["params"]["verbose"]
+                .as_str()
+                .is_some_and(|verbose| verbose.contains("indexed_targets=1"))
     }));
 }
 

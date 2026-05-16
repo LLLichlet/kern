@@ -148,10 +148,39 @@ impl AnalysisEngine {
         self.refresh_workspace_targets()
     }
 
+    pub fn reload_project_metadata_index(
+        &mut self,
+        workspace_root: Option<PathBuf>,
+    ) -> WorkspaceIndexRefresh {
+        self.project_cache.lock().unwrap().clear();
+        self.driver_cache.lock().unwrap().clear();
+        self.refresh_workspace_index(workspace_root)
+    }
+
     pub fn refresh_workspace_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
         self.driver_cache.lock().unwrap().clear();
         self.invalidate_artifact_cache();
         self.invalidate_render_caches();
+        self.workspace_refresh_targets()
+    }
+
+    pub fn refresh_workspace_index(
+        &mut self,
+        workspace_root: Option<PathBuf>,
+    ) -> WorkspaceIndexRefresh {
+        self.driver_cache.lock().unwrap().clear();
+        self.invalidate_artifact_cache();
+        self.invalidate_render_caches();
+        let targets = self.workspace_refresh_targets();
+        let (indexed_targets, failed_targets) = self.warm_workspace_symbol_indexes(workspace_root);
+        WorkspaceIndexRefresh {
+            targets,
+            indexed_targets,
+            failed_targets,
+        }
+    }
+
+    fn workspace_refresh_targets(&self) -> Vec<(String, DiagnosticsAnalysisMode)> {
         self.documents
             .iter()
             .map(|(uri, document)| {

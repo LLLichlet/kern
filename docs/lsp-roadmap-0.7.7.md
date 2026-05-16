@@ -584,9 +584,9 @@ Tasks:
   instead of being silently dropped.
 - Add progress notifications for workspace refresh/indexing and long workspace
   queries. Workspace refresh progress is implemented with
-  `window/workDoneProgress/create` and `$/progress`; workspace references use
-  request-provided `workDoneToken`; indexing progress remains tied to future
-  workspace indexing work.
+  `window/workDoneProgress/create` and `$/progress`, and now includes workspace
+  symbol indexing counts; workspace references use request-provided
+  `workDoneToken`.
 
 Exit criteria:
 
@@ -608,7 +608,11 @@ Tasks:
   analysis now feeds a shared per-target symbol index that stores both
   unfiltered workspace symbols and per-document outline trees, preserving the
   clean/dirty analysis cache split while avoiding repeated symbol-tree walks.
-- Invalidate precisely on watched file changes.
+- Workspace refresh now prewarms those per-target symbol indexes before
+  diagnostics are queued, so `workspace/symbol` can reuse the refreshed index.
+- Invalidate precisely on watched file changes. Source changes clear driver and
+  analysis/index artifacts while preserving project resolution; project metadata
+  changes also clear project state before rebuilding the index.
 
 Exit criteria:
 

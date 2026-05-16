@@ -141,6 +141,61 @@ root = \"src/lib.kn\"
 }
 
 #[test]
+fn workspace_source_refresh_warms_symbol_indexes() {
+    let root = unique_temp_dir("analysis_source_refresh_symbol_index");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.kn"),
+        "struct WarmedNeedle { value: i32 }\nfn helper() void {}\n",
+    )
+    .unwrap();
+
+    let uri = file_path_to_uri(&root.join("src/lib.kn")).unwrap();
+    let source = fs::read_to_string(root.join("src/lib.kn")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+
+    assert_eq!(analysis.cached_workspace_symbol_index_count(), 0);
+
+    let refresh = analysis.refresh_workspace_index(Some(root.clone()));
+
+    assert_eq!(refresh.targets.len(), 1);
+    assert_eq!(refresh.indexed_targets, 1);
+    assert_eq!(refresh.failed_targets, 0);
+    assert_eq!(analysis.cached_workspace_symbol_index_count(), 1);
+
+    let snapshot = analysis.snapshot(Some(root), CancellationToken::new());
+    let symbols = analysis
+        .workspace_symbols_in_snapshot(&snapshot, "warmed")
+        .unwrap();
+    assert_eq!(symbols.len(), 1);
+    assert_eq!(symbols[0].name, "WarmedNeedle");
+    assert_eq!(analysis.cached_workspace_symbol_index_count(), 1);
+}
+
+#[test]
 fn project_metadata_reload_clears_project_and_driver_caches() {
     let root = unique_temp_dir("analysis_project_reload_cache");
     fs::create_dir_all(root.join("src")).unwrap();

@@ -3,6 +3,65 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 impl AnalysisEngine {
+    pub fn warm_workspace_symbol_indexes(&self, workspace_root: Option<PathBuf>) -> (usize, usize) {
+        let snapshot = self.snapshot(workspace_root, CancellationToken::new());
+        match self.warm_workspace_symbol_indexes_in_snapshot(&snapshot) {
+            Ok(indexed_targets) => (indexed_targets, 0),
+            Err(_) => (0, 1),
+        }
+    }
+
+    fn warm_workspace_symbol_indexes_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+    ) -> Result<usize, String> {
+        snapshot.check_canceled()?;
+        let mut indexed_targets = 0;
+
+        if let Some(workspace_root) = snapshot.workspace_root() {
+            if let Some(project) = self.project_for_path(workspace_root)? {
+                let targets = project
+                    .workspace_targets(&self.settings.compile_options)
+                    .map_err(|err| {
+                        format!(
+                            "workspace symbol project indexing failed for `{}`: {err}",
+                            project.manifest_path().display()
+                        )
+                    })?;
+                for resolved in targets {
+                    snapshot.check_canceled()?;
+                    let context = self.analysis_context_for_resolved_and_dirty(
+                        resolved,
+                        snapshot.dirty_documents(),
+                        snapshot.cancellation.clone(),
+                    )?;
+                    self.surface_symbol_index_for_context(
+                        &context,
+                        snapshot.uri_by_normalized_path(),
+                    )?;
+                    indexed_targets += 1;
+                }
+                self.record_analysis_tier(AnalysisTier::Surface);
+                return Ok(indexed_targets);
+            }
+        }
+
+        for document in snapshot.documents.values() {
+            snapshot.check_canceled()?;
+            let resolved = self.resolve_analysis_for_snapshot_document(snapshot, document)?;
+            let context = self.analysis_context_for_resolved_and_dirty(
+                resolved,
+                snapshot.dirty_documents(),
+                snapshot.cancellation.clone(),
+            )?;
+            self.surface_symbol_index_for_context(&context, snapshot.uri_by_normalized_path())?;
+            indexed_targets += 1;
+        }
+
+        self.record_analysis_tier(AnalysisTier::Surface);
+        Ok(indexed_targets)
+    }
+
     #[cfg(test)]
     pub fn workspace_symbols(&self, query: &str) -> Result<Vec<IdeWorkspaceSymbol>, String> {
         let snapshot = self.snapshot(None, CancellationToken::new());

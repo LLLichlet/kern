@@ -237,6 +237,66 @@ root = "src/lib.kn"
 }
 
 #[test]
+fn workspace_symbol_request_reuses_refreshed_workspace_index() {
+    let root = unique_temp_dir("server_workspace_symbol_refreshed_index");
+    let src = root.join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "{}"
+
+[lib]
+root = "src/lib.kn"
+"#,
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    fs::write(
+        src.join("lib.kn"),
+        "struct RefreshedNeedle { value: i32 }\nfn other() void {}\n",
+    )
+    .unwrap();
+
+    let mut state = initialized_state();
+    state.workspace_root = Some(root);
+    let _ = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeWatchedFiles".to_string()),
+            params: Some(json!({
+                "changes": []
+            })),
+        },
+    );
+    assert_eq!(state.analysis.cached_workspace_symbol_index_count(), 1);
+
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(242)),
+            method: Some("workspace/symbol".to_string()),
+            params: Some(json!({
+                "query": "refreshed"
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(242));
+    assert_eq!(response["result"].as_array().unwrap().len(), 1);
+    assert_eq!(response["result"][0]["name"], "RefreshedNeedle");
+    assert_eq!(state.analysis.cached_workspace_symbol_index_count(), 1);
+}
+
+#[test]
 fn folding_range_request_returns_block_ranges() {
     let mut state = initialized_state();
     let source = "fn main() void {\n    if true {\n        return;\n    }\n}\n";

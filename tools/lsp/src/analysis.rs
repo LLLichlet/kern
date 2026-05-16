@@ -106,6 +106,12 @@ pub struct AnalysisOutcome {
     pub bundles: Vec<DiagnosticBundle>,
 }
 
+pub struct WorkspaceIndexRefresh {
+    pub targets: Vec<(String, DiagnosticsAnalysisMode)>,
+    pub indexed_targets: usize,
+    pub failed_targets: usize,
+}
+
 struct SurfaceSymbolIndex {
     document_symbols_by_path: BTreeMap<PathBuf, Arc<Vec<IdeDocumentSymbol>>>,
     workspace_symbols: Arc<Vec<IdeWorkspaceSymbol>>,
@@ -1312,12 +1318,12 @@ impl AnalysisEngine {
     }
 
     #[cfg(test)]
-    fn cached_workspace_symbol_index_count(&self) -> usize {
+    pub(crate) fn cached_workspace_symbol_index_count(&self) -> usize {
         self.surface_symbol_cache.lock().unwrap().len()
     }
 
     #[cfg(test)]
-    fn cached_document_symbol_index_count(&self) -> usize {
+    pub(crate) fn cached_document_symbol_index_count(&self) -> usize {
         self.surface_symbol_cache.lock().unwrap().len()
     }
 

@@ -208,10 +208,14 @@ Completed foundation work:
   cross-request trace contamination from concurrent analysis workers.
 - Diagnostics analysis-tier tracing is also carried by worker results, so
   concurrent diagnostics cannot read another worker's last selected tier.
+- LSP document requests now carry scheduler-level cancellation tokens. A
+  canceled queued request skips analysis before the worker closure runs, and a
+  canceled running request becomes inert before its response is written.
 
 Still to complete before calling the scheduler done:
 
-- Add cancellation tokens that are checked by queued and running tasks.
+- Push cancellation checks deeper into analysis/compiler query boundaries so
+  long-running requests can stop before returning to the scheduler.
 - Make worker limits configurable if real-world projects need tuning.
 - Track queue wait time, worker execution status, and cancellation status in
   traces.

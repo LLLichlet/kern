@@ -479,6 +479,106 @@ fn canceled_document_request_skips_analysis_work() {
 }
 
 #[test]
+fn queued_document_request_cancel_skips_analysis_work() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_canceled_queued_request", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+    let release = std::sync::Arc::new(std::sync::Barrier::new(5));
+    let analyzed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    for id in 100..104 {
+        let release = release.clone();
+        execute_document_request(
+            &mut state,
+            &mut writer,
+            json!(id),
+            &uri,
+            SchedulerLane::Interactive,
+            "textDocument/hover",
+            move |_, _| {
+                release.wait();
+                Ok::<Value, String>(json!({ "id": id }))
+            },
+        )
+        .unwrap();
+    }
+
+    execute_document_request(
+        &mut state,
+        &mut writer,
+        json!(104),
+        &uri,
+        SchedulerLane::Interactive,
+        "textDocument/hover",
+        {
+            let analyzed = analyzed.clone();
+            move |_, _| {
+                analyzed.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok::<Value, String>(json!({ "id": 104 }))
+            }
+        },
+    )
+    .unwrap();
+
+    state.cancel_request(json!(104));
+    release.wait();
+    while state.has_pending_document_request_work() {
+        flush_document_request_results(&mut state, &mut writer, true).unwrap();
+    }
+
+    assert!(!analyzed.load(std::sync::atomic::Ordering::SeqCst));
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 4);
+    assert!(
+        messages
+            .iter()
+            .all(|message| message["id"].as_i64().unwrap() != 104)
+    );
+}
+
+#[test]
+fn running_document_request_cancel_drops_response() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_canceled_running_request", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+    let started = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let release = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let analyzed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    execute_document_request(
+        &mut state,
+        &mut writer,
+        json!(105),
+        &uri,
+        SchedulerLane::Interactive,
+        "textDocument/hover",
+        {
+            let started = started.clone();
+            let release = release.clone();
+            let analyzed = analyzed.clone();
+            move |_, _| {
+                analyzed.store(true, std::sync::atomic::Ordering::SeqCst);
+                started.wait();
+                release.wait();
+                Ok::<Value, String>(json!({ "id": 105 }))
+            }
+        },
+    )
+    .unwrap();
+
+    started.wait();
+    state.cancel_request(json!(105));
+    release.wait();
+    flush_document_request_results(&mut state, &mut writer, true).unwrap();
+
+    assert!(analyzed.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(output.is_empty());
+    assert!(state.canceled_request_ids.is_empty());
+}
+
+#[test]
 fn panicking_document_request_returns_error_response() {
     let mut state = initialized_state();
     let uri = temp_file_uri("server_panicking_request", "fn main() void {}\n");
@@ -684,6 +784,7 @@ fn stale_document_request_task_result_drops_response() {
         id: json!(48),
         target_uri: Some(uri.clone()),
         generation: Some(stale_generation),
+        cancellation: None,
     };
     let _newer = state.begin_target_analysis(&uri);
     let mut output = Vec::new();
@@ -717,6 +818,7 @@ fn stale_document_request_skips_analysis_work() {
         id: json!(46),
         target_uri: Some(uri),
         generation: Some(stale_generation),
+        cancellation: None,
     };
 
     assert!(state.should_skip_request(&stale_request));

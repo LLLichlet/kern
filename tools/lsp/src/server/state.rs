@@ -2,7 +2,11 @@ use super::lifecycle::TraceValue;
 use crate::analysis::{AnalysisEngine, AnalysisOutcome, AnalysisTier};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::mpsc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+    mpsc,
+};
 use std::thread;
 
 const DEFAULT_WORKER_COUNT: usize = 4;
@@ -17,6 +21,7 @@ pub(super) struct ServerState {
     pub(super) next_analysis_generation: u64,
     pub(super) latest_generation_by_target: BTreeMap<String, AnalysisGeneration>,
     pub(super) canceled_request_ids: Vec<Value>,
+    active_request_cancellations: Vec<ActiveRequestCancellation>,
     pub(super) pending_diagnostics_targets: BTreeMap<String, ScheduledDiagnosticsTask>,
     pub(super) pending_workspace_refresh_reason: Option<String>,
     pub(super) pending_diagnostics: BTreeMap<String, ScheduledDiagnosticsPublish>,
@@ -38,6 +43,42 @@ pub(super) struct RequestContext {
     pub(super) id: Value,
     pub(super) target_uri: Option<String>,
     pub(super) generation: Option<AnalysisGeneration>,
+    pub(super) cancellation: Option<CancellationToken>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct CancellationToken {
+    canceled: Arc<AtomicBool>,
+}
+
+#[derive(Debug)]
+struct ActiveRequestCancellation {
+    id: Value,
+    token: CancellationToken,
+}
+
+impl CancellationToken {
+    fn new() -> Self {
+        Self {
+            canceled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub(super) fn cancel(&self) {
+        self.canceled.store(true, Ordering::SeqCst);
+    }
+
+    pub(super) fn is_canceled(&self) -> bool {
+        self.canceled.load(Ordering::SeqCst)
+    }
+}
+
+impl RequestContext {
+    pub(super) fn is_canceled(&self) -> bool {
+        self.cancellation
+            .as_ref()
+            .is_some_and(CancellationToken::is_canceled)
+    }
 }
 
 #[derive(Debug)]
@@ -247,6 +288,7 @@ impl ServerState {
             next_analysis_generation: 0,
             latest_generation_by_target: BTreeMap::new(),
             canceled_request_ids: Vec::new(),
+            active_request_cancellations: Vec::new(),
             pending_diagnostics_targets: BTreeMap::new(),
             pending_workspace_refresh_reason: None,
             pending_diagnostics: BTreeMap::new(),
@@ -282,6 +324,7 @@ impl ServerState {
             id,
             target_uri: None,
             generation: None,
+            cancellation: None,
         }
     }
 
@@ -294,10 +337,21 @@ impl ServerState {
             id,
             target_uri: Some(target_uri.to_string()),
             generation: self.latest_generation_by_target.get(target_uri).copied(),
+            cancellation: None,
         }
     }
 
     pub(super) fn cancel_request(&mut self, id: Value) {
+        let mut canceled_active = false;
+        for active in &self.active_request_cancellations {
+            if active.id == id {
+                active.token.cancel();
+                canceled_active = true;
+            }
+        }
+        if canceled_active {
+            return;
+        }
         if self
             .canceled_request_ids
             .iter()
@@ -308,26 +362,56 @@ impl ServerState {
         self.canceled_request_ids.push(id);
     }
 
+    pub(super) fn register_request_cancellation(&mut self, request: &mut RequestContext) {
+        if request.cancellation.is_some() {
+            return;
+        }
+        let token = CancellationToken::new();
+        if self
+            .canceled_request_ids
+            .iter()
+            .any(|canceled| canceled == &request.id)
+        {
+            token.cancel();
+        }
+        self.active_request_cancellations
+            .push(ActiveRequestCancellation {
+                id: request.id.clone(),
+                token: token.clone(),
+            });
+        request.cancellation = Some(token);
+    }
+
+    pub(super) fn finish_request_cancellation(&mut self, id: &Value) {
+        self.active_request_cancellations
+            .retain(|active| &active.id != id);
+    }
+
     pub(super) fn should_skip_request(&mut self, request: &RequestContext) -> bool {
         self.should_drop_response(request)
     }
 
     pub(super) fn should_drop_response(&mut self, request: &RequestContext) -> bool {
-        if let Some(index) = self
+        let was_canceled = request.is_canceled();
+        let had_pending_cancel = if let Some(index) = self
             .canceled_request_ids
             .iter()
             .position(|canceled| canceled == &request.id)
         {
             self.canceled_request_ids.swap_remove(index);
-            return true;
-        }
+            true
+        } else {
+            false
+        };
 
-        match (&request.target_uri, request.generation) {
+        let is_stale = match (&request.target_uri, request.generation) {
             (Some(target_uri), Some(generation)) => {
                 !self.is_current_generation(target_uri, generation)
             }
             _ => false,
-        }
+        };
+        self.finish_request_cancellation(&request.id);
+        was_canceled || had_pending_cancel || is_stale
     }
 
     pub(super) fn queue_diagnostics_publish(

@@ -344,10 +344,11 @@ where
     T: serde::Serialize,
     F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<T, String> + Send + 'static,
 {
-    let request = state.request_context_for_document(id, target_uri);
+    let mut request = state.request_context_for_document(id, target_uri);
     if state.should_skip_request(&request) {
         return Ok(());
     }
+    state.register_request_cancellation(&mut request);
 
     submit_document_request_task(
         state,
@@ -402,7 +403,11 @@ where
     F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<DocumentRequestResponse, String> + Send,
 {
     let started_at = Instant::now();
-    let result = catch_unwind(AssertUnwindSafe(|| task(&analysis, &snapshot)));
+    let result = if task_info.request.is_canceled() {
+        Ok(Err("request was canceled".to_string()))
+    } else {
+        catch_unwind(AssertUnwindSafe(|| task(&analysis, &snapshot)))
+    };
     let elapsed_ms = started_at.elapsed().as_millis();
     let analysis_tier = analysis.last_analysis_tier();
     let response = match result {
@@ -453,10 +458,11 @@ where
     T: serde::Serialize,
     F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<Option<T>, String> + Send + 'static,
 {
-    let request = state.request_context_for_document(id, target_uri);
+    let mut request = state.request_context_for_document(id, target_uri);
     if state.should_skip_request(&request) {
         return Ok(());
     }
+    state.register_request_cancellation(&mut request);
 
     submit_document_request_task(
         state,
@@ -504,6 +510,10 @@ pub(super) fn submit_document_request_result(
     writer: &mut MessageWriter<impl io::Write>,
     result: DocumentRequestTaskResult,
 ) -> Result<(), ServerError> {
+    if result.request.is_canceled() {
+        state.finish_request_cancellation(&result.request.id);
+        return Ok(());
+    }
     match result.response {
         DocumentRequestResponse::Success(value) => {
             write_success_response(state, writer, &result.request, value)?

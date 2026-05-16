@@ -722,6 +722,14 @@ Tasks:
   server level. The server stress case drives a rapid `didChange` burst,
   verifies diagnostics coalescing, and confirms a following workspace-symbol
   request sees only the latest document text.
+- Dirty-navigation hardening now distinguishes parse-failure/body-only dirty
+  files from parseable structural edits. Structural top-level edits force dirty
+  semantic navigation instead of reusing stale clean hover/definition data, and
+  the compiler's body-only comparison canonicalizes symbols through the real
+  sessions rather than relying on raw `SymbolId` equality or placeholder IDs.
+- Server stress coverage now alternates rapid document changes with completion
+  requests and verifies that cancel-then-edit hover flows drop stale canceled
+  responses while answering from the latest dirty structural state.
 - Workspace-scale coverage now includes refreshed workspace indexes, generated
   source aliases, real std/example projects, and the open-100-files protocol
   stress fixture.

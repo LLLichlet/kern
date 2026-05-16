@@ -1,6 +1,8 @@
 use super::super::dispatch::handle_message_nonblocking;
+use super::super::scheduler::execute_document_request;
 use super::*;
 use std::collections::BTreeSet;
+use std::sync::{Arc, Barrier};
 
 #[test]
 fn protocol_stress_opens_many_files_then_symbols_and_diagnostics() {
@@ -123,6 +125,160 @@ fn protocol_stress_rapid_edit_burst_uses_latest_document_text() {
     assert_eq!(diagnostics.len(), 1, "{messages:#?}");
     assert_eq!(diagnostics[0]["params"]["uri"], uri);
     assert_eq!(diagnostics[0]["params"]["diagnostics"], json!([]));
+    assert!(state.pending_diagnostics_targets.is_empty());
+    assert!(state.pending_diagnostics.is_empty());
+    assert!(!state.has_pending_worker_work());
+}
+
+#[test]
+fn protocol_stress_alternates_edits_and_completion_requests() {
+    let mut state = initialized_state();
+    state.diagnostics_flush_policy.target_task_budget = usize::MAX;
+    let initial = "fn main() void {\n    let m\n}\n";
+    let uri = temp_file_uri("server_protocol_stress_edit_completion", initial);
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, initial, 1));
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    for version in 2..26 {
+        let source = format!("fn main() void {{\n    let m{version}\n}}\n");
+        handle_message_nonblocking(
+            &mut state,
+            &mut writer,
+            did_change_message(&uri, &source, version),
+        )
+        .unwrap();
+        handle_message_nonblocking(
+            &mut state,
+            &mut writer,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(9100 + version)),
+                method: Some("textDocument/completion".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 1, "character": 9 }
+                })),
+            },
+        )
+        .unwrap();
+    }
+    drain_scheduler_to_quiescence(&mut state, &mut writer);
+
+    let messages = read_all_messages(&output);
+    let final_response = messages
+        .iter()
+        .find(|message| message["id"] == json!(9125))
+        .expect("expected final completion response");
+    let labels = final_response["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["label"].as_str())
+        .collect::<BTreeSet<_>>();
+    assert!(labels.contains("mut"), "{final_response:#?}");
+    assert!(state.pending_diagnostics_targets.is_empty());
+    assert!(state.pending_diagnostics.is_empty());
+    assert!(!state.has_pending_worker_work());
+}
+
+#[test]
+fn protocol_stress_cancel_references_then_edit_and_hover() {
+    let mut state = ServerState::with_options(
+        AnalysisEngine::default(),
+        ServerOptions { worker_threads: 1 },
+    );
+    state.initialized = true;
+    let initial = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
+    let changed = "fn next() i32 { return 2; }\nfn main() i32 { return next(); }\n";
+    let uri = temp_file_uri("server_protocol_stress_cancel_edit_hover", initial);
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, initial, 1));
+    let started = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    execute_document_request(
+        &mut state,
+        &mut writer,
+        json!(9198),
+        &uri,
+        SchedulerLane::Interactive,
+        "textDocument/hover",
+        {
+            let started = started.clone();
+            let release = release.clone();
+            move |_, _| {
+                started.wait();
+                release.wait();
+                Ok::<Value, String>(json!(null))
+            }
+        },
+    )
+    .unwrap();
+    started.wait();
+
+    handle_message_nonblocking(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(9199)),
+            method: Some("textDocument/references".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 24 },
+                "context": { "includeDeclaration": true }
+            })),
+        },
+    )
+    .unwrap();
+    handle_message_nonblocking(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("$/cancelRequest".to_string()),
+            params: Some(json!({ "id": 9199 })),
+        },
+    )
+    .unwrap();
+    handle_message_nonblocking(
+        &mut state,
+        &mut writer,
+        did_change_message(&uri, changed, 2),
+    )
+    .unwrap();
+    handle_message_nonblocking(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(9200)),
+            method: Some("textDocument/hover".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 24 }
+            })),
+        },
+    )
+    .unwrap();
+
+    release.wait();
+    drain_scheduler_to_quiescence(&mut state, &mut writer);
+
+    let messages = read_all_messages(&output);
+    assert!(
+        messages.iter().all(|message| message["id"] != json!(9199)),
+        "stale canceled references response should be dropped after the edit: {messages:#?}"
+    );
+    let hover = messages
+        .iter()
+        .find(|message| message["id"] == json!(9200))
+        .expect("expected hover response after edit");
+    let contents = hover["result"]["contents"]["value"].as_str().unwrap();
+    assert!(contents.contains("fn next: &fn() i32"), "{contents}");
     assert!(state.pending_diagnostics_targets.is_empty());
     assert!(state.pending_diagnostics.is_empty());
     assert!(!state.has_pending_worker_work());

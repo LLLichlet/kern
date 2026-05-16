@@ -329,6 +329,50 @@ fn dirty_complex_navigation_uses_clean_analysis() {
 }
 
 #[test]
+fn structural_dirty_navigation_uses_dirty_analysis() {
+    let mut analysis = AnalysisEngine::default();
+    let clean = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
+    let dirty = "fn next() i32 { return 2; }\nfn main() i32 { return next(); }\n";
+    let uri = temp_file_uri("dirty_navigation_structural_change", clean);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    let _ = analysis
+        .hover(&uri, position_of_nth(clean, "helper", 1, 1))
+        .unwrap();
+
+    let _ = analysis.change_document_state(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.to_string(),
+        }],
+    });
+    analysis.clear_last_analysis_tier();
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(dirty, "next", 1, 1))
+        .unwrap()
+        .expect("expected hover for dirty top-level symbol");
+
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::DirtySemantic)
+    );
+    assert!(hover.contents.contains("fn next"), "{hover:?}");
+    assert!(!hover.contents.contains("fn helper"), "{hover:?}");
+}
+
+#[test]
 fn dirty_complex_signature_help_uses_clean_analysis() {
     let clean = concat!(
         "fn helper(first: i32, second: i32) i32 {\n",

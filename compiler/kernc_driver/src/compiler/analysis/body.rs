@@ -186,6 +186,89 @@ impl CompilerDriver {
         Some(AnalysisReport { session, succeeded })
     }
 
+    pub fn parsed_modules_match_structure_body_only(
+        &self,
+        structure: &StructureArtifact,
+        parsed: &ParsedModuleArtifact,
+    ) -> bool {
+        let clean = structure
+            .asts
+            .iter()
+            .map(|(_, module)| module)
+            .collect::<Vec<_>>();
+        self.modules_match_body_only(&structure.session, clean, parsed)
+    }
+
+    pub fn parsed_modules_match_body_only(
+        &self,
+        clean: &ParsedModuleArtifact,
+        dirty: &ParsedModuleArtifact,
+    ) -> bool {
+        if clean.modules.len() != dirty.modules.len() {
+            return false;
+        }
+
+        let dirty_modules = self.index_parsed_modules(dirty);
+        for clean_module in &clean.modules {
+            let dirty_module = dirty_modules
+                .get(clean_module.path.as_path())
+                .or_else(|| dirty_modules.get(Path::new(clean_module.ast.path.as_str())));
+            let Some(dirty_module) = dirty_module else {
+                return false;
+            };
+
+            let module_changed = clean_module.ast != dirty_module.ast;
+            if module_changed
+                && !modules_match_ignoring_body_only(
+                    &clean.session,
+                    &clean_module.ast,
+                    &dirty.session,
+                    &dirty_module.ast,
+                )
+            {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn modules_match_body_only(
+        &self,
+        clean_session: &Session,
+        clean: Vec<&ast::Module>,
+        dirty: &ParsedModuleArtifact,
+    ) -> bool {
+        if clean.len() != dirty.modules.len() {
+            return false;
+        }
+
+        let dirty_modules = self.index_parsed_modules(dirty);
+        for clean_module in clean {
+            let clean_path = normalize_driver_path(Path::new(clean_module.path.as_str()));
+            let dirty_module = dirty_modules
+                .get(clean_path.as_path())
+                .or_else(|| dirty_modules.get(Path::new(clean_module.path.as_str())));
+            let Some(dirty_module) = dirty_module else {
+                return false;
+            };
+
+            let module_changed = clean_module != &dirty_module.ast;
+            if module_changed
+                && !modules_match_ignoring_body_only(
+                    clean_session,
+                    clean_module,
+                    &dirty.session,
+                    &dirty_module.ast,
+                )
+            {
+                return false;
+            }
+        }
+
+        true
+    }
+
     pub fn analyze_report_with_function_body_reuse(
         &self,
         clean_artifact: &AnalysisArtifact,
@@ -425,7 +508,13 @@ impl CompilerDriver {
                 &parsed.session,
                 parsed_module.file_id,
             );
-            if module_changed && !modules_match_ignoring_body_only(clean_module, &parsed_module.ast)
+            if module_changed
+                && !modules_match_ignoring_body_only(
+                    clean_session,
+                    clean_module,
+                    &parsed.session,
+                    &parsed_module.ast,
+                )
             {
                 return false;
             }
@@ -512,7 +601,9 @@ impl CompilerDriver {
 
             let mut item_iter = module_items.iter();
             if !classify_function_body_decl_changes(
+                ctx.sess,
                 clean_module,
+                &parsed.session,
                 &parsed_module.ast,
                 &mut item_iter,
                 module_scope,

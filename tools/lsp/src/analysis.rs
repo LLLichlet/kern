@@ -830,8 +830,57 @@ impl AnalysisEngine {
             return self.analyze_navigation_artifact_for_context(context);
         }
 
+        if !self.dirty_navigation_can_use_clean_artifact(context) {
+            self.record_analysis_tier(AnalysisTier::DirtySemantic);
+            return self.analyze_navigation_artifact_for_context(context);
+        }
+
         self.record_analysis_tier(AnalysisTier::CleanSemantic);
         self.analyze_clean_navigation_artifact_for_context(context)
+    }
+
+    fn dirty_navigation_can_use_clean_artifact(&self, context: &AnalysisRequestContext) -> bool {
+        let clean_key = AnalysisCacheKey::clean(&context.resolved);
+        let Some(parsed) = context
+            .driver
+            .parse_modules(
+                &context.resolved.input_file.to_string_lossy(),
+                &context.dirty_documents.overrides,
+                &context.cancellation,
+            )
+            .ok()
+            .flatten()
+        else {
+            return true;
+        };
+
+        if let Some(clean_structure) = self
+            .structure_cache
+            .lock()
+            .unwrap()
+            .get(&clean_key)
+            .cloned()
+        {
+            return context
+                .driver
+                .parsed_modules_match_structure_body_only(&clean_structure, &parsed);
+        }
+
+        let Some(clean_parsed) = self
+            .driver_for_resolved(&context.resolved)
+            .parse_modules(
+                &context.resolved.input_file.to_string_lossy(),
+                &SourceOverrides::new(),
+                &context.cancellation,
+            )
+            .ok()
+            .flatten()
+        else {
+            return true;
+        };
+        context
+            .driver
+            .parsed_modules_match_body_only(&clean_parsed, &parsed)
     }
 
     fn analyze_artifact_for_context(

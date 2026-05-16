@@ -249,7 +249,9 @@ Completed foundation work:
   `callHierarchy/outgoingCalls` are advertised and implemented for direct
   function/method calls resolved by compiler semantic analysis. The first
   implementation intentionally reports only statically resolved direct calls;
-  indirect calls and broader dynamic-dispatch expansion remain future work.
+  `kernc_driver` now classifies trait-object method calls as dynamic-dispatch
+  call edges so they are not misreported as direct hierarchy edges. Indirect
+  calls and broader dynamic-dispatch expansion remain future work.
 - Diagnostics scheduling tracks the most recently active document from sync and
   document requests, and drains that target first within the existing
   diagnostics budget before returning to stable workspace ordering.

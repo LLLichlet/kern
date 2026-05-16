@@ -186,6 +186,7 @@ pub struct AnalysisCall {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnalysisCallKind {
     Direct,
+    DynamicDispatch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

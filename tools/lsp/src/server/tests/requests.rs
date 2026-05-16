@@ -794,6 +794,55 @@ fn call_hierarchy_requests_return_direct_calls() {
 }
 
 #[test]
+fn call_hierarchy_excludes_dynamic_dispatch_from_direct_calls() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "trait Base { fn foo() i32; }\n",
+        "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "fn main() i32 {\n",
+        "    let value = 3i32;\n",
+        "    let base = (value.& as &Base);\n",
+        "    return base.foo();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("server_call_hierarchy_dynamic_dispatch", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let prepare = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25074)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 2, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare["id"], json!(25074));
+    let items = prepare["result"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["name"], "main");
+
+    let outgoing = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25075)),
+            method: Some("callHierarchy/outgoingCalls".to_string()),
+            params: Some(json!({
+                "item": items[0]
+            })),
+        },
+    );
+
+    assert_eq!(outgoing["id"], json!(25075));
+    assert_eq!(outgoing["result"], json!([]));
+}
+
+#[test]
 fn call_hierarchy_request_reports_analysis_errors() {
     let mut state = initialized_state();
     let source = "fn leaf() i32 { return 1; }\nfn main() i32 { return leaf(); }\n";

@@ -213,6 +213,7 @@ impl CompilerDriver {
         for (_module_id, module) in asts {
             for decl in &module.decls {
                 collect_calls_in_decl(
+                    ctx,
                     decl,
                     &callable_entries,
                     flow_model,
@@ -1051,6 +1052,7 @@ impl CompilerDriver {
 }
 
 fn collect_calls_in_decl(
+    ctx: &SemaContext<'_>,
     decl: &ast::Decl,
     callable_entries: &std::collections::BTreeMap<Span, Span>,
     flow_model: &FlowModel,
@@ -1061,6 +1063,7 @@ fn collect_calls_in_decl(
         ast::DeclKind::Function {
             body: Some(body), ..
         } => collect_calls_in_expr(
+            ctx,
             body,
             callable_entries,
             flow_model,
@@ -1070,6 +1073,7 @@ fn collect_calls_in_decl(
         ast::DeclKind::Var {
             value: Some(value), ..
         } => collect_calls_in_expr(
+            ctx,
             value,
             callable_entries,
             flow_model,
@@ -1079,6 +1083,7 @@ fn collect_calls_in_decl(
         ast::DeclKind::ExternBlock { decls, .. } => {
             for child in decls {
                 collect_calls_in_decl(
+                    ctx,
                     child,
                     callable_entries,
                     flow_model,
@@ -1090,6 +1095,7 @@ fn collect_calls_in_decl(
         ast::DeclKind::Mod { decls: Some(decls) } => {
             for child in decls {
                 collect_calls_in_decl(
+                    ctx,
                     child,
                     callable_entries,
                     flow_model,
@@ -1101,6 +1107,7 @@ fn collect_calls_in_decl(
         ast::DeclKind::Impl { decls, .. } => {
             for child in decls {
                 collect_calls_in_decl(
+                    ctx,
                     child,
                     callable_entries,
                     flow_model,
@@ -1113,7 +1120,25 @@ fn collect_calls_in_decl(
     }
 }
 
+fn analysis_call_kind(ctx: &SemaContext<'_>, callee: &ast::Expr) -> AnalysisCallKind {
+    if matches!(
+        ctx.node_type(callee.id)
+            .map(|ty| ctx.type_registry.get(ctx.type_registry.normalize(ty))),
+        Some(TypeKind::Function { .. })
+    ) && let Some(owner_ty) = ctx.method_owner_ty(callee.id)
+        && matches!(
+            ctx.type_registry.get(ctx.type_registry.normalize(owner_ty)),
+            TypeKind::TraitObject(..)
+        )
+    {
+        return AnalysisCallKind::DynamicDispatch;
+    }
+
+    AnalysisCallKind::Direct
+}
+
 fn collect_calls_in_expr(
+    ctx: &SemaContext<'_>,
     expr: &ast::Expr,
     callable_entries: &std::collections::BTreeMap<Span, Span>,
     flow_model: &FlowModel,
@@ -1125,6 +1150,7 @@ fn collect_calls_in_expr(
             init, else_clause, ..
         } => {
             collect_calls_in_expr(
+                ctx,
                 init,
                 callable_entries,
                 flow_model,
@@ -1134,6 +1160,7 @@ fn collect_calls_in_expr(
             if let Some(else_clause) = else_clause {
                 match else_clause {
                     ast::LetElseClause::Expr(else_expr) => collect_calls_in_expr(
+                        ctx,
                         else_expr,
                         callable_entries,
                         flow_model,
@@ -1143,6 +1170,7 @@ fn collect_calls_in_expr(
                     ast::LetElseClause::Arms(arms) => {
                         for arm in arms {
                             collect_calls_in_expr(
+                                ctx,
                                 &arm.body,
                                 callable_entries,
                                 flow_model,
@@ -1157,6 +1185,7 @@ fn collect_calls_in_expr(
         ast::ExprKind::Static { init, .. } => {
             if let Some(init) = init {
                 collect_calls_in_expr(
+                    ctx,
                     init,
                     callable_entries,
                     flow_model,
@@ -1167,6 +1196,7 @@ fn collect_calls_in_expr(
         }
         ast::ExprKind::Binary { lhs, rhs, .. } => {
             collect_calls_in_expr(
+                ctx,
                 lhs,
                 callable_entries,
                 flow_model,
@@ -1174,6 +1204,7 @@ fn collect_calls_in_expr(
                 calls,
             );
             collect_calls_in_expr(
+                ctx,
                 rhs,
                 callable_entries,
                 flow_model,
@@ -1184,6 +1215,7 @@ fn collect_calls_in_expr(
         ast::ExprKind::Range { start, end, .. } => {
             if let Some(start) = start {
                 collect_calls_in_expr(
+                    ctx,
                     start,
                     callable_entries,
                     flow_model,
@@ -1193,6 +1225,7 @@ fn collect_calls_in_expr(
             }
             if let Some(end) = end {
                 collect_calls_in_expr(
+                    ctx,
                     end,
                     callable_entries,
                     flow_model,
@@ -1210,6 +1243,7 @@ fn collect_calls_in_expr(
         | ast::ExprKind::GenericInstantiation {
             target: operand, ..
         } => collect_calls_in_expr(
+            ctx,
             operand,
             callable_entries,
             flow_model,
@@ -1218,6 +1252,7 @@ fn collect_calls_in_expr(
         ),
         ast::ExprKind::IndexAccess { lhs, index, .. } => {
             collect_calls_in_expr(
+                ctx,
                 lhs,
                 callable_entries,
                 flow_model,
@@ -1225,6 +1260,7 @@ fn collect_calls_in_expr(
                 calls,
             );
             collect_calls_in_expr(
+                ctx,
                 index,
                 callable_entries,
                 flow_model,
@@ -1234,6 +1270,7 @@ fn collect_calls_in_expr(
         }
         ast::ExprKind::Call { callee, args } => {
             collect_calls_in_expr(
+                ctx,
                 callee,
                 callable_entries,
                 flow_model,
@@ -1242,6 +1279,7 @@ fn collect_calls_in_expr(
             );
             for arg in args {
                 collect_calls_in_expr(
+                    ctx,
                     arg,
                     callable_entries,
                     flow_model,
@@ -1255,7 +1293,7 @@ fn collect_calls_in_expr(
                 && let Some(caller_definition_span) = function_definition_spans.get(&caller_def_id)
             {
                 calls.push(AnalysisCall {
-                    kind: AnalysisCallKind::Direct,
+                    kind: analysis_call_kind(ctx, callee),
                     call_span: expr.span,
                     callee_span: callee.span,
                     callee_definition_span: *callee_definition_span,
@@ -1267,6 +1305,7 @@ fn collect_calls_in_expr(
             ast::DataLiteralKind::Struct(fields) => {
                 for field in fields {
                     collect_calls_in_expr(
+                        ctx,
                         &field.value,
                         callable_entries,
                         flow_model,
@@ -1278,6 +1317,7 @@ fn collect_calls_in_expr(
             ast::DataLiteralKind::Array(items) => {
                 for item in items {
                     collect_calls_in_expr(
+                        ctx,
                         item,
                         callable_entries,
                         flow_model,
@@ -1288,6 +1328,7 @@ fn collect_calls_in_expr(
             }
             ast::DataLiteralKind::Repeat { value, count } => {
                 collect_calls_in_expr(
+                    ctx,
                     value,
                     callable_entries,
                     flow_model,
@@ -1295,6 +1336,7 @@ fn collect_calls_in_expr(
                     calls,
                 );
                 collect_calls_in_expr(
+                    ctx,
                     count,
                     callable_entries,
                     flow_model,
@@ -1303,6 +1345,7 @@ fn collect_calls_in_expr(
                 );
             }
             ast::DataLiteralKind::Scalar(value) => collect_calls_in_expr(
+                ctx,
                 value,
                 callable_entries,
                 flow_model,
@@ -1316,6 +1359,7 @@ fn collect_calls_in_expr(
             else_branch,
         } => {
             collect_calls_in_expr(
+                ctx,
                 cond,
                 callable_entries,
                 flow_model,
@@ -1323,6 +1367,7 @@ fn collect_calls_in_expr(
                 calls,
             );
             collect_calls_in_expr(
+                ctx,
                 then_branch,
                 callable_entries,
                 flow_model,
@@ -1331,6 +1376,7 @@ fn collect_calls_in_expr(
             );
             if let Some(else_branch) = else_branch {
                 collect_calls_in_expr(
+                    ctx,
                     else_branch,
                     callable_entries,
                     flow_model,
@@ -1341,6 +1387,7 @@ fn collect_calls_in_expr(
         }
         ast::ExprKind::Match { target, arms } => {
             collect_calls_in_expr(
+                ctx,
                 target,
                 callable_entries,
                 flow_model,
@@ -1350,6 +1397,7 @@ fn collect_calls_in_expr(
             for arm in arms {
                 for pattern in &arm.patterns {
                     collect_calls_in_match_pattern(
+                        ctx,
                         pattern,
                         callable_entries,
                         flow_model,
@@ -1358,6 +1406,7 @@ fn collect_calls_in_expr(
                     );
                 }
                 collect_calls_in_expr(
+                    ctx,
                     &arm.body,
                     callable_entries,
                     flow_model,
@@ -1372,6 +1421,7 @@ fn collect_calls_in_expr(
                     ast::StmtKind::Use(_) => {}
                     ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
                         collect_calls_in_expr(
+                            ctx,
                             expr,
                             callable_entries,
                             flow_model,
@@ -1383,6 +1433,7 @@ fn collect_calls_in_expr(
             }
             if let Some(result) = result {
                 collect_calls_in_expr(
+                    ctx,
                     result,
                     callable_entries,
                     flow_model,
@@ -1393,6 +1444,7 @@ fn collect_calls_in_expr(
         }
         ast::ExprKind::While { cond, body } => {
             collect_calls_in_expr(
+                ctx,
                 cond,
                 callable_entries,
                 flow_model,
@@ -1400,6 +1452,7 @@ fn collect_calls_in_expr(
                 calls,
             );
             collect_calls_in_expr(
+                ctx,
                 body,
                 callable_entries,
                 flow_model,
@@ -1411,6 +1464,7 @@ fn collect_calls_in_expr(
             lhs, start, end, ..
         } => {
             collect_calls_in_expr(
+                ctx,
                 lhs,
                 callable_entries,
                 flow_model,
@@ -1419,6 +1473,7 @@ fn collect_calls_in_expr(
             );
             if let Some(start) = start {
                 collect_calls_in_expr(
+                    ctx,
                     start,
                     callable_entries,
                     flow_model,
@@ -1428,6 +1483,7 @@ fn collect_calls_in_expr(
             }
             if let Some(end) = end {
                 collect_calls_in_expr(
+                    ctx,
                     end,
                     callable_entries,
                     flow_model,
@@ -1439,6 +1495,7 @@ fn collect_calls_in_expr(
         ast::ExprKind::Return(value) => {
             if let Some(value) = value {
                 collect_calls_in_expr(
+                    ctx,
                     value,
                     callable_entries,
                     flow_model,
@@ -1449,6 +1506,7 @@ fn collect_calls_in_expr(
         }
         ast::ExprKind::Assign { lhs, rhs, .. } => {
             collect_calls_in_expr(
+                ctx,
                 lhs,
                 callable_entries,
                 flow_model,
@@ -1456,6 +1514,7 @@ fn collect_calls_in_expr(
                 calls,
             );
             collect_calls_in_expr(
+                ctx,
                 rhs,
                 callable_entries,
                 flow_model,
@@ -1466,6 +1525,7 @@ fn collect_calls_in_expr(
         ast::ExprKind::Closure { captures, body, .. } => {
             for capture in captures {
                 collect_calls_in_expr(
+                    ctx,
                     &capture.value,
                     callable_entries,
                     flow_model,
@@ -1474,6 +1534,7 @@ fn collect_calls_in_expr(
                 );
             }
             collect_calls_in_expr(
+                ctx,
                 body,
                 callable_entries,
                 flow_model,
@@ -1501,6 +1562,7 @@ fn collect_calls_in_expr(
 }
 
 fn collect_calls_in_match_pattern(
+    ctx: &SemaContext<'_>,
     pattern: &ast::MatchPattern,
     callable_entries: &std::collections::BTreeMap<Span, Span>,
     flow_model: &FlowModel,
@@ -1509,6 +1571,7 @@ fn collect_calls_in_match_pattern(
 ) {
     match &pattern.kind {
         ast::MatchPatternKind::Value(expr) => collect_calls_in_expr(
+            ctx,
             expr,
             callable_entries,
             flow_model,
@@ -1516,6 +1579,7 @@ fn collect_calls_in_match_pattern(
             calls,
         ),
         ast::MatchPatternKind::Pattern(pattern) => collect_calls_in_pattern(
+            ctx,
             pattern,
             callable_entries,
             flow_model,
@@ -1526,6 +1590,7 @@ fn collect_calls_in_match_pattern(
 }
 
 fn collect_calls_in_pattern(
+    ctx: &SemaContext<'_>,
     pattern: &ast::Pattern,
     callable_entries: &std::collections::BTreeMap<Span, Span>,
     flow_model: &FlowModel,
@@ -1535,6 +1600,7 @@ fn collect_calls_in_pattern(
     if let ast::PatternKind::Destructure(destructure) = &pattern.kind {
         for field in &destructure.fields {
             collect_calls_in_pattern(
+                ctx,
                 &field.pattern,
                 callable_entries,
                 flow_model,

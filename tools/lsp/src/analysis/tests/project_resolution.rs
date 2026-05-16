@@ -89,6 +89,132 @@ root = \"src/lib.kn\"
 }
 
 #[test]
+fn workspace_source_refresh_keeps_project_cache_but_reloads_driver_cache() {
+    let root = unique_temp_dir("analysis_source_refresh_cache");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(root.join("src/lib.kn"), "fn value() i32 { return 1; }\n").unwrap();
+
+    let uri = file_path_to_uri(&root.join("src/lib.kn")).unwrap();
+    let source = fs::read_to_string(root.join("src/lib.kn")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+    let _ = analysis.hover(
+        &uri,
+        Position {
+            line: 0,
+            character: 3,
+        },
+    );
+
+    assert_eq!(analysis.cached_project_count(), 1);
+    assert_eq!(analysis.cached_driver_count(), 1);
+
+    let targets = analysis.refresh_workspace_targets();
+
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].0, uri);
+    assert_eq!(targets[0].1, DiagnosticsAnalysisMode::Full);
+    assert_eq!(analysis.cached_project_count(), 1);
+    assert_eq!(analysis.cached_driver_count(), 0);
+}
+
+#[test]
+fn project_metadata_reload_clears_project_and_driver_caches() {
+    let root = unique_temp_dir("analysis_project_reload_cache");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(root.join("src/lib.kn"), "fn value() i32 { return 1; }\n").unwrap();
+
+    let uri = file_path_to_uri(&root.join("src/lib.kn")).unwrap();
+    let source = fs::read_to_string(root.join("src/lib.kn")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+    let _ = analysis.hover(
+        &uri,
+        Position {
+            line: 0,
+            character: 3,
+        },
+    );
+
+    assert_eq!(analysis.cached_project_count(), 1);
+    assert_eq!(analysis.cached_driver_count(), 1);
+
+    let targets = analysis.reload_project_metadata_targets();
+
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].0, uri);
+    assert_eq!(targets[0].1, DiagnosticsAnalysisMode::Full);
+    assert_eq!(analysis.cached_project_count(), 0);
+    assert_eq!(analysis.cached_driver_count(), 0);
+}
+
+#[test]
+fn watched_file_paths_classify_project_metadata() {
+    let root = unique_temp_dir("analysis_watched_file_classification");
+    let source_uri = file_path_to_uri(&root.join("src/lib.kn")).unwrap();
+    let manifest_uri = file_path_to_uri(&root.join("Craft.toml")).unwrap();
+    let lock_uri = file_path_to_uri(&root.join("Craft.lock")).unwrap();
+    let analysis_context_uri = file_path_to_uri(&root.join(".craft/analysis.toml")).unwrap();
+
+    assert!(!AnalysisEngine::watched_files_require_project_reload(&[
+        source_uri
+    ]));
+    assert!(AnalysisEngine::watched_files_require_project_reload(&[
+        manifest_uri
+    ]));
+    assert!(AnalysisEngine::watched_files_require_project_reload(&[
+        lock_uri
+    ]));
+    assert!(AnalysisEngine::watched_files_require_project_reload(&[
+        analysis_context_uri
+    ]));
+}
+
+#[test]
 fn resolve_analysis_reports_invalid_craft_manifest() {
     let root = unique_temp_dir("analysis_invalid_manifest");
     fs::create_dir_all(root.join("src")).unwrap();

@@ -41,9 +41,6 @@ use self::navigation::{
     find_document_highlights, find_hover, find_implementation_locations, find_reference_locations,
     find_rename_target, find_type_definition_location,
 };
-pub(crate) use self::text::single_server_diagnostic;
-#[cfg(test)]
-pub(crate) use self::text::uri_to_file_path;
 use self::text::{
     LexicalIndex, apply_content_change, byte_offset_to_position, completion_context,
     completion_is_binding_name_context, completion_is_member_access,
@@ -52,6 +49,7 @@ use self::text::{
     match_position_in_file, normalize_path, position_to_byte_offset, span_contains_offset,
     span_to_range, trim_line_ending, uri_to_analysis_path,
 };
+pub(crate) use self::text::{single_server_diagnostic, uri_to_file_path};
 use crate::defaults::default_analysis_compile_options;
 use crate::protocol::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, Position,
@@ -1300,6 +1298,11 @@ impl AnalysisEngine {
     #[cfg(test)]
     fn cached_driver_count(&self) -> usize {
         self.driver_cache.lock().unwrap().len()
+    }
+
+    #[cfg(test)]
+    fn cached_project_count(&self) -> usize {
+        self.project_cache.lock().unwrap().len()
     }
 
     fn document_differs_from_disk(path: &Path, text: &str) -> bool {

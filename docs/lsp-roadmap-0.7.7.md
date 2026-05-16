@@ -251,6 +251,11 @@ Completed foundation work:
 - Diagnostics scheduling tracks the most recently active document from sync and
   document requests, and drains that target first within the existing
   diagnostics budget before returning to stable workspace ordering.
+- `workspace/didChangeWatchedFiles` now parses changed file events and
+  distinguishes source refreshes from project metadata reloads. Changes to
+  `Craft.toml`, `Craft.lock`, and `.craft/analysis.toml` clear project and
+  driver state before queuing diagnostics; ordinary source changes refresh
+  analysis without dropping the project resolution cache.
 
 Still to complete before calling the scheduler done:
 
@@ -452,8 +457,6 @@ implemented by adding more direct compiler calls inside request dispatch.
   import/use links remain open
 - code lens for tests/build targets once test/build metadata is stable
 - workspace-wide references with progress reporting
-- incremental project reload when `Craft.toml`, lockfiles, or analysis context
-  files change
 
 ### Can Wait Until After 0.7.7
 

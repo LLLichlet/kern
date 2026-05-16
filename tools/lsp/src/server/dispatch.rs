@@ -10,18 +10,18 @@ use super::scheduler::{
 };
 use super::{
     INVALID_REQUEST, METHOD_NOT_FOUND, SERVER_NOT_INITIALIZED, SchedulerLane, ServerError,
-    ServerState,
+    ServerState, WorkspaceRefreshKind,
 };
 use crate::protocol::{
     CallHierarchyIncomingCallsParams, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
     CancelRequestParams, CodeAction, CodeActionParams, CompletionItem, CompletionParams,
     DefinitionParams, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentHighlightParams, DocumentLinkParams, DocumentSymbolParams, FoldingRangeParams,
-    FormattingParams, IncomingMessage, InitializeParams, InlayHintParams, RangeFormattingParams,
-    ReferenceParams, RenameParams, SelectionRangeParams, SemanticTokensParams,
-    SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams, WorkspaceSymbolParams,
-    error_response, initialize_result, log_message,
+    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentHighlightParams, DocumentLinkParams, DocumentSymbolParams,
+    FoldingRangeParams, FormattingParams, IncomingMessage, InitializeParams, InlayHintParams,
+    RangeFormattingParams, ReferenceParams, RenameParams, SelectionRangeParams,
+    SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams,
+    WorkspaceSymbolParams, error_response, initialize_result, log_message,
 };
 use crate::transport::MessageWriter;
 use serde_json::Value;
@@ -163,11 +163,39 @@ fn handle_message_with_document_request_policy(
                     settings: Value::Null,
                 });
             if handle_configuration_change(state, writer, params)? == ConfigurationChange::Changed {
-                schedule_workspace_refresh(state, writer, "workspace configuration changed")?;
+                schedule_workspace_refresh(
+                    state,
+                    writer,
+                    "workspace configuration changed",
+                    WorkspaceRefreshKind::ProjectMetadata,
+                )?;
             }
         }
         "workspace/didChangeWatchedFiles" => {
-            schedule_workspace_refresh(state, writer, "workspace files changed")?;
+            let params = message
+                .params
+                .map(serde_json::from_value::<DidChangeWatchedFilesParams>)
+                .transpose()?
+                .unwrap_or(DidChangeWatchedFilesParams {
+                    changes: Vec::new(),
+                });
+            let changed_uris = params
+                .changes
+                .into_iter()
+                .map(|change| change.uri)
+                .collect::<Vec<_>>();
+            let kind = if crate::analysis::AnalysisEngine::watched_files_require_project_reload(
+                &changed_uris,
+            ) {
+                WorkspaceRefreshKind::ProjectMetadata
+            } else {
+                WorkspaceRefreshKind::Sources
+            };
+            let reason = match kind {
+                WorkspaceRefreshKind::Sources => "workspace source files changed",
+                WorkspaceRefreshKind::ProjectMetadata => "workspace project metadata changed",
+            };
+            schedule_workspace_refresh(state, writer, reason, kind)?;
         }
         "workspace/symbol" => {
             let id = message.id.ok_or_else(|| {

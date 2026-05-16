@@ -10,13 +10,13 @@ use self::dispatch::{
     handle_message as dispatch_handle_message, handle_message_nonblocking,
     report_message_error as dispatch_report_message_error,
 };
-pub(crate) use self::state::DiagnosticsAnalysisMode;
 pub use self::state::ServerOptions;
 use self::state::{
     AnalysisGeneration, DiagnosticsTaskResult, DocumentRequestResponse, DocumentRequestTaskResult,
     LspWorkerTask, RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerState,
     WorkspaceRefreshTaskResult,
 };
+pub(crate) use self::state::{DiagnosticsAnalysisMode, WorkspaceRefreshKind};
 use crate::analysis::AnalysisEngine;
 use crate::protocol::{IncomingMessage, error_response};
 use crate::transport::{MessageReader, MessageWriter};

@@ -1,4 +1,5 @@
 use super::*;
+use std::path::Path;
 
 impl AnalysisEngine {
     #[cfg(test)]
@@ -141,8 +142,13 @@ impl AnalysisEngine {
         }
     }
 
-    pub fn refresh_workspace_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
+    pub fn reload_project_metadata_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
         self.project_cache.lock().unwrap().clear();
+        self.driver_cache.lock().unwrap().clear();
+        self.refresh_workspace_targets()
+    }
+
+    pub fn refresh_workspace_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
         self.driver_cache.lock().unwrap().clear();
         self.invalidate_artifact_cache();
         self.invalidate_render_caches();
@@ -157,6 +163,28 @@ impl AnalysisEngine {
                 (uri.clone(), mode)
             })
             .collect()
+    }
+
+    pub fn watched_files_require_project_reload(uris: &[String]) -> bool {
+        uris.iter()
+            .filter_map(|uri| uri_to_file_path(uri))
+            .any(|path| Self::watched_path_requires_project_reload(&path))
+    }
+
+    fn watched_path_requires_project_reload(path: &Path) -> bool {
+        let file_name = path.file_name().and_then(|name| name.to_str());
+        if matches!(file_name, Some("Craft.toml" | "Craft.lock")) {
+            return true;
+        }
+
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == "analysis.toml")
+            && path
+                .parent()
+                .and_then(|parent| parent.file_name())
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == ".craft")
     }
 
     pub fn document_uris(&self) -> Vec<String> {

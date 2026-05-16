@@ -111,12 +111,85 @@ fn verbose_trace_reports_workspace_refresh_latency() {
             && message["params"]["verbose"]
                 .as_str()
                 .is_some_and(|verbose| {
-                    verbose.contains("reason=workspace files changed")
+                    verbose.contains("reason=workspace source files changed")
                         && verbose.contains("targets=")
                         && verbose.contains("queue_wait_ms=")
                         && verbose.contains("elapsed_ms=")
                         && verbose.contains("status=completed")
                         && verbose.contains("budget=ok")
+                })
+    }));
+}
+
+#[test]
+fn watched_source_file_change_uses_source_refresh() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let source = "fn main() void {}\n";
+    let uri = temp_file_uri("server_source_watched_refresh", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeWatchedFiles".to_string()),
+            params: Some(json!({
+                "changes": [
+                    { "uri": uri, "type": 2 }
+                ]
+            })),
+        },
+    );
+
+    assert!(messages.iter().any(|message| {
+        message["method"] == "$/logTrace"
+            && message["params"]["message"] == "workspace refresh queued"
+            && message["params"]["verbose"]
+                .as_str()
+                .is_some_and(|verbose| verbose.contains("reason=workspace source files changed"))
+    }));
+}
+
+#[test]
+fn watched_project_metadata_change_uses_project_reload() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let source = "fn main() void {}\n";
+    let uri = temp_file_uri("server_metadata_watched_refresh", source);
+    let manifest_uri = format!(
+        "file://{}",
+        crate::analysis::uri_to_file_path(&uri)
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("Craft.toml")
+            .to_string_lossy()
+    );
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeWatchedFiles".to_string()),
+            params: Some(json!({
+                "changes": [
+                    { "uri": manifest_uri, "type": 2 }
+                ]
+            })),
+        },
+    );
+
+    assert!(messages.iter().any(|message| {
+        message["method"] == "$/logTrace"
+            && message["params"]["message"] == "workspace refresh queued"
+            && message["params"]["verbose"]
+                .as_str()
+                .is_some_and(|verbose| {
+                    verbose.contains("reason=workspace project metadata changed")
                 })
     }));
 }
@@ -160,7 +233,7 @@ fn workspace_refresh_reports_work_done_progress() {
     );
     assert_eq!(
         progress_messages[0]["params"]["value"]["message"],
-        "workspace files changed"
+        "workspace source files changed"
     );
     assert_eq!(progress_messages[1]["params"]["value"]["kind"], "end");
     assert!(

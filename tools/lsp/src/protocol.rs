@@ -155,6 +155,19 @@ pub struct DidChangeConfigurationParams {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DidChangeWatchedFilesParams {
+    #[serde(default)]
+    pub changes: Vec<FileEvent>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FileEvent {
+    pub uri: String,
+    #[serde(rename = "type")]
+    pub _type: u8,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSymbolParams {
     pub query: String,

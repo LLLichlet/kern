@@ -3,7 +3,7 @@ use super::{
     AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, DiagnosticsTaskResult,
     DocumentRequestResponse, DocumentRequestTaskResult, INVALID_REQUEST, LspWorkerTask,
     REQUEST_CANCELLED, RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerError,
-    ServerState, WorkspaceRefreshTaskResult, lifecycle::emit_trace,
+    ServerState, WorkspaceRefreshKind, WorkspaceRefreshTaskResult, lifecycle::emit_trace,
 };
 use crate::analysis::{
     AnalysisOutcome, AnalysisSnapshot, CancellationToken, DocumentSyncAction, cleared_uris,
@@ -70,7 +70,11 @@ pub(super) fn flush_diagnostics_lane(
     flush_diagnostics_results(state, writer, false)?;
 
     if let Some(reason) = state.pending_workspace_refresh_reason.take() {
-        submit_workspace_refresh_task(state, writer, reason)?;
+        let kind = state
+            .pending_workspace_refresh_kind
+            .take()
+            .unwrap_or(WorkspaceRefreshKind::Sources);
+        submit_workspace_refresh_task(state, writer, reason, kind)?;
     }
     if state.pending_workspace_refresh_reason.is_none() {
         let target_task_budget = state.diagnostics_flush_policy.target_task_budget.max(1);
@@ -109,6 +113,7 @@ fn submit_workspace_refresh_task(
     state: &mut ServerState,
     writer: &mut MessageWriter<impl io::Write>,
     reason: String,
+    kind: WorkspaceRefreshKind,
 ) -> Result<(), ServerError> {
     let mut analysis = state.analysis.clone();
     let queued_at = Instant::now();
@@ -116,8 +121,11 @@ fn submit_workspace_refresh_task(
     state.queue_workspace_refresh_worker_task();
     let task = LspWorkerTask::WorkspaceRefresh(Box::new(move || {
         let started_at = Instant::now();
-        let targets = catch_unwind(AssertUnwindSafe(|| analysis.refresh_workspace_targets()))
-            .map_err(|payload| panic_message(payload.as_ref()));
+        let targets = catch_unwind(AssertUnwindSafe(|| match kind {
+            WorkspaceRefreshKind::Sources => analysis.refresh_workspace_targets(),
+            WorkspaceRefreshKind::ProjectMetadata => analysis.reload_project_metadata_targets(),
+        }))
+        .map_err(|payload| panic_message(payload.as_ref()));
         WorkspaceRefreshTaskResult {
             reason,
             progress_token,
@@ -346,8 +354,9 @@ pub(super) fn execute_workspace_diagnostics_refresh(
     writer: &mut MessageWriter<impl io::Write>,
     reason: &str,
     _lane: SchedulerLane,
+    kind: WorkspaceRefreshKind,
 ) -> Result<(), ServerError> {
-    state.queue_workspace_refresh_task(reason.to_string());
+    state.queue_workspace_refresh_task(reason.to_string(), kind);
     let _ = writer;
     Ok(())
 }
@@ -840,6 +849,7 @@ pub(super) fn schedule_workspace_refresh(
     state: &mut ServerState,
     writer: &mut MessageWriter<impl io::Write>,
     reason: &str,
+    kind: WorkspaceRefreshKind,
 ) -> Result<(), ServerError> {
-    execute_workspace_diagnostics_refresh(state, writer, reason, SchedulerLane::Diagnostics)
+    execute_workspace_diagnostics_refresh(state, writer, reason, SchedulerLane::Diagnostics, kind)
 }

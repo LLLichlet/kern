@@ -45,6 +45,7 @@ pub(super) struct ServerState {
     active_request_cancellations: Vec<ActiveRequestCancellation>,
     pub(super) pending_diagnostics_targets: BTreeMap<String, ScheduledDiagnosticsTask>,
     pub(super) pending_workspace_refresh_reason: Option<String>,
+    pub(super) pending_workspace_refresh_kind: Option<WorkspaceRefreshKind>,
     pub(super) pending_diagnostics: BTreeMap<String, ScheduledDiagnosticsPublish>,
     pub(super) document_request_results_rx: mpsc::Receiver<DocumentRequestTaskResult>,
     pub(super) diagnostics_results_rx: mpsc::Receiver<DiagnosticsTaskResult>,
@@ -150,6 +151,12 @@ pub(super) enum LspWorkerTask {
     DocumentRequest(Box<dyn FnOnce() -> DocumentRequestTaskResult + Send + 'static>),
     Diagnostics(Box<dyn FnOnce() -> DiagnosticsTaskResult + Send + 'static>),
     WorkspaceRefresh(Box<dyn FnOnce() -> WorkspaceRefreshTaskResult + Send + 'static>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorkspaceRefreshKind {
+    Sources,
+    ProjectMetadata,
 }
 
 #[derive(Debug)]
@@ -334,6 +341,7 @@ impl ServerState {
             active_request_cancellations: Vec::new(),
             pending_diagnostics_targets: BTreeMap::new(),
             pending_workspace_refresh_reason: None,
+            pending_workspace_refresh_kind: None,
             pending_diagnostics: BTreeMap::new(),
             document_request_results_rx,
             diagnostics_results_rx,
@@ -545,8 +553,24 @@ impl ServerState {
         self.pending_diagnostics_targets.pop_first()
     }
 
-    pub(super) fn queue_workspace_refresh_task(&mut self, reason: String) {
+    pub(super) fn queue_workspace_refresh_task(
+        &mut self,
+        reason: String,
+        kind: WorkspaceRefreshKind,
+    ) {
+        let reason = match (self.pending_workspace_refresh_reason.take(), kind) {
+            (Some(existing), WorkspaceRefreshKind::Sources) => existing,
+            (Some(_), WorkspaceRefreshKind::ProjectMetadata) => reason,
+            (None, WorkspaceRefreshKind::Sources) => reason,
+            (None, WorkspaceRefreshKind::ProjectMetadata) => reason,
+        };
+        let kind = match (self.pending_workspace_refresh_kind, kind) {
+            (Some(WorkspaceRefreshKind::ProjectMetadata), _)
+            | (_, WorkspaceRefreshKind::ProjectMetadata) => WorkspaceRefreshKind::ProjectMetadata,
+            _ => WorkspaceRefreshKind::Sources,
+        };
         self.pending_workspace_refresh_reason = Some(reason);
+        self.pending_workspace_refresh_kind = Some(kind);
         self.pending_diagnostics_targets.clear();
         for uri in self.analysis.document_uris() {
             self.begin_target_analysis(&uri);
@@ -556,6 +580,7 @@ impl ServerState {
     pub(super) fn has_pending_diagnostics_work(&self) -> bool {
         !self.pending_diagnostics_targets.is_empty()
             || self.pending_workspace_refresh_reason.is_some()
+            || self.pending_workspace_refresh_kind.is_some()
             || !self.pending_diagnostics.is_empty()
             || self.pending_diagnostics_worker_tasks > 0
             || self.pending_workspace_refresh_tasks > 0
@@ -585,6 +610,7 @@ impl ServerState {
     pub(super) fn has_pending_worker_work(&self) -> bool {
         self.has_pending_document_request_work()
             || self.pending_workspace_refresh_reason.is_some()
+            || self.pending_workspace_refresh_kind.is_some()
             || !self.pending_diagnostics_targets.is_empty()
             || self.pending_diagnostics_worker_tasks > 0
             || self.pending_workspace_refresh_tasks > 0

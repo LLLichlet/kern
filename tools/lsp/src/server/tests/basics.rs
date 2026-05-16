@@ -33,6 +33,10 @@ fn initialize_result_advertises_precise_capabilities() {
         json!(["."])
     );
     assert_eq!(result["capabilities"]["documentHighlightProvider"], true);
+    assert_eq!(
+        result["capabilities"]["codeLensProvider"]["resolveProvider"],
+        false
+    );
     assert_eq!(result["capabilities"]["declarationProvider"], true);
     assert_eq!(result["capabilities"]["typeDefinitionProvider"], true);
     assert_eq!(result["capabilities"]["implementationProvider"], true);

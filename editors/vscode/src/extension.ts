@@ -53,6 +53,15 @@ type WorkspaceRoot = {
     name: string;
 };
 
+type CraftBuildPackageArgs = {
+    manifestPath?: string;
+};
+
+type CraftTestTargetArgs = {
+    manifestPath?: string;
+    targetName?: string;
+};
+
 const KERN_DOCUMENT_SELECTOR = [
     { scheme: "file", language: "kern" },
     { scheme: "untitled", language: "kern" },
@@ -84,6 +93,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(
         vscode.commands.registerCommand("kern.refreshCraftAnalysisContext", async () => {
             await refreshCraftAnalysisContext(context);
+        }),
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand("kern.craft.buildPackage", async (args) => {
+            await runCraftTargetCommand("build", args);
+        }),
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand("kern.craft.testTarget", async (args) => {
+            await runCraftTargetCommand("test", args);
         }),
     );
 
@@ -494,7 +513,7 @@ async function refreshCraftAnalysisContext(
             appendOutput(
                 `Refreshing craft analysis context in ${root.fsPath}: ${command} ${args.join(" ")}`,
             );
-            await runCraftCheck(command, args, root.fsPath, env);
+            await runCraftCommand(command, args, root.fsPath, env);
         }
         appendOutput("Craft analysis context refreshed.");
         await restartLanguageServer(context, false);
@@ -514,7 +533,97 @@ async function refreshCraftAnalysisContext(
     }
 }
 
-function runCraftCheck(
+async function runCraftTargetCommand(
+    mode: "build" | "test",
+    rawArgs: unknown,
+): Promise<void> {
+    const args =
+        mode === "build"
+            ? parseCraftBuildPackageArgs(rawArgs)
+            : parseCraftTestTargetArgs(rawArgs);
+    if (!args.manifestPath) {
+        void vscode.window.showErrorMessage("Missing Craft manifest path for code lens command.");
+        return;
+    }
+
+    const cwd = manifestWorkingDirectory(args.manifestPath);
+    const config = vscode.workspace.getConfiguration("kern");
+    const command = resolveCraftCommand(config.get<string>("craft.path", ""), cwd);
+    const craftArgs = [mode, ...projectAnalysisArgs(config), "--path", args.manifestPath];
+    if (mode === "test") {
+        const targetName = (args as CraftTestTargetArgs).targetName;
+        if (!targetName) {
+            void vscode.window.showErrorMessage("Missing Craft test target name.");
+            return;
+        }
+        craftArgs.push("--test", targetName);
+    }
+    const env = {
+        ...process.env,
+        ...configuredServerEnv(config),
+    };
+
+    outputChannel?.show(true);
+    setStatus(
+        `craft-${mode}`,
+        mode === "build" ? "Running craft build" : "Running craft test",
+        vscode.LanguageStatusSeverity.Information,
+    );
+    appendOutput(`Running ${command} ${craftArgs.join(" ")} in ${cwd}`);
+
+    try {
+        await runCraftCommand(command, craftArgs, cwd, env);
+        setStatus(
+            `craft-${mode}-complete`,
+            mode === "build" ? "Craft build completed" : "Craft test completed",
+            vscode.LanguageStatusSeverity.Information,
+        );
+    } catch (error) {
+        appendOutput(`Craft ${mode} failed: ${formatError(error)}`);
+        setStatus(
+            `craft-${mode}-failed`,
+            mode === "build" ? "Craft build failed" : "Craft test failed",
+            vscode.LanguageStatusSeverity.Error,
+        );
+        void vscode.window.showErrorMessage(
+            `Craft ${mode} failed. See the Kern Language Server output for details.`,
+        );
+    }
+}
+
+function parseCraftBuildPackageArgs(raw: unknown): CraftBuildPackageArgs {
+    if (!raw || typeof raw !== "object") {
+        return {};
+    }
+    const value = raw as Record<string, unknown>;
+    return {
+        manifestPath:
+            typeof value.manifestPath === "string" ? value.manifestPath : undefined,
+    };
+}
+
+function parseCraftTestTargetArgs(raw: unknown): CraftTestTargetArgs {
+    if (!raw || typeof raw !== "object") {
+        return {};
+    }
+    const value = raw as Record<string, unknown>;
+    return {
+        manifestPath:
+            typeof value.manifestPath === "string" ? value.manifestPath : undefined,
+        targetName: typeof value.targetName === "string" ? value.targetName : undefined,
+    };
+}
+
+function manifestWorkingDirectory(manifestPath: string): string {
+    const normalized = manifestPath.replace(/\\/g, "/");
+    const slash = normalized.lastIndexOf("/");
+    if (slash <= 0) {
+        return ".";
+    }
+    return manifestPath.slice(0, slash);
+}
+
+function runCraftCommand(
     command: string,
     args: string[],
     cwd: string,

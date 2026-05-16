@@ -958,3 +958,70 @@ fn standalone_submodule_analysis_does_not_treat_parent_import_as_root_error() {
             .contains("Cannot use `..` (Parent) from the root module")
     }));
 }
+
+#[test]
+fn code_lenses_return_craft_build_and_test_targets() {
+    let root = unique_temp_dir("analysis_code_lens_targets");
+    let src_dir = root.join("src");
+    let tests_dir = root.join("tests");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::create_dir_all(&tests_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+
+[test]
+roots = [\"tests/smoke.kn\"]
+"
+        ),
+    )
+    .unwrap();
+    let lib_source = "pub fn value() i32 { return 1; }\n";
+    fs::write(src_dir.join("lib.kn"), lib_source).unwrap();
+    let test_source = "use app.value;\nfn test_smoke() void { let _ = value(); }\n";
+    fs::write(tests_dir.join("smoke.kn"), test_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let lib_uri = file_path_to_uri(&src_dir.join("lib.kn")).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: lib_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: lib_source.to_string(),
+        },
+    });
+    let test_uri = file_path_to_uri(&tests_dir.join("smoke.kn")).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: test_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: test_source.to_string(),
+        },
+    });
+
+    let lib_lenses = analysis.code_lenses(&lib_uri).unwrap();
+    assert_eq!(lib_lenses.len(), 1, "{lib_lenses:#?}");
+    assert_eq!(lib_lenses[0].title, "Build lib");
+    assert_eq!(lib_lenses[0].command, "kern.craft.buildPackage");
+    assert_eq!(
+        lib_lenses[0].arguments[0]["manifestPath"].as_str().unwrap(),
+        root.join("Craft.toml").to_string_lossy().as_ref()
+    );
+    assert_eq!(lib_lenses[0].arguments[0]["targetKind"], "lib");
+
+    let test_lenses = analysis.code_lenses(&test_uri).unwrap();
+    assert_eq!(test_lenses.len(), 1, "{test_lenses:#?}");
+    assert_eq!(test_lenses[0].title, "Run Test smoke");
+    assert_eq!(test_lenses[0].command, "kern.craft.testTarget");
+    assert_eq!(test_lenses[0].arguments[0]["targetName"], "smoke");
+}

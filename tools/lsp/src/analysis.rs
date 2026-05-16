@@ -28,10 +28,10 @@ use self::diagnostics::{
 };
 use self::ide::{
     IdeCallHierarchyIncomingCall, IdeCallHierarchyItem, IdeCallHierarchyOutgoingCall,
-    IdeCodeAction, IdeCompletionItem, IdeDiagnostic, IdeDocumentHighlight, IdeDocumentLink,
-    IdeDocumentSymbol, IdeFoldingRange, IdeFoldingRangeKind, IdeHover, IdeInlayHint, IdeLocation,
-    IdePrepareRenameResult, IdeSelectionRange, IdeSemanticTokens, IdeSignatureHelp, IdeTextEdit,
-    IdeWorkspaceEdit, IdeWorkspaceSymbol,
+    IdeCodeAction, IdeCodeLens, IdeCompletionItem, IdeDiagnostic, IdeDocumentHighlight,
+    IdeDocumentLink, IdeDocumentSymbol, IdeFoldingRange, IdeFoldingRangeKind, IdeHover,
+    IdeInlayHint, IdeLocation, IdePrepareRenameResult, IdeSelectionRange, IdeSemanticTokens,
+    IdeSignatureHelp, IdeTextEdit, IdeWorkspaceEdit, IdeWorkspaceSymbol,
 };
 use self::navigation::{
     KnownReferenceLocationQuery, ReferenceLocationQuery, analysis_completion_to_ide_item,

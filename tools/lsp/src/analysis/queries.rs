@@ -179,6 +179,105 @@ impl AnalysisEngine {
     }
 
     #[cfg(test)]
+    pub fn code_lenses(&self, uri: &str) -> Result<Vec<IdeCodeLens>, String> {
+        let snapshot = self.snapshot(None, CancellationToken::new());
+        self.code_lenses_in_snapshot(&snapshot, uri)
+    }
+
+    pub fn code_lenses_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+    ) -> Result<Vec<IdeCodeLens>, String> {
+        snapshot.check_canceled()?;
+        let Some(document) = snapshot.document(uri) else {
+            return Err("requested code lenses for a document that is not open".to_string());
+        };
+        let Some(project) = self.project_for_path(&document.path)? else {
+            return Ok(Vec::new());
+        };
+
+        let target_path = normalize_path(&document.path);
+        let Some(file) = snapshot.document_source_file(uri) else {
+            return Ok(Vec::new());
+        };
+        let range = Range {
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 0,
+                character: first_line_end_character(&file),
+            },
+        };
+
+        let mut lenses = Vec::new();
+        for target in project.analysis_targets().map_err(|err| {
+            format!(
+                "code lens project analysis failed for `{}`: {err}",
+                project.manifest_path().display()
+            )
+        })? {
+            snapshot.check_canceled()?;
+            if normalize_path(&target.root) != target_path {
+                continue;
+            }
+            let manifest = target.manifest_path.to_string_lossy().to_string();
+            match target.kind {
+                craft::plan::TargetKind::Test => {
+                    let Some(name) = target.name else {
+                        continue;
+                    };
+                    lenses.push(IdeCodeLens {
+                        range: range.clone(),
+                        title: format!("Run Test {name}"),
+                        command: "kern.craft.testTarget".to_string(),
+                        arguments: vec![serde_json::json!({
+                            "manifestPath": manifest,
+                            "targetName": name,
+                        })],
+                    });
+                }
+                craft::plan::TargetKind::Lib
+                | craft::plan::TargetKind::Bin
+                | craft::plan::TargetKind::Example => {
+                    let label = target
+                        .name
+                        .as_ref()
+                        .map(|name| format!("{} {name}", target.kind.as_str()))
+                        .unwrap_or_else(|| target.kind.as_str().to_string());
+                    lenses.push(IdeCodeLens {
+                        range: range.clone(),
+                        title: format!("Build {label}"),
+                        command: "kern.craft.buildPackage".to_string(),
+                        arguments: vec![serde_json::json!({
+                            "manifestPath": manifest,
+                            "targetKind": target.kind.as_str(),
+                            "targetName": target.name,
+                        })],
+                    });
+                }
+            }
+        }
+        lenses.sort_by(|lhs, rhs| {
+            (
+                lhs.range.start.line,
+                lhs.range.start.character,
+                lhs.title.as_str(),
+                lhs.command.as_str(),
+            )
+                .cmp(&(
+                    rhs.range.start.line,
+                    rhs.range.start.character,
+                    rhs.title.as_str(),
+                    rhs.command.as_str(),
+                ))
+        });
+        Ok(lenses)
+    }
+
+    #[cfg(test)]
     pub fn goto_definition(
         &self,
         uri: &str,
@@ -1037,6 +1136,11 @@ fn workspace_symbol_same_location(
     rhs: &mut IdeWorkspaceSymbol,
 ) -> bool {
     lhs.name == rhs.name && lhs.kind == rhs.kind && lhs.location == rhs.location
+}
+
+fn first_line_end_character(file: &SourceFile) -> u32 {
+    let first_line = file.src.lines().next().unwrap_or("");
+    first_line.encode_utf16().count() as u32
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

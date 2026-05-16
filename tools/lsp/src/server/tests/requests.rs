@@ -1343,6 +1343,59 @@ fn document_symbol_request_returns_top_level_symbols() {
 }
 
 #[test]
+fn code_lens_request_returns_craft_target_commands() {
+    let root = unique_temp_dir("server_code_lens_targets");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{}\"\n
+[lib]
+root = \"src/lib.kn\"
+",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    let source = "pub fn value() i32 { return 1; }\n";
+    fs::write(root.join("src/lib.kn"), source).unwrap();
+    let uri = format!("file://{}", root.join("src/lib.kn").to_string_lossy());
+
+    let mut state = initialized_state();
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(205)),
+            method: Some("textDocument/codeLens".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(205));
+    let lenses = response["result"].as_array().unwrap();
+    assert_eq!(lenses.len(), 1, "{lenses:#?}");
+    assert_eq!(lenses[0]["command"]["title"], "Build lib");
+    assert_eq!(lenses[0]["command"]["command"], "kern.craft.buildPackage");
+    assert_eq!(lenses[0]["command"]["arguments"][0]["targetKind"], "lib");
+    assert!(
+        lenses[0]["command"]["arguments"][0]["manifestPath"]
+            .as_str()
+            .unwrap()
+            .ends_with("/Craft.toml"),
+        "{}",
+        lenses[0]["command"]["arguments"][0]
+    );
+}
+
+#[test]
 fn semantic_tokens_request_returns_encoded_token_data() {
     let mut state = initialized_state();
     let source = concat!(

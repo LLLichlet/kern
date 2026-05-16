@@ -851,3 +851,57 @@ kern = \"0.7.6\"
         normalize_test_path(&root.join("Craft.toml"))
     );
 }
+
+#[test]
+fn analysis_targets_include_build_and_test_roots() {
+    let root = temp_dir("craft-project-analysis-targets");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"0.7.6\"
+
+[lib]
+root = \"src/lib.kn\"
+
+[[bin]]
+name = \"app\"
+root = \"src/main.kn\"
+
+[test]
+roots = [\"tests/smoke.kn\"]
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.kn"),
+        "pub fn value() i32 { return 1; }\n",
+    )
+    .unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() void {}\n").unwrap();
+    fs::write(root.join("tests/smoke.kn"), "fn test_smoke() void {}\n").unwrap();
+
+    let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
+    let targets = project.analysis_targets().unwrap();
+
+    assert!(targets.iter().any(|target| {
+        target.kind == TargetKind::Lib
+            && target.name.is_none()
+            && normalize_test_path(&target.root) == normalize_test_path(&root.join("src/lib.kn"))
+    }));
+    assert!(targets.iter().any(|target| {
+        target.kind == TargetKind::Bin
+            && target.name.as_deref() == Some("app")
+            && normalize_test_path(&target.root) == normalize_test_path(&root.join("src/main.kn"))
+    }));
+    assert!(targets.iter().any(|target| {
+        target.kind == TargetKind::Test
+            && target.name.as_deref() == Some("smoke")
+            && normalize_test_path(&target.root)
+                == normalize_test_path(&root.join("tests/smoke.kn"))
+    }));
+}

@@ -1,9 +1,9 @@
 use crate::protocol::{
-    CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, CodeAction,
-    CompletionItem, Diagnostic, DiagnosticRelatedInformation, DiagnosticTag, DocumentHighlight,
-    DocumentLink, DocumentSymbol, FoldingRange, InlayHint, Location, ParameterInformation,
-    PrepareRenameResult, Range, SelectionRange, SemanticTokens, SignatureHelp,
-    SignatureInformation, TextEdit, WorkspaceEdit, WorkspaceSymbol,
+    CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, CodeAction, CodeLens,
+    Command, CompletionItem, Diagnostic, DiagnosticRelatedInformation, DiagnosticTag,
+    DocumentHighlight, DocumentLink, DocumentSymbol, FoldingRange, InlayHint, Location,
+    ParameterInformation, PrepareRenameResult, Range, SelectionRange, SemanticTokens,
+    SignatureHelp, SignatureInformation, TextEdit, WorkspaceEdit, WorkspaceSymbol,
 };
 use std::collections::BTreeMap;
 
@@ -116,6 +116,14 @@ pub(crate) struct IdeSelectionRange {
 pub(crate) struct IdeDocumentLink {
     pub range: Range,
     pub target: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IdeCodeLens {
+    pub range: Range,
+    pub title: String,
+    pub command: String,
+    pub arguments: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,6 +305,19 @@ impl IdeWorkspaceSymbol {
             kind: self.kind.into_lsp(),
             location: self.location.into_lsp(),
             container_name: self.container_name,
+        }
+    }
+}
+
+impl IdeCodeLens {
+    pub(crate) fn into_lsp(self) -> CodeLens {
+        CodeLens {
+            range: self.range,
+            command: Command {
+                title: self.title,
+                command: self.command,
+                arguments: self.arguments,
+            },
         }
     }
 }

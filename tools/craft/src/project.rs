@@ -3,9 +3,10 @@ mod paths;
 #[cfg(test)]
 mod tests;
 
+pub use self::packages::AnalysisTarget;
 use self::packages::{
-    AnalysisPackage, AnalysisScriptRoot, PackageEntry, assemble_packages, package_entries,
-    target_match_score,
+    AnalysisPackage, AnalysisScriptRoot, PackageEntry, analysis_targets, assemble_packages,
+    package_entries, target_match_score,
 };
 use self::paths::{
     build_unit_source_aliases, compile_time_defines, resolve_unit_source_root_path,
@@ -245,6 +246,13 @@ impl AnalysisProject {
                 && lhs.compile_options.root_module_name == rhs.compile_options.root_module_name
         });
         Ok(targets)
+    }
+
+    pub fn analysis_targets(&self) -> Result<Vec<AnalysisTarget>> {
+        let manifest = Manifest::load(&self.manifest_path)?;
+        manifest.validate(&self.manifest_path)?;
+        let workspace_members = workspace::load_members(&self.manifest_path, &manifest)?;
+        analysis_targets(&self.manifest_path, &manifest, &workspace_members)
     }
 
     fn from_parts(

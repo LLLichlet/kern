@@ -270,6 +270,12 @@ pub struct DocumentHighlightParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CodeLensParams {
+    pub text_document: TextDocumentIdentifier,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignatureHelpParams {
     pub text_document: TextDocumentIdentifier,
     pub position: Position,
@@ -465,6 +471,22 @@ pub struct CodeAction {
     pub edit: Option<WorkspaceEdit>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_preferred: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeLens {
+    pub range: Range,
+    pub command: Command,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Command {
+    pub title: String,
+    pub command: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub arguments: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -772,6 +794,10 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
         json!({ "workDoneProgress": false }),
     );
     capabilities.insert("documentHighlightProvider".to_string(), Value::Bool(true));
+    capabilities.insert(
+        "codeLensProvider".to_string(),
+        json!({ "resolveProvider": false }),
+    );
     capabilities.insert(
         "referencesProvider".to_string(),
         json!({ "workDoneProgress": true }),

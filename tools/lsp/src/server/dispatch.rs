@@ -15,8 +15,8 @@ use super::{
 };
 use crate::protocol::{
     CallHierarchyIncomingCallsParams, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
-    CancelRequestParams, CodeAction, CodeActionParams, CompletionItem, CompletionParams,
-    DefinitionParams, DidChangeConfigurationParams, DidChangeTextDocumentParams,
+    CancelRequestParams, CodeAction, CodeActionParams, CodeLensParams, CompletionItem,
+    CompletionParams, DefinitionParams, DidChangeConfigurationParams, DidChangeTextDocumentParams,
     DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, DocumentHighlightParams, DocumentLinkParams, DocumentSymbolParams,
     FoldingRangeParams, FormattingParams, IncomingMessage, InitializeParams, InlayHintParams,
@@ -791,6 +791,32 @@ fn handle_message_with_document_request_policy(
                             ranges
                                 .into_iter()
                                 .map(crate::analysis::ide::IdeSelectionRange::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
+            )?;
+        }
+        "textDocument/codeLens" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol("textDocument/codeLens must be sent as a request".to_string())
+            })?;
+            let params = required_params::<CodeLensParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .code_lenses_in_snapshot(snapshot, &query_uri)
+                        .map(|lenses| {
+                            lenses
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeCodeLens::into_lsp)
                                 .collect::<Vec<_>>()
                         })
                 },

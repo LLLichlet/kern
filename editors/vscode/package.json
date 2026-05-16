@@ -30,6 +30,8 @@
     "onLanguage:kern",
     "onCommand:kern.restartLanguageServer",
     "onCommand:kern.showLanguageServerOutput",
+    "onCommand:kern.craft.buildPackage",
+    "onCommand:kern.craft.testTarget",
     "workspaceContains:**/*.kn"
   ],
   "main": "./extension.js",
@@ -86,6 +88,14 @@
       {
         "command": "kern.refreshCraftAnalysisContext",
         "title": "Kern: Refresh Craft Analysis Context"
+      },
+      {
+        "command": "kern.craft.buildPackage",
+        "title": "Kern: Build Package"
+      },
+      {
+        "command": "kern.craft.testTarget",
+        "title": "Kern: Run Test Target"
       }
     ],
     "configuration": {

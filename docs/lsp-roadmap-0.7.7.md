@@ -262,6 +262,11 @@ Completed foundation work:
   targets when the query belongs to a Craft project, deduplicates repeated target
   contexts, and reports standard work-done progress when the client supplies a
   `workDoneToken`. Standalone files keep the previous single-target behavior.
+- `textDocument/codeLens` is advertised and implemented for Craft target roots.
+  Library, binary, and example roots expose build commands, while test roots
+  expose precise run-test commands. The first-party VS Code extension registers
+  the returned Craft commands and executes them with the configured feature and
+  environment settings.
 
 Still to complete before calling the scheduler done:
 
@@ -462,7 +467,7 @@ implemented by adding more direct compiler calls inside request dispatch.
 - document links for imports/modules/packages: file-backed module declarations,
   semantically resolved import/use bindings, and local Craft dependency package
   references are done
-- code lens for tests/build targets once test/build metadata is stable
+- code lens for tests/build targets is done for resolved Craft target roots
 - workspace-wide references with progress reporting are done for resolved Craft
   workspace targets
 

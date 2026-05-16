@@ -136,6 +136,12 @@ pub(super) fn invalid_manifest_document_uri(prefix: &str, source: &str) -> Strin
     format!("file://{}", source_path.to_string_lossy())
 }
 
+pub(super) fn unique_temp_dir(prefix: &str) -> PathBuf {
+    let path = unique_temp_file_path(prefix);
+    fs::create_dir_all(&path).unwrap();
+    path
+}
+
 fn unique_temp_file_path(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -1,6 +1,6 @@
 use super::lifecycle::{
     TraceValue, emit_initialize_followups, emit_trace, ensure_utf16_position_encoding,
-    negotiate_capabilities,
+    negotiate_capabilities, select_workspace_root,
 };
 use super::scheduler::{
     drain_scheduler, execute_document_diagnostics, execute_document_request,
@@ -118,8 +118,11 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<InitializeParams>(message.params)?;
             ensure_utf16_position_encoding(&params.capabilities, request.id.clone(), writer)?;
             let capabilities = negotiate_capabilities(&params.capabilities);
+            let (workspace_root, ignored_workspace_folders) = select_workspace_root(&params);
             state.trace = TraceValue::from_raw(params.trace.as_deref());
             state.work_done_progress = capabilities.work_done_progress;
+            state.workspace_root = workspace_root;
+            state.ignored_workspace_folders = ignored_workspace_folders;
             state.initialized = true;
             write_success_response(state, writer, &request, initialize_result(capabilities))?;
             emit_initialize_followups(state, writer, &params, capabilities)?;

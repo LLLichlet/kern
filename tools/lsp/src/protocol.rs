@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 pub const JSONRPC_VERSION: &str = "2.0";
 pub const TEXT_DOCUMENT_SYNC_INCREMENTAL: u8 = 2;
@@ -40,9 +41,20 @@ pub struct InitializeParams {
     #[serde(default)]
     pub capabilities: ClientCapabilities,
     #[serde(default)]
+    pub root_uri: Option<String>,
+    #[serde(default)]
+    pub workspace_folders: Option<Vec<WorkspaceFolder>>,
+    #[serde(default)]
     pub trace: Option<String>,
     #[serde(default)]
     pub client_info: Option<ClientInfo>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceFolder {
+    pub uri: String,
+    #[serde(rename = "name")]
+    pub _name: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -579,6 +591,15 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
     capabilities.insert("referencesProvider".to_string(), Value::Bool(true));
     capabilities.insert("hoverProvider".to_string(), Value::Bool(true));
     capabilities.insert(
+        "workspace".to_string(),
+        json!({
+            "workspaceFolders": {
+                "supported": false,
+                "changeNotifications": false
+            }
+        }),
+    );
+    capabilities.insert(
         "signatureHelpProvider".to_string(),
         json!({
             "triggerCharacters": ["(", ","],
@@ -671,6 +692,23 @@ pub fn error_response(id: Value, code: i64, message: impl Into<String>) -> Error
     }
 }
 
+pub fn file_uri_to_path(uri: &str) -> Option<PathBuf> {
+    let raw = uri.strip_prefix("file://")?;
+    let decoded = percent_decode(raw).ok()?;
+
+    #[cfg(windows)]
+    {
+        let trimmed = decoded.strip_prefix('/').unwrap_or(&decoded);
+        let with_separators = trimmed.replace('/', "\\");
+        Some(PathBuf::from(with_separators))
+    }
+
+    #[cfg(not(windows))]
+    {
+        Some(PathBuf::from(decoded))
+    }
+}
+
 pub fn work_done_progress_create(
     id: Value,
     token: Value,
@@ -680,6 +718,41 @@ pub fn work_done_progress_create(
         id,
         method: "window/workDoneProgress/create",
         params: WorkDoneProgressCreateParams { token },
+    }
+}
+
+fn percent_decode(input: &str) -> Result<String, ()> {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut idx = 0;
+
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b'%' => {
+                if idx + 2 >= bytes.len() {
+                    return Err(());
+                }
+                let hi = hex_value(bytes[idx + 1]).ok_or(())?;
+                let lo = hex_value(bytes[idx + 2]).ok_or(())?;
+                out.push((hi << 4) | lo);
+                idx += 3;
+            }
+            b => {
+                out.push(b);
+                idx += 1;
+            }
+        }
+    }
+
+    String::from_utf8(out).map_err(|_| ())
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
     }
 }
 

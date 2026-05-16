@@ -2,6 +2,7 @@ use super::super::lifecycle::TraceValue;
 use super::super::*;
 use super::*;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::sync::{Arc, Barrier, Mutex};
 
 #[derive(Clone)]
@@ -49,6 +50,14 @@ fn initialize_result_advertises_precise_capabilities() {
         false
     );
     assert_eq!(result["capabilities"]["inlayHintProvider"], true);
+    assert_eq!(
+        result["capabilities"]["workspace"]["workspaceFolders"]["supported"],
+        false
+    );
+    assert_eq!(
+        result["capabilities"]["workspace"]["workspaceFolders"]["changeNotifications"],
+        false
+    );
 }
 
 #[test]
@@ -76,6 +85,82 @@ fn initialize_negotiates_work_done_progress() {
     .unwrap();
 
     assert!(state.work_done_progress);
+}
+
+#[test]
+fn initialize_records_root_uri_as_primary_workspace_root() {
+    let root = unique_temp_dir("server_initialize_root_uri");
+    let mut state = ServerState::new();
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(15)),
+            method: Some("initialize".to_string()),
+            params: Some(json!({
+                "rootUri": file_path_to_uri_for_test(&root),
+                "capabilities": {}
+            })),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(state.workspace_root.as_ref(), Some(&root));
+    assert!(state.ignored_workspace_folders.is_empty());
+}
+
+#[test]
+fn initialize_uses_first_workspace_folder_and_warns_about_ignored_folders() {
+    let root_a = unique_temp_dir("server_initialize_workspace_a");
+    let root_b = unique_temp_dir("server_initialize_workspace_b");
+    let mut state = ServerState::new();
+    state.trace = TraceValue::Verbose;
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(16)),
+            method: Some("initialize".to_string()),
+            params: Some(json!({
+                "rootUri": file_path_to_uri_for_test(&root_b),
+                "workspaceFolders": [
+                    { "uri": file_path_to_uri_for_test(&root_a), "name": "a" },
+                    { "uri": file_path_to_uri_for_test(&root_b), "name": "b" }
+                ],
+                "capabilities": {}
+            })),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(state.workspace_root.as_ref(), Some(&root_a));
+    assert_eq!(
+        state.ignored_workspace_folders,
+        vec![file_path_to_uri_for_test(&root_b)]
+    );
+    let messages = read_all_messages(&output);
+    assert!(messages.iter().any(|message| {
+        message["method"] == "window/logMessage"
+            && message["params"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("single primary workspace folder"))
+    }));
+}
+
+fn file_path_to_uri_for_test(path: &PathBuf) -> String {
+    let mut rendered = path.to_string_lossy().replace('\\', "/");
+    if !rendered.starts_with('/') {
+        rendered.insert(0, '/');
+    }
+    format!("file://{rendered}")
 }
 
 #[test]

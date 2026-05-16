@@ -2,6 +2,7 @@ use super::lifecycle::TraceValue;
 use crate::analysis::{AnalysisEngine, AnalysisOutcome, AnalysisTier};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -29,6 +30,8 @@ pub(super) struct ServerState {
     pub(super) shutdown_requested: bool,
     pub(super) trace: TraceValue,
     pub(super) work_done_progress: bool,
+    pub(super) workspace_root: Option<PathBuf>,
+    pub(super) ignored_workspace_folders: Vec<String>,
     pub(super) diagnostics_flush_policy: DiagnosticsFlushPolicy,
     pub(super) request_budget_policy: RequestBudgetPolicy,
     pub(super) analysis: AnalysisEngine,
@@ -315,6 +318,8 @@ impl ServerState {
             shutdown_requested: false,
             trace: TraceValue::Off,
             work_done_progress: false,
+            workspace_root: None,
+            ignored_workspace_folders: Vec::new(),
             diagnostics_flush_policy: DiagnosticsFlushPolicy::new(),
             request_budget_policy: RequestBudgetPolicy::new(),
             analysis,

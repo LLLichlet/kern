@@ -233,6 +233,11 @@ Completed foundation work:
   `window.workDoneProgress`. The server creates a progress token, emits
   `$/progress` begin/end notifications around refresh work, and ignores the
   corresponding client response without treating it as an invalid request.
+- Workspace folder handling is now explicit: `kern-lsp` advertises a
+  single-folder policy, records `rootUri` or the first `workspaceFolders`
+  entry during initialization, and warns when additional workspace folders are
+  ignored. Full multi-root indexing remains future work rather than an implicit
+  half-supported behavior.
 
 Still to complete before calling the scheduler done:
 
@@ -390,7 +395,9 @@ Required 0.7.7 protocol work:
 
 - proper LSP error codes for cancellation and request failure
 - `window/workDoneProgress/create` and `$/progress` for long workspace work
-- `workspace/workspaceFolders` support or explicit single-folder policy
+- `workspace/workspaceFolders` support or explicit single-folder policy. The
+  0.7.7 line currently uses an explicit single-folder policy and advertises
+  `workspace.workspaceFolders.supported = false`.
 - `workspace/didChangeConfiguration`
 - dynamic client capability handling where needed
 - request tracing with IDs, method names, generation, and elapsed time

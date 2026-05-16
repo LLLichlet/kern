@@ -237,20 +237,7 @@ pub(super) fn uri_to_analysis_path(uri: &str) -> Option<PathBuf> {
 }
 
 pub(crate) fn uri_to_file_path(uri: &str) -> Option<PathBuf> {
-    let raw = uri.strip_prefix("file://")?;
-    let decoded = percent_decode(raw).ok()?;
-
-    #[cfg(windows)]
-    {
-        let trimmed = decoded.strip_prefix('/').unwrap_or(&decoded);
-        let with_separators = trimmed.replace('/', "\\");
-        Some(normalize_platform_path(PathBuf::from(with_separators)))
-    }
-
-    #[cfg(not(windows))]
-    {
-        Some(normalize_platform_path(PathBuf::from(decoded)))
-    }
+    crate::protocol::file_uri_to_path(uri).map(normalize_platform_path)
 }
 
 fn untitled_uri_to_path(uri: &str) -> Option<PathBuf> {

@@ -1,11 +1,12 @@
 use super::{INVALID_REQUEST, ServerError, ServerState};
 use crate::protocol::{
-    ClientCapabilities, InitializeParams, InitializeResultOptions, error_response, log_message,
-    log_trace,
+    ClientCapabilities, InitializeParams, InitializeResultOptions, WorkspaceFolder, error_response,
+    file_uri_to_path, log_message, log_trace,
 };
 use crate::transport::MessageWriter;
 use serde_json::Value;
 use std::io;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TraceValue {
@@ -101,6 +102,15 @@ pub(super) fn emit_initialize_followups(
             "Client does not advertise prepareRename support; kern-lsp will serve basic rename only.",
         ))?;
     }
+    if !state.ignored_workspace_folders.is_empty() {
+        writer.write_json(&log_message(
+            2,
+            format!(
+                "Kern LSP uses a single primary workspace folder; ignoring {} additional workspace folder(s).",
+                state.ignored_workspace_folders.len()
+            ),
+        ))?;
+    }
 
     let mut verbose = Vec::new();
     if let Some(client_info) = &params.client_info {
@@ -112,6 +122,15 @@ pub(super) fn emit_initialize_followups(
     if let Some(encodings) = &params.capabilities.general.position_encodings {
         verbose.push(format!("positionEncodings={}", encodings.join(",")));
     }
+    if let Some(root) = &state.workspace_root {
+        verbose.push(format!("workspaceRoot={}", root.display()));
+    }
+    if !state.ignored_workspace_folders.is_empty() {
+        verbose.push(format!(
+            "ignoredWorkspaceFolders={}",
+            state.ignored_workspace_folders.join(",")
+        ));
+    }
 
     emit_trace(
         state,
@@ -120,6 +139,26 @@ pub(super) fn emit_initialize_followups(
         (!verbose.is_empty()).then(|| verbose.join(" | ")),
         false,
     )
+}
+
+pub(super) fn select_workspace_root(params: &InitializeParams) -> (Option<PathBuf>, Vec<String>) {
+    let folders = params.workspace_folders.as_deref().unwrap_or(&[]);
+    if let Some(first) = folders.first() {
+        let root = workspace_folder_path(first);
+        let ignored = folders
+            .iter()
+            .skip(1)
+            .map(|folder| folder.uri.clone())
+            .collect();
+        return (root, ignored);
+    }
+
+    let root = params.root_uri.as_deref().and_then(file_uri_to_path);
+    (root, Vec::new())
+}
+
+fn workspace_folder_path(folder: &WorkspaceFolder) -> Option<PathBuf> {
+    file_uri_to_path(&folder.uri)
 }
 
 pub(super) fn emit_trace(

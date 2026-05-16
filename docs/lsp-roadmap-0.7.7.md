@@ -464,6 +464,7 @@ implemented by adding more direct compiler calls inside request dispatch.
 - selection ranges
 - semantic token range support is done
 - completion item resolve for documentation
+- code action resolve for deferred/heavier quick fixes
 - server-level tests for every advertised capability
 - deterministic stress tests
 
@@ -505,9 +506,6 @@ These are known capability gaps, not completed work:
 - Code lens and document link resolve providers. Existing code lenses and
   document links are eager; advertise resolve only after there is a real lazy
   payload to compute.
-- Code action resolve for heavier quick fixes. Current quick fixes are eager;
-  advertise resolve only after code actions carry opaque data and resolve can
-  compute a real deferred edit or command.
 
 ## Work Breakdown
 
@@ -652,8 +650,9 @@ Tasks:
 - Semantic token range is done; delta is intentionally unadvertised.
 - Completion insert text is eager; `completionItem/resolve` adds markdown
   documentation.
-- Code action quick fixes are eager; `codeAction/resolve` is intentionally
-  unadvertised until heavier deferred fixes exist.
+- Code action quick fixes may remain eager for the cheapest edits, but deferred
+  or heavier fixes must be represented with stable resolve data and completed
+  through `codeAction/resolve`.
 
 Exit criteria:
 
@@ -661,7 +660,44 @@ Exit criteria:
 - Unsupported capabilities are not advertised, and any intentional non-support
   must be listed as a post-0.7.7 task rather than treated as completed work.
 
-### Phase 7: Stress, Fuzz, and Release Hardening
+### Phase 7: Deferred Code Actions and Resolve
+
+Purpose: make code actions protocol-complete instead of relying only on eager
+quick fixes.
+
+Tasks:
+
+- Add an opaque `CodeActionResolveData` schema with document URI, document
+  version, requested range, diagnostic code, action kind, and stable fix id.
+- Split code action production into lightweight action discovery and edit
+  materialization so cheap fixes can stay eager while heavier fixes are resolved
+  lazily.
+- Add stable internal fix identifiers for every quick fix instead of matching
+  actions by title text.
+- Implement `codeAction/resolve` by validating resolve data, checking document
+  staleness, rerunning the relevant analysis path, and materializing the edit or
+  command for the selected fix.
+- Define stale-data behavior explicitly: stale or invalid resolve data must not
+  return an old edit.
+- Advertise `codeActionProvider.resolveProvider = true` only after the resolve
+  path is real and covered by tests.
+- Add at least one genuinely deferred/heavier action so resolve is not just a
+  protocol echo. Candidate fixes include import insertion, trait impl stubs, or
+  wider multi-edit quick fixes.
+
+Exit criteria:
+
+- Initial code action responses for deferred fixes include stable `data` and do
+  not include the heavy edit.
+- `codeAction/resolve` materializes the edit from analysis, removes stale data
+  from the returned action, and handles stale/invalid data without applying old
+  edits.
+- Server capability tests count `codeAction/resolve` only when
+  `resolveProvider` is true.
+- VS Code smoke coverage exercises resolving and applying at least one deferred
+  code action.
+
+### Phase 8: Stress, Fuzz, and Release Hardening
 
 Purpose: make the LSP robust enough for community usage.
 

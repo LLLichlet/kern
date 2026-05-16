@@ -1,8 +1,8 @@
 use super::state::{RequestBudgetKind, RequestBudgetStatus};
 use super::{
     AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, DocumentRequestResponse,
-    DocumentRequestTaskResult, INVALID_REQUEST, RequestContext, ScheduledDocumentRequestTask,
-    SchedulerLane, ServerError, ServerState, lifecycle::emit_trace,
+    DocumentRequestTaskResult, INVALID_REQUEST, LspWorkerTask, RequestContext,
+    ScheduledDocumentRequestTask, SchedulerLane, ServerError, ServerState, lifecycle::emit_trace,
 };
 use crate::analysis::{AnalysisOutcome, AnalysisSnapshot, DocumentSyncAction, cleared_uris};
 use crate::protocol::{error_response, null_response, publish_diagnostics, success_response};
@@ -10,7 +10,6 @@ use crate::transport::MessageWriter;
 use serde_json::Value;
 use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::thread;
 use std::time::Instant;
 
 pub(super) fn publish_analysis_outcome(
@@ -271,12 +270,14 @@ fn submit_document_request_task<F>(
     state.analysis.clear_last_analysis_tier();
     let analysis = state.analysis.clone();
     let snapshot = analysis.snapshot();
-    let result_tx = state.document_request_results_tx.clone();
     state.queue_document_request_task();
-    thread::spawn(move || {
+    let task = LspWorkerTask::DocumentRequest(Box::new(move || {
         let result = run_document_request_task(analysis, snapshot, task_info, task);
-        let _ = result_tx.send(result);
-    });
+        result
+    }));
+    if state.worker_task_tx.send(task).is_err() {
+        state.complete_document_request_task();
+    }
 }
 
 fn run_document_request_task<F>(
@@ -291,6 +292,7 @@ where
     let started_at = Instant::now();
     let result = catch_unwind(AssertUnwindSafe(|| task(&analysis, &snapshot)));
     let elapsed_ms = started_at.elapsed().as_millis();
+    let analysis_tier = analysis.last_analysis_tier();
     let response = match result {
         Ok(Ok(response)) => response,
         Ok(Err(message)) => DocumentRequestResponse::Error {
@@ -311,6 +313,7 @@ where
         lane: task_info.lane,
         method: task_info.method,
         elapsed_ms,
+        analysis_tier,
         response,
     }
 }
@@ -405,6 +408,7 @@ pub(super) fn submit_document_request_result(
         result.lane,
         &result.method,
         result.elapsed_ms,
+        result.analysis_tier,
     )
 }
 
@@ -415,8 +419,9 @@ fn emit_analysis_tier_trace(
     lane: SchedulerLane,
     method: &str,
     elapsed_ms: u128,
+    analysis_tier: Option<crate::analysis::AnalysisTier>,
 ) -> Result<(), ServerError> {
-    let Some(tier) = state.analysis.last_analysis_tier() else {
+    let Some(tier) = analysis_tier else {
         return Ok(());
     };
     let budget_status = state

@@ -1,8 +1,11 @@
 use super::lifecycle::TraceValue;
-use crate::analysis::{AnalysisEngine, AnalysisOutcome};
+use crate::analysis::{AnalysisEngine, AnalysisOutcome, AnalysisTier};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc;
+use std::thread;
+
+const DEFAULT_WORKER_COUNT: usize = 4;
 
 pub(super) struct ServerState {
     pub(super) initialized: bool,
@@ -18,7 +21,7 @@ pub(super) struct ServerState {
     pub(super) pending_workspace_refresh_reason: Option<String>,
     pub(super) pending_diagnostics: BTreeMap<String, ScheduledDiagnosticsPublish>,
     pub(super) document_request_results_rx: mpsc::Receiver<DocumentRequestTaskResult>,
-    pub(super) document_request_results_tx: mpsc::Sender<DocumentRequestTaskResult>,
+    pub(super) worker_task_tx: mpsc::SyncSender<LspWorkerTask>,
     pub(super) pending_document_request_tasks: usize,
     pub(super) published_by_target: BTreeMap<String, BTreeSet<String>>,
 }
@@ -40,14 +43,20 @@ pub(super) struct DocumentRequestTaskResult {
     pub(super) lane: SchedulerLane,
     pub(super) method: String,
     pub(super) elapsed_ms: u128,
+    pub(super) analysis_tier: Option<AnalysisTier>,
     pub(super) response: DocumentRequestResponse,
 }
 
+#[derive(Debug)]
 pub(super) struct ScheduledDocumentRequestTask {
     pub(super) request: RequestContext,
     pub(super) target_uri: String,
     pub(super) lane: SchedulerLane,
     pub(super) method: String,
+}
+
+pub(super) enum LspWorkerTask {
+    DocumentRequest(Box<dyn FnOnce() -> DocumentRequestTaskResult + Send + 'static>),
 }
 
 #[derive(Debug)]
@@ -199,6 +208,8 @@ impl ServerState {
 
     pub(super) fn with_analysis(analysis: AnalysisEngine) -> Self {
         let (document_request_results_tx, document_request_results_rx) = mpsc::channel();
+        let worker_task_tx =
+            spawn_worker_threads(DEFAULT_WORKER_COUNT, document_request_results_tx.clone());
         Self {
             initialized: false,
             shutdown_requested: false,
@@ -213,7 +224,7 @@ impl ServerState {
             pending_workspace_refresh_reason: None,
             pending_diagnostics: BTreeMap::new(),
             document_request_results_rx,
-            document_request_results_tx,
+            worker_task_tx,
             pending_document_request_tasks: 0,
             published_by_target: BTreeMap::new(),
         }
@@ -354,4 +365,34 @@ impl ServerState {
     pub(super) fn has_pending_document_request_work(&self) -> bool {
         self.pending_document_request_tasks > 0
     }
+}
+
+fn spawn_worker_threads(
+    worker_count: usize,
+    document_request_results_tx: mpsc::Sender<DocumentRequestTaskResult>,
+) -> mpsc::SyncSender<LspWorkerTask> {
+    let (task_tx, task_rx) = mpsc::sync_channel::<LspWorkerTask>(worker_count.max(1) * 2);
+    let task_rx = std::sync::Arc::new(std::sync::Mutex::new(task_rx));
+    for _ in 0..worker_count.max(1) {
+        let task_rx = task_rx.clone();
+        let document_request_results_tx = document_request_results_tx.clone();
+        thread::spawn(move || {
+            loop {
+                let task = {
+                    let task_rx = task_rx.lock().unwrap();
+                    task_rx.recv()
+                };
+                let Ok(task) = task else {
+                    break;
+                };
+                match task {
+                    LspWorkerTask::DocumentRequest(task) => {
+                        let result = task();
+                        let _ = document_request_results_tx.send(result);
+                    }
+                }
+            }
+        });
+    }
+    task_tx
 }

@@ -593,6 +593,54 @@ fn document_requests_can_be_in_flight_together_before_flush() {
 }
 
 #[test]
+fn document_request_worker_pool_limits_running_tasks() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_bounded_worker_request", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+    let release = std::sync::Arc::new(std::sync::Barrier::new(5));
+    let running = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let max_running = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    for id in 70..78 {
+        let release = release.clone();
+        let running = running.clone();
+        let max_running = max_running.clone();
+        execute_document_request(
+            &mut state,
+            &mut writer,
+            json!(id),
+            &uri,
+            SchedulerLane::Interactive,
+            "textDocument/hover",
+            move |_, _| {
+                let current = running.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                max_running.fetch_max(current, std::sync::atomic::Ordering::SeqCst);
+                if id < 74 {
+                    release.wait();
+                }
+                running.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                Ok::<Value, String>(json!({ "id": id }))
+            },
+        )
+        .unwrap();
+    }
+
+    while max_running.load(std::sync::atomic::Ordering::SeqCst) < 4 {
+        std::thread::yield_now();
+    }
+    assert_eq!(max_running.load(std::sync::atomic::Ordering::SeqCst), 4);
+    release.wait();
+    while state.has_pending_document_request_work() {
+        flush_document_request_results(&mut state, &mut writer, true).unwrap();
+    }
+
+    assert_eq!(max_running.load(std::sync::atomic::Ordering::SeqCst), 4);
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 8);
+}
+
+#[test]
 fn optional_document_request_none_returns_null_response() {
     let mut state = initialized_state();
     let uri = temp_file_uri("server_optional_null_request", "fn main() void {}\n");
@@ -655,6 +703,7 @@ fn stale_document_request_task_result_drops_response() {
             lane: SchedulerLane::Interactive,
             method: "textDocument/hover".to_string(),
             elapsed_ms: 0,
+            analysis_tier: None,
             response: DocumentRequestResponse::Success(json!({ "ok": true })),
         },
     )

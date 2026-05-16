@@ -194,19 +194,23 @@ Completed foundation work:
   analysis can be borrowed by worker execution.
 - Document requests now execute on worker threads and send typed results back to
   the coordinator through a result channel.
+- Document request execution uses a bounded fixed worker pool instead of
+  spawning an unbounded thread per request.
 - The main server loop reads stdin on a dedicated reader thread, allowing the
   coordinator to accept additional messages while document request workers are
   still running.
 - Server-level tests cover multiple document requests being in flight together
-  and worker panic recovery as LSP error responses.
+  bounded worker execution, and worker panic recovery as LSP error responses.
+- Interactive analysis-tier tracing is carried by worker results, avoiding
+  cross-request trace contamination from concurrent analysis workers.
 
 Still to complete before calling the scheduler done:
 
-- Replace one-thread-per-request spawning with a bounded worker pool or
-  equivalent task runtime.
 - Move diagnostics and workspace refresh execution off the coordinator thread.
 - Add cancellation tokens that are checked by queued and running tasks.
-- Track queue wait time and worker execution status in traces.
+- Make worker limits configurable if real-world projects need tuning.
+- Track queue wait time, worker execution status, and cancellation status in
+  traces.
 - Keep the intentional protocol references in analysis limited to the documented
   coordinate, sync-input, diagnostics-location, and `ide.rs` conversion
   exceptions.

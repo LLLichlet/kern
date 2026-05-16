@@ -11,8 +11,8 @@ use self::dispatch::{
 };
 pub(crate) use self::state::DiagnosticsAnalysisMode;
 use self::state::{
-    AnalysisGeneration, DocumentRequestResponse, DocumentRequestTaskResult, RequestContext,
-    ScheduledDocumentRequestTask, SchedulerLane, ServerState,
+    AnalysisGeneration, DocumentRequestResponse, DocumentRequestTaskResult, LspWorkerTask,
+    RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerState,
 };
 use crate::analysis::AnalysisEngine;
 use crate::protocol::{IncomingMessage, error_response};

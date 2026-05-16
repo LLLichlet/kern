@@ -183,7 +183,6 @@ struct AnalysisRequestContext {
     driver: Arc<CompilerDriver>,
 }
 
-#[derive(Clone)]
 pub struct AnalysisEngine {
     documents: BTreeMap<String, OpenDocument>,
     settings: AnalysisSettings,
@@ -199,6 +198,27 @@ pub struct AnalysisEngine {
     dirty_documents_snapshot: Arc<Mutex<Option<Arc<DirtyDocumentsSnapshot>>>>,
     open_uri_by_path: Arc<Mutex<Option<Arc<BTreeMap<PathBuf, String>>>>>,
     last_analysis_tier: Arc<Mutex<Option<AnalysisTier>>>,
+}
+
+impl Clone for AnalysisEngine {
+    fn clone(&self) -> Self {
+        Self {
+            documents: self.documents.clone(),
+            settings: self.settings.clone(),
+            project_cache: self.project_cache.clone(),
+            driver_cache: self.driver_cache.clone(),
+            parse_cache: self.parse_cache.clone(),
+            surface_cache: self.surface_cache.clone(),
+            structure_cache: self.structure_cache.clone(),
+            artifact_cache: self.artifact_cache.clone(),
+            navigation_cache: self.navigation_cache.clone(),
+            semantic_tokens_cache: self.semantic_tokens_cache.clone(),
+            lexical_cache: self.lexical_cache.clone(),
+            dirty_documents_snapshot: self.dirty_documents_snapshot.clone(),
+            open_uri_by_path: self.open_uri_by_path.clone(),
+            last_analysis_tier: Arc::new(Mutex::new(None)),
+        }
+    }
 }
 
 impl Default for AnalysisEngine {

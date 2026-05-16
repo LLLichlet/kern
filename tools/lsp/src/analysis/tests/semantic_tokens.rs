@@ -65,11 +65,14 @@ fn semantic_tokens_for_valid_dirty_documents_use_lexical_fallback() {
         }],
     });
 
-    let cached_artifacts = analysis.artifact_cache.borrow().len();
+    let cached_artifacts = analysis.artifact_cache.lock().unwrap().len();
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
     assert!(!decoded.is_empty());
     assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
-    assert_eq!(analysis.artifact_cache.borrow().len(), cached_artifacts);
+    assert_eq!(
+        analysis.artifact_cache.lock().unwrap().len(),
+        cached_artifacts
+    );
     assert!(
         decoded
             .iter()
@@ -335,18 +338,18 @@ fn semantic_tokens_cache_reuses_rendered_tokens_for_stable_document() {
     });
 
     let first = analysis.semantic_tokens(&uri).unwrap();
-    assert_eq!(analysis.semantic_tokens_cache.borrow().len(), 1);
-    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 
-    analysis.navigation_cache.borrow_mut().clear();
-    analysis.artifact_cache.borrow_mut().clear();
+    analysis.navigation_cache.lock().unwrap().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
     let second = analysis.semantic_tokens(&uri).unwrap();
 
     assert_eq!(first.data, second.data);
-    assert!(analysis.navigation_cache.borrow().is_empty());
-    assert!(analysis.artifact_cache.borrow().is_empty());
-    assert_eq!(analysis.semantic_tokens_cache.borrow().len(), 1);
+    assert!(analysis.navigation_cache.lock().unwrap().is_empty());
+    assert!(analysis.artifact_cache.lock().unwrap().is_empty());
+    assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -368,11 +371,11 @@ fn semantic_tokens_use_navigation_artifact_without_full_analysis() {
             text: source.to_string(),
         },
     });
-    analysis.parse_cache.borrow_mut().clear();
-    analysis.surface_cache.borrow_mut().clear();
-    analysis.structure_cache.borrow_mut().clear();
-    analysis.navigation_cache.borrow_mut().clear();
-    analysis.artifact_cache.borrow_mut().clear();
+    analysis.parse_cache.lock().unwrap().clear();
+    analysis.surface_cache.lock().unwrap().clear();
+    analysis.structure_cache.lock().unwrap().clear();
+    analysis.navigation_cache.lock().unwrap().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
 
@@ -381,8 +384,8 @@ fn semantic_tokens_use_navigation_artifact_without_full_analysis() {
         analysis.last_analysis_tier(),
         Some(AnalysisTier::CleanSemantic)
     );
-    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 }
 
 #[test]

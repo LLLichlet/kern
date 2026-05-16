@@ -29,15 +29,15 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
             text: result_source.to_string(),
         },
     });
-    assert_eq!(analysis.structure_cache.borrow().len(), 0);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.structure_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 
     let _ = analysis
         .hover(&result_uri, position_of_nth(result_source, "Result", 0, 1))
         .unwrap();
-    assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.structure_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -47,18 +47,19 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
             text: option_source.to_string(),
         },
     });
-    assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.structure_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 
     let _ = analysis
         .hover(&result_uri, position_of_nth(result_source, "Result", 0, 1))
         .unwrap();
-    assert_eq!(analysis.structure_cache.borrow().len(), 1);
+    assert_eq!(analysis.structure_cache.lock().unwrap().len(), 1);
     assert!(
         analysis
             .navigation_cache
-            .borrow()
+            .lock()
+            .unwrap()
             .keys()
             .all(AnalysisCacheKey::is_clean)
     );
@@ -101,7 +102,7 @@ root = "src/main.kn"
         },
     });
     let _ = analysis.semantic_tokens(&uri).unwrap();
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 
     let _ = analysis.change_document(DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
@@ -113,12 +114,12 @@ root = "src/main.kn"
             text: dirty.to_string(),
         }],
     });
-    analysis.artifact_cache.borrow_mut().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
 
     let tokens = analysis.semantic_tokens(&uri).unwrap();
 
     assert!(!tokens.data.is_empty());
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 }
 
 #[test]
@@ -136,7 +137,7 @@ fn dirty_interactive_requests_after_complex_error_avoid_full_dirty_analysis() {
         },
     });
     let _ = analysis.semantic_tokens(&uri).unwrap();
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 
     let _ = analysis.change_document(DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
@@ -148,7 +149,7 @@ fn dirty_interactive_requests_after_complex_error_avoid_full_dirty_analysis() {
             text: dirty.to_string(),
         }],
     });
-    analysis.artifact_cache.borrow_mut().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
 
     let _ = analysis.semantic_tokens(&uri).unwrap();
     let _ = analysis
@@ -174,8 +175,8 @@ fn dirty_interactive_requests_after_complex_error_avoid_full_dirty_analysis() {
         .unwrap();
 
     assert!(!actions.is_empty());
-    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -183,7 +184,7 @@ fn dirty_complex_change_only_stays_lightweight() {
     let (clean, dirty) = dirty_complex_sources();
     let (_uri, analysis) = dirty_complex_analysis_after_change(clean, dirty);
 
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 }
 
 #[test]
@@ -263,7 +264,7 @@ fn dirty_complex_semantic_tokens_stay_lexical() {
     let tokens = analysis.semantic_tokens(&uri).unwrap();
 
     assert!(!tokens.data.is_empty());
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 }
 
 #[test]
@@ -275,7 +276,7 @@ fn dirty_complex_completion_uses_clean_analysis() {
         .completion(&uri, position_of_nth(dirty, "Shape.Dot", 0, 9))
         .unwrap();
 
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -287,8 +288,8 @@ fn dirty_complex_hover_uses_clean_analysis() {
         .hover(&uri, position_of_nth(dirty, "make_point", 1, 1))
         .unwrap();
 
-    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
     assert_eq!(
         analysis.last_analysis_tier(),
         Some(AnalysisTier::CleanSemantic)
@@ -319,8 +320,8 @@ fn dirty_complex_navigation_uses_clean_analysis() {
     let _highlights = analysis
         .document_highlights(&uri, position_of_nth(dirty, "make_point", 1, 1))
         .unwrap();
-    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
     assert_eq!(
         analysis.last_analysis_tier(),
         Some(AnalysisTier::CleanSemantic)
@@ -376,7 +377,7 @@ fn dirty_complex_signature_help_uses_clean_analysis() {
         .unwrap();
 
     assert_eq!(help.active_parameter, 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 1);
     assert_eq!(
         analysis.last_analysis_tier(),
         Some(AnalysisTier::CleanSemantic)
@@ -405,7 +406,7 @@ fn dirty_complex_code_actions_use_lightweight_diagnostics() {
         .unwrap();
 
     assert!(!actions.is_empty());
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 }
 
 fn dirty_complex_sources() -> (&'static str, &'static str) {
@@ -463,7 +464,7 @@ fn dirty_complex_analysis_after_change(
         },
     });
     let _ = analysis.semantic_tokens(&uri).unwrap();
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 
     let _ = analysis.change_document(DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
@@ -524,7 +525,7 @@ root = "src/lib.kn"
             text: example_source.to_string(),
         },
     });
-    analysis.artifact_cache.borrow_mut().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
 
     let tokens = analysis.semantic_tokens(&lib_uri).unwrap();
     let hover = analysis
@@ -533,8 +534,8 @@ root = "src/lib.kn"
         .unwrap();
 
     assert!(!tokens.data.is_empty());
-    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
     assert!(hover.contents.contains("fn helper"), "{}", hover.contents);
 }
 
@@ -724,13 +725,15 @@ fn opening_clean_sibling_document_keeps_cached_artifact() {
     let cache_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
     let cached_before = analysis
         .artifact_cache
-        .borrow()
+        .lock()
+        .unwrap()
         .get(&cache_key)
         .cloned()
         .unwrap();
     let structure_before = analysis
         .structure_cache
-        .borrow()
+        .lock()
+        .unwrap()
         .get(&cache_key)
         .cloned()
         .unwrap();
@@ -746,13 +749,15 @@ fn opening_clean_sibling_document_keeps_cached_artifact() {
 
     let cached_after = analysis
         .artifact_cache
-        .borrow()
+        .lock()
+        .unwrap()
         .get(&cache_key)
         .cloned()
         .unwrap();
     let structure_after = analysis
         .structure_cache
-        .borrow()
+        .lock()
+        .unwrap()
         .get(&cache_key)
         .cloned()
         .unwrap();
@@ -784,13 +789,15 @@ fn reverting_dirty_document_reuses_clean_caches() {
     let clean_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
     let clean_artifact = analysis
         .artifact_cache
-        .borrow()
+        .lock()
+        .unwrap()
         .get(&clean_key)
         .cloned()
         .unwrap();
     let clean_structure = analysis
         .structure_cache
-        .borrow()
+        .lock()
+        .unwrap()
         .get(&clean_key)
         .cloned()
         .unwrap();
@@ -807,8 +814,20 @@ fn reverting_dirty_document_reuses_clean_caches() {
         }],
     });
 
-    assert!(analysis.artifact_cache.borrow().contains_key(&clean_key));
-    assert!(analysis.structure_cache.borrow().contains_key(&clean_key));
+    assert!(
+        analysis
+            .artifact_cache
+            .lock()
+            .unwrap()
+            .contains_key(&clean_key)
+    );
+    assert!(
+        analysis
+            .structure_cache
+            .lock()
+            .unwrap()
+            .contains_key(&clean_key)
+    );
 
     let _ = analysis.change_document(DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
@@ -823,13 +842,15 @@ fn reverting_dirty_document_reuses_clean_caches() {
 
     let reused_artifact = analysis
         .artifact_cache
-        .borrow()
+        .lock()
+        .unwrap()
         .get(&clean_key)
         .cloned()
         .unwrap();
     let reused_structure = analysis
         .structure_cache
-        .borrow()
+        .lock()
+        .unwrap()
         .get(&clean_key)
         .cloned()
         .unwrap();
@@ -860,12 +881,13 @@ fn body_only_dirty_diagnostics_reuse_clean_structure_cache() {
     let clean_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
     let clean_structure = analysis
         .structure_cache
-        .borrow()
+        .lock()
+        .unwrap()
         .get(&clean_key)
         .cloned()
         .unwrap();
 
-    analysis.parse_cache.borrow_mut().clear();
+    analysis.parse_cache.lock().unwrap().clear();
     let dirty_text = "fn main() i32 {\n    let value = 41i32;\n    return value + 1i32;\n}\n";
     let doc = analysis.documents.get_mut(&uri).unwrap();
     doc.text = dirty_text.to_string();
@@ -885,13 +907,14 @@ fn body_only_dirty_diagnostics_reuse_clean_structure_cache() {
         .find(|bundle| bundle.uri == uri)
         .unwrap();
     assert!(bundle.diagnostics.is_empty());
-    assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
-    assert_eq!(analysis.parse_cache.borrow().len(), 1);
+    assert_eq!(analysis.structure_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.parse_cache.lock().unwrap().len(), 1);
 
     let reused_structure = analysis
         .structure_cache
-        .borrow()
+        .lock()
+        .unwrap()
         .get(&clean_key)
         .cloned()
         .unwrap();
@@ -943,8 +966,8 @@ fn structural_dirty_edit_falls_back_to_dirty_structure_analysis() {
             .iter()
             .all(|diagnostic| diagnostic.source == "kernc")
     );
-    assert_eq!(analysis.structure_cache.borrow().len(), 0);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.structure_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 }
 
 #[test]
@@ -1070,8 +1093,8 @@ fn function_body_fast_path_preserves_clean_target_diagnostics_outside_changed_ow
         diagnostic.range.start,
         position_of_nth(dirty, "missing", 0, 0)
     );
-    assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.structure_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -1114,6 +1137,6 @@ fn function_body_fast_path_replaces_overlapping_clean_target_diagnostics() {
         .unwrap();
 
     assert!(bundle.diagnostics.is_empty());
-    assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.structure_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 1);
 }

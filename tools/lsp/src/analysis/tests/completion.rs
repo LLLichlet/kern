@@ -94,10 +94,10 @@ fn completion_in_incomplete_let_binding_name_stays_lightweight() {
             text: clean.to_string(),
         },
     });
-    analysis.parse_cache.borrow_mut().clear();
-    analysis.surface_cache.borrow_mut().clear();
-    analysis.structure_cache.borrow_mut().clear();
-    analysis.artifact_cache.borrow_mut().clear();
+    analysis.parse_cache.lock().unwrap().clear();
+    analysis.surface_cache.lock().unwrap().clear();
+    analysis.structure_cache.lock().unwrap().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
 
     let action = analysis.change_document_state(DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
@@ -128,10 +128,10 @@ fn completion_in_incomplete_let_binding_name_stays_lightweight() {
         .unwrap();
 
     assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
-    assert!(analysis.parse_cache.borrow().is_empty());
-    assert!(analysis.surface_cache.borrow().is_empty());
-    assert!(analysis.structure_cache.borrow().is_empty());
-    assert!(analysis.artifact_cache.borrow().is_empty());
+    assert!(analysis.parse_cache.lock().unwrap().is_empty());
+    assert!(analysis.surface_cache.lock().unwrap().is_empty());
+    assert!(analysis.structure_cache.lock().unwrap().is_empty());
+    assert!(analysis.artifact_cache.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -148,10 +148,10 @@ fn completion_in_incomplete_let_binding_name_keeps_keyword_snippets() {
             text: source.to_string(),
         },
     });
-    analysis.parse_cache.borrow_mut().clear();
-    analysis.surface_cache.borrow_mut().clear();
-    analysis.structure_cache.borrow_mut().clear();
-    analysis.artifact_cache.borrow_mut().clear();
+    analysis.parse_cache.lock().unwrap().clear();
+    analysis.surface_cache.lock().unwrap().clear();
+    analysis.structure_cache.lock().unwrap().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
 
     let items = analysis
         .completion(
@@ -166,10 +166,10 @@ fn completion_in_incomplete_let_binding_name_keeps_keyword_snippets() {
 
     assert!(labels.contains(&"mut".to_string()));
     assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
-    assert!(analysis.parse_cache.borrow().is_empty());
-    assert!(analysis.surface_cache.borrow().is_empty());
-    assert!(analysis.structure_cache.borrow().is_empty());
-    assert!(analysis.artifact_cache.borrow().is_empty());
+    assert!(analysis.parse_cache.lock().unwrap().is_empty());
+    assert!(analysis.surface_cache.lock().unwrap().is_empty());
+    assert!(analysis.structure_cache.lock().unwrap().is_empty());
+    assert!(analysis.artifact_cache.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -208,10 +208,10 @@ fn completion_in_incomplete_declaration_names_stays_lightweight() {
                 text: source.to_string(),
             },
         });
-        analysis.parse_cache.borrow_mut().clear();
-        analysis.surface_cache.borrow_mut().clear();
-        analysis.structure_cache.borrow_mut().clear();
-        analysis.artifact_cache.borrow_mut().clear();
+        analysis.parse_cache.lock().unwrap().clear();
+        analysis.surface_cache.lock().unwrap().clear();
+        analysis.structure_cache.lock().unwrap().clear();
+        analysis.artifact_cache.lock().unwrap().clear();
 
         let items = analysis
             .completion(&uri, position_of_nth(source, needle, 0, char_offset))
@@ -223,10 +223,13 @@ fn completion_in_incomplete_declaration_names_stays_lightweight() {
             "{name}: {labels:?}"
         );
         assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
-        assert!(analysis.parse_cache.borrow().is_empty(), "{name}");
-        assert!(analysis.surface_cache.borrow().is_empty(), "{name}");
-        assert!(analysis.structure_cache.borrow().is_empty(), "{name}");
-        assert!(analysis.artifact_cache.borrow().is_empty(), "{name}");
+        assert!(analysis.parse_cache.lock().unwrap().is_empty(), "{name}");
+        assert!(analysis.surface_cache.lock().unwrap().is_empty(), "{name}");
+        assert!(
+            analysis.structure_cache.lock().unwrap().is_empty(),
+            "{name}"
+        );
+        assert!(analysis.artifact_cache.lock().unwrap().is_empty(), "{name}");
     }
 }
 
@@ -455,10 +458,10 @@ fn completion_in_function_signature_uses_surface_cache_without_parse_cache() {
         },
     });
 
-    analysis.parse_cache.borrow_mut().clear();
-    analysis.surface_cache.borrow_mut().clear();
-    analysis.structure_cache.borrow_mut().clear();
-    analysis.artifact_cache.borrow_mut().clear();
+    analysis.parse_cache.lock().unwrap().clear();
+    analysis.surface_cache.lock().unwrap().clear();
+    analysis.structure_cache.lock().unwrap().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
 
     let items = analysis
         .completion(&uri, position_of_nth(source, "Helper", 1, 3))
@@ -466,10 +469,10 @@ fn completion_in_function_signature_uses_surface_cache_without_parse_cache() {
     let labels = completion_labels(&items);
 
     assert!(labels.contains(&"Helper".to_string()));
-    assert_eq!(analysis.parse_cache.borrow().len(), 0);
-    assert_eq!(analysis.surface_cache.borrow().len(), 1);
-    assert!(analysis.structure_cache.borrow().is_empty());
-    assert!(analysis.artifact_cache.borrow().is_empty());
+    assert_eq!(analysis.parse_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.surface_cache.lock().unwrap().len(), 1);
+    assert!(analysis.structure_cache.lock().unwrap().is_empty());
+    assert!(analysis.artifact_cache.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -492,10 +495,10 @@ fn completion_in_function_body_still_uses_full_artifact_cache() {
         },
     });
 
-    analysis.parse_cache.borrow_mut().clear();
-    analysis.surface_cache.borrow_mut().clear();
-    analysis.structure_cache.borrow_mut().clear();
-    analysis.artifact_cache.borrow_mut().clear();
+    analysis.parse_cache.lock().unwrap().clear();
+    analysis.surface_cache.lock().unwrap().clear();
+    analysis.structure_cache.lock().unwrap().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
 
     let items = analysis
         .completion(&uri, position_of_nth(source, "hel", 1, 3))
@@ -503,10 +506,10 @@ fn completion_in_function_body_still_uses_full_artifact_cache() {
     let labels = completion_labels(&items);
 
     assert!(labels.contains(&"helper".to_string()));
-    assert_eq!(analysis.parse_cache.borrow().len(), 0);
-    assert_eq!(analysis.surface_cache.borrow().len(), 1);
-    assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.parse_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.surface_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.structure_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 1);
 }
 
 #[test]

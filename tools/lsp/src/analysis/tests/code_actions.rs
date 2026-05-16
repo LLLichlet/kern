@@ -250,7 +250,7 @@ fn code_actions_on_dirty_documents_use_lightweight_fixes_without_full_analysis()
             text: clean_source.to_string(),
         },
     });
-    analysis.artifact_cache.borrow_mut().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
 
     let _ = analysis.change_document(DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
@@ -279,7 +279,7 @@ fn code_actions_on_dirty_documents_use_lightweight_fixes_without_full_analysis()
         )
         .unwrap();
 
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::ParseOnly));
     assert!(actions.iter().any(|action| action.title == "Insert `;`"));
 }

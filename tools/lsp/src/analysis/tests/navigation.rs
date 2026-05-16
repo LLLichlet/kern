@@ -159,10 +159,10 @@ fn dirty_document_symbols_do_not_create_dirty_surface_cache_entries() {
             text: dirty.to_string(),
         }],
     });
-    analysis.parse_cache.borrow_mut().clear();
-    analysis.surface_cache.borrow_mut().clear();
-    analysis.structure_cache.borrow_mut().clear();
-    analysis.artifact_cache.borrow_mut().clear();
+    analysis.parse_cache.lock().unwrap().clear();
+    analysis.surface_cache.lock().unwrap().clear();
+    analysis.structure_cache.lock().unwrap().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
 
     let symbols = analysis.document_symbols(&uri).unwrap();
     let names = symbols
@@ -173,17 +173,18 @@ fn dirty_document_symbols_do_not_create_dirty_surface_cache_entries() {
     assert!(names.contains(&"Point"));
     assert!(names.contains(&"helper"));
     assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Surface));
-    assert_eq!(analysis.surface_cache.borrow().len(), 1);
+    assert_eq!(analysis.surface_cache.lock().unwrap().len(), 1);
     assert!(
         analysis
             .surface_cache
-            .borrow()
+            .lock()
+            .unwrap()
             .keys()
             .all(AnalysisCacheKey::is_clean)
     );
-    assert_eq!(analysis.parse_cache.borrow().len(), 0);
-    assert_eq!(analysis.structure_cache.borrow().len(), 0);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.parse_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.structure_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 }
 
 #[test]
@@ -206,14 +207,14 @@ fn document_symbols_use_surface_cache_without_body_artifact() {
         },
     });
 
-    analysis.parse_cache.borrow_mut().clear();
-    analysis.surface_cache.borrow_mut().clear();
-    analysis.structure_cache.borrow_mut().clear();
-    analysis.artifact_cache.borrow_mut().clear();
-    assert_eq!(analysis.parse_cache.borrow().len(), 0);
-    assert_eq!(analysis.surface_cache.borrow().len(), 0);
-    assert_eq!(analysis.structure_cache.borrow().len(), 0);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    analysis.parse_cache.lock().unwrap().clear();
+    analysis.surface_cache.lock().unwrap().clear();
+    analysis.structure_cache.lock().unwrap().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
+    assert_eq!(analysis.parse_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.surface_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.structure_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 
     let symbols = analysis.document_symbols(&uri).unwrap();
     let names = symbols
@@ -223,10 +224,10 @@ fn document_symbols_use_surface_cache_without_body_artifact() {
 
     assert!(names.contains(&"Point".to_string()));
     assert!(names.contains(&"helper".to_string()));
-    assert_eq!(analysis.parse_cache.borrow().len(), 0);
-    assert_eq!(analysis.surface_cache.borrow().len(), 1);
-    assert_eq!(analysis.structure_cache.borrow().len(), 0);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.parse_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.surface_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.structure_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 }
 
 #[test]
@@ -329,11 +330,11 @@ fn navigation_queries_use_navigation_cache_without_full_artifact() {
         },
     });
 
-    analysis.parse_cache.borrow_mut().clear();
-    analysis.surface_cache.borrow_mut().clear();
-    analysis.structure_cache.borrow_mut().clear();
-    analysis.artifact_cache.borrow_mut().clear();
-    analysis.navigation_cache.borrow_mut().clear();
+    analysis.parse_cache.lock().unwrap().clear();
+    analysis.surface_cache.lock().unwrap().clear();
+    analysis.structure_cache.lock().unwrap().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
+    analysis.navigation_cache.lock().unwrap().clear();
 
     let definition = analysis
         .goto_definition(&uri, position_of_nth(source, "helper", 1, 1))
@@ -348,15 +349,15 @@ fn navigation_queries_use_navigation_cache_without_full_artifact() {
         analysis.last_analysis_tier(),
         Some(AnalysisTier::CleanSemantic)
     );
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
-    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
 
     let _hover = analysis
         .hover(&uri, position_of_nth(source, "helper", 1, 1))
         .unwrap()
         .unwrap();
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
-    assert_eq!(analysis.navigation_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -1217,10 +1218,10 @@ fn semantic_position_queries_skip_comments_and_literals() {
         },
     });
 
-    analysis.parse_cache.borrow_mut().clear();
-    analysis.surface_cache.borrow_mut().clear();
-    analysis.structure_cache.borrow_mut().clear();
-    analysis.artifact_cache.borrow_mut().clear();
+    analysis.parse_cache.lock().unwrap().clear();
+    analysis.surface_cache.lock().unwrap().clear();
+    analysis.structure_cache.lock().unwrap().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
 
     let comment_position = position_of_nth(source, "helper(1)", 1, 1);
     assert!(
@@ -1230,7 +1231,7 @@ fn semantic_position_queries_skip_comments_and_literals() {
             .is_none()
     );
     assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
-    assert!(analysis.artifact_cache.borrow().is_empty());
+    assert!(analysis.artifact_cache.lock().unwrap().is_empty());
 
     analysis.clear_last_analysis_tier();
     assert!(
@@ -1240,7 +1241,7 @@ fn semantic_position_queries_skip_comments_and_literals() {
             .is_none()
     );
     assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
-    assert!(analysis.artifact_cache.borrow().is_empty());
+    assert!(analysis.artifact_cache.lock().unwrap().is_empty());
 
     analysis.clear_last_analysis_tier();
     assert!(
@@ -1250,7 +1251,7 @@ fn semantic_position_queries_skip_comments_and_literals() {
             .is_empty()
     );
     assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
-    assert!(analysis.artifact_cache.borrow().is_empty());
+    assert!(analysis.artifact_cache.lock().unwrap().is_empty());
 
     analysis.clear_last_analysis_tier();
     assert!(
@@ -1260,7 +1261,7 @@ fn semantic_position_queries_skip_comments_and_literals() {
             .is_empty()
     );
     assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
-    assert!(analysis.artifact_cache.borrow().is_empty());
+    assert!(analysis.artifact_cache.lock().unwrap().is_empty());
 
     analysis.clear_last_analysis_tier();
     assert!(
@@ -1270,7 +1271,7 @@ fn semantic_position_queries_skip_comments_and_literals() {
             .is_none()
     );
     assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
-    assert!(analysis.artifact_cache.borrow().is_empty());
+    assert!(analysis.artifact_cache.lock().unwrap().is_empty());
 
     analysis.clear_last_analysis_tier();
     assert_eq!(
@@ -1280,7 +1281,7 @@ fn semantic_position_queries_skip_comments_and_literals() {
         "rename target is not a supported identifier"
     );
     assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
-    assert!(analysis.artifact_cache.borrow().is_empty());
+    assert!(analysis.artifact_cache.lock().unwrap().is_empty());
 
     analysis.clear_last_analysis_tier();
     let literal_position = position_of_nth(source, "helper(1)", 2, 8);
@@ -1291,7 +1292,7 @@ fn semantic_position_queries_skip_comments_and_literals() {
             .is_none()
     );
     assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
-    assert!(analysis.artifact_cache.borrow().is_empty());
+    assert!(analysis.artifact_cache.lock().unwrap().is_empty());
 
     for (description, position) in [
         ("doc comment", position_of_nth(source, "helper(1)", 0, 1)),
@@ -1321,10 +1322,13 @@ fn semantic_position_queries_skip_comments_and_literals() {
             Some(AnalysisTier::Lexical),
             "{description}"
         );
-        assert!(analysis.artifact_cache.borrow().is_empty(), "{description}");
+        assert!(
+            analysis.artifact_cache.lock().unwrap().is_empty(),
+            "{description}"
+        );
     }
 
-    assert_eq!(analysis.lexical_cache.borrow().len(), 1);
+    assert_eq!(analysis.lexical_cache.lock().unwrap().len(), 1);
 }
 
 #[test]

@@ -142,8 +142,8 @@ impl AnalysisEngine {
     }
 
     pub fn refresh_workspace_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
-        self.project_cache.get_mut().clear();
-        self.driver_cache.get_mut().clear();
+        self.project_cache.lock().unwrap().clear();
+        self.driver_cache.lock().unwrap().clear();
         self.invalidate_artifact_cache();
         self.invalidate_render_caches();
         self.documents

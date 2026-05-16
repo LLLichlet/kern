@@ -62,11 +62,10 @@ use kernc_utils::config::{
     CompileOptions, apply_configured_library_aliases, inject_driver_condition_defines,
 };
 use kernc_utils::{Session, SourceFile, Span};
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct AnalysisSettings {
@@ -187,18 +186,18 @@ struct AnalysisRequestContext {
 pub struct AnalysisEngine {
     documents: BTreeMap<String, OpenDocument>,
     settings: AnalysisSettings,
-    project_cache: RefCell<BTreeMap<PathBuf, Option<AnalysisProject>>>,
-    driver_cache: RefCell<BTreeMap<IncrementalDriverKey, Arc<CompilerDriver>>>,
-    parse_cache: RefCell<BTreeMap<AnalysisCacheKey, Arc<ParsedModuleArtifact>>>,
-    surface_cache: RefCell<BTreeMap<AnalysisCacheKey, Arc<AnalysisSurfaceArtifact>>>,
-    structure_cache: RefCell<BTreeMap<AnalysisCacheKey, Arc<StructureArtifact>>>,
-    artifact_cache: RefCell<BTreeMap<AnalysisCacheKey, Arc<AnalysisArtifact>>>,
-    navigation_cache: RefCell<BTreeMap<AnalysisCacheKey, Arc<AnalysisNavigationArtifact>>>,
-    semantic_tokens_cache: RefCell<BTreeMap<SemanticTokensCacheKey, IdeSemanticTokens>>,
-    lexical_cache: RefCell<BTreeMap<LexicalCacheKey, Arc<LexicalIndex>>>,
-    dirty_documents_snapshot: RefCell<Option<Arc<DirtyDocumentsSnapshot>>>,
-    open_uri_by_path: RefCell<Option<Arc<BTreeMap<PathBuf, String>>>>,
-    last_analysis_tier: RefCell<Option<AnalysisTier>>,
+    project_cache: Mutex<BTreeMap<PathBuf, Option<AnalysisProject>>>,
+    driver_cache: Mutex<BTreeMap<IncrementalDriverKey, Arc<CompilerDriver>>>,
+    parse_cache: Mutex<BTreeMap<AnalysisCacheKey, Arc<ParsedModuleArtifact>>>,
+    surface_cache: Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisSurfaceArtifact>>>,
+    structure_cache: Mutex<BTreeMap<AnalysisCacheKey, Arc<StructureArtifact>>>,
+    artifact_cache: Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisArtifact>>>,
+    navigation_cache: Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisNavigationArtifact>>>,
+    semantic_tokens_cache: Mutex<BTreeMap<SemanticTokensCacheKey, IdeSemanticTokens>>,
+    lexical_cache: Mutex<BTreeMap<LexicalCacheKey, Arc<LexicalIndex>>>,
+    dirty_documents_snapshot: Mutex<Option<Arc<DirtyDocumentsSnapshot>>>,
+    open_uri_by_path: Mutex<Option<Arc<BTreeMap<PathBuf, String>>>>,
+    last_analysis_tier: Mutex<Option<AnalysisTier>>,
 }
 
 impl Default for AnalysisEngine {
@@ -212,27 +211,27 @@ impl AnalysisEngine {
         Self {
             documents: BTreeMap::new(),
             settings,
-            project_cache: RefCell::new(BTreeMap::new()),
-            driver_cache: RefCell::new(BTreeMap::new()),
-            parse_cache: RefCell::new(BTreeMap::new()),
-            surface_cache: RefCell::new(BTreeMap::new()),
-            structure_cache: RefCell::new(BTreeMap::new()),
-            artifact_cache: RefCell::new(BTreeMap::new()),
-            navigation_cache: RefCell::new(BTreeMap::new()),
-            semantic_tokens_cache: RefCell::new(BTreeMap::new()),
-            lexical_cache: RefCell::new(BTreeMap::new()),
-            dirty_documents_snapshot: RefCell::new(None),
-            open_uri_by_path: RefCell::new(None),
-            last_analysis_tier: RefCell::new(None),
+            project_cache: Mutex::new(BTreeMap::new()),
+            driver_cache: Mutex::new(BTreeMap::new()),
+            parse_cache: Mutex::new(BTreeMap::new()),
+            surface_cache: Mutex::new(BTreeMap::new()),
+            structure_cache: Mutex::new(BTreeMap::new()),
+            artifact_cache: Mutex::new(BTreeMap::new()),
+            navigation_cache: Mutex::new(BTreeMap::new()),
+            semantic_tokens_cache: Mutex::new(BTreeMap::new()),
+            lexical_cache: Mutex::new(BTreeMap::new()),
+            dirty_documents_snapshot: Mutex::new(None),
+            open_uri_by_path: Mutex::new(None),
+            last_analysis_tier: Mutex::new(None),
         }
     }
 
     fn record_analysis_tier(&self, tier: AnalysisTier) {
-        self.last_analysis_tier.borrow_mut().replace(tier);
+        self.last_analysis_tier.lock().unwrap().replace(tier);
     }
 
     pub(crate) fn clear_last_analysis_tier(&self) {
-        self.last_analysis_tier.borrow_mut().take();
+        self.last_analysis_tier.lock().unwrap().take();
     }
 
     pub(crate) fn snapshot(&self) -> AnalysisSnapshot {
@@ -375,10 +374,17 @@ impl AnalysisEngine {
         }
 
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
-        let Some(clean_structure) = self.structure_cache.borrow().get(&clean_key).cloned() else {
+        let Some(clean_structure) = self
+            .structure_cache
+            .lock()
+            .unwrap()
+            .get(&clean_key)
+            .cloned()
+        else {
             return Ok(None);
         };
-        let Some(clean_artifact) = self.artifact_cache.borrow().get(&clean_key).cloned() else {
+        let Some(clean_artifact) = self.artifact_cache.lock().unwrap().get(&clean_key).cloned()
+        else {
             return Ok(None);
         };
         let target_doc = self
@@ -466,7 +472,13 @@ impl AnalysisEngine {
         }
 
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
-        let Some(clean_structure) = self.structure_cache.borrow().get(&clean_key).cloned() else {
+        let Some(clean_structure) = self
+            .structure_cache
+            .lock()
+            .unwrap()
+            .get(&clean_key)
+            .cloned()
+        else {
             return Ok(None);
         };
 
@@ -487,11 +499,11 @@ impl AnalysisEngine {
     }
 
     pub(crate) fn last_analysis_tier(&self) -> Option<AnalysisTier> {
-        *self.last_analysis_tier.borrow()
+        *self.last_analysis_tier.lock().unwrap()
     }
 
     fn dirty_documents_snapshot(&self) -> Arc<DirtyDocumentsSnapshot> {
-        if let Some(snapshot) = self.dirty_documents_snapshot.borrow().as_ref() {
+        if let Some(snapshot) = self.dirty_documents_snapshot.lock().unwrap().as_ref() {
             return Arc::clone(snapshot);
         }
 
@@ -512,13 +524,14 @@ impl AnalysisEngine {
             hashed_overrides,
         });
         self.dirty_documents_snapshot
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .replace(Arc::clone(&snapshot));
         snapshot
     }
 
     fn open_uri_by_normalized_path(&self) -> Arc<BTreeMap<PathBuf, String>> {
-        if let Some(uri_by_path) = self.open_uri_by_path.borrow().as_ref() {
+        if let Some(uri_by_path) = self.open_uri_by_path.lock().unwrap().as_ref() {
             return Arc::clone(uri_by_path);
         }
 
@@ -529,14 +542,15 @@ impl AnalysisEngine {
                 .collect(),
         );
         self.open_uri_by_path
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .replace(Arc::clone(&uri_by_path));
         uri_by_path
     }
 
     fn analyze_diagnostic_report(&self, target_uri: &str) -> Result<AnalysisReport, String> {
         let context = self.resolve_analysis_context(target_uri)?;
-        if let Some(artifact) = self.artifact_cache.borrow().get(&context.cache_key) {
+        if let Some(artifact) = self.artifact_cache.lock().unwrap().get(&context.cache_key) {
             return Ok(AnalysisReport {
                 session: artifact.session.clone(),
                 succeeded: artifact.succeeded,
@@ -544,7 +558,7 @@ impl AnalysisEngine {
         }
 
         let structure =
-            if let Some(structure) = self.structure_cache.borrow().get(&context.cache_key) {
+            if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
                 Some(Arc::clone(structure))
             } else {
                 context
@@ -558,7 +572,8 @@ impl AnalysisEngine {
         self.prune_cache_family_for_insert(&context.cache_key);
         if let Some(structure) = &structure {
             self.structure_cache
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .insert(context.cache_key.clone(), Arc::clone(structure));
         }
 
@@ -630,12 +645,12 @@ impl AnalysisEngine {
         &self,
         context: &AnalysisRequestContext,
     ) -> Arc<AnalysisArtifact> {
-        if let Some(artifact) = self.artifact_cache.borrow().get(&context.cache_key) {
+        if let Some(artifact) = self.artifact_cache.lock().unwrap().get(&context.cache_key) {
             return Arc::clone(artifact);
         }
 
         let structure =
-            if let Some(structure) = self.structure_cache.borrow().get(&context.cache_key) {
+            if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
                 Some(Arc::clone(structure))
             } else {
                 context
@@ -649,7 +664,8 @@ impl AnalysisEngine {
         self.prune_cache_family_for_insert(&context.cache_key);
         if let Some(structure) = &structure {
             self.structure_cache
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .insert(context.cache_key.clone(), Arc::clone(structure));
         }
 
@@ -662,7 +678,8 @@ impl AnalysisEngine {
             )
         });
         self.artifact_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(context.cache_key.clone(), Arc::clone(&artifact));
         artifact
     }
@@ -671,12 +688,17 @@ impl AnalysisEngine {
         &self,
         context: &AnalysisRequestContext,
     ) -> Arc<AnalysisNavigationArtifact> {
-        if let Some(artifact) = self.navigation_cache.borrow().get(&context.cache_key) {
+        if let Some(artifact) = self
+            .navigation_cache
+            .lock()
+            .unwrap()
+            .get(&context.cache_key)
+        {
             return Arc::clone(artifact);
         }
 
         let structure =
-            if let Some(structure) = self.structure_cache.borrow().get(&context.cache_key) {
+            if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
                 Some(Arc::clone(structure))
             } else {
                 context
@@ -690,7 +712,8 @@ impl AnalysisEngine {
         self.prune_cache_family_for_insert(&context.cache_key);
         if let Some(structure) = &structure {
             self.structure_cache
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .insert(context.cache_key.clone(), Arc::clone(structure));
         }
 
@@ -705,7 +728,8 @@ impl AnalysisEngine {
             )
         });
         self.navigation_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(context.cache_key.clone(), Arc::clone(&artifact));
         artifact
     }
@@ -723,7 +747,7 @@ impl AnalysisEngine {
         &self,
         context: &AnalysisRequestContext,
     ) -> Option<Arc<AnalysisSurfaceArtifact>> {
-        if let Some(surface) = self.surface_cache.borrow().get(&context.cache_key) {
+        if let Some(surface) = self.surface_cache.lock().unwrap().get(&context.cache_key) {
             return Some(Arc::clone(surface));
         }
 
@@ -736,7 +760,8 @@ impl AnalysisEngine {
             .map(Arc::new)?;
         self.prune_cache_family_for_insert(&context.cache_key);
         self.surface_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(context.cache_key.clone(), Arc::clone(&surface));
         Some(surface)
     }
@@ -746,7 +771,7 @@ impl AnalysisEngine {
         context: &AnalysisRequestContext,
     ) -> Arc<AnalysisArtifact> {
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
-        if let Some(artifact) = self.artifact_cache.borrow().get(&clean_key) {
+        if let Some(artifact) = self.artifact_cache.lock().unwrap().get(&clean_key) {
             return Arc::clone(artifact);
         }
 
@@ -755,7 +780,8 @@ impl AnalysisEngine {
             &SourceOverrides::new(),
         ));
         self.artifact_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(clean_key, Arc::clone(&artifact));
         artifact
     }
@@ -765,7 +791,7 @@ impl AnalysisEngine {
         context: &AnalysisRequestContext,
     ) -> Arc<AnalysisNavigationArtifact> {
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
-        if let Some(artifact) = self.navigation_cache.borrow().get(&clean_key) {
+        if let Some(artifact) = self.navigation_cache.lock().unwrap().get(&clean_key) {
             return Arc::clone(artifact);
         }
 
@@ -774,7 +800,8 @@ impl AnalysisEngine {
             &SourceOverrides::new(),
         ));
         self.navigation_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(clean_key, Arc::clone(&artifact));
         artifact
     }
@@ -784,7 +811,7 @@ impl AnalysisEngine {
         context: &AnalysisRequestContext,
     ) -> Option<Arc<AnalysisSurfaceArtifact>> {
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
-        if let Some(surface) = self.surface_cache.borrow().get(&clean_key) {
+        if let Some(surface) = self.surface_cache.lock().unwrap().get(&clean_key) {
             return Some(Arc::clone(surface));
         }
 
@@ -796,7 +823,8 @@ impl AnalysisEngine {
             )
             .map(Arc::new)?;
         self.surface_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(clean_key, Arc::clone(&surface));
         Some(surface)
     }
@@ -805,7 +833,7 @@ impl AnalysisEngine {
         &self,
         context: &AnalysisRequestContext,
     ) -> Result<Arc<ParsedModuleArtifact>, String> {
-        if let Some(parsed) = self.parse_cache.borrow().get(&context.cache_key) {
+        if let Some(parsed) = self.parse_cache.lock().unwrap().get(&context.cache_key) {
             return Ok(Arc::clone(parsed));
         }
 
@@ -821,7 +849,8 @@ impl AnalysisEngine {
         };
         self.prune_cache_family_for_insert(&context.cache_key);
         self.parse_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(context.cache_key.clone(), Arc::clone(&parsed));
         Ok(parsed)
     }
@@ -882,13 +911,14 @@ impl AnalysisEngine {
 
     fn driver_for_resolved(&self, resolved: &ResolvedAnalysis) -> Arc<CompilerDriver> {
         let family = IncrementalDriverKey::from_options(&resolved.compile_options);
-        if let Some(driver) = self.driver_cache.borrow().get(&family) {
+        if let Some(driver) = self.driver_cache.lock().unwrap().get(&family) {
             return Arc::clone(driver);
         }
 
         let driver = Arc::new(CompilerDriver::new(resolved.compile_options.clone()));
         self.driver_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(family, Arc::clone(&driver));
         driver
     }
@@ -962,7 +992,7 @@ impl AnalysisEngine {
             }
         };
 
-        if let Some(project) = self.project_cache.borrow().get(&manifest_path) {
+        if let Some(project) = self.project_cache.lock().unwrap().get(&manifest_path) {
             return Ok(project.clone());
         }
 
@@ -975,7 +1005,8 @@ impl AnalysisEngine {
                 )
             })?;
         self.project_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(manifest_path, project.clone());
         Ok(project)
     }
@@ -1052,24 +1083,24 @@ impl AnalysisEngine {
     }
 
     fn invalidate_artifact_cache(&self) {
-        self.parse_cache.borrow_mut().clear();
-        self.surface_cache.borrow_mut().clear();
-        self.structure_cache.borrow_mut().clear();
-        self.artifact_cache.borrow_mut().clear();
-        self.navigation_cache.borrow_mut().clear();
+        self.parse_cache.lock().unwrap().clear();
+        self.surface_cache.lock().unwrap().clear();
+        self.structure_cache.lock().unwrap().clear();
+        self.artifact_cache.lock().unwrap().clear();
+        self.navigation_cache.lock().unwrap().clear();
     }
 
     fn invalidate_dirty_document_snapshot(&self) {
-        self.dirty_documents_snapshot.borrow_mut().take();
+        self.dirty_documents_snapshot.lock().unwrap().take();
     }
 
     fn invalidate_open_path_index(&self) {
-        self.open_uri_by_path.borrow_mut().take();
+        self.open_uri_by_path.lock().unwrap().take();
     }
 
     fn invalidate_render_caches(&self) {
-        self.semantic_tokens_cache.borrow_mut().clear();
-        self.lexical_cache.borrow_mut().clear();
+        self.semantic_tokens_cache.lock().unwrap().clear();
+        self.lexical_cache.lock().unwrap().clear();
     }
 
     fn lexical_index_for_document(&self, uri: &str, document: &OpenDocument) -> Arc<LexicalIndex> {
@@ -1078,13 +1109,14 @@ impl AnalysisEngine {
             document_version: document.version,
             text_hash: document.text_hash,
         };
-        if let Some(index) = self.lexical_cache.borrow().get(&key) {
+        if let Some(index) = self.lexical_cache.lock().unwrap().get(&key) {
             return Arc::clone(index);
         }
 
         let index = Arc::new(LexicalIndex::new(&document.text));
         self.lexical_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(key, Arc::clone(&index));
         index
     }
@@ -1092,25 +1124,30 @@ impl AnalysisEngine {
     fn prune_cache_family_for_insert(&self, keep: &AnalysisCacheKey) {
         let family = keep.family();
         self.parse_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
         self.surface_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
         self.structure_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
         self.artifact_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
         self.navigation_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
     }
 
     #[cfg(test)]
     fn cached_driver_count(&self) -> usize {
-        self.driver_cache.borrow().len()
+        self.driver_cache.lock().unwrap().len()
     }
 
     fn document_differs_from_disk(path: &Path, text: &str) -> bool {

@@ -511,7 +511,7 @@ impl AnalysisEngine {
             target_path: target_path.clone(),
             document_version: target_doc.version,
         };
-        if let Some(tokens) = self.semantic_tokens_cache.borrow().get(&token_key) {
+        if let Some(tokens) = self.semantic_tokens_cache.lock().unwrap().get(&token_key) {
             return Ok(tokens.clone());
         }
 
@@ -534,7 +534,8 @@ impl AnalysisEngine {
             )
         };
         self.semantic_tokens_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(token_key, tokens.clone());
         Ok(tokens)
     }

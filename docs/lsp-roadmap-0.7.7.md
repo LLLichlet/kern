@@ -175,6 +175,38 @@ and testable.
 
 ## Architecture Plan
 
+### Implementation Status
+
+This roadmap is active. The current 0.7.7 branch has already moved the LSP
+toward the architecture below, but the scheduler is not complete yet.
+
+Completed foundation work:
+
+- IDE-owned result types now cover the main query surfaces, with LSP conversion
+  kept at the server/protocol boundary.
+- Request handlers capture `AnalysisSnapshot` at the request boundary.
+- Document request results are submitted back through typed task results before
+  protocol responses are written.
+- Interactive request results stay ahead of diagnostics publication.
+- Shared analysis artifacts use `Arc`, and analysis caches use `Mutex` instead
+  of `Rc`/`RefCell`.
+- `craft::AnalysisProject` uses a thread-safe shared build-plan cache, so LSP
+  analysis can be borrowed by worker execution.
+- Document requests now execute their analysis closure on a worker thread
+  boundary and recover worker panics as LSP error responses.
+
+Still to complete before calling the scheduler done:
+
+- Replace the temporary scoped worker execution with a real worker pool or
+  equivalent task runtime.
+- Allow multiple independent document requests to be in flight at once.
+- Move diagnostics and workspace refresh execution off the coordinator thread.
+- Add cancellation tokens that are checked by queued and running tasks.
+- Track queue wait time and worker execution status in traces.
+- Keep the intentional protocol references in analysis limited to the documented
+  coordinate, sync-input, diagnostics-location, and `ide.rs` conversion
+  exceptions.
+
 ### 1. Split IDE Queries From LSP Protocol
 
 Create a dedicated IDE-facing layer. The exact crate/module name can be decided

@@ -22,17 +22,16 @@ use crate::script::{ProfileSelection, ScriptCommand};
 use crate::target_defaults::apply_target_runtime_defaults;
 use crate::workspace::{self};
 use kernc_utils::config::{CompileOptions, apply_configured_library_aliases};
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct AnalysisProject {
     manifest_path: PathBuf,
     workspace_root: PathBuf,
     packages: Vec<AnalysisPackage>,
-    build_plan_cache: Rc<RefCell<BTreeMap<AnalysisBuildPlanKey, BuildPlan>>>,
+    build_plan_cache: Arc<Mutex<BTreeMap<AnalysisBuildPlanKey, BuildPlan>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -195,7 +194,7 @@ impl AnalysisProject {
             manifest_path: manifest_path.to_path_buf(),
             workspace_root,
             packages,
-            build_plan_cache: Rc::new(RefCell::new(BTreeMap::new())),
+            build_plan_cache: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
 
@@ -371,8 +370,11 @@ impl AnalysisProject {
 
     fn build_plan_for_analysis(&self, compile_options: &CompileOptions) -> Result<BuildPlan> {
         let cache_key = AnalysisBuildPlanKey::from_compile_options(compile_options);
-        if let Some(plan) = self.build_plan_cache.borrow().get(&cache_key) {
-            return Ok(plan.clone());
+        {
+            let cache = self.build_plan_cache.lock().unwrap();
+            if let Some(plan) = cache.get(&cache_key) {
+                return Ok(plan.clone());
+            }
         }
 
         let manifest = Manifest::load(&self.manifest_path)?;
@@ -393,14 +395,15 @@ impl AnalysisProject {
         )?;
         let plan = build_plan::derive(&elaboration, ScriptCommand::Build)?;
         self.build_plan_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(cache_key, plan.clone());
         Ok(plan)
     }
 
     #[cfg(test)]
     fn cached_build_plan_count(&self) -> usize {
-        self.build_plan_cache.borrow().len()
+        self.build_plan_cache.lock().unwrap().len()
     }
 }
 

@@ -10,6 +10,7 @@ use crate::transport::MessageWriter;
 use serde_json::Value;
 use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::thread;
 use std::time::Instant;
 
 pub(super) fn publish_analysis_outcome(
@@ -229,7 +230,7 @@ pub(super) fn execute_document_request<T, F>(
 ) -> Result<(), ServerError>
 where
     T: serde::Serialize,
-    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<T, String>,
+    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<T, String> + Send,
 {
     let request = state.request_context_for_document(id, target_uri);
     if state.should_skip_request(&request) {
@@ -263,20 +264,24 @@ fn run_document_request_task<F>(
     task: F,
 ) -> DocumentRequestTaskResult
 where
-    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<DocumentRequestResponse, String>,
+    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<DocumentRequestResponse, String> + Send,
 {
     state.analysis.clear_last_analysis_tier();
     let snapshot = state.analysis.snapshot();
     let started_at = Instant::now();
-    let result = catch_unwind(AssertUnwindSafe(|| task(&state.analysis, &snapshot)));
+    let result = thread::scope(|scope| {
+        let handle =
+            scope.spawn(|| catch_unwind(AssertUnwindSafe(|| task(&state.analysis, &snapshot))));
+        handle.join()
+    });
     let elapsed_ms = started_at.elapsed().as_millis();
     let response = match result {
-        Ok(Ok(response)) => response,
-        Ok(Err(message)) => DocumentRequestResponse::Error {
+        Ok(Ok(Ok(response))) => response,
+        Ok(Ok(Err(message))) => DocumentRequestResponse::Error {
             code: INVALID_REQUEST,
             message,
         },
-        Err(payload) => DocumentRequestResponse::Error {
+        Ok(Err(payload)) | Err(payload) => DocumentRequestResponse::Error {
             code: INVALID_REQUEST,
             message: format!(
                 "kern-lsp analysis panicked: {}",
@@ -315,7 +320,7 @@ pub(super) fn execute_optional_document_request<T, F>(
 ) -> Result<(), ServerError>
 where
     T: serde::Serialize,
-    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<Option<T>, String>,
+    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<Option<T>, String> + Send,
 {
     let request = state.request_context_for_document(id, target_uri);
     if state.should_skip_request(&request) {

@@ -515,6 +515,36 @@ fn panicking_document_request_returns_error_response() {
 }
 
 #[test]
+fn document_request_runs_on_worker_thread() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_worker_request", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+    let caller_thread = std::thread::current().id();
+    let ran_on_worker = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let observed = ran_on_worker.clone();
+
+    execute_document_request(
+        &mut state,
+        &mut writer,
+        json!(48),
+        &uri,
+        SchedulerLane::Interactive,
+        "textDocument/hover",
+        move |_, _| {
+            *observed.lock().unwrap() = Some(std::thread::current().id() != caller_thread);
+            Ok::<Value, String>(json!({ "ok": true }))
+        },
+    )
+    .unwrap();
+
+    assert_eq!(*ran_on_worker.lock().unwrap(), Some(true));
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["id"], json!(48));
+}
+
+#[test]
 fn optional_document_request_none_returns_null_response() {
     let mut state = initialized_state();
     let uri = temp_file_uri("server_optional_null_request", "fn main() void {}\n");

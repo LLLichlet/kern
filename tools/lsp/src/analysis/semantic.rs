@@ -1,4 +1,4 @@
-use crate::protocol::SemanticTokens;
+use super::ide::IdeSemanticTokens;
 use kernc_driver::{
     AnalysisHover, AnalysisReference, AnalysisSemanticEntry, AnalysisSemanticKind,
     AnalysisSemanticRole, AnalysisSymbol, AnalysisSymbolKind,
@@ -65,19 +65,19 @@ pub(super) fn semantic_tokens(
     artifact: SemanticArtifactView<'_>,
     file: &kernc_utils::SourceFile,
     target_path: &Path,
-) -> SemanticTokens {
+) -> IdeSemanticTokens {
     let span_classes = build_semantic_span_classes(artifact, target_path);
     let entries = collect_semantic_token_entries(file, &span_classes);
 
-    SemanticTokens {
+    IdeSemanticTokens {
         data: encode_semantic_tokens(&entries),
     }
 }
 
-pub(super) fn lexical_semantic_tokens(file: &kernc_utils::SourceFile) -> SemanticTokens {
+pub(super) fn lexical_semantic_tokens(file: &kernc_utils::SourceFile) -> IdeSemanticTokens {
     let entries = collect_semantic_token_entries(file, &BTreeMap::new());
 
-    SemanticTokens {
+    IdeSemanticTokens {
         data: encode_semantic_tokens(&entries),
     }
 }

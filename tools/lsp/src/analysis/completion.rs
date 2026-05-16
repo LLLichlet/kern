@@ -1,5 +1,5 @@
+use super::ide::{IdeCompletionItem, IdeCompletionKind};
 use super::text::CompletionContext;
-use crate::protocol::CompletionItem;
 use kernc_driver::{AnalysisCompletionItem, AnalysisCompletionKind};
 
 pub(super) fn completion_sort_key(
@@ -41,18 +41,14 @@ fn completion_context_rank(kind: AnalysisCompletionKind, context: CompletionCont
     }
 }
 
-pub(super) fn keyword_completion_item(label: &str) -> CompletionItem {
+pub(super) fn keyword_completion_item(label: &str) -> IdeCompletionItem {
     let insert_text = keyword_completion_insert_text(label);
-    let insert_text_format = insert_text
-        .as_deref()
-        .map(|text| if text.contains('$') { 2 } else { 1 });
 
-    CompletionItem {
+    IdeCompletionItem {
         label: label.to_string(),
-        kind: 14,
+        kind: IdeCompletionKind::Keyword,
         detail: Some("keyword".to_string()),
         insert_text,
-        insert_text_format,
     }
 }
 

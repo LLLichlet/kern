@@ -1,6 +1,7 @@
+use super::ide::{IdeCompletionItem, IdeCompletionKind};
 use super::{RenameBehavior, RenameTarget};
 use crate::protocol::{
-    CompletionItem, DocumentHighlight, DocumentSymbol, Hover, InlayHint, Location, MarkupContent,
+    DocumentHighlight, DocumentSymbol, Hover, InlayHint, Location, MarkupContent,
     ParameterInformation, Position, SignatureHelp, SignatureInformation, TextEdit,
 };
 use kernc_driver::{
@@ -445,40 +446,28 @@ fn rename_edit_from_span(
     ))
 }
 
-pub(super) fn analysis_completion_to_lsp_item(item: AnalysisCompletionItem) -> CompletionItem {
-    let insert_text_format = item.insert_text.as_ref().map(|text| {
-        if completion_insert_uses_snippet(text) {
-            2
-        } else {
-            1
-        }
-    });
-    CompletionItem {
+pub(super) fn analysis_completion_to_ide_item(item: AnalysisCompletionItem) -> IdeCompletionItem {
+    IdeCompletionItem {
         label: item.label,
-        kind: lsp_completion_kind(item.kind),
+        kind: ide_completion_kind(item.kind),
         detail: item.detail,
         insert_text: item.insert_text,
-        insert_text_format,
     }
 }
 
-fn completion_insert_uses_snippet(text: &str) -> bool {
-    text.contains('$')
-}
-
-fn lsp_completion_kind(kind: AnalysisCompletionKind) -> u8 {
+fn ide_completion_kind(kind: AnalysisCompletionKind) -> IdeCompletionKind {
     match kind {
-        AnalysisCompletionKind::Variable => 6,
-        AnalysisCompletionKind::Function => 3,
-        AnalysisCompletionKind::Module => 9,
-        AnalysisCompletionKind::Struct => 22,
-        AnalysisCompletionKind::Union => 22,
-        AnalysisCompletionKind::Enum => 13,
-        AnalysisCompletionKind::Trait => 8,
-        AnalysisCompletionKind::TypeAlias => 25,
-        AnalysisCompletionKind::Constant => 21,
-        AnalysisCompletionKind::Static => 6,
-        AnalysisCompletionKind::TypeParameter => 25,
+        AnalysisCompletionKind::Variable => IdeCompletionKind::Variable,
+        AnalysisCompletionKind::Function => IdeCompletionKind::Function,
+        AnalysisCompletionKind::Module => IdeCompletionKind::Module,
+        AnalysisCompletionKind::Struct => IdeCompletionKind::Struct,
+        AnalysisCompletionKind::Union => IdeCompletionKind::Union,
+        AnalysisCompletionKind::Enum => IdeCompletionKind::Enum,
+        AnalysisCompletionKind::Trait => IdeCompletionKind::Trait,
+        AnalysisCompletionKind::TypeAlias => IdeCompletionKind::TypeAlias,
+        AnalysisCompletionKind::Constant => IdeCompletionKind::Constant,
+        AnalysisCompletionKind::Static => IdeCompletionKind::Static,
+        AnalysisCompletionKind::TypeParameter => IdeCompletionKind::TypeParameter,
     }
 }
 

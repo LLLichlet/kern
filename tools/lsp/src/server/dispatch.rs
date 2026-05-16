@@ -310,7 +310,16 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| analysis.completion(&params.text_document.uri, params.position),
+                |analysis| {
+                    analysis
+                        .completion(&params.text_document.uri, params.position)
+                        .map(|items| {
+                            items
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeCompletionItem::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
             )?;
         }
         "textDocument/semanticTokens/full" => {
@@ -327,7 +336,11 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| analysis.semantic_tokens(&params.text_document.uri),
+                |analysis| {
+                    analysis
+                        .semantic_tokens(&params.text_document.uri)
+                        .map(crate::analysis::ide::IdeSemanticTokens::into_lsp)
+                },
             )?;
         }
         "textDocument/inlayHint" => {

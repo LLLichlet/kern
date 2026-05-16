@@ -1,6 +1,6 @@
 use crate::protocol::{
-    CodeAction, Diagnostic, DiagnosticRelatedInformation, DiagnosticTag, Location, Range, TextEdit,
-    WorkspaceEdit,
+    CodeAction, CompletionItem, Diagnostic, DiagnosticRelatedInformation, DiagnosticTag, Location,
+    Range, SemanticTokens, TextEdit, WorkspaceEdit,
 };
 use std::collections::BTreeMap;
 
@@ -22,6 +22,35 @@ pub(crate) struct IdeWorkspaceEdit {
 pub(crate) struct IdeTextEdit {
     pub range: Range,
     pub new_text: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct IdeSemanticTokens {
+    pub data: Vec<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct IdeCompletionItem {
+    pub label: String,
+    pub kind: IdeCompletionKind,
+    pub detail: Option<String>,
+    pub insert_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IdeCompletionKind {
+    Variable,
+    Function,
+    Module,
+    Struct,
+    Union,
+    Enum,
+    Trait,
+    TypeAlias,
+    Constant,
+    Static,
+    TypeParameter,
+    Keyword,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +119,54 @@ impl IdeTextEdit {
             new_text: self.new_text,
         }
     }
+}
+
+impl IdeSemanticTokens {
+    pub(crate) fn into_lsp(self) -> SemanticTokens {
+        SemanticTokens { data: self.data }
+    }
+}
+
+impl IdeCompletionItem {
+    pub(crate) fn into_lsp(self) -> CompletionItem {
+        let insert_text_format = self.insert_text.as_ref().map(|text| {
+            if completion_insert_uses_snippet(text) {
+                2
+            } else {
+                1
+            }
+        });
+        CompletionItem {
+            label: self.label,
+            kind: self.kind.into_lsp(),
+            detail: self.detail,
+            insert_text: self.insert_text,
+            insert_text_format,
+        }
+    }
+}
+
+impl IdeCompletionKind {
+    fn into_lsp(self) -> u8 {
+        match self {
+            Self::Variable => 6,
+            Self::Function => 3,
+            Self::Module => 9,
+            Self::Struct => 22,
+            Self::Union => 22,
+            Self::Enum => 13,
+            Self::Trait => 8,
+            Self::TypeAlias => 25,
+            Self::Constant => 21,
+            Self::Static => 6,
+            Self::TypeParameter => 25,
+            Self::Keyword => 14,
+        }
+    }
+}
+
+fn completion_insert_uses_snippet(text: &str) -> bool {
+    text.contains('$')
 }
 
 impl IdeDiagnostic {

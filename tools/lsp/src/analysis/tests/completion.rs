@@ -33,7 +33,6 @@ fn completion_in_function_body_includes_visible_symbols() {
 
     let helper = items.iter().find(|item| item.label == "helper").unwrap();
     assert_eq!(helper.insert_text.as_deref(), Some("helper($0)"));
-    assert_eq!(helper.insert_text_format, Some(2));
 }
 
 #[test]
@@ -565,7 +564,6 @@ fn completion_includes_keyword_suggestions_for_prefixes() {
         let_item.insert_text.as_deref(),
         Some("let ${1:name} = ${0};")
     );
-    assert_eq!(let_item.insert_text_format, Some(2));
 }
 
 #[test]
@@ -594,7 +592,6 @@ fn completion_includes_top_level_keyword_suggestions() {
         extern_item.insert_text.as_deref(),
         Some("extern fn ${1:name}(${2:args}) ${3:i32} {\n    $0\n}")
     );
-    assert_eq!(extern_item.insert_text_format, Some(2));
 }
 
 #[test]
@@ -623,7 +620,6 @@ fn completion_includes_top_level_type_keyword_snippet() {
         type_item.insert_text.as_deref(),
         Some("type ${1:Name} = ${0};")
     );
-    assert_eq!(type_item.insert_text_format, Some(2));
 }
 
 #[test]
@@ -652,7 +648,6 @@ fn completion_in_type_context_includes_struct_keyword_snippet() {
         struct_item.insert_text.as_deref(),
         Some("struct {\n    $0\n}")
     );
-    assert_eq!(struct_item.insert_text_format, Some(2));
 }
 
 #[test]
@@ -798,7 +793,6 @@ fn completion_avoids_duplicate_call_parentheses_when_already_present() {
     let helper = items.iter().find(|item| item.label == "helper").unwrap();
 
     assert_eq!(helper.insert_text, None);
-    assert_eq!(helper.insert_text_format, None);
 }
 
 #[test]

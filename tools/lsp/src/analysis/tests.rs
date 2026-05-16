@@ -18,11 +18,12 @@ use super::{
     uri_to_analysis_path, uri_to_file_path,
 };
 use crate::analysis::DocumentSyncAction;
-use crate::analysis::ide::{IdeDiagnosticSeverity, IdeDiagnosticTag};
+use crate::analysis::ide::{
+    IdeCompletionItem, IdeDiagnosticSeverity, IdeDiagnosticTag, IdeSemanticTokens,
+};
 use crate::protocol::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, Position,
-    Range, SemanticTokens, TextDocumentContentChangeEvent, TextDocumentItem,
-    VersionedTextDocumentIdentifier,
+    Range, TextDocumentContentChangeEvent, TextDocumentItem, VersionedTextDocumentIdentifier,
 };
 use crate::server::DiagnosticsAnalysisMode;
 use craft::analysis_context;
@@ -153,11 +154,11 @@ fn nth_match_offset(source: &str, needle: &str, occurrence: usize) -> usize {
         .unwrap()
 }
 
-fn completion_labels(items: &[crate::protocol::CompletionItem]) -> Vec<String> {
+fn completion_labels(items: &[IdeCompletionItem]) -> Vec<String> {
     items.iter().map(|item| item.label.clone()).collect()
 }
 
-fn decode_semantic_tokens(tokens: &SemanticTokens) -> Vec<(Position, u32, u32, u32)> {
+fn decode_semantic_tokens(tokens: &IdeSemanticTokens) -> Vec<(Position, u32, u32, u32)> {
     let mut decoded = Vec::new();
     let mut line = 0;
     let mut start = 0;

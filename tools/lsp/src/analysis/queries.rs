@@ -193,7 +193,11 @@ impl AnalysisEngine {
             .map(analysis_signature_help_to_lsp_help))
     }
 
-    pub fn completion(&self, uri: &str, position: Position) -> Result<Vec<CompletionItem>, String> {
+    pub fn completion(
+        &self,
+        uri: &str,
+        position: Position,
+    ) -> Result<Vec<IdeCompletionItem>, String> {
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested completion for a document that is not open".to_string());
         };
@@ -274,7 +278,7 @@ impl AnalysisEngine {
 
         let mut completions = items
             .into_iter()
-            .map(analysis_completion_to_lsp_item)
+            .map(analysis_completion_to_ide_item)
             .collect::<Vec<_>>();
         let mut seen_labels = completions
             .iter()
@@ -363,7 +367,7 @@ impl AnalysisEngine {
         Ok(WorkspaceEdit { changes })
     }
 
-    pub fn semantic_tokens(&self, uri: &str) -> Result<SemanticTokens, String> {
+    pub fn semantic_tokens(&self, uri: &str) -> Result<IdeSemanticTokens, String> {
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested semantic tokens for a document that is not open".to_string());
         };

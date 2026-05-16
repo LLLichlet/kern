@@ -1,5 +1,28 @@
 use super::*;
 
+fn apply_single_lsp_text_edit(source: &str, edit: &Value) -> String {
+    let start = lsp_position_to_byte_offset(source, &edit["range"]["start"]);
+    let end = lsp_position_to_byte_offset(source, &edit["range"]["end"]);
+    let mut result = String::new();
+    result.push_str(&source[..start]);
+    result.push_str(edit["newText"].as_str().unwrap());
+    result.push_str(&source[end..]);
+    result
+}
+
+fn lsp_position_to_byte_offset(source: &str, position: &Value) -> usize {
+    let target_line = position["line"].as_u64().unwrap() as usize;
+    let target_character = position["character"].as_u64().unwrap() as usize;
+    let mut offset = 0;
+    for (line_index, line) in source.split_inclusive('\n').enumerate() {
+        if line_index == target_line {
+            return offset + target_character;
+        }
+        offset += line.len();
+    }
+    offset + target_character
+}
+
 #[test]
 fn document_highlight_request_returns_same_file_spans() {
     let mut state = initialized_state();
@@ -238,6 +261,57 @@ fn code_action_resolve_materializes_let_mut_fix() {
         "mut "
     );
     assert!(response["result"].get("data").is_none());
+}
+
+#[test]
+fn code_action_resolve_edit_applies_to_document_text() {
+    let mut state = initialized_state();
+    let source = "fn main() void {\n    let value = 1;\n    value = 2;\n}\n";
+    let uri = temp_file_uri("server_code_action_apply_resolved", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let code_action_response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(237)),
+            method: Some("textDocument/codeAction".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 2, "character": 4 },
+                    "end": { "line": 2, "character": 13 }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["quickfix"]
+                }
+            })),
+        },
+    );
+    let code_action = code_action_response["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == json!("Change to `let mut`"))
+        .unwrap()
+        .clone();
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(238)),
+            method: Some("codeAction/resolve".to_string()),
+            params: Some(code_action),
+        },
+    );
+    let edit = &response["result"]["edit"]["changes"][&uri][0];
+    let applied = apply_single_lsp_text_edit(source, edit);
+
+    assert_eq!(
+        applied,
+        "fn main() void {\n    let mut value = 1;\n    value = 2;\n}\n"
+    );
 }
 
 #[test]

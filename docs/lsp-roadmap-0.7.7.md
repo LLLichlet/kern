@@ -690,6 +690,9 @@ Tasks:
   parse-only text fixes such as delimiter insertion remain eager.
 - Deferred code action deduplication includes stable resolve data so repeated
   actions with the same title do not collapse to one stale candidate.
+- Server smoke coverage now resolves a deferred action and applies the returned
+  workspace edit to source text, matching the standard VS Code/LSP client edit
+  path.
 - Extend the deferred model to future heavier fixes such as import insertion,
   trait impl stubs, and wider multi-edit quick fixes.
 
@@ -702,8 +705,9 @@ Exit criteria:
   edits.
 - Server capability tests count `codeAction/resolve` only when
   `resolveProvider` is true.
-- VS Code smoke coverage exercises resolving and applying at least one deferred
-  code action.
+- Automated server smoke coverage exercises resolving and applying at least one
+  deferred code action. Release validation still includes a manual VS Code smoke
+  pass for the same workflow.
 
 ### Phase 8: Stress, Fuzz, and Release Hardening
 

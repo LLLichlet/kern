@@ -185,6 +185,52 @@ fn workspace_symbol_request_returns_open_document_symbols() {
 }
 
 #[test]
+fn workspace_symbol_request_reports_work_done_progress() {
+    let mut state = initialized_state();
+    state.work_done_progress = true;
+    let source = "struct ProgressNeedle { value: i32 }\nfn helper() void {}\n";
+    let uri = temp_file_uri("server_workspace_symbol_progress", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(243)),
+            method: Some("workspace/symbol".to_string()),
+            params: Some(json!({
+                "query": "progress",
+                "workDoneToken": "workspace-symbol-token"
+            })),
+        },
+    );
+
+    assert_eq!(messages.len(), 3, "{messages:#?}");
+    assert_eq!(messages[0]["method"], "$/progress");
+    assert_eq!(messages[0]["params"]["token"], "workspace-symbol-token");
+    assert_eq!(messages[0]["params"]["value"]["kind"], "begin");
+    assert_eq!(
+        messages[0]["params"]["value"]["title"],
+        "Kern workspace symbols"
+    );
+    let response = messages
+        .iter()
+        .find(|message| message["id"] == json!(243))
+        .unwrap();
+    assert_eq!(response["result"].as_array().unwrap().len(), 1);
+    let progress_messages = messages
+        .iter()
+        .filter(|message| message["method"] == "$/progress")
+        .collect::<Vec<_>>();
+    assert_eq!(progress_messages.len(), 2, "{messages:#?}");
+    assert_eq!(
+        progress_messages[1]["params"]["token"],
+        "workspace-symbol-token"
+    );
+    assert_eq!(progress_messages[1]["params"]["value"]["kind"], "end");
+}
+
+#[test]
 fn workspace_symbol_request_uses_workspace_root_targets() {
     let root = unique_temp_dir("server_workspace_symbol_project");
     let src = root.join("src");

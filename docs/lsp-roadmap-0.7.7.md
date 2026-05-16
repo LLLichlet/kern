@@ -50,14 +50,11 @@ The current implementation is deliberately small:
 
 Important architectural constraints today:
 
-- The server is synchronous and single-threaded.
-- There is no async runtime.
-- Requests are handled one message at a time from stdin.
-- Diagnostics scheduling is cooperative, not background execution.
-- Cancellation only skips work before a request starts or drops stale results;
-  it cannot stop a long-running analysis already in progress.
-- `AnalysisEngine` uses `Rc` and `RefCell`, so it is not ready for worker
-  threads.
+- The server uses a bounded worker pool rather than an async runtime.
+- Protocol IO and state mutation remain coordinator-owned and serialized.
+- Cancellation is checked at scheduler, snapshot, driver analysis, and major
+  compiler-analysis artifact boundaries; deeper parser/lowering/type-checker
+  loop cancellation remains profiling-driven future work.
 - LSP protocol coverage is hand-written and incomplete.
 - The LSP layer still knows too much about compiler artifacts.
 
@@ -266,6 +263,8 @@ Completed foundation work:
   targets when the query belongs to a Craft project, deduplicates repeated target
   contexts, and reports standard work-done progress when the client supplies a
   `workDoneToken`. Standalone files keep the previous single-target behavior.
+- `workspace/symbol` also reports standard work-done progress when the client
+  supplies a `workDoneToken`.
 - `textDocument/codeLens` is advertised and implemented for Craft target roots.
   Library, binary, and example roots expose build commands, while test roots
   expose precise run-test commands. The first-party VS Code extension registers
@@ -585,8 +584,8 @@ Tasks:
 - Add progress notifications for workspace refresh/indexing and long workspace
   queries. Workspace refresh progress is implemented with
   `window/workDoneProgress/create` and `$/progress`, and now includes workspace
-  symbol indexing counts; workspace references use request-provided
-  `workDoneToken`.
+  symbol indexing counts; workspace references and workspace symbols use
+  request-provided `workDoneToken`.
 
 Exit criteria:
 

@@ -483,13 +483,16 @@ where
     Ok(())
 }
 
-pub(super) fn execute_request<T, F>(
+pub(super) fn execute_request_with_progress<T, F>(
     state: &mut ServerState,
     writer: &mut MessageWriter<impl io::Write>,
     id: Value,
     target_label: &str,
     lane: SchedulerLane,
     method: &str,
+    work_done_token: Option<Value>,
+    progress_title: &str,
+    progress_message: &str,
     analysis: F,
 ) -> Result<(), ServerError>
 where
@@ -503,6 +506,19 @@ where
         if let Some(cancellation) = &request.cancellation {
             cancellation.cancel();
         }
+    }
+    if let Some(token) = work_done_token
+        && state.work_done_progress
+    {
+        writer.write_json(&progress(
+            token.clone(),
+            WorkDoneProgressValue::Begin {
+                title: progress_title.to_string(),
+                message: progress_message.to_string(),
+                percentage: None,
+            },
+        ))?;
+        request.work_done_token = Some(token);
     }
 
     submit_document_request_task(
@@ -524,7 +540,6 @@ where
                 .map(DocumentRequestResponse::Success)
         },
     );
-    let _ = writer;
     Ok(())
 }
 

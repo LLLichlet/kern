@@ -171,6 +171,8 @@ pub struct FileEvent {
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSymbolParams {
     pub query: String,
+    #[serde(default, rename = "workDoneToken")]
+    pub work_done_token: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]

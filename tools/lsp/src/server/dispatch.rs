@@ -5,9 +5,9 @@ use super::lifecycle::{
 };
 use super::scheduler::{
     drain_scheduler, execute_document_diagnostics, execute_document_request,
-    execute_document_request_with_progress, execute_optional_document_request, execute_request,
-    flush_document_request_results, schedule_workspace_refresh, write_error_response,
-    write_null_response, write_success_response,
+    execute_document_request_with_progress, execute_optional_document_request,
+    execute_request_with_progress, flush_document_request_results, schedule_workspace_refresh,
+    write_error_response, write_null_response, write_success_response,
 };
 use super::{
     INVALID_REQUEST, METHOD_NOT_FOUND, SERVER_NOT_INITIALIZED, SchedulerLane, ServerError,
@@ -204,13 +204,16 @@ fn handle_message_with_document_request_policy(
             })?;
             let params = required_params::<WorkspaceSymbolParams>(message.params)?;
             let query = params.query;
-            execute_request(
+            execute_request_with_progress(
                 state,
                 writer,
                 id,
                 "<workspace>",
                 SchedulerLane::Interactive,
                 method,
+                params.work_done_token,
+                "Kern workspace symbols",
+                "Searching workspace symbols",
                 move |analysis, snapshot| {
                     analysis
                         .workspace_symbols_in_snapshot(snapshot, &query)

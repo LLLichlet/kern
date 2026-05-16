@@ -715,20 +715,35 @@ Purpose: make the LSP robust enough for community usage.
 
 Tasks:
 
-- Add deterministic protocol stress tests.
-- Add fuzz-like incremental edit tests at the server level.
-- Add workspace-scale fixtures.
-- Add panic recovery tests for worker tasks.
-- Add request latency budget tests where deterministic.
-- Add CI jobs for LSP tests and VS Code extension integration.
+- Deterministic protocol stress tests now exercise opening 100 files through
+  server dispatch, publishing diagnostics for each file, and querying workspace
+  symbols across the resulting open-document workspace.
+- Fuzz-like incremental edit coverage exists at both the analysis level and the
+  server level. The server stress case drives a rapid `didChange` burst,
+  verifies diagnostics coalescing, and confirms a following workspace-symbol
+  request sees only the latest document text.
+- Workspace-scale coverage now includes refreshed workspace indexes, generated
+  source aliases, real std/example projects, and the open-100-files protocol
+  stress fixture.
+- Worker panic recovery tests cover document request workers and diagnostics
+  workers returning LSP errors/diagnostics instead of unwinding through the
+  server.
+- Deterministic latency budget tests cover interactive, diagnostics, and
+  workspace-refresh trace paths by forcing budget thresholds in tests.
+- CI runs `cargo test -p kern-lsp`, VS Code extension checks/tests, and VSIX
+  packaging verification.
 
 Exit criteria:
 
 - `cargo test -p kern-lsp` covers scheduler, cancellation, protocol, snapshots,
-  diagnostics, and all advertised features.
-- CI rejects regressions that reintroduce silent analysis failure.
-- VS Code smoke tests cover launch, diagnostics, completion, hover, definition,
-  rename, and semantic tokens.
+  diagnostics, stress paths, and all advertised features.
+- CI rejects regressions that reintroduce silent analysis failure through the
+  LSP robustness guard tests and the required `kern-lsp` CI job.
+- Automated server tests cover diagnostics, completion, hover, definition,
+  rename, semantic tokens, and the main editor-facing request paths. Release
+  validation still includes a manual VS Code smoke pass for launch and GUI
+  integration behavior because the extension test suite is not a full VS Code
+  UI harness.
 
 ## Concrete Test Matrix
 

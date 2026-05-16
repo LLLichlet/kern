@@ -3,6 +3,7 @@ mod completion;
 mod diagnostics;
 mod requests;
 mod scheduler;
+mod stress;
 
 pub(super) use super::*;
 pub(super) use crate::analysis::{AnalysisOutcome, DiagnosticBundle};

@@ -134,7 +134,7 @@ fn change_document_for_full_diagnostics(
 }
 
 fn warm_clean_semantic_artifact(analysis: &AnalysisEngine, uri: &str, _source: &str) {
-    let snapshot = analysis.snapshot();
+    let snapshot = analysis.snapshot(CancellationToken::new());
     let _ = analysis
         .analyze_interactive_artifact_for_snapshot(&snapshot, uri)
         .unwrap();
@@ -155,7 +155,7 @@ fn canceled_snapshot_stops_interactive_analysis_before_semantic_work() {
     });
     let token = CancellationToken::new();
     token.cancel();
-    let snapshot = analysis.snapshot_with_cancellation(Some(token));
+    let snapshot = analysis.snapshot(token);
 
     let err = analysis
         .document_symbols_in_snapshot(&snapshot, &uri)

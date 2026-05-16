@@ -16,7 +16,13 @@ fn analysis_artifact_exposes_flow_owners() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let owners = artifact.flow_owners();
 
     assert_eq!(owners.len(), 2);
@@ -59,7 +65,13 @@ fn analysis_artifact_exposes_flow_local_bindings() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let owners = artifact.flow_owners();
     let function_owner = owners
         .iter()
@@ -101,7 +113,13 @@ fn analysis_artifact_exposes_flow_liveness() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let owners = artifact.flow_owners();
     let function_owner = owners
         .iter()
@@ -187,7 +205,13 @@ fn analysis_artifact_exposes_flow_binding_summaries() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let owners = artifact.flow_owners();
     let function_owner = owners
         .iter()
@@ -245,7 +269,13 @@ fn analysis_artifact_exposes_flow_reaching_definitions() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let function_owner = artifact
         .flow_owners()
         .into_iter()
@@ -318,7 +348,13 @@ fn analysis_artifact_exposes_flow_node_facts_and_transfers() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let function_owner = artifact
         .flow_owners()
         .into_iter()
@@ -410,7 +446,13 @@ fn analysis_artifact_exposes_flow_definition_facts() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let function_owner = artifact
         .flow_owners()
         .into_iter()
@@ -494,7 +536,13 @@ fn analysis_artifact_exposes_flow_use_defs() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let function_owner = artifact
         .flow_owners()
         .into_iter()
@@ -551,7 +599,13 @@ fn analysis_artifact_exposes_flow_def_uses() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let function_owner = artifact
         .flow_owners()
         .into_iter()
@@ -615,7 +669,13 @@ fn analysis_artifact_exposes_flow_resolved_uses() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let function_owner = artifact
         .flow_owners()
         .into_iter()
@@ -672,8 +732,13 @@ fn analysis_artifact_exposes_flow_resolved_uses() {
     );
     fs::write(&unique, unique_source).unwrap();
 
-    let unique_artifact =
-        driver.analyze_artifact(unique.to_str().unwrap(), &SourceOverrides::new());
+    let unique_artifact = driver
+        .analyze_artifact(
+            unique.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let unique_owner = unique_artifact
         .flow_owners()
         .into_iter()
@@ -729,7 +794,13 @@ fn analysis_artifact_exposes_flow_single_source_uses() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let function_owner = artifact
         .flow_owners()
         .into_iter()
@@ -808,7 +879,13 @@ fn analysis_artifact_exposes_flow_control_summary() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let owners = artifact.flow_owners();
     let function_owner = owners
         .iter()

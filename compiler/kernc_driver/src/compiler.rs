@@ -10,7 +10,7 @@ mod type_hints;
 pub use self::codegen_units::{CodegenImportPlanReport, CodegenPlanFallback, CodegenPlanReport};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -106,6 +106,48 @@ pub struct AnalysisSpanReplacement {
 pub struct TargetedAnalysisReport {
     pub report: AnalysisReport,
     pub replaced_spans: Vec<AnalysisSpanReplacement>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CancellationToken {
+    canceled: Arc<AtomicBool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Canceled;
+
+impl CancellationToken {
+    pub fn new() -> Self {
+        Self {
+            canceled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn from_shared(canceled: Arc<AtomicBool>) -> Self {
+        Self { canceled }
+    }
+
+    pub fn cancel(&self) {
+        self.canceled.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_canceled(&self) -> bool {
+        self.canceled.load(Ordering::SeqCst)
+    }
+
+    pub fn check(&self) -> Result<(), Canceled> {
+        if self.is_canceled() {
+            Err(Canceled)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Default for CancellationToken {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Debug, Clone)]

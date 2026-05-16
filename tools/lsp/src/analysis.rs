@@ -65,10 +65,8 @@ use kernc_utils::{Session, SourceFile, Span};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::Arc;
+use std::sync::Mutex;
 
 #[derive(Debug, Clone)]
 pub struct AnalysisSettings {
@@ -115,16 +113,12 @@ pub struct AnalysisSnapshot {
     documents: BTreeMap<String, OpenDocument>,
     dirty_documents: Arc<DirtyDocumentsSnapshot>,
     open_uri_by_path: Arc<BTreeMap<PathBuf, String>>,
-    cancellation: Option<CancellationToken>,
+    cancellation: CancellationToken,
 }
 
 impl AnalysisSnapshot {
     fn check_canceled(&self) -> Result<(), String> {
-        if self
-            .cancellation
-            .as_ref()
-            .is_some_and(CancellationToken::is_canceled)
-        {
+        if self.cancellation.is_canceled() {
             return Err("request was canceled".to_string());
         }
         Ok(())
@@ -156,32 +150,7 @@ impl AnalysisSnapshot {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CancellationToken {
-    canceled: Arc<AtomicBool>,
-}
-
-impl CancellationToken {
-    #[cfg(test)]
-    pub(crate) fn new() -> Self {
-        Self {
-            canceled: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    pub(crate) fn from_shared(canceled: Arc<AtomicBool>) -> Self {
-        Self { canceled }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn cancel(&self) {
-        self.canceled.store(true, Ordering::SeqCst);
-    }
-
-    pub(crate) fn is_canceled(&self) -> bool {
-        self.canceled.load(Ordering::SeqCst)
-    }
-}
+pub use kernc_driver::CancellationToken;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AnalysisTier {
@@ -223,16 +192,12 @@ struct AnalysisRequestContext {
     dirty_documents: DirtyDocumentsSnapshot,
     cache_key: AnalysisCacheKey,
     driver: Arc<CompilerDriver>,
-    cancellation: Option<CancellationToken>,
+    cancellation: CancellationToken,
 }
 
 impl AnalysisRequestContext {
     fn check_canceled(&self) -> Result<(), String> {
-        if self
-            .cancellation
-            .as_ref()
-            .is_some_and(CancellationToken::is_canceled)
-        {
+        if self.cancellation.is_canceled() {
             return Err("request was canceled".to_string());
         }
         Ok(())
@@ -311,15 +276,7 @@ impl AnalysisEngine {
         self.last_analysis_tier.lock().unwrap().take();
     }
 
-    #[cfg(test)]
-    pub(crate) fn snapshot(&self) -> AnalysisSnapshot {
-        self.snapshot_with_cancellation(None)
-    }
-
-    pub(crate) fn snapshot_with_cancellation(
-        &self,
-        cancellation: Option<CancellationToken>,
-    ) -> AnalysisSnapshot {
+    pub(crate) fn snapshot(&self, cancellation: CancellationToken) -> AnalysisSnapshot {
         AnalysisSnapshot {
             documents: self.documents.clone(),
             dirty_documents: self.dirty_documents_snapshot(),
@@ -663,14 +620,21 @@ impl AnalysisEngine {
                 .insert(context.cache_key.clone(), Arc::clone(structure));
         }
 
-        Ok(if let Some(structure) = structure {
-            context.driver.analyze_report_from_structure(&structure)
+        if let Some(structure) = structure {
+            context
+                .driver
+                .analyze_report_from_structure(&structure, &context.cancellation)
+                .map_err(|_| "request was canceled".to_string())
         } else {
-            context.driver.analyze_report(
-                &context.resolved.input_file.to_string_lossy(),
-                &context.dirty_documents.overrides,
-            )
-        })
+            context
+                .driver
+                .analyze_report(
+                    &context.resolved.input_file.to_string_lossy(),
+                    &context.dirty_documents.overrides,
+                    &context.cancellation,
+                )
+                .map_err(|_| "request was canceled".to_string())
+        }
     }
 
     fn analyze_interactive_artifact_for_snapshot(
@@ -765,12 +729,19 @@ impl AnalysisEngine {
 
         context.check_canceled()?;
         let artifact = Arc::new(if let Some(structure) = structure {
-            context.driver.analyze_artifact_from_structure(&structure)
+            context
+                .driver
+                .analyze_artifact_from_structure(&structure, &context.cancellation)
+                .map_err(|_| "request was canceled".to_string())?
         } else {
-            context.driver.analyze_artifact(
-                &context.resolved.input_file.to_string_lossy(),
-                &context.dirty_documents.overrides,
-            )
+            context
+                .driver
+                .analyze_artifact(
+                    &context.resolved.input_file.to_string_lossy(),
+                    &context.dirty_documents.overrides,
+                    &context.cancellation,
+                )
+                .map_err(|_| "request was canceled".to_string())?
         });
         self.artifact_cache
             .lock()
@@ -818,12 +789,17 @@ impl AnalysisEngine {
         let artifact = Arc::new(if let Some(structure) = structure {
             context
                 .driver
-                .analyze_navigation_artifact_from_structure(&structure)
+                .analyze_navigation_artifact_from_structure(&structure, &context.cancellation)
+                .map_err(|_| "request was canceled".to_string())?
         } else {
-            context.driver.analyze_navigation_artifact(
-                &context.resolved.input_file.to_string_lossy(),
-                &context.dirty_documents.overrides,
-            )
+            context
+                .driver
+                .analyze_navigation_artifact(
+                    &context.resolved.input_file.to_string_lossy(),
+                    &context.dirty_documents.overrides,
+                    &context.cancellation,
+                )
+                .map_err(|_| "request was canceled".to_string())?
         });
         self.navigation_cache
             .lock()
@@ -851,10 +827,15 @@ impl AnalysisEngine {
         }
 
         context.check_canceled()?;
-        let surface = match context.driver.analyze_surface(
-            &context.resolved.input_file.to_string_lossy(),
-            &context.dirty_documents.overrides,
-        ) {
+        let surface = match context
+            .driver
+            .analyze_surface(
+                &context.resolved.input_file.to_string_lossy(),
+                &context.dirty_documents.overrides,
+                &context.cancellation,
+            )
+            .map_err(|_| "request was canceled".to_string())?
+        {
             Some(surface) => Arc::new(surface),
             None => return Ok(None),
         };
@@ -877,10 +858,16 @@ impl AnalysisEngine {
         }
 
         context.check_canceled()?;
-        let artifact = Arc::new(context.driver.analyze_artifact(
-            &context.resolved.input_file.to_string_lossy(),
-            &SourceOverrides::new(),
-        ));
+        let artifact = Arc::new(
+            context
+                .driver
+                .analyze_artifact(
+                    &context.resolved.input_file.to_string_lossy(),
+                    &SourceOverrides::new(),
+                    &context.cancellation,
+                )
+                .map_err(|_| "request was canceled".to_string())?,
+        );
         self.artifact_cache
             .lock()
             .unwrap()
@@ -899,10 +886,16 @@ impl AnalysisEngine {
         }
 
         context.check_canceled()?;
-        let artifact = Arc::new(context.driver.analyze_navigation_artifact(
-            &context.resolved.input_file.to_string_lossy(),
-            &SourceOverrides::new(),
-        ));
+        let artifact = Arc::new(
+            context
+                .driver
+                .analyze_navigation_artifact(
+                    &context.resolved.input_file.to_string_lossy(),
+                    &SourceOverrides::new(),
+                    &context.cancellation,
+                )
+                .map_err(|_| "request was canceled".to_string())?,
+        );
         self.navigation_cache
             .lock()
             .unwrap()
@@ -921,10 +914,15 @@ impl AnalysisEngine {
         }
 
         context.check_canceled()?;
-        let surface = match context.driver.analyze_surface(
-            &context.resolved.input_file.to_string_lossy(),
-            &SourceOverrides::new(),
-        ) {
+        let surface = match context
+            .driver
+            .analyze_surface(
+                &context.resolved.input_file.to_string_lossy(),
+                &SourceOverrides::new(),
+                &context.cancellation,
+            )
+            .map_err(|_| "request was canceled".to_string())?
+        {
             Some(surface) => Arc::new(surface),
             None => return Ok(None),
         };
@@ -945,14 +943,15 @@ impl AnalysisEngine {
         }
 
         context.check_canceled()?;
-        let Some(parsed) = context
+        let parsed = context
             .driver
             .parse_modules(
                 &context.resolved.input_file.to_string_lossy(),
                 &context.dirty_documents.overrides,
+                &context.cancellation,
             )
-            .map(Arc::new)
-        else {
+            .map_err(|_| "request was canceled".to_string())?;
+        let Some(parsed) = parsed.map(Arc::new) else {
             return Err("parse analysis failed".to_string());
         };
         self.prune_cache_family_for_insert(&context.cache_key);
@@ -1000,24 +999,25 @@ impl AnalysisEngine {
         resolved: ResolvedAnalysis,
     ) -> Result<AnalysisRequestContext, String> {
         let dirty_documents = self.dirty_documents_snapshot();
-        self.analysis_context_for_resolved_and_dirty(resolved, dirty_documents.as_ref(), None)
+        self.analysis_context_for_resolved_and_dirty(
+            resolved,
+            dirty_documents.as_ref(),
+            CancellationToken::new(),
+        )
     }
 
     fn analysis_context_for_resolved_and_dirty(
         &self,
         resolved: ResolvedAnalysis,
         dirty_snapshot: &DirtyDocumentsSnapshot,
-        cancellation: Option<CancellationToken>,
+        cancellation: CancellationToken,
     ) -> Result<AnalysisRequestContext, String> {
         let dirty_documents = dirty_snapshot
             .filter_for_resolved(&resolved)
             .remap_for(&resolved.source_path_aliases);
         let cache_key = AnalysisCacheKey::from_resolved_dirty_snapshot(&resolved, &dirty_documents);
         let driver = self.driver_for_resolved(&resolved);
-        if cancellation
-            .as_ref()
-            .is_some_and(CancellationToken::is_canceled)
-        {
+        if cancellation.is_canceled() {
             return Err("request was canceled".to_string());
         }
         Ok(AnalysisRequestContext {

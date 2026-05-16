@@ -5,7 +5,9 @@ use super::{
     RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerError, ServerState,
     WorkspaceRefreshTaskResult, lifecycle::emit_trace,
 };
-use crate::analysis::{AnalysisOutcome, AnalysisSnapshot, DocumentSyncAction, cleared_uris};
+use crate::analysis::{
+    AnalysisOutcome, AnalysisSnapshot, CancellationToken, DocumentSyncAction, cleared_uris,
+};
 use crate::protocol::{error_response, null_response, publish_diagnostics, success_response};
 use crate::transport::MessageWriter;
 use serde_json::Value;
@@ -395,8 +397,9 @@ fn submit_document_request_task<F>(
         .request
         .cancellation
         .as_ref()
-        .map(|token| token.analysis_token());
-    let snapshot = analysis.snapshot_with_cancellation(cancellation);
+        .map(|token| token.analysis_token())
+        .unwrap_or_else(CancellationToken::new);
+    let snapshot = analysis.snapshot(cancellation);
     state.queue_document_request_task();
     let task = LspWorkerTask::DocumentRequest(Box::new(move || {
         let result = run_document_request_task(analysis, snapshot, task_info, task);

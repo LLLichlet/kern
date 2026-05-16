@@ -5,13 +5,17 @@ impl CompilerDriver {
     pub fn analyze_artifact_from_structure(
         &self,
         structure: &StructureArtifact,
-    ) -> AnalysisArtifact {
+        cancellation: &CancellationToken,
+    ) -> Result<AnalysisArtifact, Canceled> {
+        cancellation.check()?;
         let mut session = structure.session.clone();
         let analysis_asts = structure.asts.clone();
 
         let mut ctx = self.build_sema_context(&mut session);
         ctx.restore_structure(structure.snapshot.clone());
+        cancellation.check()?;
         let succeeded = self.run_body_pipeline(&mut ctx);
+        cancellation.check()?;
         let symbols = self.collect_analysis_symbols(&ctx, &analysis_asts);
         let references = ctx
             .identifier_references()
@@ -37,8 +41,9 @@ impl CompilerDriver {
         let dead_stores = self.collect_dead_stores(&ctx, &raw_references, &flow_model);
         let resolved_globals = self.collect_resolved_globals(&ctx);
         drop(ctx);
+        cancellation.check()?;
 
-        AnalysisArtifact {
+        Ok(AnalysisArtifact {
             session,
             succeeded,
             symbols,
@@ -55,19 +60,23 @@ impl CompilerDriver {
             unused_items,
             unused_bindings,
             dead_stores,
-        }
+        })
     }
 
     pub fn analyze_navigation_artifact_from_structure(
         &self,
         structure: &StructureArtifact,
-    ) -> AnalysisNavigationArtifact {
+        cancellation: &CancellationToken,
+    ) -> Result<AnalysisNavigationArtifact, Canceled> {
+        cancellation.check()?;
         let mut session = structure.session.clone();
         let analysis_asts = structure.asts.clone();
 
         let mut ctx = self.build_sema_context(&mut session);
         ctx.restore_structure(structure.snapshot.clone());
+        cancellation.check()?;
         let succeeded = self.run_navigation_pipeline(&mut ctx);
+        cancellation.check()?;
         let symbols = self.collect_analysis_symbols(&ctx, &analysis_asts);
         let references = ctx
             .identifier_references()
@@ -82,8 +91,9 @@ impl CompilerDriver {
         let definition_links = self.collect_analysis_definition_links(&ctx);
         let semantic_entries = self.collect_analysis_semantic_entries(&symbols, &ctx, &references);
         drop(ctx);
+        cancellation.check()?;
 
-        AnalysisNavigationArtifact {
+        Ok(AnalysisNavigationArtifact {
             session,
             succeeded,
             symbols,
@@ -92,17 +102,24 @@ impl CompilerDriver {
             type_hints,
             definition_links,
             semantic_entries,
-        }
+        })
     }
 
-    pub fn analyze_report_from_structure(&self, structure: &StructureArtifact) -> AnalysisReport {
+    pub fn analyze_report_from_structure(
+        &self,
+        structure: &StructureArtifact,
+        cancellation: &CancellationToken,
+    ) -> Result<AnalysisReport, Canceled> {
+        cancellation.check()?;
         let mut session = structure.session.clone();
         let mut ctx = self.build_sema_context(&mut session);
         ctx.restore_structure(structure.snapshot.clone());
+        cancellation.check()?;
         let succeeded = self.run_body_pipeline(&mut ctx);
         drop(ctx);
+        cancellation.check()?;
 
-        AnalysisReport { session, succeeded }
+        Ok(AnalysisReport { session, succeeded })
     }
 
     pub fn analyze_structure_report(

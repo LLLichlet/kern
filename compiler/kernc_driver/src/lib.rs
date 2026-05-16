@@ -23,10 +23,10 @@ pub use compiler::{
     AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSignatureHelp,
     AnalysisSignatureInformation, AnalysisSpanReplacement, AnalysisSurfaceArtifact, AnalysisSymbol,
     AnalysisSymbolKind, AnalysisTypeHint, AnalysisTypeHintKind, AnalysisUnusedBinding,
-    AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind, CodegenImportPlanReport,
-    CodegenPlanFallback, CodegenPlanReport, CompileCacheStats, CompileReport,
-    ImportedStructureArtifact, IncrementalDriverKey, ParsedModuleArtifact, PhaseTiming,
-    SourceOverrides, StructureArtifact, TargetedAnalysisReport,
+    AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind, Canceled,
+    CancellationToken, CodegenImportPlanReport, CodegenPlanFallback, CodegenPlanReport,
+    CompileCacheStats, CompileReport, ImportedStructureArtifact, IncrementalDriverKey,
+    ParsedModuleArtifact, PhaseTiming, SourceOverrides, StructureArtifact, TargetedAnalysisReport,
 };
 pub use doc::{KernDoc, KernDocEntry, KernDocSection, KernDocSectionKind, KmetaDocItem};
 pub use metadata::{

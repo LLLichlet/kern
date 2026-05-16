@@ -2,7 +2,8 @@ use super::{
     AnalysisDeadStoreKind, AnalysisFlowBindingKind, AnalysisFlowCfgEdgeKind,
     AnalysisFlowCfgNodeKind, AnalysisFlowDefinitionKind, AnalysisFlowDefinitionRef,
     AnalysisFlowOwnerKind, AnalysisFlowRegionKind, AnalysisFlowResolvedUseKind,
-    AnalysisUnusedBindingKind, AnalysisUnusedItemKind, CompilerDriver, SourceOverrides,
+    AnalysisUnusedBindingKind, AnalysisUnusedItemKind, CancellationToken, CompilerDriver,
+    SourceOverrides,
 };
 use kernc_mast::{MastBlock, MastExpr, MastExprKind, MastStmt};
 use kernc_utils::Session;
@@ -15,6 +16,33 @@ mod completion;
 mod diagnostics;
 mod flow;
 mod lowering;
+
+#[test]
+fn canceled_analysis_artifact_stops_before_driver_work() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_driver_canceled_artifact_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    fs::write(&main, "fn main() i32 { return 1; }\n").unwrap();
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+
+    let result = driver.analyze_artifact(
+        main.to_str().unwrap(),
+        &SourceOverrides::new(),
+        &cancellation,
+    );
+
+    assert!(result.is_err());
+    let _ = fs::remove_dir_all(&root);
+}
 
 fn count_assignments_in_block(block: &MastBlock) -> usize {
     let stmt_count: usize = block.stmts.iter().map(count_assignments_in_stmt).sum();

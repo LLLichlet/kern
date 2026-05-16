@@ -75,7 +75,7 @@ fn snapshot_preserves_open_document_view_after_later_changes() {
         },
     });
 
-    let snapshot = analysis.snapshot();
+    let snapshot = analysis.snapshot(CancellationToken::new());
 
     let _ = analysis.change_document(DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {

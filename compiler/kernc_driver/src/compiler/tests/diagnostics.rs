@@ -21,7 +21,13 @@ fn analysis_artifact_exposes_unused_private_items() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let unused = artifact.unused_private_items();
 
     assert_eq!(unused.len(), 2);
@@ -59,7 +65,13 @@ fn analysis_artifact_omits_retained_private_items_from_unused_list() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let unused = artifact.unused_private_items();
 
     assert!(unused.is_empty(), "unexpected unused items: {unused:?}");
@@ -89,7 +101,13 @@ fn analysis_artifact_exposes_unused_bindings() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let unused = artifact.unused_bindings();
 
     assert_eq!(unused.len(), 2);
@@ -128,7 +146,13 @@ fn analysis_artifact_exposes_dead_stores() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let dead_stores = artifact.dead_stores();
 
     assert_eq!(dead_stores.len(), 2);
@@ -170,7 +194,13 @@ fn analyze_source_for_diagnostics(name: &str, source: &str) -> AnalysisArtifact 
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let _ = fs::remove_dir_all(&root);
     artifact
 }

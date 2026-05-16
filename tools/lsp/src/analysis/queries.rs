@@ -29,7 +29,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn document_symbols(&self, uri: &str) -> Result<Vec<IdeDocumentSymbol>, String> {
-        let snapshot = self.snapshot();
+        let snapshot = self.snapshot(CancellationToken::new());
         self.document_symbols_in_snapshot(&snapshot, uri)
     }
 
@@ -89,7 +89,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<IdeLocation>, String> {
-        let snapshot = self.snapshot();
+        let snapshot = self.snapshot(CancellationToken::new());
         self.goto_definition_in_snapshot(&snapshot, uri, position)
     }
 
@@ -130,7 +130,7 @@ impl AnalysisEngine {
         position: Position,
         include_declaration: bool,
     ) -> Result<Vec<IdeLocation>, String> {
-        let snapshot = self.snapshot();
+        let snapshot = self.snapshot(CancellationToken::new());
         self.references_in_snapshot(&snapshot, uri, position, include_declaration)
     }
 
@@ -173,7 +173,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Vec<IdeDocumentHighlight>, String> {
-        let snapshot = self.snapshot();
+        let snapshot = self.snapshot(CancellationToken::new());
         self.document_highlights_in_snapshot(&snapshot, uri, position)
     }
 
@@ -211,7 +211,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn hover(&self, uri: &str, position: Position) -> Result<Option<IdeHover>, String> {
-        let snapshot = self.snapshot();
+        let snapshot = self.snapshot(CancellationToken::new());
         self.hover_in_snapshot(&snapshot, uri, position)
     }
 
@@ -250,7 +250,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<IdeSignatureHelp>, String> {
-        let snapshot = self.snapshot();
+        let snapshot = self.snapshot(CancellationToken::new());
         self.signature_help_in_snapshot(&snapshot, uri, position)
     }
 
@@ -282,7 +282,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Vec<IdeCompletionItem>, String> {
-        let snapshot = self.snapshot();
+        let snapshot = self.snapshot(CancellationToken::new());
         self.completion_in_snapshot(&snapshot, uri, position)
     }
 
@@ -395,7 +395,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<IdePrepareRenameResult>, String> {
-        let snapshot = self.snapshot();
+        let snapshot = self.snapshot(CancellationToken::new());
         self.prepare_rename_in_snapshot(&snapshot, uri, position)
     }
 
@@ -441,7 +441,7 @@ impl AnalysisEngine {
         position: Position,
         new_name: &str,
     ) -> Result<IdeWorkspaceEdit, String> {
-        let snapshot = self.snapshot();
+        let snapshot = self.snapshot(CancellationToken::new());
         self.rename_in_snapshot(&snapshot, uri, position, new_name)
     }
 
@@ -493,7 +493,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn semantic_tokens(&self, uri: &str) -> Result<IdeSemanticTokens, String> {
-        let snapshot = self.snapshot();
+        let snapshot = self.snapshot(CancellationToken::new());
         self.semantic_tokens_in_snapshot(&snapshot, uri)
     }
 
@@ -547,7 +547,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn inlay_hints(&self, uri: &str, range: Range) -> Result<Vec<IdeInlayHint>, String> {
-        let snapshot = self.snapshot();
+        let snapshot = self.snapshot(CancellationToken::new());
         self.inlay_hints_in_snapshot(&snapshot, uri, range)
     }
 
@@ -589,7 +589,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn code_actions(&self, uri: &str, range: Range) -> Result<Vec<IdeCodeAction>, String> {
-        let snapshot = self.snapshot();
+        let snapshot = self.snapshot(CancellationToken::new());
         self.code_actions_in_snapshot(&snapshot, uri, range)
     }
 

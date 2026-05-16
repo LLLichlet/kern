@@ -18,7 +18,12 @@ fn imported_structure_cache_reuses_loaded_frontend_modules_without_type_stage() 
     let overrides = SourceOverrides::new();
 
     let imported = driver
-        .analyze_imported_structure(main.to_str().unwrap(), &overrides)
+        .analyze_imported_structure(
+            main.to_str().unwrap(),
+            &overrides,
+            &CancellationToken::new(),
+        )
+        .unwrap()
         .expect("imported structure should be available");
     let parse_count = driver.uncached_parse_count();
 
@@ -26,7 +31,12 @@ fn imported_structure_cache_reuses_loaded_frontend_modules_without_type_stage() 
     assert!(!items.is_empty());
 
     let imported_again = driver
-        .analyze_imported_structure(main.to_str().unwrap(), &overrides)
+        .analyze_imported_structure(
+            main.to_str().unwrap(),
+            &overrides,
+            &CancellationToken::new(),
+        )
+        .unwrap()
         .expect("imported structure should stay cached");
     assert!(
         !imported_again
@@ -57,7 +67,8 @@ fn analyze_imported_structure_reuses_clean_imported_structure_for_body_only_over
 
     assert!(
         driver
-            .analyze_imported_structure(main.to_str().unwrap(), &clean)
+            .analyze_imported_structure(main.to_str().unwrap(), &clean, &CancellationToken::new())
+            .unwrap()
             .is_some()
     );
     let reuse_count = driver.body_only_imported_reuse_count();
@@ -67,7 +78,8 @@ fn analyze_imported_structure_reuses_clean_imported_structure_for_body_only_over
     dirty.insert(main.clone(), "fn main() i32 { return 2; }".to_string());
     assert!(
         driver
-            .analyze_imported_structure(main.to_str().unwrap(), &dirty)
+            .analyze_imported_structure(main.to_str().unwrap(), &dirty, &CancellationToken::new())
+            .unwrap()
             .is_some()
     );
     assert_eq!(driver.body_only_imported_reuse_count(), reuse_count + 1);
@@ -77,7 +89,8 @@ fn analyze_imported_structure_reuses_clean_imported_structure_for_body_only_over
 
     assert!(
         driver
-            .analyze_imported_structure(main.to_str().unwrap(), &dirty)
+            .analyze_imported_structure(main.to_str().unwrap(), &dirty, &CancellationToken::new())
+            .unwrap()
             .is_some()
     );
     assert_eq!(driver.body_only_imported_reuse_count(), reuse_count + 1);
@@ -105,7 +118,8 @@ fn analyze_imported_structure_does_not_reuse_clean_imported_structure_for_surfac
 
     assert!(
         driver
-            .analyze_imported_structure(main.to_str().unwrap(), &clean)
+            .analyze_imported_structure(main.to_str().unwrap(), &clean, &CancellationToken::new())
+            .unwrap()
             .is_some()
     );
     let reuse_count = driver.body_only_imported_reuse_count();
@@ -117,7 +131,8 @@ fn analyze_imported_structure_does_not_reuse_clean_imported_structure_for_surfac
     );
     assert!(
         driver
-            .analyze_imported_structure(main.to_str().unwrap(), &dirty)
+            .analyze_imported_structure(main.to_str().unwrap(), &dirty, &CancellationToken::new())
+            .unwrap()
             .is_some()
     );
     assert_eq!(driver.body_only_imported_reuse_count(), reuse_count);
@@ -144,13 +159,23 @@ fn surface_artifact_reuses_cached_imported_stage_without_extra_frontend_parse() 
 
     assert!(
         driver
-            .analyze_imported_structure(main.to_str().unwrap(), &overrides)
+            .analyze_imported_structure(
+                main.to_str().unwrap(),
+                &overrides,
+                &CancellationToken::new()
+            )
+            .unwrap()
             .is_some()
     );
     let parse_count = driver.uncached_parse_count();
 
     let surface = driver
-        .analyze_surface(main.to_str().unwrap(), &overrides)
+        .analyze_surface(
+            main.to_str().unwrap(),
+            &overrides,
+            &CancellationToken::new(),
+        )
+        .unwrap()
         .expect("surface artifact should be derivable from imported cache");
     assert!(!surface.symbols.is_empty());
     assert!(!surface.completion_items(main.as_path(), 0).is_empty());
@@ -178,7 +203,12 @@ fn analyze_structure_reuses_cached_imported_stage_without_extra_frontend_parse()
 
     assert!(
         driver
-            .analyze_imported_structure(main.to_str().unwrap(), &overrides)
+            .analyze_imported_structure(
+                main.to_str().unwrap(),
+                &overrides,
+                &CancellationToken::new()
+            )
+            .unwrap()
             .is_some()
     );
     let parse_count = driver.uncached_parse_count();
@@ -211,13 +241,23 @@ fn parse_modules_reuses_cached_imported_stage_without_extra_frontend_parse() {
 
     assert!(
         driver
-            .analyze_imported_structure(main.to_str().unwrap(), &overrides)
+            .analyze_imported_structure(
+                main.to_str().unwrap(),
+                &overrides,
+                &CancellationToken::new()
+            )
+            .unwrap()
             .is_some()
     );
     let parse_count = driver.uncached_parse_count();
 
     let parsed = driver
-        .parse_modules(main.to_str().unwrap(), &overrides)
+        .parse_modules(
+            main.to_str().unwrap(),
+            &overrides,
+            &CancellationToken::new(),
+        )
+        .unwrap()
         .expect("parsed modules should be derivable from imported cache");
     assert!(!parsed.modules.is_empty());
     assert_eq!(driver.uncached_parse_count(), parse_count);
@@ -245,13 +285,23 @@ fn parsed_modules_cache_preserves_body_completion_regions() {
 
     assert!(
         driver
-            .analyze_imported_structure(main.to_str().unwrap(), &overrides)
+            .analyze_imported_structure(
+                main.to_str().unwrap(),
+                &overrides,
+                &CancellationToken::new()
+            )
+            .unwrap()
             .is_some()
     );
     let parse_count = driver.uncached_parse_count();
 
     let parsed = driver
-        .parse_modules(main.to_str().unwrap(), &overrides)
+        .parse_modules(
+            main.to_str().unwrap(),
+            &overrides,
+            &CancellationToken::new(),
+        )
+        .unwrap()
         .expect("parsed modules should be derivable from imported cache");
     let body_offset = source.find("return").unwrap();
     let top_level_offset = source.find("fn").unwrap();

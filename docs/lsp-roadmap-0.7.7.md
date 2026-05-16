@@ -220,12 +220,16 @@ Completed foundation work:
   LSP analysis query boundary. Canceled requests stop before resolving analysis
   context or entering cached/compiler-backed semantic phases when they have not
   already started that phase.
+- `kernc_driver` analysis entry points now accept the same cancellation token
+  path used by LSP snapshots. Cancellation is checked at public analysis
+  entry, cache fallback, structure-to-artifact, navigation-artifact, and report
+  construction boundaries without keeping parallel non-cancelable driver APIs.
 
 Still to complete before calling the scheduler done:
 
-- Push cancellation checks into the lower compiler driver phases so work already
-  inside parsing, lowering, type checking, or navigation artifact construction
-  can stop before returning to the LSP analysis layer.
+- Decide, based on profiling and stress tests, whether cancellation must be
+  threaded into the inner parsing, lowering, and type-checking loops rather
+  than only the driver analysis phase boundaries.
 - Keep the intentional protocol references in analysis limited to the documented
   coordinate, sync-input, diagnostics-location, and `ide.rs` conversion
   exceptions.
@@ -695,9 +699,10 @@ concurrent request execution and cancellation, not adopting a specific runtime.
 
 ### Risk: Compiler APIs are not cancellation-aware
 
-Mitigation: add cancellation checks at LSP/IDE phase boundaries first. Later,
-thread cancellation deeper into compiler analysis if profiling shows it is
-needed.
+Mitigation: the LSP/IDE path now uses cancelable `kernc_driver` analysis APIs
+without a legacy non-cancelable public analysis path. Deeper cancellation inside
+parser, lowering, and type-checking loops should be driven by profiling and
+stress tests.
 
 ### Risk: Background indexing becomes stale
 

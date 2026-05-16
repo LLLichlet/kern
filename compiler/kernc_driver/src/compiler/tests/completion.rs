@@ -30,7 +30,13 @@ fn analysis_artifact_exposes_explicit_let_else_bindings_to_completion() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let err_offset = source.rfind("err;").expect("expected err use");
     let ok_offset = source.rfind("ok;").expect("expected ok use");
 
@@ -75,7 +81,13 @@ fn analysis_artifact_exposes_flow_definitions_for_explicit_let_else_bindings() {
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());
-    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
     let function_owner = artifact
         .flow_owners()
         .into_iter()

@@ -183,6 +183,70 @@ impl AnalysisProject {
         }
     }
 
+    pub fn workspace_targets(
+        &self,
+        base_options: &CompileOptions,
+    ) -> Result<Vec<ResolvedAnalysis>> {
+        let build_plan = self.build_plan_for_analysis(base_options)?;
+        let mut targets = Vec::new();
+
+        for build_package in &build_plan.packages {
+            if build_package.domain != crate::graph::BuildDomain::Target {
+                continue;
+            }
+            let Some(package) = self.package_for_manifest_path(&build_package.manifest_path) else {
+                continue;
+            };
+            let manifest = Manifest::load(&package.manifest_path)?;
+
+            for unit in &build_package.units {
+                if unit.domain != crate::graph::BuildDomain::Target {
+                    continue;
+                }
+                let Some(input_file) = resolve_unit_source_root_path(
+                    &self.workspace_root,
+                    build_package.manifest_path.as_path(),
+                    &unit.source_root,
+                ) else {
+                    continue;
+                };
+
+                let mut compile_options = base_options.clone();
+                for (name, path) in &package.module_aliases {
+                    compile_options
+                        .module_aliases
+                        .entry(name.clone())
+                        .or_insert_with(|| path.to_string_lossy().to_string());
+                }
+                insert_self_library_alias(&mut compile_options, package, unit.target_kind);
+                if unit.target_kind == TargetKind::Lib {
+                    compile_options.root_module_name = Some(package.id.name.clone());
+                }
+                compile_options.metadata_package_name = Some(package.id.name.clone());
+                apply_target_runtime_defaults(&mut compile_options, unit.target_kind);
+                manifest.apply_runtime_options_for_target(unit.target_kind, &mut compile_options);
+                apply_configured_library_aliases(&mut compile_options);
+                for (name, value) in compile_time_defines(&unit.cfg, &unit.define) {
+                    compile_options.custom_defines.entry(name).or_insert(value);
+                }
+
+                targets.push(ResolvedAnalysis {
+                    input_file,
+                    compile_options,
+                    source_path_aliases: build_unit_source_aliases(&self.workspace_root, unit),
+                    target_roots: package.target_roots.clone(),
+                });
+            }
+        }
+
+        targets.sort_by(|lhs, rhs| lhs.input_file.cmp(&rhs.input_file));
+        targets.dedup_by(|lhs, rhs| {
+            lhs.input_file == rhs.input_file
+                && lhs.compile_options.root_module_name == rhs.compile_options.root_module_name
+        });
+        Ok(targets)
+    }
+
     fn from_parts(
         manifest_path: &Path,
         package_graph: PackageGraph,

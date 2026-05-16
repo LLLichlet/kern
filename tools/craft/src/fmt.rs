@@ -69,7 +69,7 @@ impl Default for FormatConfig {
 }
 
 impl FormatConfig {
-    fn from_manifest(manifest: &Manifest) -> Self {
+    pub fn from_manifest(manifest: &Manifest) -> Self {
         let mut config = Self::default();
         if let Some(line_width) = manifest
             .craft
@@ -258,7 +258,7 @@ pub fn format_source_text(source: &str) -> String {
     format_source_text_with_config(source, &FormatConfig::default())
 }
 
-fn format_source_text_with_config(source: &str, config: &FormatConfig) -> String {
+pub fn format_source_text_with_config(source: &str, config: &FormatConfig) -> String {
     format_source_text_with_config_inner(source, config)
 }
 

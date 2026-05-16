@@ -122,6 +122,87 @@ fn verbose_trace_reports_workspace_refresh_latency() {
 }
 
 #[test]
+fn workspace_refresh_reports_work_done_progress() {
+    let mut state = initialized_state();
+    state.work_done_progress = true;
+    let source = "fn main() void {}\n";
+    let uri = temp_file_uri("server_workspace_refresh_progress", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeWatchedFiles".to_string()),
+            params: Some(json!({
+                "changes": []
+            })),
+        },
+    );
+
+    let create = messages
+        .iter()
+        .find(|message| message["method"] == "window/workDoneProgress/create")
+        .unwrap();
+    let token = create["params"]["token"].clone();
+    assert_eq!(token, json!("kern-lsp/workspace-refresh/1"));
+
+    let progress_messages: Vec<_> = messages
+        .iter()
+        .filter(|message| message["method"] == "$/progress" && message["params"]["token"] == token)
+        .collect();
+    assert_eq!(progress_messages.len(), 2);
+    assert_eq!(progress_messages[0]["params"]["value"]["kind"], "begin");
+    assert_eq!(
+        progress_messages[0]["params"]["value"]["title"],
+        "Kern workspace refresh"
+    );
+    assert_eq!(
+        progress_messages[0]["params"]["value"]["message"],
+        "workspace files changed"
+    );
+    assert_eq!(progress_messages[1]["params"]["value"]["kind"], "end");
+    assert!(
+        progress_messages[1]["params"]["value"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("refreshed")
+    );
+}
+
+#[test]
+fn workspace_refresh_skips_progress_without_client_support() {
+    let mut state = initialized_state();
+    let source = "fn main() void {}\n";
+    let uri = temp_file_uri("server_workspace_refresh_no_progress", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeWatchedFiles".to_string()),
+            params: Some(json!({
+                "changes": []
+            })),
+        },
+    );
+
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message["method"] == "window/workDoneProgress/create")
+    );
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message["method"] == "$/progress")
+    );
+}
+
+#[test]
 fn verbose_trace_marks_exceeded_workspace_refresh_budget() {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;

@@ -229,6 +229,10 @@ Completed foundation work:
 - Scheduler tests now distinguish cancellation from stale generations:
   cancellation returns `RequestCancelled`, while superseded generations still
   drop stale responses silently.
+- Workspace refresh now uses LSP work-done progress when the client advertises
+  `window.workDoneProgress`. The server creates a progress token, emits
+  `$/progress` begin/end notifications around refresh work, and ignores the
+  corresponding client response without treating it as an invalid request.
 
 Still to complete before calling the scheduler done:
 
@@ -520,7 +524,10 @@ Tasks:
 - Return proper cancellation errors for requests. This is implemented for
   document requests: canceled requests return LSP `RequestCancelled` (`-32800`)
   instead of being silently dropped.
-- Add progress notifications for workspace refresh/indexing.
+- Add progress notifications for workspace refresh/indexing. Workspace refresh
+  progress is implemented with `window/workDoneProgress/create` and
+  `$/progress`; indexing progress remains tied to future workspace indexing
+  work.
 
 Exit criteria:
 

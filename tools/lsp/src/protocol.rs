@@ -51,7 +51,16 @@ pub struct ClientCapabilities {
     #[serde(default)]
     pub general: GeneralClientCapabilities,
     #[serde(default)]
+    pub window: WindowClientCapabilities,
+    #[serde(default)]
     pub text_document: TextDocumentClientCapabilities,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowClientCapabilities {
+    #[serde(default)]
+    pub work_done_progress: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -369,6 +378,14 @@ pub struct ResponseMessage {
 }
 
 #[derive(Debug, Serialize)]
+pub struct RequestMessage<T> {
+    pub jsonrpc: &'static str,
+    pub id: Value,
+    pub method: &'static str,
+    pub params: T,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ErrorResponseMessage {
     pub jsonrpc: &'static str,
     pub id: Value,
@@ -401,6 +418,24 @@ pub struct LogMessageParams {
     #[serde(rename = "type")]
     pub typ: u8,
     pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WorkDoneProgressCreateParams {
+    pub token: Value,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProgressParams<T> {
+    pub token: Value,
+    pub value: T,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WorkDoneProgressValue {
+    Begin { title: String, message: String },
+    End { message: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -511,6 +546,7 @@ pub struct InitializeResultOptions {
     pub inlay_hint: bool,
     pub rename_prepare_support: bool,
     pub semantic_tokens: bool,
+    pub work_done_progress: bool,
 }
 
 impl Default for InitializeResultOptions {
@@ -520,6 +556,7 @@ impl Default for InitializeResultOptions {
             inlay_hint: true,
             rename_prepare_support: true,
             semantic_tokens: true,
+            work_done_progress: true,
         }
     }
 }
@@ -631,6 +668,29 @@ pub fn error_response(id: Value, code: i64, message: impl Into<String>) -> Error
             code,
             message: message.into(),
         },
+    }
+}
+
+pub fn work_done_progress_create(
+    id: Value,
+    token: Value,
+) -> RequestMessage<WorkDoneProgressCreateParams> {
+    RequestMessage {
+        jsonrpc: JSONRPC_VERSION,
+        id,
+        method: "window/workDoneProgress/create",
+        params: WorkDoneProgressCreateParams { token },
+    }
+}
+
+pub fn progress(
+    token: Value,
+    value: WorkDoneProgressValue,
+) -> NotificationMessage<ProgressParams<WorkDoneProgressValue>> {
+    NotificationMessage {
+        jsonrpc: JSONRPC_VERSION,
+        method: "$/progress",
+        params: ProgressParams { token, value },
     }
 }
 

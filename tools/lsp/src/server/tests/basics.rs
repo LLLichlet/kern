@@ -52,6 +52,33 @@ fn initialize_result_advertises_precise_capabilities() {
 }
 
 #[test]
+fn initialize_negotiates_work_done_progress() {
+    let mut state = ServerState::new();
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(14)),
+            method: Some("initialize".to_string()),
+            params: Some(json!({
+                "capabilities": {
+                    "window": {
+                        "workDoneProgress": true
+                    }
+                }
+            })),
+        },
+    )
+    .unwrap();
+
+    assert!(state.work_done_progress);
+}
+
+#[test]
 fn rejects_requests_before_initialize() {
     let mut state = ServerState::new();
     let mut output = Vec::new();
@@ -336,6 +363,41 @@ fn run_loop_reports_parse_errors_and_keeps_processing_messages() {
     assert_eq!(messages[0]["id"], json!(null));
     assert_eq!(messages[1]["id"], json!(1));
     assert_eq!(messages[1]["result"], json!(null));
+}
+
+#[test]
+fn run_loop_ignores_server_request_responses() {
+    let workspace_refresh = "{\"jsonrpc\":\"2.0\",\"method\":\"workspace/didChangeWatchedFiles\",\"params\":{\"changes\":[]}}";
+    let response = "{\"jsonrpc\":\"2.0\",\"id\":\"kern-lsp/1\",\"result\":null}";
+    let shutdown = "{\"jsonrpc\":\"2.0\",\"id\":72,\"method\":\"shutdown\",\"params\":{}}";
+    let payload = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        workspace_refresh.len(),
+        workspace_refresh,
+        response.len(),
+        response,
+        shutdown.len(),
+        shutdown
+    );
+    let reader = MessageReader::new(Cursor::new(payload.into_bytes()));
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+    let mut state = initialized_state();
+    state.work_done_progress = true;
+
+    run_message_loop(&mut state, reader, &mut writer).unwrap();
+
+    let messages = read_all_messages(&output);
+    assert!(messages.iter().any(|message| {
+        message["method"] == "window/workDoneProgress/create"
+            && message["id"] == json!("kern-lsp/1")
+    }));
+    assert!(messages.iter().any(|message| message["id"] == json!(72)));
+    assert!(
+        messages
+            .iter()
+            .all(|message| { message["error"]["message"] != "message did not contain a method" })
+    );
 }
 
 #[test]

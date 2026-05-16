@@ -72,12 +72,14 @@ pub(super) fn negotiate_capabilities(capabilities: &ClientCapabilities) -> Initi
         .unwrap_or(false);
     let inlay_hint = capabilities.text_document.inlay_hint.is_some();
     let semantic_tokens = capabilities.text_document.semantic_tokens.is_some();
+    let work_done_progress = capabilities.window.work_done_progress;
 
     InitializeResultOptions {
         code_action_literals,
         inlay_hint,
         rename_prepare_support,
         semantic_tokens,
+        work_done_progress,
     }
 }
 

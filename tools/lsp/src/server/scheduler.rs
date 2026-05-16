@@ -8,7 +8,10 @@ use super::{
 use crate::analysis::{
     AnalysisOutcome, AnalysisSnapshot, CancellationToken, DocumentSyncAction, cleared_uris,
 };
-use crate::protocol::{error_response, null_response, publish_diagnostics, success_response};
+use crate::protocol::{
+    WorkDoneProgressValue, error_response, null_response, progress, publish_diagnostics,
+    success_response, work_done_progress_create,
+};
 use crate::transport::MessageWriter;
 use serde_json::Value;
 use std::io;
@@ -67,7 +70,7 @@ pub(super) fn flush_diagnostics_lane(
     flush_diagnostics_results(state, writer, false)?;
 
     if let Some(reason) = state.pending_workspace_refresh_reason.take() {
-        submit_workspace_refresh_task(state, reason);
+        submit_workspace_refresh_task(state, writer, reason)?;
     }
     if state.pending_workspace_refresh_reason.is_none() {
         let target_task_budget = state.diagnostics_flush_policy.target_task_budget.max(1);
@@ -104,9 +107,14 @@ pub(super) fn flush_diagnostics_lane(
     Ok(())
 }
 
-fn submit_workspace_refresh_task(state: &mut ServerState, reason: String) {
+fn submit_workspace_refresh_task(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    reason: String,
+) -> Result<(), ServerError> {
     let mut analysis = state.analysis.clone();
     let queued_at = Instant::now();
+    let progress_token = emit_workspace_refresh_progress_begin(state, writer, &reason)?;
     state.queue_workspace_refresh_worker_task();
     let task = LspWorkerTask::WorkspaceRefresh(Box::new(move || {
         let started_at = Instant::now();
@@ -114,6 +122,7 @@ fn submit_workspace_refresh_task(state: &mut ServerState, reason: String) {
             .map_err(|payload| panic_message(payload.as_ref()));
         WorkspaceRefreshTaskResult {
             reason,
+            progress_token,
             queue_wait_ms: started_at.duration_since(queued_at).as_millis(),
             elapsed_ms: started_at.elapsed().as_millis(),
             targets,
@@ -122,6 +131,7 @@ fn submit_workspace_refresh_task(state: &mut ServerState, reason: String) {
     if state.worker_task_tx.send(task).is_err() {
         state.complete_workspace_refresh_worker_task();
     }
+    Ok(())
 }
 
 fn submit_diagnostics_task(
@@ -210,6 +220,7 @@ fn submit_workspace_refresh_result(
             emit_workspace_refresh_queued_trace(
                 state,
                 writer,
+                result.progress_token,
                 &result.reason,
                 target_count,
                 result.queue_wait_ms,
@@ -233,6 +244,7 @@ fn submit_workspace_refresh_result(
             emit_workspace_refresh_queued_trace(
                 state,
                 writer,
+                result.progress_token,
                 &result.reason,
                 target_count,
                 result.queue_wait_ms,
@@ -664,11 +676,13 @@ fn emit_diagnostics_analysis_trace(
 fn emit_workspace_refresh_queued_trace(
     state: &ServerState,
     writer: &mut MessageWriter<impl io::Write>,
+    progress_token: Option<Value>,
     reason: &str,
     target_count: usize,
     queue_wait_ms: u128,
     elapsed_ms: u128,
 ) -> Result<(), ServerError> {
+    emit_workspace_refresh_progress_end(state, writer, progress_token, target_count, elapsed_ms)?;
     emit_trace(
         state,
         writer,
@@ -687,6 +701,51 @@ fn emit_workspace_refresh_queued_trace(
         )),
         true,
     )
+}
+
+fn emit_workspace_refresh_progress_begin(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    reason: &str,
+) -> Result<Option<Value>, ServerError> {
+    if !state.work_done_progress {
+        return Ok(None);
+    }
+
+    let token = state.next_progress_token("workspace-refresh");
+    let request_id = state.next_server_request_id();
+    writer.write_json(&work_done_progress_create(request_id, token.clone()))?;
+    writer.write_json(&progress(
+        token.clone(),
+        WorkDoneProgressValue::Begin {
+            title: "Kern workspace refresh".to_string(),
+            message: reason.to_string(),
+        },
+    ))?;
+    Ok(Some(token))
+}
+
+fn emit_workspace_refresh_progress_end(
+    state: &ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    progress_token: Option<Value>,
+    target_count: usize,
+    elapsed_ms: u128,
+) -> Result<(), ServerError> {
+    let Some(token) = progress_token else {
+        return Ok(());
+    };
+    if !state.work_done_progress {
+        return Ok(());
+    }
+
+    writer.write_json(&progress(
+        token,
+        WorkDoneProgressValue::End {
+            message: format!("refreshed {target_count} workspace targets in {elapsed_ms}ms"),
+        },
+    ))?;
+    Ok(())
 }
 
 pub(super) fn write_success_response(

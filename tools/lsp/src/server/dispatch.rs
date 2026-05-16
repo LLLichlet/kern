@@ -64,6 +64,9 @@ fn handle_message_with_document_request_policy(
     wait_for_document_requests: bool,
 ) -> Result<bool, ServerError> {
     let Some(method) = message.method.as_deref() else {
+        if state.is_pending_server_request(message.id.as_ref()) {
+            return Ok(false);
+        }
         if let Some(id) = message.id {
             writer.write_json(&error_response(
                 id,
@@ -116,6 +119,7 @@ fn handle_message_with_document_request_policy(
             ensure_utf16_position_encoding(&params.capabilities, request.id.clone(), writer)?;
             let capabilities = negotiate_capabilities(&params.capabilities);
             state.trace = TraceValue::from_raw(params.trace.as_deref());
+            state.work_done_progress = capabilities.work_done_progress;
             state.initialized = true;
             write_success_response(state, writer, &request, initialize_result(capabilities))?;
             emit_initialize_followups(state, writer, &params, capabilities)?;

@@ -28,10 +28,14 @@ pub(super) struct ServerState {
     pub(super) initialized: bool,
     pub(super) shutdown_requested: bool,
     pub(super) trace: TraceValue,
+    pub(super) work_done_progress: bool,
     pub(super) diagnostics_flush_policy: DiagnosticsFlushPolicy,
     pub(super) request_budget_policy: RequestBudgetPolicy,
     pub(super) analysis: AnalysisEngine,
     pub(super) next_analysis_generation: u64,
+    next_server_request_id: u64,
+    next_progress_token: u64,
+    pending_server_request_ids: Vec<Value>,
     pub(super) latest_generation_by_target: BTreeMap<String, AnalysisGeneration>,
     pub(super) canceled_request_ids: Vec<Value>,
     active_request_cancellations: Vec<ActiveRequestCancellation>,
@@ -132,6 +136,7 @@ pub(super) struct DiagnosticsTaskResult {
 
 pub(super) struct WorkspaceRefreshTaskResult {
     pub(super) reason: String,
+    pub(super) progress_token: Option<Value>,
     pub(super) queue_wait_ms: u128,
     pub(super) elapsed_ms: u128,
     pub(super) targets: Result<Vec<(String, DiagnosticsAnalysisMode)>, String>,
@@ -309,10 +314,14 @@ impl ServerState {
             initialized: false,
             shutdown_requested: false,
             trace: TraceValue::Off,
+            work_done_progress: false,
             diagnostics_flush_policy: DiagnosticsFlushPolicy::new(),
             request_budget_policy: RequestBudgetPolicy::new(),
             analysis,
             next_analysis_generation: 0,
+            next_server_request_id: 0,
+            next_progress_token: 0,
+            pending_server_request_ids: Vec::new(),
             latest_generation_by_target: BTreeMap::new(),
             canceled_request_ids: Vec::new(),
             active_request_cancellations: Vec::new(),
@@ -366,6 +375,33 @@ impl ServerState {
             generation: self.latest_generation_by_target.get(target_uri).copied(),
             cancellation: None,
         }
+    }
+
+    pub(super) fn next_server_request_id(&mut self) -> Value {
+        self.next_server_request_id += 1;
+        let id = Value::String(format!("kern-lsp/{}", self.next_server_request_id));
+        self.pending_server_request_ids.push(id.clone());
+        id
+    }
+
+    pub(super) fn next_progress_token(&mut self, label: &str) -> Value {
+        self.next_progress_token += 1;
+        Value::String(format!("kern-lsp/{label}/{}", self.next_progress_token))
+    }
+
+    pub(super) fn is_pending_server_request(&mut self, id: Option<&Value>) -> bool {
+        let Some(id) = id else {
+            return false;
+        };
+        if let Some(index) = self
+            .pending_server_request_ids
+            .iter()
+            .position(|pending| pending == id)
+        {
+            self.pending_server_request_ids.swap_remove(index);
+            return true;
+        }
+        false
     }
 
     pub(super) fn cancel_request(&mut self, id: Value) {

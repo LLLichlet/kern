@@ -9,9 +9,9 @@ mod metadata;
 
 pub use compiler::CompilerDriver;
 pub use compiler::{
-    AnalysisArtifact, AnalysisCall, AnalysisCompletionItem, AnalysisCompletionKind,
-    AnalysisDeadStore, AnalysisDeadStoreKind, AnalysisDefinitionLink, AnalysisDocumentLink,
-    AnalysisFlowBinding, AnalysisFlowBindingId, AnalysisFlowBindingKind,
+    AnalysisArtifact, AnalysisCall, AnalysisCallKind, AnalysisCompletionItem,
+    AnalysisCompletionKind, AnalysisDeadStore, AnalysisDeadStoreKind, AnalysisDefinitionLink,
+    AnalysisDocumentLink, AnalysisFlowBinding, AnalysisFlowBindingId, AnalysisFlowBindingKind,
     AnalysisFlowBindingSummary, AnalysisFlowCfg, AnalysisFlowCfgEdge, AnalysisFlowCfgEdgeKind,
     AnalysisFlowCfgNode, AnalysisFlowCfgNodeKind, AnalysisFlowDefUse, AnalysisFlowDefinitionFacts,
     AnalysisFlowDefinitionKind, AnalysisFlowDefinitionRef, AnalysisFlowLiveness,

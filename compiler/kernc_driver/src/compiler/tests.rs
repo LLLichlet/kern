@@ -1,5 +1,5 @@
 use super::{
-    AnalysisDeadStoreKind, AnalysisFlowBindingKind, AnalysisFlowCfgEdgeKind,
+    AnalysisCallKind, AnalysisDeadStoreKind, AnalysisFlowBindingKind, AnalysisFlowCfgEdgeKind,
     AnalysisFlowCfgNodeKind, AnalysisFlowDefinitionKind, AnalysisFlowDefinitionRef,
     AnalysisFlowOwnerKind, AnalysisFlowRegionKind, AnalysisFlowResolvedUseKind,
     AnalysisUnusedBindingKind, AnalysisUnusedItemKind, CancellationToken, CompilerDriver,
@@ -12,6 +12,7 @@ use std::fs;
 use std::process::Command;
 
 mod cache;
+mod calls;
 mod completion;
 mod diagnostics;
 mod flow;

@@ -1255,6 +1255,7 @@ fn collect_calls_in_expr(
                 && let Some(caller_definition_span) = function_definition_spans.get(&caller_def_id)
             {
                 calls.push(AnalysisCall {
+                    kind: AnalysisCallKind::Direct,
                     call_span: expr.span,
                     callee_span: callee.span,
                     callee_definition_span: *callee_definition_span,

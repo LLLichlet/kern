@@ -176,10 +176,16 @@ pub struct AnalysisDocumentLink {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnalysisCall {
+    pub kind: AnalysisCallKind,
     pub call_span: kernc_utils::Span,
     pub callee_span: kernc_utils::Span,
     pub callee_definition_span: kernc_utils::Span,
     pub caller_definition_span: kernc_utils::Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalysisCallKind {
+    Direct,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -8,10 +8,10 @@ use super::ide::{
 use super::{RenameBehavior, RenameTarget};
 use crate::protocol::{Position, Range};
 use kernc_driver::{
-    AnalysisCall, AnalysisCompletionItem, AnalysisCompletionKind, AnalysisDefinitionLink,
-    AnalysisHover, AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole,
-    AnalysisSignatureHelp, AnalysisSymbol, AnalysisSymbolKind, AnalysisTypeHint,
-    AnalysisTypeHintKind,
+    AnalysisCall, AnalysisCallKind, AnalysisCompletionItem, AnalysisCompletionKind,
+    AnalysisDefinitionLink, AnalysisHover, AnalysisSemanticEntry, AnalysisSemanticKind,
+    AnalysisSemanticRole, AnalysisSignatureHelp, AnalysisSymbol, AnalysisSymbolKind,
+    AnalysisTypeHint, AnalysisTypeHintKind,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -261,10 +261,10 @@ pub(super) fn find_call_hierarchy_incoming_calls(
     };
 
     let mut grouped = BTreeMap::<kernc_utils::Span, (IdeCallHierarchyItem, Vec<Range>)>::new();
-    for call in calls
-        .iter()
-        .filter(|call| call.callee_definition_span == target_entry.definition_span)
-    {
+    for call in calls.iter().filter(|call| {
+        call.kind == AnalysisCallKind::Direct
+            && call.callee_definition_span == target_entry.definition_span
+    }) {
         let Some(from) = call_hierarchy_item_for_definition(
             session,
             semantic_entries,
@@ -307,10 +307,10 @@ pub(super) fn find_call_hierarchy_outgoing_calls(
     };
 
     let mut grouped = BTreeMap::<kernc_utils::Span, (IdeCallHierarchyItem, Vec<Range>)>::new();
-    for call in calls
-        .iter()
-        .filter(|call| call.caller_definition_span == target_entry.definition_span)
-    {
+    for call in calls.iter().filter(|call| {
+        call.kind == AnalysisCallKind::Direct
+            && call.caller_definition_span == target_entry.definition_span
+    }) {
         let Some(to) = call_hierarchy_item_for_definition(
             session,
             semantic_entries,

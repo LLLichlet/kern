@@ -15,7 +15,7 @@ use super::completion::CompletionModel;
 use super::flow::FlowModel;
 use super::signature::SignatureModel;
 use super::{
-    AnalysisArtifact, AnalysisCall, AnalysisDefinitionLink, AnalysisHover,
+    AnalysisArtifact, AnalysisCall, AnalysisCallKind, AnalysisDefinitionLink, AnalysisHover,
     AnalysisNavigationArtifact, AnalysisOutline, AnalysisReference, AnalysisReport,
     AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSpanReplacement,
     AnalysisSurfaceArtifact, AnalysisSymbol, AnalysisSymbolKind, AnalysisUnusedBinding,

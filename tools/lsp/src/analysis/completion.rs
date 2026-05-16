@@ -49,6 +49,8 @@ pub(super) fn keyword_completion_item(label: &str) -> IdeCompletionItem {
         kind: IdeCompletionKind::Keyword,
         detail: Some("keyword".to_string()),
         insert_text,
+        documentation: None,
+        resolve_data: None,
     }
 }
 

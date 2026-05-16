@@ -760,6 +760,8 @@ pub(super) fn analysis_completion_to_ide_item(item: AnalysisCompletionItem) -> I
         kind: ide_completion_kind(item.kind),
         detail: item.detail,
         insert_text: item.insert_text,
+        documentation: item.documentation,
+        resolve_data: None,
     }
 }
 

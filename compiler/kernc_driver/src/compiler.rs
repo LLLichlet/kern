@@ -260,6 +260,7 @@ pub struct AnalysisCompletionItem {
     pub kind: AnalysisCompletionKind,
     pub detail: Option<String>,
     pub insert_text: Option<String>,
+    pub documentation: Option<String>,
 }
 
 #[derive(Debug, Clone)]

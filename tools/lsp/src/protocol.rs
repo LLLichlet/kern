@@ -231,6 +231,15 @@ pub struct TextDocumentIdentifier {
     pub uri: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionResolveData {
+    pub uri: String,
+    pub version: i64,
+    pub position: Position,
+    pub label: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentSymbolParams {
@@ -436,9 +445,9 @@ pub struct ParameterInformation {
     pub label: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MarkupContent {
-    pub kind: &'static str,
+    pub kind: String,
     pub value: String,
 }
 
@@ -503,6 +512,10 @@ pub struct CompletionItem {
     pub insert_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub insert_text_format: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub documentation: Option<MarkupContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -836,7 +849,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
     capabilities.insert(
         "completionProvider".to_string(),
         json!({
-            "resolveProvider": false,
+            "resolveProvider": true,
             "triggerCharacters": ["."]
         }),
     );
@@ -863,7 +876,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
         if options.code_action_literals {
             json!({
                 "codeActionKinds": ["quickfix"],
-                "resolveProvider": true
+                "resolveProvider": false
             })
         } else {
             Value::Bool(false)

@@ -27,7 +27,7 @@ fn initialize_result_advertises_precise_capabilities() {
     assert_eq!(result["positionEncoding"], "utf-16");
     assert_eq!(
         result["capabilities"]["completionProvider"]["resolveProvider"],
-        false
+        true
     );
     assert_eq!(
         result["capabilities"]["completionProvider"]["triggerCharacters"],
@@ -71,7 +71,7 @@ fn initialize_result_advertises_precise_capabilities() {
     );
     assert_eq!(
         result["capabilities"]["codeActionProvider"]["resolveProvider"],
-        true
+        false
     );
     assert_eq!(
         result["capabilities"]["semanticTokensProvider"]["range"],
@@ -262,19 +262,12 @@ fn advertised_request_coverages(capabilities: &Value) -> Vec<CapabilityRequestCo
     if capabilities.get("completionProvider").is_some() {
         coverages.push(CapabilityRequestCoverage {
             capability: "completionProvider",
-            methods: &["textDocument/completion"],
-            test_markers: &["completion_request_returns_visible_items"],
+            methods: &["textDocument/completion", "completionItem/resolve"],
+            test_markers: &[
+                "completion_request_returns_visible_items",
+                "completion_item_resolve_adds_documentation_from_resolve_data",
+            ],
         });
-        assert_eq!(
-            capabilities["completionProvider"]["resolveProvider"], false,
-            "completionItem/resolve must stay unadvertised unless the server implements nontrivial resolve semantics"
-        );
-        assert!(
-            !coverages
-                .iter()
-                .any(|coverage| coverage.methods.contains(&"completionItem/resolve")),
-            "unadvertised completionItem/resolve must not be counted as supported coverage"
-        );
     }
     if capabilities.get("semanticTokensProvider").is_some() {
         coverages.push(CapabilityRequestCoverage {
@@ -292,11 +285,8 @@ fn advertised_request_coverages(capabilities: &Value) -> Vec<CapabilityRequestCo
     if capabilities.get("codeActionProvider").is_some() {
         coverages.push(CapabilityRequestCoverage {
             capability: "codeActionProvider",
-            methods: &["textDocument/codeAction", "codeAction/resolve"],
-            test_markers: &[
-                "code_action_request_returns_quick_fix_edits",
-                "code_action_resolve_returns_eager_action_without_analysis",
-            ],
+            methods: &["textDocument/codeAction"],
+            test_markers: &["code_action_request_returns_quick_fix_edits"],
         });
     }
     if capabilities.get("renameProvider").is_some() {

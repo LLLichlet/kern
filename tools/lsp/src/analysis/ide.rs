@@ -1,8 +1,8 @@
 use crate::protocol::{
     CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, CodeAction, CodeLens,
-    Command, CompletionItem, Diagnostic, DiagnosticRelatedInformation, DiagnosticTag,
-    DocumentHighlight, DocumentLink, DocumentSymbol, FoldingRange, InlayHint, Location,
-    ParameterInformation, PrepareRenameResult, Range, SelectionRange, SemanticTokens,
+    Command, CompletionItem, CompletionResolveData, Diagnostic, DiagnosticRelatedInformation,
+    DiagnosticTag, DocumentHighlight, DocumentLink, DocumentSymbol, FoldingRange, InlayHint,
+    Location, ParameterInformation, PrepareRenameResult, Range, SelectionRange, SemanticTokens,
     SignatureHelp, SignatureInformation, TextEdit, WorkspaceEdit, WorkspaceSymbol,
 };
 use std::collections::BTreeMap;
@@ -180,6 +180,8 @@ pub(crate) struct IdeCompletionItem {
     pub kind: IdeCompletionKind,
     pub detail: Option<String>,
     pub insert_text: Option<String>,
+    pub documentation: Option<String>,
+    pub resolve_data: Option<CompletionResolveData>,
 }
 
 #[derive(Debug, Clone)]
@@ -507,6 +509,10 @@ impl IdeCompletionItem {
             detail: self.detail,
             insert_text: self.insert_text,
             insert_text_format,
+            documentation: None,
+            data: self
+                .resolve_data
+                .map(|data| serde_json::to_value(data).expect("completion resolve data encodes")),
         }
     }
 }
@@ -534,7 +540,7 @@ impl IdeHover {
     pub(crate) fn into_lsp(self) -> crate::protocol::Hover {
         crate::protocol::Hover {
             contents: crate::protocol::MarkupContent {
-                kind: "markdown",
+                kind: "markdown".to_string(),
                 value: self.contents,
             },
             range: self.range,

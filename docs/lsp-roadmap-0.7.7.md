@@ -274,10 +274,10 @@ Completed foundation work:
   reuse the same semantic/lexical token production path as full-document
   requests, then filter the encoded token stream to the requested range; delta
   support remains intentionally unadvertised.
-- Completion stays fully eager for 0.7.7: completion items already include the
-  available detail and insert text/snippet data, so the server no longer
-  advertises `completionItem/resolve`. The resolve handler remains tolerant of
-  clients that send the request anyway and returns the item unchanged.
+- Completion responses include insert text/snippet data eagerly and advertise
+  `completionItem/resolve` for real documentation hydration. Initial completion
+  items carry opaque resolve data; `completionItem/resolve` expands that data into
+  markdown documentation instead of echoing the item unchanged.
 
 Release hardening follow-up, not a Phase 4 blocker:
 
@@ -462,11 +462,8 @@ implemented by adding more direct compiler calls inside request dispatch.
 - workspace symbols
 - folding ranges
 - selection ranges
-- semantic token range support is done; delta support is intentionally not
-  advertised
-- completion is documented as fully eager; `completionItem/resolve` is not
-  advertised
-- code action resolve for heavier quick fixes
+- semantic token range support is done
+- completion item resolve for documentation
 - server-level tests for every advertised capability
 - deterministic stress tests
 
@@ -494,6 +491,23 @@ implemented by adding more direct compiler calls inside request dispatch.
 - AI/editor-assistant integrations
 - multi-root workspace polish beyond correct behavior
 - deep refactoring tools beyond rename and local quick fixes
+
+### Explicit Post-0.7.7 Capability Tasks
+
+These are known capability gaps, not completed work:
+
+- Semantic token delta support. Full and range semantic tokens are implemented;
+  delta requires result-id lifecycle, edit-aware token cache invalidation, and
+  server tests before it can be advertised.
+- Multi-root workspace support beyond the current explicit single-root policy.
+  The server currently records one primary root and reports ignored folders;
+  true multi-root support requires per-root project/index state.
+- Code lens and document link resolve providers. Existing code lenses and
+  document links are eager; advertise resolve only after there is a real lazy
+  payload to compute.
+- Code action resolve for heavier quick fixes. Current quick fixes are eager;
+  advertise resolve only after code actions carry opaque data and resolve can
+  compute a real deferred edit or command.
 
 ## Work Breakdown
 
@@ -636,16 +650,16 @@ Tasks:
 - Type definition, declaration, implementation.
 - Call hierarchy.
 - Semantic token range is done; delta is intentionally unadvertised.
-- Completion is intentionally eager; `completionItem/resolve` is not advertised
-  and unsupported requests are rejected instead of echoing stale item data.
-- Code action resolve.
+- Completion insert text is eager; `completionItem/resolve` adds markdown
+  documentation.
+- Code action quick fixes are eager; `codeAction/resolve` is intentionally
+  unadvertised until heavier deferred fixes exist.
 
 Exit criteria:
 
 - Each advertised capability has direct server tests and VS Code smoke coverage.
-- Unsupported capabilities are not advertised.
-  Server tests now also guard advertised capability coverage and ensure
-  unadvertised completion resolve is not counted as supported.
+- Unsupported capabilities are not advertised, and any intentional non-support
+  must be listed as a post-0.7.7 task rather than treated as completed work.
 
 ### Phase 7: Stress, Fuzz, and Release Hardening
 

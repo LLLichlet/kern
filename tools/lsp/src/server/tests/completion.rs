@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn completion_request_returns_visible_items() {
     let mut state = initialized_state();
-    let source = "fn helper() i32 { return 1; }\nfn main() i32 {\n    hel\n}\n";
+    let source = "/// Helper docs.\nfn helper() i32 { return 1; }\nfn main() i32 {\n    hel\n}\n";
     let uri = temp_file_uri("server_completion", source);
 
     let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
@@ -15,7 +15,7 @@ fn completion_request_returns_visible_items() {
             method: Some("textDocument/completion".to_string()),
             params: Some(json!({
                 "textDocument": { "uri": uri },
-                "position": { "line": 2, "character": 7 }
+                "position": { "line": 3, "character": 7 }
             })),
         },
     );
@@ -29,6 +29,15 @@ fn completion_request_returns_visible_items() {
         .unwrap();
     assert_eq!(helper["insertText"], json!("helper()$0"));
     assert_eq!(helper["insertTextFormat"], json!(2));
+    assert!(helper.get("documentation").is_none());
+    assert_eq!(helper["data"]["uri"], json!(uri));
+    assert_eq!(helper["data"]["version"], json!(1));
+    assert_eq!(
+        helper["data"]["position"],
+        json!({ "line": 3, "character": 7 })
+    );
+    assert_eq!(helper["data"]["label"], json!("helper"));
+    assert!(helper["data"].get("documentation").is_none());
 }
 
 #[test]

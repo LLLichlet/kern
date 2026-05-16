@@ -113,7 +113,7 @@ fn code_action_request_skips_analysis_for_non_quickfix_filters() {
 }
 
 #[test]
-fn code_action_resolve_returns_eager_action_without_analysis() {
+fn code_action_resolve_is_not_implemented_when_unadvertised() {
     let mut state = initialized_state();
     assert_eq!(state.analysis.last_analysis_tier(), None);
 
@@ -145,13 +145,12 @@ fn code_action_resolve_returns_eager_action_without_analysis() {
     );
 
     assert_eq!(response["id"], json!(230));
-    assert_eq!(response["result"]["title"], "Insert `;`");
-    assert_eq!(response["result"]["kind"], "quickfix");
-    assert_eq!(
-        response["result"]["edit"]["changes"]["file:///tmp/main.kn"][0]["newText"],
-        ";"
+    assert_eq!(response["error"]["code"], json!(METHOD_NOT_FOUND));
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("codeAction/resolve"))
     );
-    assert_eq!(response["result"]["isPreferred"], true);
     assert_eq!(state.analysis.last_analysis_tier(), None);
 }
 
@@ -1523,9 +1522,33 @@ fn prepare_rename_request_returns_placeholder_and_range() {
 }
 
 #[test]
-fn completion_item_resolve_is_not_implemented_when_unadvertised() {
+fn completion_item_resolve_adds_documentation_from_resolve_data() {
     let mut state = initialized_state();
-    assert_eq!(state.analysis.last_analysis_tier(), None);
+    let source = "/// Helper docs.\nfn helper() i32 { return 1; }\nfn main() i32 {\n    hel\n}\n";
+    let uri = temp_file_uri("server_completion_resolve", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let completion_response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(27)),
+            method: Some("textDocument/completion".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 3, "character": 7 }
+            })),
+        },
+    );
+    let completion_item = completion_response["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == json!("helper"))
+        .unwrap()
+        .clone();
+    assert!(completion_item.get("documentation").is_none());
+    assert!(completion_item["data"].get("documentation").is_none());
 
     let response = dispatch_single_response(
         &mut state,
@@ -1533,24 +1556,19 @@ fn completion_item_resolve_is_not_implemented_when_unadvertised() {
             jsonrpc: JSONRPC_VERSION.to_string(),
             id: Some(json!(28)),
             method: Some("completionItem/resolve".to_string()),
-            params: Some(json!({
-                "label": "helper",
-                "kind": 3,
-                "detail": "fn helper() void",
-                "insertText": "helper()",
-                "insertTextFormat": 1
-            })),
+            params: Some(completion_item),
         },
     );
 
     assert_eq!(response["id"], json!(28));
-    assert_eq!(response["error"]["code"], json!(METHOD_NOT_FOUND));
-    assert!(
-        response["error"]["message"]
-            .as_str()
-            .is_some_and(|message| message.contains("completionItem/resolve"))
-    );
-    assert_eq!(state.analysis.last_analysis_tier(), None);
+    assert_eq!(response["result"]["label"], "helper");
+    assert_eq!(response["result"]["documentation"]["kind"], "markdown");
+    let documentation = response["result"]["documentation"]["value"]
+        .as_str()
+        .unwrap();
+    assert!(documentation.contains("```kern"), "{documentation}");
+    assert!(documentation.contains("Helper docs."), "{documentation}");
+    assert!(response["result"].get("data").is_none());
 }
 
 #[test]

@@ -922,6 +922,16 @@ impl AnalysisEngine {
             .into_iter()
             .map(analysis_completion_to_ide_item)
             .collect::<Vec<_>>();
+        for item in &mut completions {
+            if item.documentation.is_some() {
+                item.resolve_data = Some(CompletionResolveData {
+                    uri: uri.to_string(),
+                    version: target_doc.version,
+                    position: position.clone(),
+                    label: item.label.clone(),
+                });
+            }
+        }
         let mut seen_labels = completions
             .iter()
             .map(|item| item.label.clone())
@@ -933,6 +943,21 @@ impl AnalysisEngine {
         }
 
         Ok(completions)
+    }
+
+    pub fn resolve_completion_item_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        data: &CompletionResolveData,
+    ) -> Result<Option<IdeCompletionItem>, String> {
+        let Some(document) = snapshot.document(&data.uri) else {
+            return Ok(None);
+        };
+        if document.version != data.version {
+            return Ok(None);
+        }
+        let items = self.completion_in_snapshot(snapshot, &data.uri, data.position.clone())?;
+        Ok(items.into_iter().find(|item| item.label == data.label))
     }
 
     #[cfg(test)]

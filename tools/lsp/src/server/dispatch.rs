@@ -15,14 +15,15 @@ use super::{
 };
 use crate::protocol::{
     CallHierarchyIncomingCallsParams, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
-    CancelRequestParams, CodeAction, CodeActionParams, CodeLensParams, CompletionParams,
-    DefinitionParams, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentHighlightParams, DocumentLinkParams, DocumentSymbolParams,
-    FoldingRangeParams, FormattingParams, IncomingMessage, InitializeParams, InlayHintParams,
-    RangeFormattingParams, ReferenceParams, RenameParams, SelectionRangeParams,
-    SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams,
-    WorkspaceSymbolParams, error_response, initialize_result, log_message,
+    CancelRequestParams, CodeActionParams, CodeLensParams, CompletionItem, CompletionParams,
+    CompletionResolveData, DefinitionParams, DidChangeConfigurationParams,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentHighlightParams,
+    DocumentLinkParams, DocumentSymbolParams, FoldingRangeParams, FormattingParams,
+    IncomingMessage, InitializeParams, InlayHintParams, MarkupContent, RangeFormattingParams,
+    ReferenceParams, RenameParams, SelectionRangeParams, SemanticTokensParams,
+    SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams, WorkspaceSymbolParams,
+    error_response, initialize_result, log_message,
 };
 use crate::transport::MessageWriter;
 use serde_json::Value;
@@ -657,6 +658,48 @@ fn handle_message_with_document_request_policy(
                 },
             )?;
         }
+        "completionItem/resolve" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "completionItem/resolve must be sent as a request".to_string(),
+                )
+            })?;
+            let mut item = required_params::<CompletionItem>(message.params)?;
+            let resolve_data = item
+                .data
+                .clone()
+                .and_then(|data| serde_json::from_value::<CompletionResolveData>(data).ok());
+            if let Some(resolve_data) = resolve_data {
+                let target_uri = resolve_data.uri.clone();
+                execute_document_request(
+                    state,
+                    writer,
+                    id,
+                    &target_uri,
+                    SchedulerLane::Interactive,
+                    method,
+                    move |analysis, snapshot| {
+                        let mut resolved_item = item;
+                        if resolved_item.documentation.is_none()
+                            && let Some(resolved) = analysis
+                                .resolve_completion_item_in_snapshot(snapshot, &resolve_data)?
+                            && let Some(documentation) = resolved.documentation
+                        {
+                            resolved_item.documentation = Some(MarkupContent {
+                                kind: "markdown".to_string(),
+                                value: documentation,
+                            });
+                        }
+                        resolved_item.data = None;
+                        Ok(resolved_item)
+                    },
+                )?;
+            } else {
+                let request = state.request_context(id);
+                item.data = None;
+                write_success_response(state, writer, &request, serde_json::to_value(item)?)?;
+            }
+        }
         "textDocument/semanticTokens/full" => {
             let id = message.id.ok_or_else(|| {
                 ServerError::Protocol(
@@ -990,13 +1033,6 @@ fn handle_message_with_document_request_policy(
                     },
                 )?;
             }
-        }
-        "codeAction/resolve" => {
-            let request = state.request_context(message.id.ok_or_else(|| {
-                ServerError::Protocol("codeAction/resolve must be sent as a request".to_string())
-            })?);
-            let action = required_params::<CodeAction>(message.params)?;
-            write_success_response(state, writer, &request, serde_json::to_value(action)?)?;
         }
         _ => {
             if let Some(id) = message.id {

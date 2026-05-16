@@ -797,6 +797,7 @@ impl StructureArtifact {
             if module_path != target_path {
                 continue;
             }
+            let import_spans = import_binding_spans(module_ast);
 
             for decl in &module_ast.decls {
                 if !matches!(decl.kind, ast::DeclKind::Mod { decls: None }) {
@@ -822,11 +823,150 @@ impl StructureArtifact {
                     target_path: target_path.clone(),
                 });
             }
+            for (_name, info) in self.snapshot.scopes.symbols_in_scope(module_def.scope_id) {
+                if !import_spans.contains(&info.span) {
+                    continue;
+                }
+                let Some(def_id) = info.def_id else {
+                    continue;
+                };
+                let Some(target_module_id) = document_link_target_module(&self.snapshot, def_id)
+                else {
+                    continue;
+                };
+                if target_module_id == *module_id {
+                    continue;
+                }
+                let Some(kernc_sema::def::Def::Module(target_module)) =
+                    self.snapshot.defs.get(target_module_id.0 as usize)
+                else {
+                    continue;
+                };
+                let Some(target_path) = self
+                    .session
+                    .source_manager
+                    .get_file_path(target_module.file_id)
+                else {
+                    continue;
+                };
+                links.push(AnalysisDocumentLink {
+                    origin_span: info.span,
+                    target_path: target_path.clone(),
+                });
+            }
         }
         links.sort_by_key(|link| (link.origin_span.file.0, link.origin_span.start));
         links.dedup();
         links
     }
+}
+
+fn import_binding_spans(module: &ast::Module) -> std::collections::BTreeSet<kernc_utils::Span> {
+    let mut spans = std::collections::BTreeSet::new();
+    for decl in &module.decls {
+        let ast::DeclKind::Use { target, .. } = &decl.kind else {
+            continue;
+        };
+        collect_import_binding_spans(target, decl.name_span, &mut spans);
+    }
+    spans
+}
+
+fn collect_import_binding_spans(
+    target: &ast::UseTarget,
+    module_binding_span: kernc_utils::Span,
+    spans: &mut std::collections::BTreeSet<kernc_utils::Span>,
+) {
+    match target {
+        ast::UseTarget::Module(_) => {
+            spans.insert(module_binding_span);
+        }
+        ast::UseTarget::Tree(items) => {
+            for item in items {
+                collect_import_tree_binding_spans(item, spans);
+            }
+        }
+    }
+}
+
+fn collect_import_tree_binding_spans(
+    tree: &ast::UseTree,
+    spans: &mut std::collections::BTreeSet<kernc_utils::Span>,
+) {
+    match tree {
+        ast::UseTree::SelfModule { binding_span, .. } => {
+            spans.insert(*binding_span);
+        }
+        ast::UseTree::Path {
+            nested,
+            binding_span,
+            ..
+        } => {
+            spans.insert(*binding_span);
+            if let Some(nested) = nested {
+                for child in nested {
+                    collect_import_tree_binding_spans(child, spans);
+                }
+            }
+        }
+    }
+}
+
+fn document_link_target_module(snapshot: &SemaStructureSnapshot, def_id: DefId) -> Option<DefId> {
+    match snapshot.defs.get(def_id.0 as usize)? {
+        kernc_sema::def::Def::Module(_) => Some(def_id),
+        _ => document_link_def_parent_module(snapshot, def_id),
+    }
+}
+
+fn document_link_def_parent_module(
+    snapshot: &SemaStructureSnapshot,
+    def_id: DefId,
+) -> Option<DefId> {
+    let parent = match snapshot.defs.get(def_id.0 as usize)? {
+        kernc_sema::def::Def::Module(module) => module.parent,
+        kernc_sema::def::Def::Function(function) => match function.parent {
+            Some(parent_id) => match snapshot.defs.get(parent_id.0 as usize) {
+                Some(kernc_sema::def::Def::Module(_)) => Some(parent_id),
+                Some(kernc_sema::def::Def::Impl(impl_def)) => impl_def.parent_module,
+                _ => None,
+            },
+            None => None,
+        },
+        kernc_sema::def::Def::Struct(def) => def.parent_module,
+        kernc_sema::def::Def::Union(def) => def.parent_module,
+        kernc_sema::def::Def::Impl(def) => def.parent_module,
+        kernc_sema::def::Def::Global(global) => match global.parent {
+            Some(parent_id) => match snapshot.defs.get(parent_id.0 as usize) {
+                Some(kernc_sema::def::Def::Module(_)) => Some(parent_id),
+                Some(kernc_sema::def::Def::Impl(impl_def)) => impl_def.parent_module,
+                _ => None,
+            },
+            None => None,
+        },
+        kernc_sema::def::Def::AssociatedType(def) => {
+            if let Some(parent_impl) = def.parent_impl {
+                match snapshot.defs.get(parent_impl.0 as usize) {
+                    Some(kernc_sema::def::Def::Impl(impl_def)) => impl_def.parent_module,
+                    _ => None,
+                }
+            } else {
+                def.parent_trait
+                    .and_then(|trait_id| document_link_def_parent_module(snapshot, trait_id))
+            }
+        }
+        kernc_sema::def::Def::Enum(_)
+        | kernc_sema::def::Def::Trait(_)
+        | kernc_sema::def::Def::TypeAlias(_) => None,
+    };
+    parent.or_else(|| {
+        snapshot.defs.iter().find_map(|def| match def {
+            kernc_sema::def::Def::Module(module) if module.items.contains(&def_id) => {
+                Some(module.id)
+            }
+            _ => None,
+        })
+    })
 }
 
 impl ImportedStructureArtifact {

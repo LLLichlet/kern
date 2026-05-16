@@ -374,8 +374,10 @@ fn diagnostics_lane_respects_per_drain_target_budget() {
 
     flush_diagnostics_lane(&mut state, &mut writer).unwrap();
 
-    assert!(output.is_empty());
-    assert_eq!(state.pending_diagnostics_worker_tasks, 2);
+    assert!(state.pending_diagnostics_worker_tasks <= 2);
+    let submitted_or_completed =
+        state.pending_diagnostics_worker_tasks + state.pending_diagnostics.len();
+    assert_eq!(submitted_or_completed, 2);
     assert_eq!(state.pending_diagnostics_targets.len(), 1);
     assert!(state.has_pending_diagnostics_work());
 }

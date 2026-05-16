@@ -167,3 +167,107 @@ fn document_links_return_external_module_links() {
         links[0].target
     );
 }
+
+#[test]
+fn document_links_return_resolved_import_targets() {
+    let root = unique_temp_dir("document_links_import_targets");
+    let dep_dir = root.join("dep/src");
+    let app_dir = root.join("app/src");
+    fs::create_dir_all(&dep_dir).unwrap();
+    fs::create_dir_all(&app_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        "[workspace]\nname = \"workspace\"\nmembers = [\"dep\", \"app\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("dep/Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"dep\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(dep_dir.join("lib.kn"), "pub mod child;\n").unwrap();
+    fs::write(
+        dep_dir.join("child.kn"),
+        "pub fn helper() i32 { return 1; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("app/Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+
+[dependencies]
+dep = {{ path = \"../dep\" }}
+"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("lib.kn"),
+        "use dep.child;\nuse dep.{child as imported_child};\nfn main() i32 { return imported_child.helper(); }\n",
+    )
+    .unwrap();
+
+    let source = fs::read_to_string(app_dir.join("lib.kn")).unwrap();
+    let uri = file_path_to_uri(&app_dir.join("lib.kn")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+
+    let links = analysis.document_links(&uri).unwrap();
+
+    assert_eq!(links.len(), 2, "{links:#?}");
+    assert!(
+        links.iter().all(|link| link.target.ends_with("/child.kn")),
+        "{links:#?}"
+    );
+    assert_eq!(
+        links[0].range,
+        Range {
+            start: Position {
+                line: 0,
+                character: 8,
+            },
+            end: Position {
+                line: 0,
+                character: 13,
+            },
+        }
+    );
+    assert_eq!(
+        links[1].range,
+        Range {
+            start: Position {
+                line: 1,
+                character: 18,
+            },
+            end: Position {
+                line: 1,
+                character: 32,
+            },
+        }
+    );
+}

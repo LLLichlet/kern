@@ -1346,6 +1346,96 @@ fn document_link_request_returns_external_module_targets() {
 }
 
 #[test]
+fn document_link_request_returns_import_targets() {
+    let root = unique_temp_dir("server_document_link_import");
+    let dep_dir = root.join("dep/src");
+    let app_dir = root.join("app/src");
+    fs::create_dir_all(&dep_dir).unwrap();
+    fs::create_dir_all(&app_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        "[workspace]\nname = \"workspace\"\nmembers = [\"dep\", \"app\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("dep/Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"dep\"
+version = \"0.1.0\"
+kern = \"{}\"\n
+[lib]
+root = \"src/lib.kn\"
+",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    fs::write(dep_dir.join("lib.kn"), "pub mod child;\n").unwrap();
+    fs::write(
+        dep_dir.join("child.kn"),
+        "pub fn helper() i32 { return 1; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("app/Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{}\"\n
+[lib]
+root = \"src/lib.kn\"
+
+[dependencies]
+dep = {{ path = \"../dep\" }}
+",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("lib.kn"),
+        "use dep.child;\nfn main() i32 { return child.helper(); }\n",
+    )
+    .unwrap();
+    let source = fs::read_to_string(app_dir.join("lib.kn")).unwrap();
+    let uri = format!("file://{}", app_dir.join("lib.kn").to_string_lossy());
+
+    let mut state = initialized_state();
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, &source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(331)),
+            method: Some("textDocument/documentLink".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(331));
+    let links = response["result"].as_array().unwrap();
+    assert_eq!(links.len(), 1, "{links:#?}");
+    assert_eq!(
+        links[0]["range"],
+        json!({
+            "start": { "line": 0, "character": 8 },
+            "end": { "line": 0, "character": 13 }
+        })
+    );
+    assert!(
+        links[0]["target"].as_str().unwrap().ends_with("/child.kn"),
+        "{}",
+        links[0]["target"]
+    );
+}
+
+#[test]
 fn inlay_hint_request_returns_type_hints() {
     let mut state = initialized_state();
     let source = concat!(

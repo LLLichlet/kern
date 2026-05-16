@@ -239,10 +239,10 @@ Completed foundation work:
   ignored. Full multi-root indexing remains future work rather than an implicit
   half-supported behavior.
 - `textDocument/documentLink` is advertised and implemented for file-backed
-  `mod name;` declarations using the compiler's resolved module graph. Inline
-  modules and unresolved module declarations intentionally do not produce links.
-  `use`/import links remain future work because they need semantic import
-  resolution rather than text-level guessing.
+  `mod name;` declarations and resolved `use`/import bindings using the
+  compiler's resolved module graph and semantic import resolution. Inline
+  modules, unresolved module declarations, and unresolved imports intentionally
+  do not produce links.
 - `textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls`, and
   `callHierarchy/outgoingCalls` are advertised and implemented for direct
   function/method calls resolved by compiler semantic analysis. The first
@@ -453,8 +453,9 @@ implemented by adding more direct compiler calls inside request dispatch.
 - implementation
 - call hierarchy: direct resolved function/method calls are done; indirect and
   dynamic-dispatch expansion remain open
-- document links for imports/modules: file-backed module declarations are done;
-  import/use links remain open
+- document links for imports/modules: file-backed module declarations and
+  semantically resolved import/use bindings are done; package references remain
+  open
 - code lens for tests/build targets once test/build metadata is stable
 - workspace-wide references with progress reporting
 
@@ -598,7 +599,7 @@ Tasks:
 - Semantic token range or delta.
 - Completion resolve.
 - Code action resolve.
-- Document links for module imports and package references.
+- Document links for package references.
 
 Exit criteria:
 

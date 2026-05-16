@@ -276,7 +276,11 @@ pub(super) fn handle_message(
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis| analysis.hover(&params.text_document.uri, params.position),
+                |analysis| {
+                    analysis
+                        .hover(&params.text_document.uri, params.position)
+                        .map(|hover| hover.map(crate::analysis::ide::IdeHover::into_lsp))
+                },
             )?;
         }
         "textDocument/signatureHelp" => {

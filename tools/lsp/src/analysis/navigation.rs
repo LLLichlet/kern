@@ -1,8 +1,8 @@
-use super::ide::{IdeCompletionItem, IdeCompletionKind};
+use super::ide::{IdeCompletionItem, IdeCompletionKind, IdeHover};
 use super::{RenameBehavior, RenameTarget};
 use crate::protocol::{
-    DocumentHighlight, DocumentSymbol, Hover, InlayHint, Location, MarkupContent,
-    ParameterInformation, Position, SignatureHelp, SignatureInformation, TextEdit,
+    DocumentHighlight, DocumentSymbol, InlayHint, Location, ParameterInformation, Position,
+    SignatureHelp, SignatureInformation, TextEdit,
 };
 use kernc_driver::{
     AnalysisCompletionItem, AnalysisCompletionKind, AnalysisDefinitionLink, AnalysisHover,
@@ -257,7 +257,7 @@ pub(super) fn find_hover(
     semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
     position: &Position,
-) -> Option<Hover> {
+) -> Option<IdeHover> {
     let matching_entries =
         semantic_entries_at_position(session, semantic_entries, target_path, position);
 
@@ -279,7 +279,7 @@ fn hover_for_definition_span(
     session: &kernc_utils::Session,
     hovers: &[AnalysisHover],
     definition_span: kernc_utils::Span,
-) -> Option<Hover> {
+) -> Option<IdeHover> {
     hover_for_definition_span_with_range(session, hovers, definition_span, definition_span)
 }
 
@@ -288,9 +288,9 @@ fn hover_for_definition_span_with_range(
     hovers: &[AnalysisHover],
     definition_span: kernc_utils::Span,
     display_span: kernc_utils::Span,
-) -> Option<Hover> {
+) -> Option<IdeHover> {
     let hover = hovers.iter().find(|hover| hover.span == definition_span)?;
-    Some(analysis_hover_to_lsp_hover_with_range(
+    Some(analysis_hover_to_ide_hover_with_range(
         session,
         hover,
         display_span,
@@ -302,7 +302,7 @@ fn hover_at_definition_position(
     hovers: &[AnalysisHover],
     target_path: &Path,
     position: &Position,
-) -> Option<Hover> {
+) -> Option<IdeHover> {
     let mut best_match = None;
 
     for hover in hovers {
@@ -326,23 +326,20 @@ fn hover_at_definition_position(
         }
     }
 
-    best_match.map(|hover| analysis_hover_to_lsp_hover(session, hover))
+    best_match.map(|hover| analysis_hover_to_ide_hover(session, hover))
 }
 
-fn analysis_hover_to_lsp_hover(session: &kernc_utils::Session, hover: &AnalysisHover) -> Hover {
-    analysis_hover_to_lsp_hover_with_range(session, hover, hover.span)
+fn analysis_hover_to_ide_hover(session: &kernc_utils::Session, hover: &AnalysisHover) -> IdeHover {
+    analysis_hover_to_ide_hover_with_range(session, hover, hover.span)
 }
 
-fn analysis_hover_to_lsp_hover_with_range(
+fn analysis_hover_to_ide_hover_with_range(
     session: &kernc_utils::Session,
     hover: &AnalysisHover,
     range_span: kernc_utils::Span,
-) -> Hover {
-    Hover {
-        contents: MarkupContent {
-            kind: "markdown",
-            value: hover.contents.clone(),
-        },
+) -> IdeHover {
+    IdeHover {
+        contents: hover.contents.clone(),
         range: Some(super::span_to_range(session, range_span)),
     }
 }

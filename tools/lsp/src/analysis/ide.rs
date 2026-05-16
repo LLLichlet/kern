@@ -37,6 +37,12 @@ pub(crate) struct IdeCompletionItem {
     pub insert_text: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct IdeHover {
+    pub contents: String,
+    pub range: Option<Range>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IdeCompletionKind {
     Variable,
@@ -161,6 +167,18 @@ impl IdeCompletionKind {
             Self::Static => 6,
             Self::TypeParameter => 25,
             Self::Keyword => 14,
+        }
+    }
+}
+
+impl IdeHover {
+    pub(crate) fn into_lsp(self) -> crate::protocol::Hover {
+        crate::protocol::Hover {
+            contents: crate::protocol::MarkupContent {
+                kind: "markdown",
+                value: self.contents,
+            },
+            range: self.range,
         }
     }
 }

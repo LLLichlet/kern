@@ -331,9 +331,9 @@ fn limine_smoke_resolves_real_freestanding_project_runtime() {
         .unwrap()
         .unwrap();
     assert!(
-        hover.contents.value.contains("fn serial_write:"),
+        hover.contents.contains("fn serial_write:"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 
@@ -367,9 +367,9 @@ fn limine_mkiso_resolves_real_hosted_build_tool_runtime() {
         .unwrap()
         .unwrap();
     assert!(
-        hover.contents.value.contains("fn push_shell_arg:"),
+        hover.contents.contains("fn push_shell_arg:"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 
@@ -385,9 +385,9 @@ fn hover_renders_optional_mut_pointer_field() {
         .unwrap();
 
     assert!(
-        hover.contents.value.contains("field ptr: ?&mut u8"),
+        hover.contents.contains("field ptr: ?&mut u8"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 
@@ -421,9 +421,9 @@ fn hover_on_impl_method_call_uses_method_signature() {
         .unwrap();
 
     assert!(
-        hover.contents.value.contains("fn write_bit:"),
+        hover.contents.contains("fn write_bit:"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 
@@ -519,9 +519,9 @@ fn hover_on_private_method_call_uses_method_signature() {
         .unwrap();
 
     assert!(
-        hover.contents.value.contains("fn buffer_slot_mut:"),
+        hover.contents.contains("fn buffer_slot_mut:"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 
@@ -592,12 +592,9 @@ fn hover_resolves_imported_function_signature() {
         .unwrap();
 
     assert!(
-        hover
-            .contents
-            .value
-            .contains("fn clone_owned_value_in_arena:"),
+        hover.contents.contains("fn clone_owned_value_in_arena:"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 

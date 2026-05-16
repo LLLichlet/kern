@@ -24,7 +24,7 @@ pub use self::diagnostics::cleared_uris;
 use self::diagnostics::{
     convert_diagnostic_for_document, diagnostics_from_session, preserve_target_diagnostics,
 };
-use self::ide::{IdeCodeAction, IdeCompletionItem, IdeDiagnostic, IdeSemanticTokens};
+use self::ide::{IdeCodeAction, IdeCompletionItem, IdeDiagnostic, IdeHover, IdeSemanticTokens};
 use self::navigation::{
     ReferenceLocationQuery, analysis_completion_to_ide_item, analysis_signature_help_to_lsp_help,
     analysis_symbol_to_document_symbol, analysis_type_hint_to_lsp_hint, build_rename_changes,
@@ -45,8 +45,8 @@ use self::text::{
 use crate::defaults::default_analysis_compile_options;
 use crate::protocol::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DocumentHighlight, DocumentSymbol, Hover, InlayHint, Location, Position, PrepareRenameResult,
-    Range, SignatureHelp, TextDocumentContentChangeEvent, WorkspaceEdit,
+    DocumentHighlight, DocumentSymbol, InlayHint, Location, Position, PrepareRenameResult, Range,
+    SignatureHelp, TextDocumentContentChangeEvent, WorkspaceEdit,
 };
 use crate::server::DiagnosticsAnalysisMode;
 use craft::error::Error as CraftError;

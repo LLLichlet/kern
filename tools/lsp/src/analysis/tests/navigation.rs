@@ -568,7 +568,7 @@ fn hover_resolves_function_signature_from_reference() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("fn helper: &fn(i32) i32"));
+    assert!(hover.contents.contains("fn helper: &fn(i32) i32"));
     let range = hover.range.unwrap();
     assert_eq!(range.start, position_of_nth(source, "helper", 1, 0));
     assert_eq!(range.end, position_of_nth(source, "helper", 1, 6));
@@ -601,18 +601,16 @@ fn hover_renders_native_docs_after_signature() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("fn helper: &fn(i32) i32"));
+    assert!(hover.contents.contains("fn helper: &fn(i32) i32"));
     assert!(
         hover
             .contents
-            .value
             .contains("Read one byte from the receiver register.")
     );
-    assert!(hover.contents.value.contains("**Safety**"));
+    assert!(hover.contents.contains("**Safety**"));
     assert!(
         hover
             .contents
-            .value
             .contains("`self` must point to a mapped UART object.")
     );
 }
@@ -678,18 +676,16 @@ fn hover_reuses_docs_from_imported_kmeta_packages() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("fn helper: &fn() i32"));
+    assert!(hover.contents.contains("fn helper: &fn() i32"));
     assert!(
         hover
             .contents
-            .value
             .contains("Imported helper from a kmeta package.")
     );
-    assert!(hover.contents.value.contains("**Safety**"));
+    assert!(hover.contents.contains("**Safety**"));
     assert!(
         hover
             .contents
-            .value
             .contains("Pure helper with no hidden runtime policy.")
     );
 }
@@ -721,11 +717,10 @@ fn hover_resolves_std_module_docs_from_use_alias() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("module io"));
+    assert!(hover.contents.contains("module io"));
     assert!(
         hover
             .contents
-            .value
             .contains("Text and byte-oriented output helpers.")
     );
 }
@@ -784,11 +779,10 @@ fn hover_resolves_std_reexported_function_docs_from_member_access() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("fn println:"));
+    assert!(hover.contents.contains("fn println:"));
     assert!(
         hover
             .contents
-            .value
             .contains("Writes this byte string to standard output followed by a newline.")
     );
 }
@@ -822,7 +816,7 @@ fn hover_resolves_impl_method_signature_from_reference() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("fn get:"));
+    assert!(hover.contents.contains("fn get:"));
     let range = hover.range.unwrap();
     assert_eq!(range.start, position_of_nth(source, "get", 1, 0));
     assert_eq!(range.end, position_of_nth(source, "get", 1, 3));
@@ -861,18 +855,12 @@ fn hover_renders_doc_comments_for_impl_method_reference() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("fn get:"));
+    assert!(hover.contents.contains("fn get:"));
+    assert!(hover.contents.contains("Read the current counter value."));
+    assert!(hover.contents.contains("**Safety**"));
     assert!(
         hover
             .contents
-            .value
-            .contains("Read the current counter value.")
-    );
-    assert!(hover.contents.value.contains("**Safety**"));
-    assert!(
-        hover
-            .contents
-            .value
             .contains("keep `self` bound to a live counter object.")
     );
 }
@@ -903,7 +891,7 @@ fn hover_resolves_struct_field_from_reference() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("field value: i32"));
+    assert!(hover.contents.contains("field value: i32"));
 }
 
 #[test]
@@ -932,7 +920,7 @@ fn hover_resolves_struct_field_from_literal_initializer() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("field value: i32"));
+    assert!(hover.contents.contains("field value: i32"));
 }
 
 #[test]
@@ -964,12 +952,9 @@ fn hover_renders_complex_nested_pointer_field_types() {
         .unwrap();
 
     assert!(
-        hover
-            .contents
-            .value
-            .contains("field ptr: &mut &[&[4]Payload]"),
+        hover.contents.contains("field ptr: &mut &[&[4]Payload]"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 
@@ -1093,7 +1078,7 @@ fn hover_resolves_enum_variant_from_reference() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("variant Ok: i32"));
+    assert!(hover.contents.contains("variant Ok: i32"));
 }
 
 #[test]
@@ -1125,7 +1110,7 @@ fn hover_resolves_match_variant_pattern_from_reference() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("variant Err"));
+    assert!(hover.contents.contains("variant Err"));
 }
 
 #[test]
@@ -1157,7 +1142,7 @@ fn hover_resolves_typed_match_variant_path_from_reference() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("variant Ok: i32"));
+    assert!(hover.contents.contains("variant Ok: i32"));
 }
 
 #[test]
@@ -1359,9 +1344,9 @@ fn hover_resolves_local_definition_without_references() {
         .unwrap();
 
     assert!(
-        hover.contents.value.contains("var value: i32"),
+        hover.contents.contains("var value: i32"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 
@@ -1391,7 +1376,7 @@ fn hover_on_impl_method_definition_prefers_method_span() {
         .unwrap();
     let range = hover.range.unwrap();
 
-    assert!(hover.contents.value.contains("fn get:"));
+    assert!(hover.contents.contains("fn get:"));
     assert_eq!(range.start, position_of_nth(source, "get", 0, 0));
     assert_eq!(range.end, position_of_nth(source, "get", 0, 3));
 }
@@ -1422,7 +1407,7 @@ fn hover_in_method_body_does_not_use_synthetic_self_span() {
     assert!(
         stray_hover.is_none(),
         "unexpected hover: {:?}",
-        stray_hover.map(|hover| (hover.range, hover.contents.value))
+        stray_hover.map(|hover| (hover.range, hover.contents))
     );
 
     let self_hover = analysis
@@ -1523,9 +1508,9 @@ fn navigation_tracks_impl_methods_spread_across_modules() {
         .unwrap()
         .unwrap();
     assert!(
-        hover.contents.value.contains("fn buffer_slot_mut:"),
+        hover.contents.contains("fn buffer_slot_mut:"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 
     let edit = analysis
@@ -1570,7 +1555,7 @@ fn hover_on_destructure_pun_prefers_local_binding() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("var value: i32"));
+    assert!(hover.contents.contains("var value: i32"));
 }
 
 #[test]
@@ -1599,7 +1584,7 @@ fn hover_on_destructure_payload_binding_prefers_local_binding() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("var inner: i32"));
+    assert!(hover.contents.contains("var inner: i32"));
 }
 
 #[test]
@@ -1803,7 +1788,7 @@ fn hover_on_match_payload_binding_prefers_local_binding() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("var payload: i32"));
+    assert!(hover.contents.contains("var payload: i32"));
 }
 
 #[test]
@@ -1866,7 +1851,7 @@ fn hover_resolves_trait_object_method_references_to_trait_method() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("fn foo:"));
+    assert!(hover.contents.contains("fn foo:"));
 }
 
 #[test]

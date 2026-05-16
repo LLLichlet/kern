@@ -534,11 +534,7 @@ root = "src/lib.kn"
     assert!(!tokens.data.is_empty());
     assert_eq!(analysis.navigation_cache.borrow().len(), 1);
     assert_eq!(analysis.artifact_cache.borrow().len(), 0);
-    assert!(
-        hover.contents.value.contains("fn helper"),
-        "{}",
-        hover.contents.value
-    );
+    assert!(hover.contents.contains("fn helper"), "{}", hover.contents);
 }
 
 #[test]

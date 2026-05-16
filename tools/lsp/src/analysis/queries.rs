@@ -151,7 +151,7 @@ impl AnalysisEngine {
         ))
     }
 
-    pub fn hover(&self, uri: &str, position: Position) -> Result<Option<Hover>, String> {
+    pub fn hover(&self, uri: &str, position: Position) -> Result<Option<IdeHover>, String> {
         if self.semantic_query_offset(uri, &position)?.is_none() {
             return Ok(None);
         }

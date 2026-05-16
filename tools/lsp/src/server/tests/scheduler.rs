@@ -1,7 +1,7 @@
 use super::super::scheduler::{
     drain_scheduler, execute_document_diagnostics, execute_document_request,
-    execute_optional_document_request, flush_diagnostics_lane, publish_analysis_outcome,
-    submit_document_request_result, write_success_response,
+    execute_optional_document_request, flush_diagnostics_lane, flush_document_request_results,
+    publish_analysis_outcome, submit_document_request_result, write_success_response,
 };
 use super::super::state::{
     DocumentRequestResponse, DocumentRequestTaskResult, SchedulerDrainDecision,
@@ -461,7 +461,8 @@ fn canceled_document_request_skips_analysis_work() {
     state.cancel_request(json!(44));
     let mut output = Vec::new();
     let mut writer = MessageWriter::new(&mut output);
-    let mut analyzed = false;
+    let analyzed = std::sync::Arc::new(std::sync::Mutex::new(false));
+    let observed = analyzed.clone();
 
     execute_document_request(
         &mut state,
@@ -470,14 +471,14 @@ fn canceled_document_request_skips_analysis_work() {
         &uri,
         SchedulerLane::Interactive,
         "textDocument/hover",
-        |_, _| {
-            analyzed = true;
+        move |_, _| {
+            *observed.lock().unwrap() = true;
             Ok::<Value, String>(json!({ "ok": true }))
         },
     )
     .unwrap();
 
-    assert!(!analyzed);
+    assert!(!*analyzed.lock().unwrap());
     assert!(output.is_empty());
     assert!(state.canceled_request_ids.is_empty());
 }
@@ -501,6 +502,7 @@ fn panicking_document_request_returns_error_response() {
         |_, _| panic!("synthetic analysis panic"),
     )
     .unwrap();
+    flush_document_request_results(&mut state, &mut writer, true).unwrap();
     std::panic::set_hook(previous_hook);
 
     let messages = read_all_messages(&output);
@@ -537,11 +539,57 @@ fn document_request_runs_on_worker_thread() {
         },
     )
     .unwrap();
+    flush_document_request_results(&mut state, &mut writer, true).unwrap();
 
     assert_eq!(*ran_on_worker.lock().unwrap(), Some(true));
     let messages = read_all_messages(&output);
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0]["id"], json!(48));
+}
+
+#[test]
+fn document_requests_can_be_in_flight_together_before_flush() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_parallel_request", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+    let started = std::sync::Arc::new(std::sync::Barrier::new(3));
+    let release = std::sync::Arc::new(std::sync::Barrier::new(3));
+
+    for id in [60, 61] {
+        let started = started.clone();
+        let release = release.clone();
+        execute_document_request(
+            &mut state,
+            &mut writer,
+            json!(id),
+            &uri,
+            SchedulerLane::Interactive,
+            "textDocument/hover",
+            move |_, _| {
+                started.wait();
+                release.wait();
+                Ok::<Value, String>(json!({ "id": id }))
+            },
+        )
+        .unwrap();
+    }
+
+    assert_eq!(state.pending_document_request_tasks, 2);
+    started.wait();
+    release.wait();
+    flush_document_request_results(&mut state, &mut writer, true).unwrap();
+    flush_document_request_results(&mut state, &mut writer, true).unwrap();
+
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 2);
+    assert_eq!(state.pending_document_request_tasks, 0);
+    let mut ids = messages
+        .iter()
+        .map(|message| message["id"].as_i64().unwrap())
+        .collect::<Vec<_>>();
+    ids.sort();
+    assert_eq!(ids, vec![60, 61]);
 }
 
 #[test]
@@ -561,6 +609,7 @@ fn optional_document_request_none_returns_null_response() {
         |_, _| Ok(None),
     )
     .unwrap();
+    flush_document_request_results(&mut state, &mut writer, true).unwrap();
 
     let messages = read_all_messages(&output);
     assert_eq!(messages.len(), 1);

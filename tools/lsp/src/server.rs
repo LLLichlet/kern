@@ -6,13 +6,13 @@ mod state;
 mod tests;
 
 use self::dispatch::{
-    handle_message as dispatch_handle_message,
+    handle_message as dispatch_handle_message, handle_message_nonblocking,
     report_message_error as dispatch_report_message_error,
 };
 pub(crate) use self::state::DiagnosticsAnalysisMode;
 use self::state::{
     AnalysisGeneration, DocumentRequestResponse, DocumentRequestTaskResult, RequestContext,
-    SchedulerLane, ServerState,
+    ScheduledDocumentRequestTask, SchedulerLane, ServerState,
 };
 use crate::analysis::AnalysisEngine;
 use crate::protocol::{IncomingMessage, error_response};
@@ -20,9 +20,15 @@ use crate::transport::{MessageReader, MessageWriter};
 use serde_json::Value;
 use std::fmt;
 use std::io::{self, BufReader, BufWriter};
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 #[cfg(test)]
 pub(super) use crate::protocol::initialize_result;
+
+#[cfg(test)]
+use std::sync::{Arc, Barrier};
 
 const PARSE_ERROR: i64 = -32700;
 const METHOD_NOT_FOUND: i64 = -32601;
@@ -62,31 +68,92 @@ impl From<serde_json::Error> for ServerError {
 pub fn run_with_analysis(analysis: AnalysisEngine) -> Result<(), ServerError> {
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let mut reader = MessageReader::new(BufReader::new(stdin.lock()));
-    let mut writer = MessageWriter::new(BufWriter::new(stdout.lock()));
+    let reader = MessageReader::new(BufReader::new(stdin));
+    let mut writer = MessageWriter::new(BufWriter::new(stdout));
     let mut state = ServerState::with_analysis(analysis);
 
-    run_message_loop(&mut state, &mut reader, &mut writer)
+    run_message_loop(&mut state, reader, &mut writer)
 }
+
+enum ServerInputEvent {
+    Message(IncomingMessage),
+    ParseError(String),
+    ReadError(io::Error),
+    Eof,
+}
+
+#[cfg(test)]
+static TEST_DOCUMENT_REQUEST_BARRIERS: std::sync::Mutex<Option<(Arc<Barrier>, Arc<Barrier>)>> =
+    std::sync::Mutex::new(None);
 
 fn run_message_loop<R, W>(
     state: &mut ServerState,
-    reader: &mut MessageReader<R>,
+    mut reader: MessageReader<R>,
     writer: &mut MessageWriter<W>,
 ) -> Result<(), ServerError>
 where
-    R: io::BufRead,
+    R: io::BufRead + Send + 'static,
     W: io::Write,
 {
-    while let Some(payload) = reader.read_message()? {
-        let message = match serde_json::from_slice::<IncomingMessage>(&payload) {
-            Ok(message) => message,
-            Err(err) => {
-                writer.write_json(&error_response(
-                    Value::Null,
-                    PARSE_ERROR,
-                    format!("failed to parse LSP message: {err}"),
-                ))?;
+    let (input_tx, input_rx) = mpsc::channel();
+    thread::spawn(move || {
+        loop {
+            let event = match reader.read_message() {
+                Ok(Some(payload)) => match serde_json::from_slice::<IncomingMessage>(&payload) {
+                    Ok(message) => ServerInputEvent::Message(message),
+                    Err(err) => {
+                        ServerInputEvent::ParseError(format!("failed to parse LSP message: {err}"))
+                    }
+                },
+                Ok(None) => ServerInputEvent::Eof,
+                Err(err) => ServerInputEvent::ReadError(err),
+            };
+            let done = matches!(
+                event,
+                ServerInputEvent::Eof | ServerInputEvent::ReadError(_)
+            );
+            if input_tx.send(event).is_err() || done {
+                break;
+            }
+        }
+    });
+
+    let mut input_closed = false;
+    loop {
+        scheduler::flush_document_request_results(state, writer, false)?;
+        if input_closed {
+            if state.has_pending_document_request_work() {
+                scheduler::flush_document_request_results(state, writer, true)?;
+                continue;
+            }
+            break;
+        }
+
+        let event = if state.has_pending_document_request_work() {
+            match input_rx.recv_timeout(Duration::from_millis(5)) {
+                Ok(event) => event,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    input_closed = true;
+                    continue;
+                }
+            }
+        } else {
+            match input_rx.recv() {
+                Ok(event) => event,
+                Err(_) => break,
+            }
+        };
+
+        let message = match event {
+            ServerInputEvent::Message(message) => message,
+            ServerInputEvent::ParseError(message) => {
+                writer.write_json(&error_response(Value::Null, PARSE_ERROR, message))?;
+                continue;
+            }
+            ServerInputEvent::ReadError(err) => return Err(ServerError::Io(err)),
+            ServerInputEvent::Eof => {
+                input_closed = true;
                 continue;
             }
         };
@@ -102,7 +169,7 @@ where
             continue;
         }
 
-        match handle_message(state, writer, message) {
+        match handle_message_nonblocking(state, writer, message) {
             Ok(true) => break,
             Ok(false) => {}
             Err(ServerError::Io(err)) => return Err(ServerError::Io(err)),

@@ -1,6 +1,22 @@
 use super::super::lifecycle::TraceValue;
 use super::super::*;
 use super::*;
+use std::io::{self, Write};
+use std::sync::{Arc, Barrier, Mutex};
+
+#[derive(Clone)]
+struct SharedOutput(Arc<Mutex<Vec<u8>>>);
+
+impl Write for SharedOutput {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
 
 #[test]
 fn initialize_result_advertises_precise_capabilities() {
@@ -307,12 +323,12 @@ fn run_loop_reports_parse_errors_and_keeps_processing_messages() {
         valid.len(),
         valid
     );
-    let mut reader = MessageReader::new(Cursor::new(payload.as_bytes()));
+    let reader = MessageReader::new(Cursor::new(payload.into_bytes()));
     let mut output = Vec::new();
     let mut writer = MessageWriter::new(&mut output);
     let mut state = initialized_state();
 
-    run_message_loop(&mut state, &mut reader, &mut writer).unwrap();
+    run_message_loop(&mut state, reader, &mut writer).unwrap();
 
     let messages = read_all_messages(&output);
     assert_eq!(messages.len(), 2);
@@ -320,4 +336,53 @@ fn run_loop_reports_parse_errors_and_keeps_processing_messages() {
     assert_eq!(messages[0]["id"], json!(null));
     assert_eq!(messages[1]["id"], json!(1));
     assert_eq!(messages[1]["result"], json!(null));
+}
+
+#[test]
+fn run_loop_accepts_second_request_while_first_worker_is_running() {
+    let uri = temp_file_uri(
+        "server_loop_parallel_hover",
+        "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n",
+    );
+    let first = format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":70,\"method\":\"textDocument/hover\",\"params\":{{\"textDocument\":{{\"uri\":\"{}\"}},\"position\":{{\"line\":1,\"character\":27}}}}}}",
+        uri
+    );
+    let second = format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":71,\"method\":\"textDocument/hover\",\"params\":{{\"textDocument\":{{\"uri\":\"{}\"}},\"position\":{{\"line\":1,\"character\":27}}}}}}",
+        uri
+    );
+    let payload = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        first.len(),
+        first,
+        second.len(),
+        second
+    );
+    let reader = MessageReader::new(Cursor::new(payload.into_bytes()));
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let mut writer = MessageWriter::new(SharedOutput(output.clone()));
+    let mut state = initialized_state();
+    let started = Arc::new(Barrier::new(3));
+    let release = Arc::new(Barrier::new(3));
+    *TEST_DOCUMENT_REQUEST_BARRIERS.lock().unwrap() = Some((started.clone(), release.clone()));
+
+    let handle = std::thread::spawn(move || {
+        run_message_loop(&mut state, reader, &mut writer).unwrap();
+    });
+
+    started.wait();
+    release.wait();
+    handle.join().unwrap();
+    *TEST_DOCUMENT_REQUEST_BARRIERS.lock().unwrap() = None;
+
+    let output = output.lock().unwrap();
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 2);
+    let mut ids = messages
+        .iter()
+        .map(|message| message["id"].as_i64().unwrap())
+        .collect::<Vec<_>>();
+    ids.sort();
+    assert_eq!(ids, vec![70, 71]);
 }

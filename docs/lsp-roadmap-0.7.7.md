@@ -192,14 +192,18 @@ Completed foundation work:
   of `Rc`/`RefCell`.
 - `craft::AnalysisProject` uses a thread-safe shared build-plan cache, so LSP
   analysis can be borrowed by worker execution.
-- Document requests now execute their analysis closure on a worker thread
-  boundary and recover worker panics as LSP error responses.
+- Document requests now execute on worker threads and send typed results back to
+  the coordinator through a result channel.
+- The main server loop reads stdin on a dedicated reader thread, allowing the
+  coordinator to accept additional messages while document request workers are
+  still running.
+- Server-level tests cover multiple document requests being in flight together
+  and worker panic recovery as LSP error responses.
 
 Still to complete before calling the scheduler done:
 
-- Replace the temporary scoped worker execution with a real worker pool or
+- Replace one-thread-per-request spawning with a bounded worker pool or
   equivalent task runtime.
-- Allow multiple independent document requests to be in flight at once.
 - Move diagnostics and workspace refresh execution off the coordinator thread.
 - Add cancellation tokens that are checked by queued and running tasks.
 - Track queue wait time and worker execution status in traces.

@@ -4,8 +4,8 @@ use super::lifecycle::{
 };
 use super::scheduler::{
     drain_scheduler, execute_document_diagnostics, execute_document_request,
-    execute_optional_document_request, schedule_workspace_refresh, write_error_response,
-    write_null_response, write_success_response,
+    execute_optional_document_request, flush_document_request_results, schedule_workspace_refresh,
+    write_error_response, write_null_response, write_success_response,
 };
 use super::{
     INVALID_REQUEST, METHOD_NOT_FOUND, SERVER_NOT_INITIALIZED, SchedulerLane, ServerError,
@@ -45,6 +45,23 @@ pub(super) fn handle_message(
     state: &mut ServerState,
     writer: &mut MessageWriter<impl io::Write>,
     message: IncomingMessage,
+) -> Result<bool, ServerError> {
+    handle_message_with_document_request_policy(state, writer, message, true)
+}
+
+pub(super) fn handle_message_nonblocking(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    message: IncomingMessage,
+) -> Result<bool, ServerError> {
+    handle_message_with_document_request_policy(state, writer, message, false)
+}
+
+fn handle_message_with_document_request_policy(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    message: IncomingMessage,
+    wait_for_document_requests: bool,
 ) -> Result<bool, ServerError> {
     let Some(method) = message.method.as_deref() else {
         if let Some(id) = message.id {
@@ -197,16 +214,18 @@ pub(super) fn handle_message(
                 )
             })?;
             let params = required_params::<DocumentSymbolParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
             execute_document_request(
                 state,
                 writer,
                 id,
-                &params.text_document.uri,
+                &target_uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis, snapshot| {
+                move |analysis, snapshot| {
                     analysis
-                        .document_symbols_in_snapshot(snapshot, &params.text_document.uri)
+                        .document_symbols_in_snapshot(snapshot, &query_uri)
                         .map(|symbols| {
                             symbols
                                 .into_iter()
@@ -223,20 +242,19 @@ pub(super) fn handle_message(
                 )
             })?;
             let params = required_params::<DefinitionParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let position = params.position;
             execute_optional_document_request(
                 state,
                 writer,
                 id,
-                &params.text_document.uri,
+                &target_uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis, snapshot| {
+                move |analysis, snapshot| {
                     analysis
-                        .goto_definition_in_snapshot(
-                            snapshot,
-                            &params.text_document.uri,
-                            params.position,
-                        )
+                        .goto_definition_in_snapshot(snapshot, &query_uri, position)
                         .map(|location| location.map(crate::analysis::ide::IdeLocation::into_lsp))
                 },
             )?;
@@ -248,20 +266,19 @@ pub(super) fn handle_message(
                 )
             })?;
             let params = required_params::<DocumentHighlightParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let position = params.position;
             execute_document_request(
                 state,
                 writer,
                 id,
-                &params.text_document.uri,
+                &target_uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis, snapshot| {
+                move |analysis, snapshot| {
                     analysis
-                        .document_highlights_in_snapshot(
-                            snapshot,
-                            &params.text_document.uri,
-                            params.position,
-                        )
+                        .document_highlights_in_snapshot(snapshot, &query_uri, position)
                         .map(|highlights| {
                             highlights
                                 .into_iter()
@@ -278,21 +295,20 @@ pub(super) fn handle_message(
                 )
             })?;
             let params = required_params::<ReferenceParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let position = params.position;
+            let include_declaration = params.context.include_declaration;
             execute_document_request(
                 state,
                 writer,
                 id,
-                &params.text_document.uri,
+                &target_uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis, snapshot| {
+                move |analysis, snapshot| {
                     analysis
-                        .references_in_snapshot(
-                            snapshot,
-                            &params.text_document.uri,
-                            params.position,
-                            params.context.include_declaration,
-                        )
+                        .references_in_snapshot(snapshot, &query_uri, position, include_declaration)
                         .map(|locations| {
                             locations
                                 .into_iter()
@@ -307,16 +323,29 @@ pub(super) fn handle_message(
                 ServerError::Protocol("textDocument/hover must be sent as a request".to_string())
             })?;
             let params = required_params::<DefinitionParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let position = params.position;
+            #[cfg(test)]
+            let barriers = super::TEST_DOCUMENT_REQUEST_BARRIERS
+                .lock()
+                .unwrap()
+                .clone();
             execute_optional_document_request(
                 state,
                 writer,
                 id,
-                &params.text_document.uri,
+                &target_uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis, snapshot| {
+                move |analysis, snapshot| {
+                    #[cfg(test)]
+                    if let Some((started, release)) = barriers {
+                        started.wait();
+                        release.wait();
+                    }
                     analysis
-                        .hover_in_snapshot(snapshot, &params.text_document.uri, params.position)
+                        .hover_in_snapshot(snapshot, &query_uri, position)
                         .map(|hover| hover.map(crate::analysis::ide::IdeHover::into_lsp))
                 },
             )?;
@@ -328,20 +357,19 @@ pub(super) fn handle_message(
                 )
             })?;
             let params = required_params::<SignatureHelpParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let position = params.position;
             execute_optional_document_request(
                 state,
                 writer,
                 id,
-                &params.text_document.uri,
+                &target_uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis, snapshot| {
+                move |analysis, snapshot| {
                     analysis
-                        .signature_help_in_snapshot(
-                            snapshot,
-                            &params.text_document.uri,
-                            params.position,
-                        )
+                        .signature_help_in_snapshot(snapshot, &query_uri, position)
                         .map(|help| help.map(crate::analysis::ide::IdeSignatureHelp::into_lsp))
                 },
             )?;
@@ -353,20 +381,19 @@ pub(super) fn handle_message(
                 )
             })?;
             let params = required_params::<CompletionParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let position = params.position;
             execute_document_request(
                 state,
                 writer,
                 id,
-                &params.text_document.uri,
+                &target_uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis, snapshot| {
+                move |analysis, snapshot| {
                     analysis
-                        .completion_in_snapshot(
-                            snapshot,
-                            &params.text_document.uri,
-                            params.position,
-                        )
+                        .completion_in_snapshot(snapshot, &query_uri, position)
                         .map(|items| {
                             items
                                 .into_iter()
@@ -383,16 +410,18 @@ pub(super) fn handle_message(
                 )
             })?;
             let params = required_params::<SemanticTokensParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
             execute_document_request(
                 state,
                 writer,
                 id,
-                &params.text_document.uri,
+                &target_uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis, snapshot| {
+                move |analysis, snapshot| {
                     analysis
-                        .semantic_tokens_in_snapshot(snapshot, &params.text_document.uri)
+                        .semantic_tokens_in_snapshot(snapshot, &query_uri)
                         .map(crate::analysis::ide::IdeSemanticTokens::into_lsp)
                 },
             )?;
@@ -404,20 +433,19 @@ pub(super) fn handle_message(
                 )
             })?;
             let params = required_params::<InlayHintParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let range = params.range;
             execute_document_request(
                 state,
                 writer,
                 id,
-                &params.text_document.uri,
+                &target_uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis, snapshot| {
+                move |analysis, snapshot| {
                     analysis
-                        .inlay_hints_in_snapshot(
-                            snapshot,
-                            &params.text_document.uri,
-                            params.range.clone(),
-                        )
+                        .inlay_hints_in_snapshot(snapshot, &query_uri, range)
                         .map(|hints| {
                             hints
                                 .into_iter()
@@ -434,20 +462,19 @@ pub(super) fn handle_message(
                 )
             })?;
             let params = required_params::<DefinitionParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let position = params.position;
             execute_optional_document_request(
                 state,
                 writer,
                 id,
-                &params.text_document.uri,
+                &target_uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis, snapshot| {
+                move |analysis, snapshot| {
                     analysis
-                        .prepare_rename_in_snapshot(
-                            snapshot,
-                            &params.text_document.uri,
-                            params.position,
-                        )
+                        .prepare_rename_in_snapshot(snapshot, &query_uri, position)
                         .map(|result| {
                             result.map(crate::analysis::ide::IdePrepareRenameResult::into_lsp)
                         })
@@ -459,21 +486,20 @@ pub(super) fn handle_message(
                 ServerError::Protocol("textDocument/rename must be sent as a request".to_string())
             })?;
             let params = required_params::<RenameParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let position = params.position;
+            let new_name = params.new_name;
             execute_document_request(
                 state,
                 writer,
                 id,
-                &params.text_document.uri,
+                &target_uri,
                 SchedulerLane::Interactive,
                 method,
-                |analysis, snapshot| {
+                move |analysis, snapshot| {
                     analysis
-                        .rename_in_snapshot(
-                            snapshot,
-                            &params.text_document.uri,
-                            params.position,
-                            &params.new_name,
-                        )
+                        .rename_in_snapshot(snapshot, &query_uri, position, &new_name)
                         .map(crate::analysis::ide::IdeWorkspaceEdit::into_lsp)
                 },
             )?;
@@ -485,31 +511,30 @@ pub(super) fn handle_message(
                 )
             })?;
             let params = required_params::<CodeActionParams>(message.params)?;
+            let target_uri = params.text_document.uri;
             if !context_allows_quickfix(&params.context.only) {
                 execute_document_request(
                     state,
                     writer,
                     id,
-                    &params.text_document.uri,
+                    &target_uri,
                     SchedulerLane::Interactive,
                     method,
                     |_, _| Ok::<Value, String>(Value::Array(Vec::new())),
                 )?;
             } else {
+                let query_uri = target_uri.clone();
+                let range = params.range;
                 execute_document_request(
                     state,
                     writer,
                     id,
-                    &params.text_document.uri,
+                    &target_uri,
                     SchedulerLane::Interactive,
                     method,
-                    |analysis, snapshot| {
+                    move |analysis, snapshot| {
                         analysis
-                            .code_actions_in_snapshot(
-                                snapshot,
-                                &params.text_document.uri,
-                                params.range.clone(),
-                            )
+                            .code_actions_in_snapshot(snapshot, &query_uri, range)
                             .map(|actions| {
                                 actions
                                     .into_iter()
@@ -536,6 +561,10 @@ pub(super) fn handle_message(
 
     if state.should_drain_scheduler_after(method) {
         drain_scheduler(state, writer)?;
+    } else if wait_for_document_requests {
+        flush_document_request_results(state, writer, true)?;
+    } else {
+        flush_document_request_results(state, writer, false)?;
     }
     Ok(false)
 }

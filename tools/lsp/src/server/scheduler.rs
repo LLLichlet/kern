@@ -1,8 +1,8 @@
 use super::state::{RequestBudgetKind, RequestBudgetStatus};
 use super::{
     AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, DocumentRequestResponse,
-    DocumentRequestTaskResult, INVALID_REQUEST, RequestContext, SchedulerLane, ServerError,
-    ServerState, lifecycle::emit_trace,
+    DocumentRequestTaskResult, INVALID_REQUEST, RequestContext, ScheduledDocumentRequestTask,
+    SchedulerLane, ServerError, ServerState, lifecycle::emit_trace,
 };
 use crate::analysis::{AnalysisOutcome, AnalysisSnapshot, DocumentSyncAction, cleared_uris};
 use crate::protocol::{error_response, null_response, publish_diagnostics, success_response};
@@ -167,6 +167,7 @@ pub(super) fn drain_scheduler(
     state: &mut ServerState,
     writer: &mut MessageWriter<impl io::Write>,
 ) -> Result<(), ServerError> {
+    flush_document_request_results(state, writer, false)?;
     flush_diagnostics_lane(state, writer)
 }
 
@@ -230,19 +231,21 @@ pub(super) fn execute_document_request<T, F>(
 ) -> Result<(), ServerError>
 where
     T: serde::Serialize,
-    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<T, String> + Send,
+    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<T, String> + Send + 'static,
 {
     let request = state.request_context_for_document(id, target_uri);
     if state.should_skip_request(&request) {
         return Ok(());
     }
 
-    let result = run_document_request_task(
+    submit_document_request_task(
         state,
-        request,
-        target_uri,
-        lane,
-        method,
+        ScheduledDocumentRequestTask {
+            request,
+            target_uri: target_uri.to_string(),
+            lane,
+            method: method.to_string(),
+        },
         |engine, snapshot| {
             analysis(engine, snapshot)
                 .and_then(|result| {
@@ -252,36 +255,49 @@ where
                 .map(DocumentRequestResponse::Success)
         },
     );
-    submit_document_request_result(state, writer, result)
+    let _ = writer;
+    Ok(())
+}
+
+fn submit_document_request_task<F>(
+    state: &mut ServerState,
+    task_info: ScheduledDocumentRequestTask,
+    task: F,
+) where
+    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<DocumentRequestResponse, String>
+        + Send
+        + 'static,
+{
+    state.analysis.clear_last_analysis_tier();
+    let analysis = state.analysis.clone();
+    let snapshot = analysis.snapshot();
+    let result_tx = state.document_request_results_tx.clone();
+    state.queue_document_request_task();
+    thread::spawn(move || {
+        let result = run_document_request_task(analysis, snapshot, task_info, task);
+        let _ = result_tx.send(result);
+    });
 }
 
 fn run_document_request_task<F>(
-    state: &mut ServerState,
-    request: RequestContext,
-    target_uri: &str,
-    lane: SchedulerLane,
-    method: &str,
+    analysis: AnalysisEngine,
+    snapshot: AnalysisSnapshot,
+    task_info: ScheduledDocumentRequestTask,
     task: F,
 ) -> DocumentRequestTaskResult
 where
     F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<DocumentRequestResponse, String> + Send,
 {
-    state.analysis.clear_last_analysis_tier();
-    let snapshot = state.analysis.snapshot();
     let started_at = Instant::now();
-    let result = thread::scope(|scope| {
-        let handle =
-            scope.spawn(|| catch_unwind(AssertUnwindSafe(|| task(&state.analysis, &snapshot))));
-        handle.join()
-    });
+    let result = catch_unwind(AssertUnwindSafe(|| task(&analysis, &snapshot)));
     let elapsed_ms = started_at.elapsed().as_millis();
     let response = match result {
-        Ok(Ok(Ok(response))) => response,
-        Ok(Ok(Err(message))) => DocumentRequestResponse::Error {
+        Ok(Ok(response)) => response,
+        Ok(Err(message)) => DocumentRequestResponse::Error {
             code: INVALID_REQUEST,
             message,
         },
-        Ok(Err(payload)) | Err(payload) => DocumentRequestResponse::Error {
+        Err(payload) => DocumentRequestResponse::Error {
             code: INVALID_REQUEST,
             message: format!(
                 "kern-lsp analysis panicked: {}",
@@ -290,10 +306,10 @@ where
         },
     };
     DocumentRequestTaskResult {
-        request,
-        target_uri: target_uri.to_string(),
-        lane,
-        method: method.to_string(),
+        request: task_info.request,
+        target_uri: task_info.target_uri,
+        lane: task_info.lane,
+        method: task_info.method,
         elapsed_ms,
         response,
     }
@@ -320,19 +336,21 @@ pub(super) fn execute_optional_document_request<T, F>(
 ) -> Result<(), ServerError>
 where
     T: serde::Serialize,
-    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<Option<T>, String> + Send,
+    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<Option<T>, String> + Send + 'static,
 {
     let request = state.request_context_for_document(id, target_uri);
     if state.should_skip_request(&request) {
         return Ok(());
     }
 
-    let result = run_document_request_task(
+    submit_document_request_task(
         state,
-        request,
-        target_uri,
-        lane,
-        method,
+        ScheduledDocumentRequestTask {
+            request,
+            target_uri: target_uri.to_string(),
+            lane,
+            method: method.to_string(),
+        },
         |engine, snapshot| match analysis(engine, snapshot)? {
             Some(result) => serde_json::to_value(result)
                 .map(DocumentRequestResponse::Success)
@@ -340,7 +358,30 @@ where
             None => Ok(DocumentRequestResponse::Null),
         },
     );
-    submit_document_request_result(state, writer, result)
+    let _ = writer;
+    Ok(())
+}
+
+pub(super) fn flush_document_request_results(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    wait_for_ready: bool,
+) -> Result<(), ServerError> {
+    if wait_for_ready && state.has_pending_document_request_work() {
+        let result = state
+            .document_request_results_rx
+            .recv()
+            .map_err(|err| ServerError::Protocol(format!("worker result channel closed: {err}")))?;
+        state.complete_document_request_task();
+        submit_document_request_result(state, writer, result)?;
+    }
+
+    while let Ok(result) = state.document_request_results_rx.try_recv() {
+        state.complete_document_request_task();
+        submit_document_request_result(state, writer, result)?;
+    }
+
+    Ok(())
 }
 
 pub(super) fn submit_document_request_result(

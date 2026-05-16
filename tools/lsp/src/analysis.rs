@@ -183,21 +183,22 @@ struct AnalysisRequestContext {
     driver: Arc<CompilerDriver>,
 }
 
+#[derive(Clone)]
 pub struct AnalysisEngine {
     documents: BTreeMap<String, OpenDocument>,
     settings: AnalysisSettings,
-    project_cache: Mutex<BTreeMap<PathBuf, Option<AnalysisProject>>>,
-    driver_cache: Mutex<BTreeMap<IncrementalDriverKey, Arc<CompilerDriver>>>,
-    parse_cache: Mutex<BTreeMap<AnalysisCacheKey, Arc<ParsedModuleArtifact>>>,
-    surface_cache: Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisSurfaceArtifact>>>,
-    structure_cache: Mutex<BTreeMap<AnalysisCacheKey, Arc<StructureArtifact>>>,
-    artifact_cache: Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisArtifact>>>,
-    navigation_cache: Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisNavigationArtifact>>>,
-    semantic_tokens_cache: Mutex<BTreeMap<SemanticTokensCacheKey, IdeSemanticTokens>>,
-    lexical_cache: Mutex<BTreeMap<LexicalCacheKey, Arc<LexicalIndex>>>,
-    dirty_documents_snapshot: Mutex<Option<Arc<DirtyDocumentsSnapshot>>>,
-    open_uri_by_path: Mutex<Option<Arc<BTreeMap<PathBuf, String>>>>,
-    last_analysis_tier: Mutex<Option<AnalysisTier>>,
+    project_cache: Arc<Mutex<BTreeMap<PathBuf, Option<AnalysisProject>>>>,
+    driver_cache: Arc<Mutex<BTreeMap<IncrementalDriverKey, Arc<CompilerDriver>>>>,
+    parse_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<ParsedModuleArtifact>>>>,
+    surface_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisSurfaceArtifact>>>>,
+    structure_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<StructureArtifact>>>>,
+    artifact_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisArtifact>>>>,
+    navigation_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisNavigationArtifact>>>>,
+    semantic_tokens_cache: Arc<Mutex<BTreeMap<SemanticTokensCacheKey, IdeSemanticTokens>>>,
+    lexical_cache: Arc<Mutex<BTreeMap<LexicalCacheKey, Arc<LexicalIndex>>>>,
+    dirty_documents_snapshot: Arc<Mutex<Option<Arc<DirtyDocumentsSnapshot>>>>,
+    open_uri_by_path: Arc<Mutex<Option<Arc<BTreeMap<PathBuf, String>>>>>,
+    last_analysis_tier: Arc<Mutex<Option<AnalysisTier>>>,
 }
 
 impl Default for AnalysisEngine {
@@ -211,18 +212,18 @@ impl AnalysisEngine {
         Self {
             documents: BTreeMap::new(),
             settings,
-            project_cache: Mutex::new(BTreeMap::new()),
-            driver_cache: Mutex::new(BTreeMap::new()),
-            parse_cache: Mutex::new(BTreeMap::new()),
-            surface_cache: Mutex::new(BTreeMap::new()),
-            structure_cache: Mutex::new(BTreeMap::new()),
-            artifact_cache: Mutex::new(BTreeMap::new()),
-            navigation_cache: Mutex::new(BTreeMap::new()),
-            semantic_tokens_cache: Mutex::new(BTreeMap::new()),
-            lexical_cache: Mutex::new(BTreeMap::new()),
-            dirty_documents_snapshot: Mutex::new(None),
-            open_uri_by_path: Mutex::new(None),
-            last_analysis_tier: Mutex::new(None),
+            project_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            driver_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            parse_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            surface_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            structure_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            artifact_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            navigation_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            semantic_tokens_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            lexical_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            dirty_documents_snapshot: Arc::new(Mutex::new(None)),
+            open_uri_by_path: Arc::new(Mutex::new(None)),
+            last_analysis_tier: Arc::new(Mutex::new(None)),
         }
     }
 

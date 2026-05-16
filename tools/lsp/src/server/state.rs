@@ -2,6 +2,7 @@ use super::lifecycle::TraceValue;
 use crate::analysis::{AnalysisEngine, AnalysisOutcome};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::mpsc;
 
 pub(super) struct ServerState {
     pub(super) initialized: bool,
@@ -16,6 +17,9 @@ pub(super) struct ServerState {
     pub(super) pending_diagnostics_targets: BTreeMap<String, ScheduledDiagnosticsTask>,
     pub(super) pending_workspace_refresh_reason: Option<String>,
     pub(super) pending_diagnostics: BTreeMap<String, ScheduledDiagnosticsPublish>,
+    pub(super) document_request_results_rx: mpsc::Receiver<DocumentRequestTaskResult>,
+    pub(super) document_request_results_tx: mpsc::Sender<DocumentRequestTaskResult>,
+    pub(super) pending_document_request_tasks: usize,
     pub(super) published_by_target: BTreeMap<String, BTreeSet<String>>,
 }
 
@@ -37,6 +41,13 @@ pub(super) struct DocumentRequestTaskResult {
     pub(super) method: String,
     pub(super) elapsed_ms: u128,
     pub(super) response: DocumentRequestResponse,
+}
+
+pub(super) struct ScheduledDocumentRequestTask {
+    pub(super) request: RequestContext,
+    pub(super) target_uri: String,
+    pub(super) lane: SchedulerLane,
+    pub(super) method: String,
 }
 
 #[derive(Debug)]
@@ -187,6 +198,7 @@ impl ServerState {
     }
 
     pub(super) fn with_analysis(analysis: AnalysisEngine) -> Self {
+        let (document_request_results_tx, document_request_results_rx) = mpsc::channel();
         Self {
             initialized: false,
             shutdown_requested: false,
@@ -200,6 +212,9 @@ impl ServerState {
             pending_diagnostics_targets: BTreeMap::new(),
             pending_workspace_refresh_reason: None,
             pending_diagnostics: BTreeMap::new(),
+            document_request_results_rx,
+            document_request_results_tx,
+            pending_document_request_tasks: 0,
             published_by_target: BTreeMap::new(),
         }
     }
@@ -320,11 +335,23 @@ impl ServerState {
     }
 
     pub(super) fn should_drain_scheduler_after(&self, method: &str) -> bool {
-        self.has_pending_diagnostics_work()
+        (self.has_pending_diagnostics_work() || self.has_pending_document_request_work())
             && (self.diagnostics_flush_policy.decide_after_message(method)
                 == SchedulerDrainDecision::Drain
                 || self
                     .diagnostics_flush_policy
                     .should_force_drain_after_message(method, self))
+    }
+
+    pub(super) fn queue_document_request_task(&mut self) {
+        self.pending_document_request_tasks += 1;
+    }
+
+    pub(super) fn complete_document_request_task(&mut self) {
+        self.pending_document_request_tasks = self.pending_document_request_tasks.saturating_sub(1);
+    }
+
+    pub(super) fn has_pending_document_request_work(&self) -> bool {
+        self.pending_document_request_tasks > 0
     }
 }

@@ -607,6 +607,8 @@ Tasks:
 - Cache document symbols and top-level definitions per package target. Workspace
   symbol requests now cache the unfiltered per-target symbol index and reuse it
   across query strings, while preserving the clean/dirty analysis cache split.
+  Document symbol requests also cache per-target, per-document outline indexes
+  from surface analysis so repeated outline requests avoid rebuilding the tree.
 - Invalidate precisely on watched file changes.
 
 Exit criteria:

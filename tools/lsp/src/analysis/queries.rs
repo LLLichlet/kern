@@ -165,23 +165,45 @@ impl AnalysisEngine {
         let surface =
             if snapshot.dirty_documents().is_clean() || !context.resolved.input_file.is_file() {
                 self.analyze_surface_artifact_for_context(&context)?
+                    .map(|surface| (surface, context.cache_key.clone()))
                     .or_else(|| {
                         self.analyze_clean_surface_for_context(&context)
                             .ok()
                             .flatten()
+                            .map(|surface| (surface, AnalysisCacheKey::clean(&context.resolved)))
                     })
             } else {
                 self.analyze_clean_surface_for_context(&context)?
+                    .map(|surface| (surface, AnalysisCacheKey::clean(&context.resolved)))
             };
-        let Some(surface) = surface else {
+        let Some((surface, symbol_analysis_key)) = surface else {
             return Ok(Vec::new());
         };
-        self.record_analysis_tier(AnalysisTier::Surface);
 
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested document symbols for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
+        self.document_symbol_index_for_surface(&surface, symbol_analysis_key, target_path)
+    }
+
+    fn document_symbol_index_for_surface(
+        &self,
+        surface: &AnalysisSurfaceArtifact,
+        analysis_key: AnalysisCacheKey,
+        target_path: PathBuf,
+    ) -> Result<Vec<IdeDocumentSymbol>, String> {
+        let cache_key = DocumentSymbolCacheKey::new(analysis_key, target_path.clone());
+        if let Some(symbols) = self
+            .document_symbol_cache
+            .lock()
+            .unwrap()
+            .get(&cache_key)
+            .cloned()
+        {
+            self.record_analysis_tier(AnalysisTier::Surface);
+            return Ok(symbols.as_ref().clone());
+        }
 
         let mut symbols = Vec::new();
         for module_symbol in &surface.symbols {
@@ -202,6 +224,12 @@ impl AnalysisEngine {
             }
         }
 
+        self.prune_cache_family_for_insert(cache_key.analysis_key());
+        self.document_symbol_cache
+            .lock()
+            .unwrap()
+            .insert(cache_key, Arc::new(symbols.clone()));
+        self.record_analysis_tier(AnalysisTier::Surface);
         Ok(symbols)
     }
 

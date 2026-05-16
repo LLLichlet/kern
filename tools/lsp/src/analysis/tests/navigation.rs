@@ -185,6 +185,7 @@ fn dirty_document_symbols_do_not_create_dirty_surface_cache_entries() {
     assert_eq!(analysis.parse_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.structure_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.cached_document_symbol_index_count(), 1);
 }
 
 #[test]
@@ -228,6 +229,17 @@ fn document_symbols_use_surface_cache_without_body_artifact() {
     assert_eq!(analysis.surface_cache.lock().unwrap().len(), 1);
     assert_eq!(analysis.structure_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.cached_document_symbol_index_count(), 1);
+
+    let symbols = analysis.document_symbols(&uri).unwrap();
+    let names = symbols
+        .iter()
+        .map(|symbol| symbol.name.clone())
+        .collect::<Vec<_>>();
+
+    assert!(names.contains(&"Point".to_string()));
+    assert!(names.contains(&"helper".to_string()));
+    assert_eq!(analysis.cached_document_symbol_index_count(), 1);
 }
 
 #[test]

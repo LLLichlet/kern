@@ -186,6 +186,36 @@ root = \"src/lib.kn\"
     assert_eq!(refresh.failed_targets, 0);
     assert!(refresh.generation > 0);
     assert_eq!(analysis.cached_workspace_symbol_index_count(), 1);
+    assert_eq!(analysis.cached_workspace_index_target_count(), 1);
+
+    let indexed_targets = analysis.cached_workspace_index_targets();
+    let indexed = indexed_targets
+        .iter()
+        .find(|target| target.package_name.as_deref() == Some("app"))
+        .expect("expected app target metadata");
+    assert_eq!(
+        indexed.input_file,
+        super::normalize_path(&root.join("src/lib.kn"))
+    );
+    assert_eq!(
+        indexed.manifest_path.as_deref(),
+        Some(super::normalize_path(&root.join("Craft.toml")).as_path())
+    );
+    assert_eq!(
+        indexed.workspace_root.as_deref(),
+        Some(super::normalize_path(&root).as_path())
+    );
+    assert_eq!(indexed.target_kind.as_deref(), Some("lib"));
+    assert_eq!(
+        indexed.source_roots,
+        vec![super::normalize_path(&root.join("src/lib.kn"))]
+    );
+    assert!(
+        indexed
+            .analysis_context_path
+            .as_deref()
+            .is_some_and(|path| path.ends_with(".craft/analysis.toml"))
+    );
 
     let snapshot = analysis.snapshot(Some(root.clone()), CancellationToken::new());
     let symbols = analysis
@@ -197,6 +227,96 @@ root = \"src/lib.kn\"
 
     let next_refresh = analysis.refresh_workspace_index(Some(root));
     assert!(next_refresh.generation > refresh.generation);
+    assert_eq!(analysis.cached_workspace_index_target_count(), 1);
+}
+
+#[test]
+fn workspace_index_tracks_generated_source_aliases() {
+    let root = unique_temp_dir("analysis_workspace_index_generated_alias");
+    fs::create_dir_all(root.join("src")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[[bin]]
+name = \"app\"
+root = \"src/placeholder.kn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.kn"),
+        "mod build_info;\nfn main() i32 { let _ = build_info.MAGIC_NUMBER; return 0; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.kn"),
+        "\
+use craft.builder;
+
+pub fn build(b: &mut builder.Builder) void {
+    let main = b.stage_copy_package_file(\"src/main.kn\", \"src/main.kn\");
+    let _ = b.stage_generated(
+        \"src/build_info.kn\",
+        \"pub const MAGIC_NUMBER = 42i32;\\n\"
+    );
+    b.set_source_root_from(main);
+}
+",
+    )
+    .unwrap();
+    analysis_context::sync_project_analysis_context(&root.join("Craft.toml"), true, &[]).unwrap();
+
+    let generated_main = root
+        .join(".craft")
+        .join("build")
+        .join("dev")
+        .join("target")
+        .join("gen")
+        .join("app-0.1.0")
+        .join("bin")
+        .join("app")
+        .join("src")
+        .join("main.kn");
+    let uri = file_path_to_uri(&root.join("src/main.kn")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri,
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: fs::read_to_string(root.join("src/main.kn")).unwrap(),
+        },
+    });
+
+    let refresh = analysis.refresh_workspace_index(Some(root.clone()));
+
+    assert_eq!(refresh.indexed_targets, 1);
+    assert_eq!(refresh.failed_targets, 0);
+    assert_eq!(analysis.cached_workspace_index_target_count(), 1);
+    let indexed_targets = analysis.cached_workspace_index_targets();
+    let indexed = indexed_targets
+        .iter()
+        .find(|target| target.package_name.as_deref() == Some("app"))
+        .expect("expected app target metadata");
+    assert_eq!(indexed.target_kind.as_deref(), Some("bin"));
+    assert_eq!(indexed.target_name.as_deref(), Some("app"));
+    assert!(
+        indexed
+            .source_roots
+            .contains(&super::normalize_path(&generated_main))
+    );
+    assert!(indexed.generated_aliases.contains(&(
+        super::normalize_path(&root.join("src/main.kn")),
+        super::normalize_path(&generated_main),
+    )));
 }
 
 #[test]

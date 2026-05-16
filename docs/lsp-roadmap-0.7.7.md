@@ -602,9 +602,11 @@ Tasks:
 
 - Build a project/workspace index abstraction. The LSP now has a coordinator-
   shared workspace index state with a refresh generation, last refresh stats,
-  and per-target surface symbol indexes.
-- Track `Craft.toml`, workspace members, package roots, source roots, generated
-  aliases, and analysis context files.
+  per-target surface symbol indexes, and per-target metadata derived from
+  `ResolvedAnalysis`.
+- Track `Craft.toml`, workspace roots, package roots, source roots, generated
+  aliases, analysis context files, and module/interface aliases in the
+  workspace index.
 - Cache document symbols and top-level definitions per package target. Surface
   analysis now feeds a shared per-target symbol index that stores both
   unfiltered workspace symbols and per-document outline trees, preserving the

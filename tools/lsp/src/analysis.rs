@@ -118,10 +118,85 @@ struct SurfaceSymbolIndex {
     workspace_symbols: Arc<Vec<IdeWorkspaceSymbol>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WorkspaceIndexTarget {
+    input_file: PathBuf,
+    manifest_path: Option<PathBuf>,
+    workspace_root: Option<PathBuf>,
+    package_root: Option<PathBuf>,
+    package_name: Option<String>,
+    target_kind: Option<String>,
+    target_name: Option<String>,
+    analysis_context_path: Option<PathBuf>,
+    source_roots: Vec<PathBuf>,
+    generated_aliases: Vec<(PathBuf, PathBuf)>,
+    module_aliases: Vec<(String, String)>,
+    module_interface_aliases: Vec<(String, String)>,
+}
+
+impl WorkspaceIndexTarget {
+    fn from_resolved(resolved: &ResolvedAnalysis) -> Self {
+        let mut source_roots = vec![normalize_path(&resolved.input_file)];
+        source_roots.extend(
+            resolved
+                .target_roots
+                .iter()
+                .map(|root| normalize_path(root)),
+        );
+        source_roots.sort();
+        source_roots.dedup();
+
+        let mut generated_aliases = resolved
+            .source_path_aliases
+            .iter()
+            .map(|(source, generated)| (normalize_path(source), normalize_path(generated)))
+            .collect::<Vec<_>>();
+        generated_aliases.sort();
+
+        let mut module_aliases = resolved
+            .compile_options
+            .module_aliases
+            .iter()
+            .map(|(name, path)| (name.clone(), path.clone()))
+            .collect::<Vec<_>>();
+        module_aliases.sort();
+
+        let mut module_interface_aliases = resolved
+            .compile_options
+            .module_interface_aliases
+            .iter()
+            .map(|(name, path)| (name.clone(), path.clone()))
+            .collect::<Vec<_>>();
+        module_interface_aliases.sort();
+
+        let target = resolved.target.as_ref();
+        Self {
+            input_file: normalize_path(&resolved.input_file),
+            manifest_path: target.map(|target| normalize_path(&target.manifest_path)),
+            workspace_root: target.map(|target| normalize_path(&target.workspace_root)),
+            package_root: target.map(|target| normalize_path(&target.package_root)),
+            package_name: target.map(|target| target.package_name.clone()),
+            target_kind: target.and_then(|target| {
+                target
+                    .target_kind
+                    .map(|kind| format!("{kind:?}").to_ascii_lowercase())
+            }),
+            target_name: target.and_then(|target| target.target_name.clone()),
+            analysis_context_path: target
+                .map(|target| normalize_path(&target.analysis_context_path)),
+            source_roots,
+            generated_aliases,
+            module_aliases,
+            module_interface_aliases,
+        }
+    }
+}
+
 #[derive(Default)]
 struct WorkspaceIndex {
     generation: u64,
     symbol_indexes: BTreeMap<AnalysisCacheKey, Arc<SurfaceSymbolIndex>>,
+    targets: BTreeMap<AnalysisCacheKey, WorkspaceIndexTarget>,
     last_refresh: Option<WorkspaceIndexStats>,
 }
 
@@ -1121,6 +1196,7 @@ impl AnalysisEngine {
             compile_options,
             source_path_aliases: BTreeMap::new(),
             target_roots: Vec::new(),
+            target: None,
         })
     }
 
@@ -1145,6 +1221,7 @@ impl AnalysisEngine {
             compile_options,
             source_path_aliases: BTreeMap::new(),
             target_roots: Vec::new(),
+            target: None,
         })
     }
 
@@ -1316,9 +1393,11 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
-        self.workspace_index
-            .lock()
-            .unwrap()
+        let mut workspace_index = self.workspace_index.lock().unwrap();
+        workspace_index
+            .targets
+            .retain(|key, _| key.family() != family || key == keep || key.is_clean());
+        workspace_index
             .symbol_indexes
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
     }
@@ -1327,6 +1406,7 @@ impl AnalysisEngine {
         let mut index = self.workspace_index.lock().unwrap();
         index.generation = index.generation.saturating_add(1);
         index.symbol_indexes.clear();
+        index.targets.clear();
         index.last_refresh = None;
     }
 
@@ -1359,6 +1439,22 @@ impl AnalysisEngine {
     #[cfg(test)]
     pub(crate) fn cached_workspace_symbol_index_count(&self) -> usize {
         self.workspace_index.lock().unwrap().symbol_indexes.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cached_workspace_index_target_count(&self) -> usize {
+        self.workspace_index.lock().unwrap().targets.len()
+    }
+
+    #[cfg(test)]
+    fn cached_workspace_index_targets(&self) -> Vec<WorkspaceIndexTarget> {
+        self.workspace_index
+            .lock()
+            .unwrap()
+            .targets
+            .values()
+            .cloned()
+            .collect()
     }
 
     #[cfg(test)]

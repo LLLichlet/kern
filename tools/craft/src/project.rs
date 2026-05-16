@@ -41,12 +41,25 @@ pub struct ResolvedAnalysis {
     pub compile_options: CompileOptions,
     pub source_path_aliases: BTreeMap<PathBuf, PathBuf>,
     pub target_roots: Vec<PathBuf>,
+    pub target: Option<ResolvedAnalysisTarget>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedAnalysisTarget {
+    pub manifest_path: PathBuf,
+    pub workspace_root: PathBuf,
+    pub package_root: PathBuf,
+    pub package_name: String,
+    pub target_kind: Option<TargetKind>,
+    pub target_name: Option<String>,
+    pub analysis_context_path: PathBuf,
 }
 
 struct AnalysisFileMatch<'a> {
     package: &'a AnalysisPackage,
     input_file: PathBuf,
     target_kind: TargetKind,
+    target_name: Option<String>,
     compile_time_values: BTreeMap<String, String>,
     source_path_aliases: BTreeMap<PathBuf, PathBuf>,
 }
@@ -101,12 +114,14 @@ impl AnalysisProject {
         let mut input_file = file.to_path_buf();
         let mut resolved_package = None;
         let mut resolved_target_kind = None;
+        let mut resolved_target_name = None;
         let mut matched_values = None;
         let mut source_path_aliases = BTreeMap::new();
         let mut target_roots = Vec::new();
 
-        if let Some(script_root) = self.script_root_for_file(file) {
+        if let Some((package, script_root)) = self.script_root_for_file(file) {
             input_file = script_root.root.clone();
+            resolved_package = Some(package);
             for (name, path) in &script_root.module_aliases {
                 compile_options
                     .module_aliases
@@ -120,6 +135,7 @@ impl AnalysisProject {
             target_roots = matched.package.target_roots.clone();
             resolved_package = Some(matched.package);
             resolved_target_kind = Some(matched.target_kind);
+            resolved_target_name = matched.target_name;
             for (name, path) in &matched.package.module_aliases {
                 compile_options
                     .module_aliases
@@ -181,6 +197,9 @@ impl AnalysisProject {
             compile_options,
             source_path_aliases,
             target_roots,
+            target: resolved_package.map(|package| {
+                self.resolved_analysis_target(package, resolved_target_kind, resolved_target_name)
+            }),
         }
     }
 
@@ -232,10 +251,15 @@ impl AnalysisProject {
                 }
 
                 targets.push(ResolvedAnalysis {
-                    input_file,
+                    input_file: input_file.clone(),
                     compile_options,
                     source_path_aliases: build_unit_source_aliases(&self.workspace_root, unit),
                     target_roots: package.target_roots.clone(),
+                    target: Some(self.resolved_analysis_target(
+                        package,
+                        Some(unit.target_kind),
+                        unit.target_name.clone(),
+                    )),
                 });
             }
         }
@@ -283,11 +307,31 @@ impl AnalysisProject {
             .find(|package| package.manifest_path == manifest_path)
     }
 
-    fn script_root_for_file(&self, file: &Path) -> Option<&AnalysisScriptRoot> {
-        self.packages
-            .iter()
-            .flat_map(|package| package.script_roots.iter())
-            .find(|script| script.root == file)
+    fn script_root_for_file(&self, file: &Path) -> Option<(&AnalysisPackage, &AnalysisScriptRoot)> {
+        self.packages.iter().find_map(|package| {
+            package
+                .script_roots
+                .iter()
+                .find(|script| script.root == file)
+                .map(|script| (package, script))
+        })
+    }
+
+    fn resolved_analysis_target(
+        &self,
+        package: &AnalysisPackage,
+        target_kind: Option<TargetKind>,
+        target_name: Option<String>,
+    ) -> ResolvedAnalysisTarget {
+        ResolvedAnalysisTarget {
+            manifest_path: package.manifest_path.clone(),
+            workspace_root: self.workspace_root.clone(),
+            package_root: package.package_root.clone(),
+            package_name: package.id.name.clone(),
+            target_kind,
+            target_name,
+            analysis_context_path: analysis_context::analysis_context_path(&self.workspace_root),
+        }
     }
 
     fn apply_craft_compile_options(
@@ -376,6 +420,7 @@ impl AnalysisProject {
             package,
             input_file: matched.source_root,
             target_kind: target_kind_from_str(&matched.target_kind)?,
+            target_name: None,
             compile_time_values: matched.compile_time_values,
             source_path_aliases: matched.source_path_aliases,
         })
@@ -415,11 +460,12 @@ impl AnalysisProject {
                         source_path_aliases,
                         analysis_package,
                         unit.target_kind,
+                        unit.target_name.clone(),
                         compile_time_defines(&unit.cfg, &unit.define),
                     ))
                 })
             })
-            .max_by_key(|(score, source_root, _, _, _, _)| {
+            .max_by_key(|(score, source_root, _, _, _, _, _)| {
                 (*score, source_root.components().count())
             })
             .map(
@@ -429,11 +475,13 @@ impl AnalysisProject {
                     source_path_aliases,
                     package,
                     target_kind,
+                    target_name,
                     compile_time_values,
                 )| AnalysisFileMatch {
                     package,
                     input_file: source_root,
                     target_kind,
+                    target_name,
                     compile_time_values,
                     source_path_aliases,
                 },

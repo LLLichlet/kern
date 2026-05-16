@@ -144,15 +144,19 @@ impl AnalysisEngine {
         uri_by_path: &BTreeMap<PathBuf, String>,
     ) -> Result<Arc<SurfaceSymbolIndex>, String> {
         context.check_canceled()?;
-        if let Some(index) = self
-            .workspace_index
-            .lock()
-            .unwrap()
-            .symbol_indexes
-            .get(&context.cache_key)
-            .cloned()
         {
-            return Ok(index);
+            let mut workspace_index = self.workspace_index.lock().unwrap();
+            if let Some(index) = workspace_index
+                .symbol_indexes
+                .get(&context.cache_key)
+                .cloned()
+            {
+                workspace_index
+                    .targets
+                    .entry(context.cache_key.clone())
+                    .or_insert_with(|| WorkspaceIndexTarget::from_resolved(&context.resolved));
+                return Ok(index);
+            }
         }
 
         let Some(surface) = self.analyze_surface_artifact_for_context(context)? else {
@@ -161,20 +165,26 @@ impl AnalysisEngine {
                 workspace_symbols: Arc::new(Vec::new()),
             });
             self.prune_cache_family_for_insert(&context.cache_key);
-            self.workspace_index
-                .lock()
-                .unwrap()
+            let mut workspace_index = self.workspace_index.lock().unwrap();
+            workspace_index
                 .symbol_indexes
                 .insert(context.cache_key.clone(), Arc::clone(&index));
+            workspace_index.targets.insert(
+                context.cache_key.clone(),
+                WorkspaceIndexTarget::from_resolved(&context.resolved),
+            );
             return Ok(index);
         };
         let index = Arc::new(surface_symbol_index_from_artifact(&surface, uri_by_path));
         self.prune_cache_family_for_insert(&context.cache_key);
-        self.workspace_index
-            .lock()
-            .unwrap()
+        let mut workspace_index = self.workspace_index.lock().unwrap();
+        workspace_index
             .symbol_indexes
             .insert(context.cache_key.clone(), Arc::clone(&index));
+        workspace_index.targets.insert(
+            context.cache_key.clone(),
+            WorkspaceIndexTarget::from_resolved(&context.resolved),
+        );
         Ok(index)
     }
 
@@ -238,27 +248,35 @@ impl AnalysisEngine {
             return Err("requested document symbols for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
-        let index = if let Some(index) = self
-            .workspace_index
-            .lock()
-            .unwrap()
-            .symbol_indexes
-            .get(&symbol_analysis_key)
-            .cloned()
-        {
-            index
-        } else {
-            let index = Arc::new(surface_symbol_index_from_artifact(
-                &surface,
-                snapshot.uri_by_normalized_path(),
-            ));
-            self.prune_cache_family_for_insert(&symbol_analysis_key);
-            self.workspace_index
-                .lock()
-                .unwrap()
+        let index = {
+            let mut workspace_index = self.workspace_index.lock().unwrap();
+            if let Some(index) = workspace_index
                 .symbol_indexes
-                .insert(symbol_analysis_key, Arc::clone(&index));
-            index
+                .get(&symbol_analysis_key)
+                .cloned()
+            {
+                workspace_index
+                    .targets
+                    .entry(symbol_analysis_key.clone())
+                    .or_insert_with(|| WorkspaceIndexTarget::from_resolved(&context.resolved));
+                index
+            } else {
+                drop(workspace_index);
+                let index = Arc::new(surface_symbol_index_from_artifact(
+                    &surface,
+                    snapshot.uri_by_normalized_path(),
+                ));
+                self.prune_cache_family_for_insert(&symbol_analysis_key);
+                let mut workspace_index = self.workspace_index.lock().unwrap();
+                workspace_index
+                    .symbol_indexes
+                    .insert(symbol_analysis_key.clone(), Arc::clone(&index));
+                workspace_index.targets.insert(
+                    symbol_analysis_key,
+                    WorkspaceIndexTarget::from_resolved(&context.resolved),
+                );
+                index
+            }
         };
 
         self.record_analysis_tier(AnalysisTier::Surface);

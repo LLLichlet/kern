@@ -114,6 +114,22 @@ root = \"src/lib.kn\"
             .and_then(|path| normalize_test_optional_path(Some(path))),
         Some(normalize_test_path(&util_dir.join("src/lib.kn")))
     );
+    let target = resolved.target.as_ref().expect("expected target metadata");
+    assert_eq!(
+        normalize_test_path(&target.manifest_path),
+        normalize_test_path(&app_dir.join("Craft.toml"))
+    );
+    assert_eq!(target.package_name, "app");
+    assert_eq!(target.target_kind, Some(TargetKind::Lib));
+    assert_eq!(target.target_name, None);
+    assert_eq!(
+        normalize_test_path(&target.workspace_root),
+        normalize_test_path(&root)
+    );
+    assert_eq!(
+        normalize_test_path(&target.analysis_context_path),
+        normalize_test_path(&root.join(".craft/analysis.toml"))
+    );
 }
 
 #[test]
@@ -670,6 +686,14 @@ pub fn build(b: &mut builder.Builder) void {
         normalize_test_path(&resolved.input_file),
         normalize_test_path(&generated_root)
     );
+    let target = resolved.target.as_ref().expect("expected target metadata");
+    assert_eq!(
+        normalize_test_path(&target.manifest_path),
+        normalize_test_path(&manifest_path)
+    );
+    assert_eq!(target.package_name, "app");
+    assert_eq!(target.target_kind, Some(TargetKind::Bin));
+    assert_eq!(target.target_name, None);
     assert_eq!(defines.get("generated").map(String::as_str), Some("true"));
     assert_eq!(
         defines.get("ENTRY_KIND").map(String::as_str),

@@ -3,10 +3,12 @@ mod code_actions;
 mod completion;
 mod diagnostics;
 mod documents;
+mod formatting;
 pub(super) mod ide;
 mod navigation;
 mod queries;
 mod semantic;
+mod structure;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -25,15 +27,19 @@ use self::diagnostics::{
     convert_diagnostic_for_document, diagnostics_from_session, preserve_target_diagnostics,
 };
 use self::ide::{
-    IdeCodeAction, IdeCompletionItem, IdeDiagnostic, IdeDocumentHighlight, IdeDocumentSymbol,
-    IdeHover, IdeInlayHint, IdeLocation, IdePrepareRenameResult, IdeSemanticTokens,
-    IdeSignatureHelp, IdeWorkspaceEdit,
+    IdeCallHierarchyIncomingCall, IdeCallHierarchyItem, IdeCallHierarchyOutgoingCall,
+    IdeCodeAction, IdeCompletionItem, IdeDiagnostic, IdeDocumentHighlight, IdeDocumentLink,
+    IdeDocumentSymbol, IdeFoldingRange, IdeFoldingRangeKind, IdeHover, IdeInlayHint, IdeLocation,
+    IdePrepareRenameResult, IdeSelectionRange, IdeSemanticTokens, IdeSignatureHelp, IdeTextEdit,
+    IdeWorkspaceEdit, IdeWorkspaceSymbol,
 };
 use self::navigation::{
     ReferenceLocationQuery, analysis_completion_to_ide_item, analysis_signature_help_to_ide_help,
-    analysis_symbol_to_document_symbol, analysis_type_hint_to_ide_hint, build_rename_changes,
-    find_definition_location, find_document_highlights, find_hover, find_reference_locations,
-    find_rename_target,
+    analysis_symbol_to_document_symbol, analysis_symbol_to_workspace_symbols,
+    analysis_type_hint_to_ide_hint, build_rename_changes, find_call_hierarchy_incoming_calls,
+    find_call_hierarchy_item, find_call_hierarchy_outgoing_calls, find_definition_location,
+    find_document_highlights, find_hover, find_implementation_locations, find_reference_locations,
+    find_rename_target, find_type_definition_location,
 };
 pub(crate) use self::text::single_server_diagnostic;
 #[cfg(test)]
@@ -113,6 +119,7 @@ pub struct AnalysisSnapshot {
     documents: BTreeMap<String, OpenDocument>,
     dirty_documents: Arc<DirtyDocumentsSnapshot>,
     open_uri_by_path: Arc<BTreeMap<PathBuf, String>>,
+    workspace_root: Option<PathBuf>,
     cancellation: CancellationToken,
 }
 
@@ -142,6 +149,10 @@ impl AnalysisSnapshot {
 
     fn uri_by_normalized_path(&self) -> &BTreeMap<PathBuf, String> {
         &self.open_uri_by_path
+    }
+
+    fn workspace_root(&self) -> Option<&Path> {
+        self.workspace_root.as_deref()
     }
 
     fn analysis_path_exists(&self, path: &Path) -> bool {
@@ -292,11 +303,16 @@ impl AnalysisEngine {
         self.last_analysis_tier.lock().unwrap().take();
     }
 
-    pub(crate) fn snapshot(&self, cancellation: CancellationToken) -> AnalysisSnapshot {
+    pub(crate) fn snapshot(
+        &self,
+        workspace_root: Option<PathBuf>,
+        cancellation: CancellationToken,
+    ) -> AnalysisSnapshot {
         AnalysisSnapshot {
             documents: self.documents.clone(),
             dirty_documents: self.dirty_documents_snapshot(),
             open_uri_by_path: self.open_uri_by_normalized_path(),
+            workspace_root,
             cancellation,
         }
     }

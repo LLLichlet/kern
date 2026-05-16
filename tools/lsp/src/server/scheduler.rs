@@ -387,6 +387,52 @@ where
             method: method.to_string(),
             queued_at: Instant::now(),
         },
+        state.workspace_root.clone(),
+        |engine, snapshot| {
+            analysis(engine, snapshot)
+                .and_then(|result| {
+                    serde_json::to_value(result)
+                        .map_err(|err| format!("failed to encode response: {err}"))
+                })
+                .map(DocumentRequestResponse::Success)
+        },
+    );
+    let _ = writer;
+    Ok(())
+}
+
+pub(super) fn execute_request<T, F>(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    id: Value,
+    target_label: &str,
+    lane: SchedulerLane,
+    method: &str,
+    analysis: F,
+) -> Result<(), ServerError>
+where
+    T: serde::Serialize,
+    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<T, String> + Send + 'static,
+{
+    let mut request = state.request_context(id);
+    let was_canceled_before_registration = state.take_pending_cancel(&request.id);
+    state.register_request_cancellation(&mut request);
+    if was_canceled_before_registration {
+        if let Some(cancellation) = &request.cancellation {
+            cancellation.cancel();
+        }
+    }
+
+    submit_document_request_task(
+        state,
+        ScheduledDocumentRequestTask {
+            request,
+            target_uri: target_label.to_string(),
+            lane,
+            method: method.to_string(),
+            queued_at: Instant::now(),
+        },
+        state.workspace_root.clone(),
         |engine, snapshot| {
             analysis(engine, snapshot)
                 .and_then(|result| {
@@ -403,6 +449,7 @@ where
 fn submit_document_request_task<F>(
     state: &mut ServerState,
     task_info: ScheduledDocumentRequestTask,
+    workspace_root: Option<std::path::PathBuf>,
     task: F,
 ) where
     F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<DocumentRequestResponse, String>
@@ -417,7 +464,7 @@ fn submit_document_request_task<F>(
         .as_ref()
         .map(|token| token.analysis_token())
         .unwrap_or_else(CancellationToken::new);
-    let snapshot = analysis.snapshot(cancellation);
+    let snapshot = analysis.snapshot(workspace_root, cancellation);
     state.queue_document_request_task();
     let task = LspWorkerTask::DocumentRequest(Box::new(move || {
         let result = run_document_request_task(analysis, snapshot, task_info, task);
@@ -517,6 +564,7 @@ where
             method: method.to_string(),
             queued_at: Instant::now(),
         },
+        state.workspace_root.clone(),
         |engine, snapshot| match analysis(engine, snapshot)? {
             Some(result) => serde_json::to_value(result)
                 .map(DocumentRequestResponse::Success)

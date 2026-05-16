@@ -1,8 +1,9 @@
 use crate::protocol::{
-    CodeAction, CompletionItem, Diagnostic, DiagnosticRelatedInformation, DiagnosticTag,
-    DocumentHighlight, DocumentSymbol, InlayHint, Location, ParameterInformation,
-    PrepareRenameResult, Range, SemanticTokens, SignatureHelp, SignatureInformation, TextEdit,
-    WorkspaceEdit,
+    CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, CodeAction,
+    CompletionItem, Diagnostic, DiagnosticRelatedInformation, DiagnosticTag, DocumentHighlight,
+    DocumentLink, DocumentSymbol, FoldingRange, InlayHint, Location, ParameterInformation,
+    PrepareRenameResult, Range, SelectionRange, SemanticTokens, SignatureHelp,
+    SignatureInformation, TextEdit, WorkspaceEdit, WorkspaceSymbol,
 };
 use std::collections::BTreeMap;
 
@@ -42,6 +43,35 @@ pub(crate) struct IdeDocumentSymbol {
     pub children: Vec<IdeDocumentSymbol>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IdeWorkspaceSymbol {
+    pub name: String,
+    pub kind: IdeSymbolKind,
+    pub location: IdeLocation,
+    pub container_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IdeCallHierarchyItem {
+    pub name: String,
+    pub kind: IdeSymbolKind,
+    pub uri: String,
+    pub range: Range,
+    pub selection_range: Range,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IdeCallHierarchyIncomingCall {
+    pub from: IdeCallHierarchyItem,
+    pub from_ranges: Vec<Range>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IdeCallHierarchyOutgoingCall {
+    pub to: IdeCallHierarchyItem,
+    pub from_ranges: Vec<Range>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IdeSymbolKind {
     Module,
@@ -60,6 +90,32 @@ pub(crate) enum IdeSymbolKind {
 pub(crate) struct IdeDocumentHighlight {
     pub range: Range,
     pub kind: Option<IdeDocumentHighlightKind>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IdeFoldingRange {
+    pub start_line: u32,
+    pub start_character: Option<u32>,
+    pub end_line: u32,
+    pub end_character: Option<u32>,
+    pub kind: Option<IdeFoldingRangeKind>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IdeFoldingRangeKind {
+    Comment,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IdeSelectionRange {
+    pub range: Range,
+    pub parent: Option<Box<IdeSelectionRange>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IdeDocumentLink {
+    pub range: Range,
+    pub target: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,7 +230,7 @@ impl IdeCodeAction {
     pub(crate) fn into_lsp(self) -> CodeAction {
         CodeAction {
             title: self.title,
-            kind: self.kind,
+            kind: self.kind.map(str::to_string),
             diagnostics: (!self.diagnostics.is_empty()).then(|| {
                 self.diagnostics
                     .into_iter()
@@ -200,7 +256,7 @@ impl IdeWorkspaceEdit {
 }
 
 impl IdeTextEdit {
-    fn into_lsp(self) -> TextEdit {
+    pub(crate) fn into_lsp(self) -> TextEdit {
         TextEdit {
             range: self.range,
             new_text: self.new_text,
@@ -230,6 +286,47 @@ impl IdeDocumentSymbol {
                 .into_iter()
                 .map(IdeDocumentSymbol::into_lsp)
                 .collect(),
+        }
+    }
+}
+
+impl IdeWorkspaceSymbol {
+    pub(crate) fn into_lsp(self) -> WorkspaceSymbol {
+        WorkspaceSymbol {
+            name: self.name,
+            kind: self.kind.into_lsp(),
+            location: self.location.into_lsp(),
+            container_name: self.container_name,
+        }
+    }
+}
+
+impl IdeCallHierarchyItem {
+    pub(crate) fn into_lsp(self) -> CallHierarchyItem {
+        CallHierarchyItem {
+            name: self.name,
+            kind: self.kind.into_lsp(),
+            uri: self.uri,
+            range: self.range,
+            selection_range: self.selection_range,
+        }
+    }
+}
+
+impl IdeCallHierarchyIncomingCall {
+    pub(crate) fn into_lsp(self) -> CallHierarchyIncomingCall {
+        CallHierarchyIncomingCall {
+            from: self.from.into_lsp(),
+            from_ranges: self.from_ranges,
+        }
+    }
+}
+
+impl IdeCallHierarchyOutgoingCall {
+    pub(crate) fn into_lsp(self) -> CallHierarchyOutgoingCall {
+        CallHierarchyOutgoingCall {
+            to: self.to.into_lsp(),
+            from_ranges: self.from_ranges,
         }
     }
 }
@@ -264,6 +361,44 @@ impl IdeDocumentHighlightKind {
     fn into_lsp(self) -> u8 {
         match self {
             Self::Text => 1,
+        }
+    }
+}
+
+impl IdeFoldingRange {
+    pub(crate) fn into_lsp(self) -> FoldingRange {
+        FoldingRange {
+            start_line: self.start_line,
+            start_character: self.start_character,
+            end_line: self.end_line,
+            end_character: self.end_character,
+            kind: self.kind.map(IdeFoldingRangeKind::into_lsp),
+        }
+    }
+}
+
+impl IdeFoldingRangeKind {
+    fn into_lsp(self) -> &'static str {
+        match self {
+            Self::Comment => "comment",
+        }
+    }
+}
+
+impl IdeSelectionRange {
+    pub(crate) fn into_lsp(self) -> SelectionRange {
+        SelectionRange {
+            range: self.range,
+            parent: self.parent.map(|parent| Box::new(parent.into_lsp())),
+        }
+    }
+}
+
+impl IdeDocumentLink {
+    pub(crate) fn into_lsp(self) -> DocumentLink {
+        DocumentLink {
+            range: self.range,
+            target: self.target,
         }
     }
 }
@@ -347,7 +482,7 @@ impl IdeCompletionItem {
         });
         CompletionItem {
             label: self.label,
-            kind: self.kind.into_lsp(),
+            kind: Some(self.kind.into_lsp()),
             detail: self.detail,
             insert_text: self.insert_text,
             insert_text_format,
@@ -395,7 +530,7 @@ impl IdeDiagnostic {
         Diagnostic {
             range: self.range,
             severity: self.severity.into_lsp(),
-            source: self.source,
+            source: self.source.to_string(),
             message: self.message,
             code: self.code,
             tags: (!self.tags.is_empty()).then(|| {

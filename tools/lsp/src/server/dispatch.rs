@@ -5,20 +5,23 @@ use super::lifecycle::{
 };
 use super::scheduler::{
     drain_scheduler, execute_document_diagnostics, execute_document_request,
-    execute_optional_document_request, flush_document_request_results, schedule_workspace_refresh,
-    write_error_response, write_null_response, write_success_response,
+    execute_optional_document_request, execute_request, flush_document_request_results,
+    schedule_workspace_refresh, write_error_response, write_null_response, write_success_response,
 };
 use super::{
     INVALID_REQUEST, METHOD_NOT_FOUND, SERVER_NOT_INITIALIZED, SchedulerLane, ServerError,
     ServerState,
 };
 use crate::protocol::{
-    CancelRequestParams, CodeActionParams, CompletionParams, DefinitionParams,
-    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentHighlightParams,
-    DocumentSymbolParams, IncomingMessage, InitializeParams, InlayHintParams, ReferenceParams,
-    RenameParams, SemanticTokensParams, SetTraceParams, SignatureHelpParams, error_response,
-    initialize_result, log_message,
+    CallHierarchyIncomingCallsParams, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
+    CancelRequestParams, CodeAction, CodeActionParams, CompletionItem, CompletionParams,
+    DefinitionParams, DidChangeConfigurationParams, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentHighlightParams, DocumentLinkParams, DocumentSymbolParams, FoldingRangeParams,
+    FormattingParams, IncomingMessage, InitializeParams, InlayHintParams, RangeFormattingParams,
+    ReferenceParams, RenameParams, SelectionRangeParams, SemanticTokensParams,
+    SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams, WorkspaceSymbolParams,
+    error_response, initialize_result, log_message,
 };
 use crate::transport::MessageWriter;
 use serde_json::Value;
@@ -166,6 +169,31 @@ fn handle_message_with_document_request_policy(
         "workspace/didChangeWatchedFiles" => {
             schedule_workspace_refresh(state, writer, "workspace files changed")?;
         }
+        "workspace/symbol" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol("workspace/symbol must be sent as a request".to_string())
+            })?;
+            let params = required_params::<WorkspaceSymbolParams>(message.params)?;
+            let query = params.query;
+            execute_request(
+                state,
+                writer,
+                id,
+                "<workspace>",
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .workspace_symbols_in_snapshot(snapshot, &query)
+                        .map(|symbols| {
+                            symbols
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeWorkspaceSymbol::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
+            )?;
+        }
         "shutdown" => {
             let request = state.request_context(message.id.ok_or_else(|| {
                 ServerError::Protocol("shutdown must be sent as a request".to_string())
@@ -274,6 +302,177 @@ fn handle_message_with_document_request_policy(
                     analysis
                         .goto_definition_in_snapshot(snapshot, &query_uri, position)
                         .map(|location| location.map(crate::analysis::ide::IdeLocation::into_lsp))
+                },
+            )?;
+        }
+        "textDocument/declaration" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/declaration must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<DefinitionParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let position = params.position;
+            execute_optional_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .goto_declaration_in_snapshot(snapshot, &query_uri, position)
+                        .map(|location| location.map(crate::analysis::ide::IdeLocation::into_lsp))
+                },
+            )?;
+        }
+        "textDocument/typeDefinition" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/typeDefinition must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<DefinitionParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let position = params.position;
+            execute_optional_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .goto_type_definition_in_snapshot(snapshot, &query_uri, position)
+                        .map(|location| location.map(crate::analysis::ide::IdeLocation::into_lsp))
+                },
+            )?;
+        }
+        "textDocument/implementation" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/implementation must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<DefinitionParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let position = params.position;
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .implementation_locations_in_snapshot(snapshot, &query_uri, position)
+                        .map(|locations| {
+                            locations
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeLocation::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
+            )?;
+        }
+        "textDocument/prepareCallHierarchy" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/prepareCallHierarchy must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<CallHierarchyPrepareParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let position = params.position;
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .prepare_call_hierarchy_in_snapshot(snapshot, &query_uri, position)
+                        .map(|item| {
+                            item.into_iter()
+                                .map(crate::analysis::ide::IdeCallHierarchyItem::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
+            )?;
+        }
+        "callHierarchy/incomingCalls" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "callHierarchy/incomingCalls must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<CallHierarchyIncomingCallsParams>(message.params)?;
+            let target_uri = params.item.uri.clone();
+            let query_uri = target_uri.clone();
+            let target_range = params.item.selection_range;
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .call_hierarchy_incoming_calls_in_snapshot(
+                            snapshot,
+                            &query_uri,
+                            &target_range,
+                        )
+                        .map(|calls| {
+                            calls
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeCallHierarchyIncomingCall::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
+            )?;
+        }
+        "callHierarchy/outgoingCalls" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "callHierarchy/outgoingCalls must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<CallHierarchyOutgoingCallsParams>(message.params)?;
+            let target_uri = params.item.uri.clone();
+            let query_uri = target_uri.clone();
+            let target_range = params.item.selection_range;
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .call_hierarchy_outgoing_calls_in_snapshot(
+                            snapshot,
+                            &query_uri,
+                            &target_range,
+                        )
+                        .map(|calls| {
+                            calls
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeCallHierarchyOutgoingCall::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
                 },
             )?;
         }
@@ -421,6 +620,15 @@ fn handle_message_with_document_request_policy(
                 },
             )?;
         }
+        "completionItem/resolve" => {
+            let request = state.request_context(message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "completionItem/resolve must be sent as a request".to_string(),
+                )
+            })?);
+            let item = required_params::<CompletionItem>(message.params)?;
+            write_success_response(state, writer, &request, serde_json::to_value(item)?)?;
+        }
         "textDocument/semanticTokens/full" => {
             let id = message.id.ok_or_else(|| {
                 ServerError::Protocol(
@@ -440,6 +648,30 @@ fn handle_message_with_document_request_policy(
                 move |analysis, snapshot| {
                     analysis
                         .semantic_tokens_in_snapshot(snapshot, &query_uri)
+                        .map(crate::analysis::ide::IdeSemanticTokens::into_lsp)
+                },
+            )?;
+        }
+        "textDocument/semanticTokens/range" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/semanticTokens/range must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<SemanticTokensRangeParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let range = params.range;
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .semantic_tokens_range_in_snapshot(snapshot, &query_uri, range)
                         .map(crate::analysis::ide::IdeSemanticTokens::into_lsp)
                 },
             )?;
@@ -468,6 +700,148 @@ fn handle_message_with_document_request_policy(
                             hints
                                 .into_iter()
                                 .map(crate::analysis::ide::IdeInlayHint::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
+            )?;
+        }
+        "textDocument/foldingRange" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/foldingRange must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<FoldingRangeParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .folding_ranges_in_snapshot(snapshot, &query_uri)
+                        .map(|ranges| {
+                            ranges
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeFoldingRange::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
+            )?;
+        }
+        "textDocument/selectionRange" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/selectionRange must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<SelectionRangeParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let positions = params.positions;
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .selection_ranges_in_snapshot(snapshot, &query_uri, positions)
+                        .map(|ranges| {
+                            ranges
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeSelectionRange::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
+            )?;
+        }
+        "textDocument/documentLink" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/documentLink must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<DocumentLinkParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .document_links_in_snapshot(snapshot, &query_uri)
+                        .map(|links| {
+                            links
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeDocumentLink::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
+            )?;
+        }
+        "textDocument/formatting" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/formatting must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<FormattingParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .formatting_edits_in_snapshot(snapshot, &query_uri)
+                        .map(|edits| {
+                            edits
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeTextEdit::into_lsp)
+                                .collect::<Vec<_>>()
+                        })
+                },
+            )?;
+        }
+        "textDocument/rangeFormatting" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/rangeFormatting must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<RangeFormattingParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let range = params.range;
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .range_formatting_edits_in_snapshot(snapshot, &query_uri, range)
+                        .map(|edits| {
+                            edits
+                                .into_iter()
+                                .map(crate::analysis::ide::IdeTextEdit::into_lsp)
                                 .collect::<Vec<_>>()
                         })
                 },
@@ -562,6 +936,13 @@ fn handle_message_with_document_request_policy(
                     },
                 )?;
             }
+        }
+        "codeAction/resolve" => {
+            let request = state.request_context(message.id.ok_or_else(|| {
+                ServerError::Protocol("codeAction/resolve must be sent as a request".to_string())
+            })?);
+            let action = required_params::<CodeAction>(message.params)?;
+            write_success_response(state, writer, &request, serde_json::to_value(action)?)?;
         }
         _ => {
             if let Some(id) = message.id {

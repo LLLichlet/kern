@@ -36,6 +36,8 @@ impl CompilerDriver {
         let completion_model = self.collect_completion_model(&mut ctx, &analysis_asts);
         let signature_model = self.collect_signature_model(&mut ctx, &analysis_asts);
         let flow_model = self.collect_flow_model(&ctx, &references);
+        let calls =
+            self.collect_analysis_calls(&ctx, &analysis_asts, &semantic_entries, &flow_model);
         let unused_items = self.collect_unused_private_items(&ctx, &raw_references, &flow_model);
         let unused_bindings = self.collect_unused_bindings(&ctx, &flow_model);
         let dead_stores = self.collect_dead_stores(&ctx, &raw_references, &flow_model);
@@ -52,6 +54,7 @@ impl CompilerDriver {
             type_hints,
             definition_links,
             semantic_entries,
+            calls,
             asts: analysis_asts,
             resolved_globals,
             completion_model,
@@ -90,6 +93,9 @@ impl CompilerDriver {
         let type_hints = self.collect_analysis_type_hints(&ctx, &analysis_asts);
         let definition_links = self.collect_analysis_definition_links(&ctx);
         let semantic_entries = self.collect_analysis_semantic_entries(&symbols, &ctx, &references);
+        let flow_model = self.collect_flow_model(&ctx, &references);
+        let calls =
+            self.collect_analysis_calls(&ctx, &analysis_asts, &semantic_entries, &flow_model);
         drop(ctx);
         cancellation.check()?;
 
@@ -102,6 +108,7 @@ impl CompilerDriver {
             type_hints,
             definition_links,
             semantic_entries,
+            calls,
         })
     }
 
@@ -330,6 +337,7 @@ impl CompilerDriver {
             type_hints: Vec::new(),
             definition_links: Vec::new(),
             semantic_entries: Vec::new(),
+            calls: Vec::new(),
             asts: Vec::new(),
             resolved_globals: Vec::new(),
             completion_model: CompletionModel::default(),
@@ -354,6 +362,7 @@ impl CompilerDriver {
             type_hints: Vec::new(),
             definition_links: Vec::new(),
             semantic_entries: Vec::new(),
+            calls: Vec::new(),
         }
     }
 

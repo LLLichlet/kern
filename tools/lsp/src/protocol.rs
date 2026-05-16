@@ -156,6 +156,12 @@ pub struct DidChangeConfigurationParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkspaceSymbolParams {
+    pub query: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DidOpenTextDocumentParams {
     pub text_document: TextDocumentItem,
 }
@@ -225,6 +231,25 @@ pub struct DefinitionParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CallHierarchyPrepareParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallHierarchyIncomingCallsParams {
+    pub item: CallHierarchyItem,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallHierarchyOutgoingCallsParams {
+    pub item: CallHierarchyItem,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentHighlightParams {
     pub text_document: TextDocumentIdentifier,
     pub position: Position,
@@ -274,9 +299,61 @@ pub struct SemanticTokensParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SemanticTokensRangeParams {
+    pub text_document: TextDocumentIdentifier,
+    pub range: Range,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InlayHintParams {
     pub text_document: TextDocumentIdentifier,
     pub range: Range,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldingRangeParams {
+    pub text_document: TextDocumentIdentifier,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectionRangeParams {
+    pub text_document: TextDocumentIdentifier,
+    pub positions: Vec<Position>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentLinkParams {
+    pub text_document: TextDocumentIdentifier,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormattingParams {
+    pub text_document: TextDocumentIdentifier,
+    #[serde(rename = "options")]
+    pub _options: FormattingOptions,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RangeFormattingParams {
+    pub text_document: TextDocumentIdentifier,
+    pub range: Range,
+    #[serde(rename = "options")]
+    pub _options: FormattingOptions,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormattingOptions {
+    #[serde(rename = "tabSize")]
+    pub _tab_size: u32,
+    #[serde(rename = "insertSpaces")]
+    pub _insert_spaces: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -349,24 +426,24 @@ pub struct PrepareRenameResult {
     pub placeholder: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextEdit {
     pub range: Range,
     pub new_text: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct WorkspaceEdit {
     pub changes: BTreeMap<String, Vec<TextEdit>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeAction {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<&'static str>,
+    pub kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<Vec<Diagnostic>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -375,11 +452,12 @@ pub struct CodeAction {
     pub is_preferred: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionItem {
     pub label: String,
-    pub kind: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -463,12 +541,12 @@ pub struct PublishDiagnosticsParams {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
     pub range: Range,
     pub severity: u8,
-    pub source: &'static str,
+    pub source: String,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
@@ -478,11 +556,20 @@ pub struct Diagnostic {
     pub related_information: Option<Vec<DiagnosticRelatedInformation>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(into = "u8")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(from = "u8", into = "u8")]
 pub enum DiagnosticTag {
     Unnecessary,
     Deprecated,
+}
+
+impl From<u8> for DiagnosticTag {
+    fn from(value: u8) -> Self {
+        match value {
+            2 => Self::Deprecated,
+            _ => Self::Unnecessary,
+        }
+    }
 }
 
 impl From<DiagnosticTag> for u8 {
@@ -512,6 +599,34 @@ pub struct InlayHint {
     pub padding_right: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldingRange {
+    pub start_line: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_character: Option<u32>,
+    pub end_line: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_character: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectionRange {
+    pub range: Range,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Box<SelectionRange>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentLink {
+    pub range: Range,
+    pub target: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Range {
     pub start: Position,
@@ -524,13 +639,47 @@ pub struct Position {
     pub character: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Location {
     pub uri: String,
     pub range: Range,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSymbol {
+    pub name: String,
+    pub kind: u8,
+    pub location: Location,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallHierarchyItem {
+    pub name: String,
+    pub kind: u8,
+    pub uri: String,
+    pub range: Range,
+    pub selection_range: Range,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallHierarchyIncomingCall {
+    pub from: CallHierarchyItem,
+    pub from_ranges: Vec<Range>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallHierarchyOutgoingCall {
+    pub to: CallHierarchyItem,
+    pub from_ranges: Vec<Range>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticRelatedInformation {
     pub location: Location,
@@ -593,9 +742,28 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
     );
     capabilities.insert("documentSymbolProvider".to_string(), Value::Bool(true));
     capabilities.insert("definitionProvider".to_string(), Value::Bool(true));
+    capabilities.insert("declarationProvider".to_string(), Value::Bool(true));
+    capabilities.insert("typeDefinitionProvider".to_string(), Value::Bool(true));
+    capabilities.insert("implementationProvider".to_string(), Value::Bool(true));
+    capabilities.insert(
+        "callHierarchyProvider".to_string(),
+        json!({ "workDoneProgress": false }),
+    );
     capabilities.insert("documentHighlightProvider".to_string(), Value::Bool(true));
     capabilities.insert("referencesProvider".to_string(), Value::Bool(true));
     capabilities.insert("hoverProvider".to_string(), Value::Bool(true));
+    capabilities.insert("foldingRangeProvider".to_string(), Value::Bool(true));
+    capabilities.insert("selectionRangeProvider".to_string(), Value::Bool(true));
+    capabilities.insert(
+        "documentLinkProvider".to_string(),
+        json!({ "resolveProvider": false }),
+    );
+    capabilities.insert("documentFormattingProvider".to_string(), Value::Bool(true));
+    capabilities.insert(
+        "documentRangeFormattingProvider".to_string(),
+        Value::Bool(true),
+    );
+    capabilities.insert("workspaceSymbolProvider".to_string(), Value::Bool(true));
     capabilities.insert(
         "workspace".to_string(),
         json!({
@@ -615,7 +783,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
     capabilities.insert(
         "completionProvider".to_string(),
         json!({
-            "resolveProvider": false,
+            "resolveProvider": true,
             "triggerCharacters": ["."]
         }),
     );
@@ -627,7 +795,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
                     "tokenTypes": SEMANTIC_TOKEN_TYPES,
                     "tokenModifiers": SEMANTIC_TOKEN_MODIFIERS
                 },
-                "range": false,
+                "range": true,
                 "full": {
                     "delta": false
                 }
@@ -642,7 +810,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
         if options.code_action_literals {
             json!({
                 "codeActionKinds": ["quickfix"],
-                "resolveProvider": false
+                "resolveProvider": true
             })
         } else {
             Value::Bool(false)

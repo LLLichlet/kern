@@ -113,6 +113,303 @@ fn code_action_request_skips_analysis_for_non_quickfix_filters() {
 }
 
 #[test]
+fn code_action_resolve_returns_eager_action_without_analysis() {
+    let mut state = initialized_state();
+    assert_eq!(state.analysis.last_analysis_tier(), None);
+
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(230)),
+            method: Some("codeAction/resolve".to_string()),
+            params: Some(json!({
+                "title": "Insert `;`",
+                "kind": "quickfix",
+                "edit": {
+                    "changes": {
+                        "file:///tmp/main.kn": [
+                            {
+                                "range": {
+                                    "start": { "line": 1, "character": 4 },
+                                    "end": { "line": 1, "character": 4 }
+                                },
+                                "newText": ";"
+                            }
+                        ]
+                    }
+                },
+                "isPreferred": true
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(230));
+    assert_eq!(response["result"]["title"], "Insert `;`");
+    assert_eq!(response["result"]["kind"], "quickfix");
+    assert_eq!(
+        response["result"]["edit"]["changes"]["file:///tmp/main.kn"][0]["newText"],
+        ";"
+    );
+    assert_eq!(response["result"]["isPreferred"], true);
+    assert_eq!(state.analysis.last_analysis_tier(), None);
+}
+
+#[test]
+fn workspace_symbol_request_returns_open_document_symbols() {
+    let mut state = initialized_state();
+    let source = "struct NeedleBox { value: i32 }\nfn helper() void {}\n";
+    let uri = temp_file_uri("server_workspace_symbol_open", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(240)),
+            method: Some("workspace/symbol".to_string()),
+            params: Some(json!({
+                "query": "needle"
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(240));
+    assert_eq!(response["result"].as_array().unwrap().len(), 1);
+    assert_eq!(response["result"][0]["name"], "NeedleBox");
+    assert_eq!(response["result"][0]["location"]["uri"], uri);
+    assert_eq!(
+        response["result"][0]["location"]["range"]["start"],
+        json!({ "line": 0, "character": 7 })
+    );
+}
+
+#[test]
+fn workspace_symbol_request_uses_workspace_root_targets() {
+    let root = unique_temp_dir("server_workspace_symbol_project");
+    let src = root.join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "{}"
+
+[lib]
+root = "src/lib.kn"
+"#,
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    fs::write(
+        src.join("lib.kn"),
+        "struct WorkspaceNeedle { value: i32 }\nfn other() void {}\n",
+    )
+    .unwrap();
+
+    let mut state = initialized_state();
+    state.workspace_root = Some(root.clone());
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(241)),
+            method: Some("workspace/symbol".to_string()),
+            params: Some(json!({
+                "query": "workspace"
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(241));
+    assert_eq!(response["result"].as_array().unwrap().len(), 1);
+    assert_eq!(response["result"][0]["name"], "WorkspaceNeedle");
+    assert!(
+        response["result"][0]["location"]["uri"]
+            .as_str()
+            .unwrap()
+            .ends_with("/src/lib.kn")
+    );
+}
+
+#[test]
+fn folding_range_request_returns_block_ranges() {
+    let mut state = initialized_state();
+    let source = "fn main() void {\n    if true {\n        return;\n    }\n}\n";
+    let uri = temp_file_uri("server_folding_range", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(24)),
+            method: Some("textDocument/foldingRange".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(24));
+    assert_eq!(
+        response["result"],
+        json!([
+            {
+                "startLine": 0,
+                "startCharacter": 15,
+                "endLine": 4,
+                "endCharacter": 1
+            },
+            {
+                "startLine": 1,
+                "startCharacter": 12,
+                "endLine": 3,
+                "endCharacter": 5
+            }
+        ])
+    );
+}
+
+#[test]
+fn selection_range_request_returns_parent_chain() {
+    let mut state = initialized_state();
+    let source = "fn main() void {\n    let value = helper(1);\n}\n";
+    let uri = temp_file_uri("server_selection_range", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25)),
+            method: Some("textDocument/selectionRange".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "positions": [
+                    { "line": 1, "character": 23 }
+                ]
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(25));
+    let result = response["result"].as_array().unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(
+        result[0]["range"],
+        json!({
+            "start": { "line": 1, "character": 23 },
+            "end": { "line": 1, "character": 24 }
+        })
+    );
+    assert_eq!(
+        result[0]["parent"]["range"],
+        json!({
+            "start": { "line": 1, "character": 22 },
+            "end": { "line": 1, "character": 25 }
+        })
+    );
+    assert_eq!(
+        result[0]["parent"]["parent"]["parent"]["range"],
+        json!({
+            "start": { "line": 0, "character": 15 },
+            "end": { "line": 2, "character": 1 }
+        })
+    );
+}
+
+#[test]
+fn formatting_request_returns_text_edits_for_dirty_document() {
+    let mut state = initialized_state();
+    let disk_source = "fn main() void {\n}\n";
+    let dirty_source = "fn main() void {  \n}\t";
+    let uri = temp_file_uri("server_formatting", disk_source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, dirty_source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(26)),
+            method: Some("textDocument/formatting".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "options": {
+                    "tabSize": 4,
+                    "insertSpaces": true
+                }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(26));
+    assert_eq!(
+        response["result"],
+        json!([
+            {
+                "range": {
+                    "start": { "line": 0, "character": 16 },
+                    "end": { "line": 0, "character": 18 }
+                },
+                "newText": ""
+            },
+            {
+                "range": {
+                    "start": { "line": 1, "character": 1 },
+                    "end": { "line": 1, "character": 2 }
+                },
+                "newText": "\n"
+            }
+        ])
+    );
+}
+
+#[test]
+fn range_formatting_request_filters_unrelated_edits() {
+    let mut state = initialized_state();
+    let source = "fn first() void {  \n}\t\nfn second() void {  \n}\t";
+    let uri = temp_file_uri("server_range_formatting", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(27)),
+            method: Some("textDocument/rangeFormatting".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 2, "character": 0 },
+                    "end": { "line": 3, "character": 1 }
+                },
+                "options": {
+                    "tabSize": 4,
+                    "insertSpaces": true
+                }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(27));
+    let edits = response["result"].as_array().unwrap();
+    assert_eq!(edits.len(), 2);
+    assert_eq!(
+        edits[0]["range"]["start"],
+        json!({ "line": 2, "character": 18 })
+    );
+    assert_eq!(
+        edits[1]["range"]["start"],
+        json!({ "line": 3, "character": 1 })
+    );
+}
+
+#[test]
 fn non_analyzing_request_does_not_trace_stale_analysis_tier() {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;
@@ -254,6 +551,361 @@ fn definition_request_reports_analysis_errors() {
 }
 
 #[test]
+fn declaration_request_returns_declaration_location() {
+    let mut state = initialized_state();
+    let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
+    let uri = temp_file_uri("server_declaration", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(2502)),
+            method: Some("textDocument/declaration".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 24 }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(2502));
+    assert_eq!(response["result"]["uri"], uri);
+    assert_eq!(
+        response["result"]["range"]["start"],
+        json!({ "line": 0, "character": 3 })
+    );
+}
+
+#[test]
+fn declaration_request_reports_analysis_errors() {
+    let mut state = initialized_state();
+    let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
+    let uri = invalid_manifest_document_uri("server_declaration_invalid_manifest", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(2503)),
+            method: Some("textDocument/declaration".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 24 }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(2503));
+    assert_eq!(response["error"]["code"], json!(-32600));
+    let message = response["error"]["message"].as_str().unwrap();
+    assert!(message.contains("declaration analysis failed"), "{message}");
+    assert!(message.contains("Craft.toml"), "{message}");
+}
+
+#[test]
+fn implementation_request_returns_trait_method_implementations() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "trait Base { fn foo() i32; }\n",
+        "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "fn main() i32 {\n",
+        "    let value = 3i32;\n",
+        "    let base = (value.& as &Base);\n",
+        "    return base.foo();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("server_implementation_trait_method", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(2504)),
+            method: Some("textDocument/implementation".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 16 }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(2504));
+    let locations = response["result"].as_array().unwrap();
+    assert_eq!(locations.len(), 1);
+    assert_eq!(locations[0]["uri"], uri);
+    assert_eq!(
+        locations[0]["range"]["start"],
+        json!({ "line": 1, "character": 26 })
+    );
+}
+
+#[test]
+fn implementation_request_returns_empty_for_plain_function() {
+    let mut state = initialized_state();
+    let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
+    let uri = temp_file_uri("server_implementation_plain_function", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(2505)),
+            method: Some("textDocument/implementation".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 24 }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(2505));
+    assert_eq!(response["result"], json!([]));
+}
+
+#[test]
+fn implementation_request_reports_analysis_errors() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "trait Base { fn foo() i32; }\n",
+        "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "fn main() i32 {\n",
+        "    let value = 3i32;\n",
+        "    let base = (value.& as &Base);\n",
+        "    return base.foo();\n",
+        "}\n",
+    );
+    let uri = invalid_manifest_document_uri("server_implementation_invalid_manifest", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(2506)),
+            method: Some("textDocument/implementation".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 16 }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(2506));
+    assert_eq!(response["error"]["code"], json!(-32600));
+    let message = response["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("implementation analysis failed"),
+        "{message}"
+    );
+    assert!(message.contains("Craft.toml"), "{message}");
+}
+
+#[test]
+fn call_hierarchy_requests_return_direct_calls() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "fn leaf() i32 { return 1; }\n",
+        "fn helper() i32 { return leaf(); }\n",
+        "fn main() i32 { return helper() + leaf(); }\n",
+    );
+    let uri = temp_file_uri("server_call_hierarchy", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let prepare = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25070)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare["id"], json!(25070));
+    let items = prepare["result"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["name"], "helper");
+    assert_eq!(items[0]["uri"], uri);
+    assert_eq!(
+        items[0]["selectionRange"],
+        json!({
+            "start": { "line": 1, "character": 3 },
+            "end": { "line": 1, "character": 9 }
+        })
+    );
+
+    let outgoing = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25071)),
+            method: Some("callHierarchy/outgoingCalls".to_string()),
+            params: Some(json!({
+                "item": items[0]
+            })),
+        },
+    );
+    assert_eq!(outgoing["id"], json!(25071));
+    let outgoing_calls = outgoing["result"].as_array().unwrap();
+    assert_eq!(outgoing_calls.len(), 1);
+    assert_eq!(outgoing_calls[0]["to"]["name"], "leaf");
+    assert_eq!(
+        outgoing_calls[0]["fromRanges"],
+        json!([
+            {
+                "start": { "line": 1, "character": 25 },
+                "end": { "line": 1, "character": 29 }
+            }
+        ])
+    );
+
+    let incoming = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25072)),
+            method: Some("callHierarchy/incomingCalls".to_string()),
+            params: Some(json!({
+                "item": items[0]
+            })),
+        },
+    );
+    assert_eq!(incoming["id"], json!(25072));
+    let incoming_calls = incoming["result"].as_array().unwrap();
+    assert_eq!(incoming_calls.len(), 1);
+    assert_eq!(incoming_calls[0]["from"]["name"], "main");
+    assert_eq!(
+        incoming_calls[0]["fromRanges"],
+        json!([
+            {
+                "start": { "line": 2, "character": 23 },
+                "end": { "line": 2, "character": 29 }
+            }
+        ])
+    );
+}
+
+#[test]
+fn call_hierarchy_request_reports_analysis_errors() {
+    let mut state = initialized_state();
+    let source = "fn leaf() i32 { return 1; }\nfn main() i32 { return leaf(); }\n";
+    let uri = invalid_manifest_document_uri("server_call_hierarchy_invalid_manifest", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25073)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(25073));
+    assert_eq!(response["error"]["code"], json!(-32600));
+    let message = response["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("call hierarchy analysis failed"),
+        "{message}"
+    );
+    assert!(message.contains("Craft.toml"), "{message}");
+}
+
+#[test]
+fn type_definition_request_returns_type_symbol_definition() {
+    let mut state = initialized_state();
+    let source = "struct Point { x: i32 }\nfn main(point: Point) i32 { return point.x; }\n";
+    let uri = temp_file_uri("server_type_definition_type_symbol", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(2507)),
+            method: Some("textDocument/typeDefinition".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 16 }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(2507));
+    assert_eq!(response["result"]["uri"], uri);
+    assert_eq!(
+        response["result"]["range"]["start"],
+        json!({ "line": 0, "character": 7 })
+    );
+}
+
+#[test]
+fn type_definition_request_returns_null_for_value_symbol() {
+    let mut state = initialized_state();
+    let source = "struct Point { x: i32 }\nfn main(point: Point) i32 { return point.x; }\n";
+    let uri = temp_file_uri("server_type_definition_value_symbol", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(2508)),
+            method: Some("textDocument/typeDefinition".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 36 }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(2508));
+    assert_eq!(response["result"], Value::Null);
+}
+
+#[test]
+fn type_definition_request_reports_analysis_errors() {
+    let mut state = initialized_state();
+    let source = "struct Point { x: i32 }\nfn main(point: Point) i32 { return point.x; }\n";
+    let uri = invalid_manifest_document_uri("server_type_definition_invalid_manifest", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(2509)),
+            method: Some("textDocument/typeDefinition".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 16 }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(2509));
+    assert_eq!(response["error"]["code"], json!(-32600));
+    let message = response["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("type definition analysis failed"),
+        "{message}"
+    );
+    assert!(message.contains("Craft.toml"), "{message}");
+}
+
+#[test]
 fn did_open_reports_analysis_errors_as_diagnostics() {
     let mut state = initialized_state();
     let source = "fn helper() i32 { return 1; }\n";
@@ -326,8 +978,30 @@ fn semantic_request_failures_are_error_responses() {
             "failed to resolve Craft project for LSP analysis",
         ),
         (
+            "textDocument/documentLink",
+            json!({}),
+            "failed to resolve Craft project for LSP analysis",
+        ),
+        (
+            "textDocument/prepareCallHierarchy",
+            json!({
+                "position": { "line": 1, "character": 3 }
+            }),
+            "failed to resolve Craft project for LSP analysis",
+        ),
+        (
             "textDocument/semanticTokens/full",
             json!({}),
+            "failed to resolve Craft project for LSP analysis",
+        ),
+        (
+            "textDocument/semanticTokens/range",
+            json!({
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 2, "character": 0 }
+                }
+            }),
             "failed to resolve Craft project for LSP analysis",
         ),
         (
@@ -502,6 +1176,36 @@ fn prepare_rename_request_returns_placeholder_and_range() {
 }
 
 #[test]
+fn completion_item_resolve_returns_eager_item_without_analysis() {
+    let mut state = initialized_state();
+    assert_eq!(state.analysis.last_analysis_tier(), None);
+
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(28)),
+            method: Some("completionItem/resolve".to_string()),
+            params: Some(json!({
+                "label": "helper",
+                "kind": 3,
+                "detail": "fn helper() void",
+                "insertText": "helper()",
+                "insertTextFormat": 1
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(28));
+    assert_eq!(response["result"]["label"], "helper");
+    assert_eq!(response["result"]["kind"], 3);
+    assert_eq!(response["result"]["detail"], "fn helper() void");
+    assert_eq!(response["result"]["insertText"], "helper()");
+    assert_eq!(response["result"]["insertTextFormat"], 1);
+    assert_eq!(state.analysis.last_analysis_tier(), None);
+}
+
+#[test]
 fn document_symbol_request_returns_top_level_symbols() {
     let mut state = initialized_state();
     let source = concat!(
@@ -566,6 +1270,82 @@ fn semantic_tokens_request_returns_encoded_token_data() {
 }
 
 #[test]
+fn semantic_tokens_range_request_filters_token_data() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "struct Point { x: i32 }\n",
+        "fn helper(point: Point) i32 {\n",
+        "    return point.x;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("server_semantic_tokens_range", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(32)),
+            method: Some("textDocument/semanticTokens/range".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 1, "character": 0 },
+                    "end": { "line": 2, "character": 0 }
+                }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(32));
+    let data = response["result"]["data"].as_array().unwrap();
+    assert!(!data.is_empty());
+    assert_eq!(data.len() % 5, 0);
+    let decoded = decode_semantic_token_positions(data);
+    assert!(decoded.iter().all(|(line, _)| *line == 1));
+    assert_eq!(decoded[0], (1, 0));
+}
+
+#[test]
+fn document_link_request_returns_external_module_targets() {
+    let root = unique_temp_dir("server_document_link");
+    fs::write(root.join("mod.kn"), "mod child;\nmod inline {}\n").unwrap();
+    fs::write(root.join("child.kn"), "pub fn child() void {}\n").unwrap();
+    let source = fs::read_to_string(root.join("mod.kn")).unwrap();
+    let uri = format!("file://{}", root.join("mod.kn").to_string_lossy());
+
+    let mut state = initialized_state();
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, &source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(330)),
+            method: Some("textDocument/documentLink".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(330));
+    let links = response["result"].as_array().unwrap();
+    assert_eq!(links.len(), 1);
+    assert_eq!(
+        links[0]["range"],
+        json!({
+            "start": { "line": 0, "character": 4 },
+            "end": { "line": 0, "character": 9 }
+        })
+    );
+    assert!(
+        links[0]["target"].as_str().unwrap().ends_with("/child.kn"),
+        "{}",
+        links[0]["target"]
+    );
+}
+
+#[test]
 fn inlay_hint_request_returns_type_hints() {
     let mut state = initialized_state();
     let source = concat!(
@@ -602,6 +1382,25 @@ fn inlay_hint_request_returns_type_hints() {
             .iter()
             .any(|hint| hint["position"] == json!({ "line": 2, "character": 13 }))
     );
+}
+
+fn decode_semantic_token_positions(data: &[Value]) -> Vec<(u64, u64)> {
+    let mut decoded = Vec::new();
+    let mut line = 0;
+    let mut start = 0;
+
+    for chunk in data.chunks_exact(5) {
+        let delta_line = chunk[0].as_u64().unwrap();
+        line += delta_line;
+        if delta_line == 0 {
+            start += chunk[1].as_u64().unwrap();
+        } else {
+            start = chunk[1].as_u64().unwrap();
+        }
+        decoded.push((line, start));
+    }
+
+    decoded
 }
 
 #[test]

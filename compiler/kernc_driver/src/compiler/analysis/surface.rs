@@ -179,6 +179,62 @@ impl CompilerDriver {
         entries
     }
 
+    pub(super) fn collect_analysis_calls(
+        &self,
+        ctx: &SemaContext<'_>,
+        asts: &[(DefId, ast::Module)],
+        semantic_entries: &[AnalysisSemanticEntry],
+        flow_model: &FlowModel,
+    ) -> Vec<AnalysisCall> {
+        let callable_entries = semantic_entries
+            .iter()
+            .filter(|entry| {
+                entry.role == AnalysisSemanticRole::Reference
+                    && matches!(
+                        entry.kind,
+                        AnalysisSemanticKind::Function | AnalysisSemanticKind::Method
+                    )
+            })
+            .map(|entry| (entry.span, entry.definition_span))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        if callable_entries.is_empty() {
+            return Vec::new();
+        }
+
+        let mut function_definition_spans = std::collections::HashMap::new();
+        for def in &ctx.defs {
+            let kernc_sema::def::Def::Function(function) = def else {
+                continue;
+            };
+            function_definition_spans.insert(function.id, function.name_span);
+        }
+
+        let mut calls = Vec::new();
+        for (_module_id, module) in asts {
+            for decl in &module.decls {
+                collect_calls_in_decl(
+                    decl,
+                    &callable_entries,
+                    flow_model,
+                    &function_definition_spans,
+                    &mut calls,
+                );
+            }
+        }
+
+        calls.sort_by_key(|call| {
+            (
+                call.call_span.file.0,
+                call.call_span.start,
+                call.call_span.end,
+                call.callee_definition_span.file.0,
+                call.callee_definition_span.start,
+            )
+        });
+        calls.dedup();
+        calls
+    }
+
     pub(super) fn collect_analysis_definition_links(
         &self,
         ctx: &SemaContext<'_>,
@@ -991,5 +1047,508 @@ impl CompilerDriver {
             .slice_source(ty.span)
             .trim()
             .to_string()
+    }
+}
+
+fn collect_calls_in_decl(
+    decl: &ast::Decl,
+    callable_entries: &std::collections::BTreeMap<Span, Span>,
+    flow_model: &FlowModel,
+    function_definition_spans: &std::collections::HashMap<DefId, Span>,
+    calls: &mut Vec<AnalysisCall>,
+) {
+    match &decl.kind {
+        ast::DeclKind::Function {
+            body: Some(body), ..
+        } => collect_calls_in_expr(
+            body,
+            callable_entries,
+            flow_model,
+            function_definition_spans,
+            calls,
+        ),
+        ast::DeclKind::Var {
+            value: Some(value), ..
+        } => collect_calls_in_expr(
+            value,
+            callable_entries,
+            flow_model,
+            function_definition_spans,
+            calls,
+        ),
+        ast::DeclKind::ExternBlock { decls, .. } => {
+            for child in decls {
+                collect_calls_in_decl(
+                    child,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+        }
+        ast::DeclKind::Mod { decls: Some(decls) } => {
+            for child in decls {
+                collect_calls_in_decl(
+                    child,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+        }
+        ast::DeclKind::Impl { decls, .. } => {
+            for child in decls {
+                collect_calls_in_decl(
+                    child,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_calls_in_expr(
+    expr: &ast::Expr,
+    callable_entries: &std::collections::BTreeMap<Span, Span>,
+    flow_model: &FlowModel,
+    function_definition_spans: &std::collections::HashMap<DefId, Span>,
+    calls: &mut Vec<AnalysisCall>,
+) {
+    match &expr.kind {
+        ast::ExprKind::Let {
+            init, else_clause, ..
+        } => {
+            collect_calls_in_expr(
+                init,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+            if let Some(else_clause) = else_clause {
+                match else_clause {
+                    ast::LetElseClause::Expr(else_expr) => collect_calls_in_expr(
+                        else_expr,
+                        callable_entries,
+                        flow_model,
+                        function_definition_spans,
+                        calls,
+                    ),
+                    ast::LetElseClause::Arms(arms) => {
+                        for arm in arms {
+                            collect_calls_in_expr(
+                                &arm.body,
+                                callable_entries,
+                                flow_model,
+                                function_definition_spans,
+                                calls,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        ast::ExprKind::Static { init, .. } => {
+            if let Some(init) = init {
+                collect_calls_in_expr(
+                    init,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+        }
+        ast::ExprKind::Binary { lhs, rhs, .. } => {
+            collect_calls_in_expr(
+                lhs,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+            collect_calls_in_expr(
+                rhs,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+        }
+        ast::ExprKind::Range { start, end, .. } => {
+            if let Some(start) = start {
+                collect_calls_in_expr(
+                    start,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+            if let Some(end) = end {
+                collect_calls_in_expr(
+                    end,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+        }
+        ast::ExprKind::Unary { operand, .. }
+        | ast::ExprKind::Grouped { expr: operand }
+        | ast::ExprKind::FieldAccess { lhs: operand, .. }
+        | ast::ExprKind::As { lhs: operand, .. }
+        | ast::ExprKind::Propagate { operand }
+        | ast::ExprKind::Defer { expr: operand }
+        | ast::ExprKind::GenericInstantiation {
+            target: operand, ..
+        } => collect_calls_in_expr(
+            operand,
+            callable_entries,
+            flow_model,
+            function_definition_spans,
+            calls,
+        ),
+        ast::ExprKind::IndexAccess { lhs, index, .. } => {
+            collect_calls_in_expr(
+                lhs,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+            collect_calls_in_expr(
+                index,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+        }
+        ast::ExprKind::Call { callee, args } => {
+            collect_calls_in_expr(
+                callee,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+            for arg in args {
+                collect_calls_in_expr(
+                    arg,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+            if let Some(callee_definition_span) =
+                callable_entries.get(&callee_reference_span(callee))
+                && let Some(caller_def_id) = flow_model.owner_def_id(expr.span)
+                && let Some(caller_definition_span) = function_definition_spans.get(&caller_def_id)
+            {
+                calls.push(AnalysisCall {
+                    call_span: expr.span,
+                    callee_span: callee.span,
+                    callee_definition_span: *callee_definition_span,
+                    caller_definition_span: *caller_definition_span,
+                });
+            }
+        }
+        ast::ExprKind::DataInit { literal, .. } => match literal {
+            ast::DataLiteralKind::Struct(fields) => {
+                for field in fields {
+                    collect_calls_in_expr(
+                        &field.value,
+                        callable_entries,
+                        flow_model,
+                        function_definition_spans,
+                        calls,
+                    );
+                }
+            }
+            ast::DataLiteralKind::Array(items) => {
+                for item in items {
+                    collect_calls_in_expr(
+                        item,
+                        callable_entries,
+                        flow_model,
+                        function_definition_spans,
+                        calls,
+                    );
+                }
+            }
+            ast::DataLiteralKind::Repeat { value, count } => {
+                collect_calls_in_expr(
+                    value,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+                collect_calls_in_expr(
+                    count,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+            ast::DataLiteralKind::Scalar(value) => collect_calls_in_expr(
+                value,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            ),
+        },
+        ast::ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_calls_in_expr(
+                cond,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+            collect_calls_in_expr(
+                then_branch,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+            if let Some(else_branch) = else_branch {
+                collect_calls_in_expr(
+                    else_branch,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+        }
+        ast::ExprKind::Match { target, arms } => {
+            collect_calls_in_expr(
+                target,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+            for arm in arms {
+                for pattern in &arm.patterns {
+                    collect_calls_in_match_pattern(
+                        pattern,
+                        callable_entries,
+                        flow_model,
+                        function_definition_spans,
+                        calls,
+                    );
+                }
+                collect_calls_in_expr(
+                    &arm.body,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+        }
+        ast::ExprKind::Block { stmts, result } => {
+            for stmt in stmts {
+                match &stmt.kind {
+                    ast::StmtKind::Use(_) => {}
+                    ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
+                        collect_calls_in_expr(
+                            expr,
+                            callable_entries,
+                            flow_model,
+                            function_definition_spans,
+                            calls,
+                        );
+                    }
+                }
+            }
+            if let Some(result) = result {
+                collect_calls_in_expr(
+                    result,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+        }
+        ast::ExprKind::While { cond, body } => {
+            collect_calls_in_expr(
+                cond,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+            collect_calls_in_expr(
+                body,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+        }
+        ast::ExprKind::SliceOp {
+            lhs, start, end, ..
+        } => {
+            collect_calls_in_expr(
+                lhs,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+            if let Some(start) = start {
+                collect_calls_in_expr(
+                    start,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+            if let Some(end) = end {
+                collect_calls_in_expr(
+                    end,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+        }
+        ast::ExprKind::Return(value) => {
+            if let Some(value) = value {
+                collect_calls_in_expr(
+                    value,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+        }
+        ast::ExprKind::Assign { lhs, rhs, .. } => {
+            collect_calls_in_expr(
+                lhs,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+            collect_calls_in_expr(
+                rhs,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+        }
+        ast::ExprKind::Closure { captures, body, .. } => {
+            for capture in captures {
+                collect_calls_in_expr(
+                    &capture.value,
+                    callable_entries,
+                    flow_model,
+                    function_definition_spans,
+                    calls,
+                );
+            }
+            collect_calls_in_expr(
+                body,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+        }
+        ast::ExprKind::Error
+        | ast::ExprKind::Integer { .. }
+        | ast::ExprKind::Float { .. }
+        | ast::ExprKind::Bool(_)
+        | ast::ExprKind::Char(_)
+        | ast::ExprKind::ByteChar(_)
+        | ast::ExprKind::String(_)
+        | ast::ExprKind::Identifier(_)
+        | ast::ExprKind::AnchoredPath { .. }
+        | ast::ExprKind::TypeNode(_)
+        | ast::ExprKind::EnumLiteral { .. }
+        | ast::ExprKind::Break
+        | ast::ExprKind::Continue
+        | ast::ExprKind::Undef
+        | ast::ExprKind::Infer
+        | ast::ExprKind::SelfValue => {}
+    }
+}
+
+fn collect_calls_in_match_pattern(
+    pattern: &ast::MatchPattern,
+    callable_entries: &std::collections::BTreeMap<Span, Span>,
+    flow_model: &FlowModel,
+    function_definition_spans: &std::collections::HashMap<DefId, Span>,
+    calls: &mut Vec<AnalysisCall>,
+) {
+    match &pattern.kind {
+        ast::MatchPatternKind::Value(expr) => collect_calls_in_expr(
+            expr,
+            callable_entries,
+            flow_model,
+            function_definition_spans,
+            calls,
+        ),
+        ast::MatchPatternKind::Pattern(pattern) => collect_calls_in_pattern(
+            pattern,
+            callable_entries,
+            flow_model,
+            function_definition_spans,
+            calls,
+        ),
+    }
+}
+
+fn collect_calls_in_pattern(
+    pattern: &ast::Pattern,
+    callable_entries: &std::collections::BTreeMap<Span, Span>,
+    flow_model: &FlowModel,
+    function_definition_spans: &std::collections::HashMap<DefId, Span>,
+    calls: &mut Vec<AnalysisCall>,
+) {
+    if let ast::PatternKind::Destructure(destructure) = &pattern.kind {
+        for field in &destructure.fields {
+            collect_calls_in_pattern(
+                &field.pattern,
+                callable_entries,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+        }
+    }
+}
+
+fn callee_reference_span(expr: &ast::Expr) -> Span {
+    match &expr.kind {
+        ast::ExprKind::FieldAccess { field_span, .. } => *field_span,
+        ast::ExprKind::AnchoredPath { name_span, .. } => *name_span,
+        ast::ExprKind::GenericInstantiation { target, .. } => callee_reference_span(target),
+        _ => expr.span,
     }
 }

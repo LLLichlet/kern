@@ -26,13 +26,32 @@ fn initialize_result_advertises_precise_capabilities() {
     assert_eq!(result["positionEncoding"], "utf-16");
     assert_eq!(
         result["capabilities"]["completionProvider"]["resolveProvider"],
-        false
+        true
     );
     assert_eq!(
         result["capabilities"]["completionProvider"]["triggerCharacters"],
         json!(["."])
     );
     assert_eq!(result["capabilities"]["documentHighlightProvider"], true);
+    assert_eq!(result["capabilities"]["declarationProvider"], true);
+    assert_eq!(result["capabilities"]["typeDefinitionProvider"], true);
+    assert_eq!(result["capabilities"]["implementationProvider"], true);
+    assert_eq!(
+        result["capabilities"]["callHierarchyProvider"]["workDoneProgress"],
+        false
+    );
+    assert_eq!(result["capabilities"]["foldingRangeProvider"], true);
+    assert_eq!(result["capabilities"]["selectionRangeProvider"], true);
+    assert_eq!(
+        result["capabilities"]["documentLinkProvider"]["resolveProvider"],
+        false
+    );
+    assert_eq!(result["capabilities"]["documentFormattingProvider"], true);
+    assert_eq!(
+        result["capabilities"]["documentRangeFormattingProvider"],
+        true
+    );
+    assert_eq!(result["capabilities"]["workspaceSymbolProvider"], true);
     assert_eq!(
         result["capabilities"]["signatureHelpProvider"]["triggerCharacters"],
         json!(["(", ","])
@@ -42,8 +61,12 @@ fn initialize_result_advertises_precise_capabilities() {
         json!(["quickfix"])
     );
     assert_eq!(
+        result["capabilities"]["codeActionProvider"]["resolveProvider"],
+        true
+    );
+    assert_eq!(
         result["capabilities"]["semanticTokensProvider"]["range"],
-        false
+        true
     );
     assert_eq!(
         result["capabilities"]["semanticTokensProvider"]["full"]["delta"],

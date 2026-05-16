@@ -15,12 +15,12 @@ use super::completion::CompletionModel;
 use super::flow::FlowModel;
 use super::signature::SignatureModel;
 use super::{
-    AnalysisArtifact, AnalysisDefinitionLink, AnalysisHover, AnalysisNavigationArtifact,
-    AnalysisOutline, AnalysisReference, AnalysisReport, AnalysisSemanticEntry,
-    AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSpanReplacement, AnalysisSurfaceArtifact,
-    AnalysisSymbol, AnalysisSymbolKind, AnalysisUnusedBinding, AnalysisUnusedBindingKind,
-    AnalysisUnusedItem, AnalysisUnusedItemKind, Canceled, CancellationToken,
-    CollectedStructureArtifact, CompileStructureArtifact, CompilerDriver,
+    AnalysisArtifact, AnalysisCall, AnalysisDefinitionLink, AnalysisHover,
+    AnalysisNavigationArtifact, AnalysisOutline, AnalysisReference, AnalysisReport,
+    AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSpanReplacement,
+    AnalysisSurfaceArtifact, AnalysisSymbol, AnalysisSymbolKind, AnalysisUnusedBinding,
+    AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind, Canceled,
+    CancellationToken, CollectedStructureArtifact, CompileStructureArtifact, CompilerDriver,
     ImportedStructureArtifact, ParsedModule, ParsedModuleArtifact, PhaseTiming, SourceOverrides,
     StructureArtifact, TargetedAnalysisReport,
 };

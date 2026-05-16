@@ -316,6 +316,33 @@ fn goto_definition_resolves_function_identifier_references() {
 }
 
 #[test]
+fn goto_definition_resolves_type_identifier_references() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "struct Point { x: i32 }\nfn main(point: Point) i32 { return point.x; }\n";
+    let uri = temp_file_uri("goto_definition_type", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let definition = analysis
+        .goto_definition(&uri, position_of_nth(source, "Point", 1, 0))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(definition.uri, uri);
+    assert_eq!(
+        definition.range.start,
+        position_of_nth(source, "Point", 0, 0)
+    );
+}
+
+#[test]
 fn navigation_queries_use_navigation_cache_without_full_artifact() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";

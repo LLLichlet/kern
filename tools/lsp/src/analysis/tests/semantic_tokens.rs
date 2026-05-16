@@ -126,7 +126,7 @@ fn semantic_tokens_classify_keywords_types_and_functions() {
     assert_token_type(
         &decoded,
         position_of_nth(source, "Point", 1, 0),
-        SemanticTokenTypes::TYPE,
+        SemanticTokenTypes::STRUCT,
     );
     assert_token_type(
         &decoded,

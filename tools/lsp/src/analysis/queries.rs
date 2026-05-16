@@ -1,7 +1,102 @@
 use super::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 impl AnalysisEngine {
+    #[cfg(test)]
+    pub fn workspace_symbols(&self, query: &str) -> Result<Vec<IdeWorkspaceSymbol>, String> {
+        let snapshot = self.snapshot(None, CancellationToken::new());
+        self.workspace_symbols_in_snapshot(&snapshot, query)
+    }
+
+    pub fn workspace_symbols_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        query: &str,
+    ) -> Result<Vec<IdeWorkspaceSymbol>, String> {
+        snapshot.check_canceled()?;
+        let needle = query.trim().to_ascii_lowercase();
+        let mut symbols = Vec::new();
+
+        if let Some(workspace_root) = snapshot.workspace_root() {
+            if let Some(project) = self.project_for_path(workspace_root)? {
+                let targets = project
+                    .workspace_targets(&self.settings.compile_options)
+                    .map_err(|err| {
+                        format!(
+                            "workspace symbol project analysis failed for `{}`: {err}",
+                            project.manifest_path().display()
+                        )
+                    })?;
+                for resolved in targets {
+                    snapshot.check_canceled()?;
+                    let context = self.analysis_context_for_resolved_and_dirty(
+                        resolved,
+                        snapshot.dirty_documents(),
+                        snapshot.cancellation.clone(),
+                    )?;
+                    self.collect_workspace_symbols_for_context(
+                        &context,
+                        &needle,
+                        snapshot.uri_by_normalized_path(),
+                        &mut symbols,
+                    )?;
+                }
+                symbols.sort_by(workspace_symbol_order);
+                symbols.dedup_by(workspace_symbol_same_location);
+                self.record_analysis_tier(AnalysisTier::Surface);
+                return Ok(symbols);
+            }
+        }
+
+        for document in snapshot.documents.values() {
+            snapshot.check_canceled()?;
+            let resolved = self.resolve_analysis_for_snapshot_document(snapshot, document)?;
+            let context = self.analysis_context_for_resolved_and_dirty(
+                resolved,
+                snapshot.dirty_documents(),
+                snapshot.cancellation.clone(),
+            )?;
+            self.collect_workspace_symbols_for_context(
+                &context,
+                &needle,
+                snapshot.uri_by_normalized_path(),
+                &mut symbols,
+            )?;
+        }
+
+        symbols.sort_by(workspace_symbol_order);
+        symbols.dedup_by(workspace_symbol_same_location);
+        self.record_analysis_tier(AnalysisTier::Surface);
+        Ok(symbols)
+    }
+
+    fn collect_workspace_symbols_for_context(
+        &self,
+        context: &AnalysisRequestContext,
+        query: &str,
+        uri_by_path: &BTreeMap<PathBuf, String>,
+        out: &mut Vec<IdeWorkspaceSymbol>,
+    ) -> Result<(), String> {
+        context.check_canceled()?;
+        let Some(surface) = self.analyze_surface_artifact_for_context(context)? else {
+            return Ok(());
+        };
+        for module_symbol in &surface.symbols {
+            analysis_symbol_to_workspace_symbols(
+                &surface.session,
+                module_symbol,
+                None,
+                uri_by_path,
+                out,
+            );
+        }
+        if !query.is_empty() {
+            out.retain(|symbol| symbol.name.to_ascii_lowercase().contains(query));
+        }
+        Ok(())
+    }
+
     fn semantic_query_offset(
         &self,
         snapshot: &AnalysisSnapshot,
@@ -29,7 +124,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn document_symbols(&self, uri: &str) -> Result<Vec<IdeDocumentSymbol>, String> {
-        let snapshot = self.snapshot(CancellationToken::new());
+        let snapshot = self.snapshot(None, CancellationToken::new());
         self.document_symbols_in_snapshot(&snapshot, uri)
     }
 
@@ -89,7 +184,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<IdeLocation>, String> {
-        let snapshot = self.snapshot(CancellationToken::new());
+        let snapshot = self.snapshot(None, CancellationToken::new());
         self.goto_definition_in_snapshot(&snapshot, uri, position)
     }
 
@@ -99,6 +194,25 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<IdeLocation>, String> {
+        self.goto_definition_like_in_snapshot(snapshot, uri, position, "definition")
+    }
+
+    pub fn goto_declaration_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        position: Position,
+    ) -> Result<Option<IdeLocation>, String> {
+        self.goto_definition_like_in_snapshot(snapshot, uri, position, "declaration")
+    }
+
+    fn goto_definition_like_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        position: Position,
+        query_name: &str,
+    ) -> Result<Option<IdeLocation>, String> {
         if self
             .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
@@ -107,9 +221,11 @@ impl AnalysisEngine {
         }
         let artifact = self
             .analyze_interactive_navigation_artifact_for_snapshot(snapshot, uri)
-            .map_err(|message| format!("definition analysis failed: {message}"))?;
+            .map_err(|message| format!("{query_name} analysis failed: {message}"))?;
         let Some(target_doc) = snapshot.document(uri) else {
-            return Err("requested definition for a document that is not open".to_string());
+            return Err(format!(
+                "requested {query_name} for a document that is not open"
+            ));
         };
         let target_path = normalize_path(&target_doc.path);
 
@@ -130,7 +246,7 @@ impl AnalysisEngine {
         position: Position,
         include_declaration: bool,
     ) -> Result<Vec<IdeLocation>, String> {
-        let snapshot = self.snapshot(CancellationToken::new());
+        let snapshot = self.snapshot(None, CancellationToken::new());
         self.references_in_snapshot(&snapshot, uri, position, include_declaration)
     }
 
@@ -167,13 +283,143 @@ impl AnalysisEngine {
         }))
     }
 
+    pub fn implementation_locations_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        position: Position,
+    ) -> Result<Vec<IdeLocation>, String> {
+        if self
+            .semantic_query_offset(snapshot, uri, &position)?
+            .is_none()
+        {
+            return Ok(Vec::new());
+        }
+        let artifact = self
+            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, uri)
+            .map_err(|message| format!("implementation analysis failed: {message}"))?;
+        let Some(target_doc) = snapshot.document(uri) else {
+            return Err("requested implementation for a document that is not open".to_string());
+        };
+        let target_path = normalize_path(&target_doc.path);
+
+        Ok(find_implementation_locations(
+            &artifact.session,
+            &artifact.hovers,
+            &artifact.definition_links,
+            &artifact.semantic_entries,
+            &target_path,
+            &position,
+            snapshot.uri_by_normalized_path(),
+        ))
+    }
+
+    pub fn prepare_call_hierarchy_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        position: Position,
+    ) -> Result<Option<IdeCallHierarchyItem>, String> {
+        if self
+            .semantic_query_offset(snapshot, uri, &position)?
+            .is_none()
+        {
+            return Ok(None);
+        }
+        let artifact = self
+            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, uri)
+            .map_err(|message| format!("call hierarchy analysis failed: {message}"))?;
+        let Some(target_doc) = snapshot.document(uri) else {
+            return Err("requested call hierarchy for a document that is not open".to_string());
+        };
+        let target_path = normalize_path(&target_doc.path);
+
+        Ok(find_call_hierarchy_item(
+            &artifact.session,
+            &artifact.hovers,
+            &artifact.semantic_entries,
+            &target_path,
+            &position,
+            snapshot.uri_by_normalized_path(),
+        ))
+    }
+
+    pub fn call_hierarchy_incoming_calls_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        item_uri: &str,
+        item_range: &Range,
+    ) -> Result<Vec<IdeCallHierarchyIncomingCall>, String> {
+        let artifact = self
+            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, item_uri)
+            .map_err(|message| format!("call hierarchy analysis failed: {message}"))?;
+
+        Ok(find_call_hierarchy_incoming_calls(
+            &artifact.session,
+            &artifact.semantic_entries,
+            &artifact.calls,
+            item_uri,
+            item_range,
+            snapshot.uri_by_normalized_path(),
+        ))
+    }
+
+    pub fn call_hierarchy_outgoing_calls_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        item_uri: &str,
+        item_range: &Range,
+    ) -> Result<Vec<IdeCallHierarchyOutgoingCall>, String> {
+        let artifact = self
+            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, item_uri)
+            .map_err(|message| format!("call hierarchy analysis failed: {message}"))?;
+
+        Ok(find_call_hierarchy_outgoing_calls(
+            &artifact.session,
+            &artifact.semantic_entries,
+            &artifact.calls,
+            item_uri,
+            item_range,
+            snapshot.uri_by_normalized_path(),
+        ))
+    }
+
+    pub fn goto_type_definition_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        position: Position,
+    ) -> Result<Option<IdeLocation>, String> {
+        if self
+            .semantic_query_offset(snapshot, uri, &position)?
+            .is_none()
+        {
+            return Ok(None);
+        }
+        let artifact = self
+            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, uri)
+            .map_err(|message| format!("type definition analysis failed: {message}"))?;
+        let Some(target_doc) = snapshot.document(uri) else {
+            return Err("requested type definition for a document that is not open".to_string());
+        };
+        let target_path = normalize_path(&target_doc.path);
+
+        Ok(find_type_definition_location(
+            &artifact.session,
+            &artifact.semantic_entries,
+            &target_path,
+            &position,
+            snapshot.uri_by_normalized_path(),
+        ))
+    }
+
     #[cfg(test)]
     pub fn document_highlights(
         &self,
         uri: &str,
         position: Position,
     ) -> Result<Vec<IdeDocumentHighlight>, String> {
-        let snapshot = self.snapshot(CancellationToken::new());
+        let snapshot = self.snapshot(None, CancellationToken::new());
         self.document_highlights_in_snapshot(&snapshot, uri, position)
     }
 
@@ -211,7 +457,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn hover(&self, uri: &str, position: Position) -> Result<Option<IdeHover>, String> {
-        let snapshot = self.snapshot(CancellationToken::new());
+        let snapshot = self.snapshot(None, CancellationToken::new());
         self.hover_in_snapshot(&snapshot, uri, position)
     }
 
@@ -250,7 +496,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<IdeSignatureHelp>, String> {
-        let snapshot = self.snapshot(CancellationToken::new());
+        let snapshot = self.snapshot(None, CancellationToken::new());
         self.signature_help_in_snapshot(&snapshot, uri, position)
     }
 
@@ -282,7 +528,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Vec<IdeCompletionItem>, String> {
-        let snapshot = self.snapshot(CancellationToken::new());
+        let snapshot = self.snapshot(None, CancellationToken::new());
         self.completion_in_snapshot(&snapshot, uri, position)
     }
 
@@ -395,7 +641,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<IdePrepareRenameResult>, String> {
-        let snapshot = self.snapshot(CancellationToken::new());
+        let snapshot = self.snapshot(None, CancellationToken::new());
         self.prepare_rename_in_snapshot(&snapshot, uri, position)
     }
 
@@ -441,7 +687,7 @@ impl AnalysisEngine {
         position: Position,
         new_name: &str,
     ) -> Result<IdeWorkspaceEdit, String> {
-        let snapshot = self.snapshot(CancellationToken::new());
+        let snapshot = self.snapshot(None, CancellationToken::new());
         self.rename_in_snapshot(&snapshot, uri, position, new_name)
     }
 
@@ -493,7 +739,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn semantic_tokens(&self, uri: &str) -> Result<IdeSemanticTokens, String> {
-        let snapshot = self.snapshot(CancellationToken::new());
+        let snapshot = self.snapshot(None, CancellationToken::new());
         self.semantic_tokens_in_snapshot(&snapshot, uri)
     }
 
@@ -545,9 +791,20 @@ impl AnalysisEngine {
         Ok(tokens)
     }
 
+    pub fn semantic_tokens_range_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        uri: &str,
+        range: Range,
+    ) -> Result<IdeSemanticTokens, String> {
+        snapshot.check_canceled()?;
+        let tokens = self.semantic_tokens_in_snapshot(snapshot, uri)?;
+        Ok(semantic::filter_semantic_tokens_to_range(&tokens, &range))
+    }
+
     #[cfg(test)]
     pub fn inlay_hints(&self, uri: &str, range: Range) -> Result<Vec<IdeInlayHint>, String> {
-        let snapshot = self.snapshot(CancellationToken::new());
+        let snapshot = self.snapshot(None, CancellationToken::new());
         self.inlay_hints_in_snapshot(&snapshot, uri, range)
     }
 
@@ -589,7 +846,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn code_actions(&self, uri: &str, range: Range) -> Result<Vec<IdeCodeAction>, String> {
-        let snapshot = self.snapshot(CancellationToken::new());
+        let snapshot = self.snapshot(None, CancellationToken::new());
         self.code_actions_in_snapshot(&snapshot, uri, range)
     }
 
@@ -657,4 +914,35 @@ impl AnalysisEngine {
 
         Ok(actions)
     }
+}
+
+fn workspace_symbol_order(
+    lhs: &IdeWorkspaceSymbol,
+    rhs: &IdeWorkspaceSymbol,
+) -> std::cmp::Ordering {
+    let lhs_range = &lhs.location.range;
+    let rhs_range = &rhs.location.range;
+    (
+        lhs.name.as_str(),
+        lhs.location.uri.as_str(),
+        lhs_range.start.line,
+        lhs_range.start.character,
+        lhs_range.end.line,
+        lhs_range.end.character,
+    )
+        .cmp(&(
+            rhs.name.as_str(),
+            rhs.location.uri.as_str(),
+            rhs_range.start.line,
+            rhs_range.start.character,
+            rhs_range.end.line,
+            rhs_range.end.character,
+        ))
+}
+
+fn workspace_symbol_same_location(
+    lhs: &mut IdeWorkspaceSymbol,
+    rhs: &mut IdeWorkspaceSymbol,
+) -> bool {
+    lhs.name == rhs.name && lhs.kind == rhs.kind && lhs.location == rhs.location
 }

@@ -168,6 +168,20 @@ pub struct AnalysisDefinitionLink {
     pub linked_definition_span: kernc_utils::Span,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnalysisDocumentLink {
+    pub origin_span: kernc_utils::Span,
+    pub target_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnalysisCall {
+    pub call_span: kernc_utils::Span,
+    pub callee_span: kernc_utils::Span,
+    pub callee_definition_span: kernc_utils::Span,
+    pub caller_definition_span: kernc_utils::Span,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnalysisTypeHintKind {
     Variable,
@@ -334,6 +348,7 @@ pub struct AnalysisArtifact {
     pub type_hints: Vec<AnalysisTypeHint>,
     pub definition_links: Vec<AnalysisDefinitionLink>,
     pub semantic_entries: Vec<AnalysisSemanticEntry>,
+    pub calls: Vec<AnalysisCall>,
     asts: Vec<(DefId, ast::Module)>,
     resolved_globals: Vec<ResolvedGlobalType>,
     completion_model: completion::CompletionModel,
@@ -353,6 +368,7 @@ pub struct AnalysisNavigationArtifact {
     pub type_hints: Vec<AnalysisTypeHint>,
     pub definition_links: Vec<AnalysisDefinitionLink>,
     pub semantic_entries: Vec<AnalysisSemanticEntry>,
+    pub calls: Vec<AnalysisCall>,
 }
 
 pub struct AnalysisOutline {
@@ -751,12 +767,65 @@ impl AnalysisSurfaceArtifact {
 }
 
 impl StructureArtifact {
+    pub fn session(&self) -> &Session {
+        &self.session
+    }
+
     pub fn completion_items(
         &self,
         target_path: &Path,
         offset: usize,
     ) -> Vec<AnalysisCompletionItem> {
         self.completion_model.completion_items(target_path, offset)
+    }
+
+    pub fn document_links(&self, target_path: &Path) -> Vec<AnalysisDocumentLink> {
+        let mut links = Vec::new();
+        for (module_id, module_ast) in &self.asts {
+            let Some(kernc_sema::def::Def::Module(module_def)) =
+                self.snapshot.defs.get(module_id.0 as usize)
+            else {
+                continue;
+            };
+            let Some(module_path) = self
+                .session
+                .source_manager
+                .get_file_path(module_def.file_id)
+            else {
+                continue;
+            };
+            if module_path != target_path {
+                continue;
+            }
+
+            for decl in &module_ast.decls {
+                if !matches!(decl.kind, ast::DeclKind::Mod { decls: None }) {
+                    continue;
+                }
+                let Some(submodule_id) = module_def.submodules.get(&decl.name) else {
+                    continue;
+                };
+                let Some(kernc_sema::def::Def::Module(submodule_def)) =
+                    self.snapshot.defs.get(submodule_id.0 as usize)
+                else {
+                    continue;
+                };
+                let Some(target_path) = self
+                    .session
+                    .source_manager
+                    .get_file_path(submodule_def.file_id)
+                else {
+                    continue;
+                };
+                links.push(AnalysisDocumentLink {
+                    origin_span: decl.name_span,
+                    target_path: target_path.clone(),
+                });
+            }
+        }
+        links.sort_by_key(|link| (link.origin_span.file.0, link.origin_span.start));
+        links.dedup();
+        links
     }
 }
 

@@ -1,4 +1,5 @@
 use super::ide::IdeSemanticTokens;
+use crate::protocol::{Position, Range};
 use kernc_driver::{
     AnalysisHover, AnalysisReference, AnalysisSemanticEntry, AnalysisSemanticKind,
     AnalysisSemanticRole, AnalysisSymbol, AnalysisSymbolKind,
@@ -76,6 +77,20 @@ pub(super) fn semantic_tokens(
 
 pub(super) fn lexical_semantic_tokens(file: &kernc_utils::SourceFile) -> IdeSemanticTokens {
     let entries = collect_semantic_token_entries(file, &BTreeMap::new());
+
+    IdeSemanticTokens {
+        data: encode_semantic_tokens(&entries),
+    }
+}
+
+pub(super) fn filter_semantic_tokens_to_range(
+    tokens: &IdeSemanticTokens,
+    range: &Range,
+) -> IdeSemanticTokens {
+    let entries = decode_semantic_token_entries(&tokens.data)
+        .into_iter()
+        .filter(|entry| semantic_token_intersects_range(entry, range))
+        .collect::<Vec<_>>();
 
     IdeSemanticTokens {
         data: encode_semantic_tokens(&entries),
@@ -784,6 +799,48 @@ fn encode_semantic_tokens(entries: &[SemanticTokenEntry]) -> Vec<u32> {
     }
 
     data
+}
+
+fn decode_semantic_token_entries(data: &[u32]) -> Vec<SemanticTokenEntry> {
+    let mut entries = Vec::new();
+    let mut line = 0;
+    let mut start_char = 0;
+
+    for chunk in data.chunks_exact(5) {
+        line += chunk[0];
+        if chunk[0] == 0 {
+            start_char += chunk[1];
+        } else {
+            start_char = chunk[1];
+        }
+
+        entries.push(SemanticTokenEntry {
+            line,
+            start_char,
+            length: chunk[2],
+            token_type: chunk[3],
+            modifiers: chunk[4],
+        });
+    }
+
+    entries
+}
+
+fn semantic_token_intersects_range(entry: &SemanticTokenEntry, range: &Range) -> bool {
+    let start = Position {
+        line: entry.line,
+        character: entry.start_char,
+    };
+    let end = Position {
+        line: entry.line,
+        character: entry.start_char + entry.length,
+    };
+
+    position_less_than(&start, &range.end) && position_less_than(&range.start, &end)
+}
+
+fn position_less_than(left: &Position, right: &Position) -> bool {
+    left.line < right.line || left.line == right.line && left.character < right.character
 }
 
 fn span_key(span: kernc_utils::Span) -> SpanKey {

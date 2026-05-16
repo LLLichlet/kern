@@ -9,6 +9,7 @@ mod project_resolution;
 mod real_projects;
 mod robustness;
 mod semantic_tokens;
+mod structure;
 
 use super::cache::AnalysisCacheKey;
 use super::semantic::{SemanticModifiers, SemanticTokenTypes};
@@ -134,7 +135,7 @@ fn change_document_for_full_diagnostics(
 }
 
 fn warm_clean_semantic_artifact(analysis: &AnalysisEngine, uri: &str, _source: &str) {
-    let snapshot = analysis.snapshot(CancellationToken::new());
+    let snapshot = analysis.snapshot(None, CancellationToken::new());
     let _ = analysis
         .analyze_interactive_artifact_for_snapshot(&snapshot, uri)
         .unwrap();
@@ -155,7 +156,7 @@ fn canceled_snapshot_stops_interactive_analysis_before_semantic_work() {
     });
     let token = CancellationToken::new();
     token.cancel();
-    let snapshot = analysis.snapshot(token);
+    let snapshot = analysis.snapshot(None, token);
 
     let err = analysis
         .document_symbols_in_snapshot(&snapshot, &uri)

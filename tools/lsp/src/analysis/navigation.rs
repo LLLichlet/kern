@@ -1,14 +1,17 @@
 use super::ide::{
+    IdeCallHierarchyIncomingCall, IdeCallHierarchyItem, IdeCallHierarchyOutgoingCall,
     IdeCompletionItem, IdeCompletionKind, IdeDocumentHighlight, IdeDocumentHighlightKind,
     IdeDocumentSymbol, IdeHover, IdeInlayHint, IdeInlayHintKind, IdeLocation,
     IdeParameterInformation, IdeSignatureHelp, IdeSignatureInformation, IdeSymbolKind, IdeTextEdit,
+    IdeWorkspaceSymbol,
 };
 use super::{RenameBehavior, RenameTarget};
-use crate::protocol::Position;
+use crate::protocol::{Position, Range};
 use kernc_driver::{
-    AnalysisCompletionItem, AnalysisCompletionKind, AnalysisDefinitionLink, AnalysisHover,
-    AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSignatureHelp,
-    AnalysisSymbol, AnalysisSymbolKind, AnalysisTypeHint, AnalysisTypeHintKind,
+    AnalysisCall, AnalysisCompletionItem, AnalysisCompletionKind, AnalysisDefinitionLink,
+    AnalysisHover, AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole,
+    AnalysisSignatureHelp, AnalysisSymbol, AnalysisSymbolKind, AnalysisTypeHint,
+    AnalysisTypeHintKind,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -39,6 +42,37 @@ pub(super) fn analysis_symbol_to_document_symbol(
             .iter()
             .map(|child| analysis_symbol_to_document_symbol(session, child))
             .collect(),
+    }
+}
+
+pub(super) fn analysis_symbol_to_workspace_symbols(
+    session: &kernc_utils::Session,
+    symbol: &AnalysisSymbol,
+    container_name: Option<&str>,
+    uri_by_path: &BTreeMap<PathBuf, String>,
+    out: &mut Vec<IdeWorkspaceSymbol>,
+) {
+    if !matches!(
+        symbol.kind,
+        AnalysisSymbolKind::Module | AnalysisSymbolKind::Namespace
+    ) && let Some(location) = location_from_span(session, symbol.selection_span, uri_by_path)
+    {
+        out.push(IdeWorkspaceSymbol {
+            name: symbol.name.clone(),
+            kind: ide_symbol_kind(symbol.kind),
+            location,
+            container_name: container_name.map(str::to_string),
+        });
+    }
+
+    for child in &symbol.children {
+        analysis_symbol_to_workspace_symbols(
+            session,
+            child,
+            Some(symbol.name.as_str()),
+            uri_by_path,
+            out,
+        );
     }
 }
 
@@ -131,6 +165,181 @@ pub(super) fn find_definition_location(
     location_from_span(session, definition_span, uri_by_path)
 }
 
+pub(super) fn find_type_definition_location(
+    session: &kernc_utils::Session,
+    semantic_entries: &[AnalysisSemanticEntry],
+    target_path: &Path,
+    position: &Position,
+    uri_by_path: &BTreeMap<PathBuf, String>,
+) -> Option<IdeLocation> {
+    let matching_entries =
+        semantic_entries_at_position(session, semantic_entries, target_path, position);
+    let entry = best_semantic_entry(&matching_entries)?;
+    if !semantic_kind_is_type_definition_target(entry.kind) {
+        return None;
+    }
+
+    location_from_span(session, entry.definition_span, uri_by_path)
+}
+
+pub(super) fn find_implementation_locations(
+    session: &kernc_utils::Session,
+    hovers: &[AnalysisHover],
+    definition_links: &[AnalysisDefinitionLink],
+    semantic_entries: &[AnalysisSemanticEntry],
+    target_path: &Path,
+    position: &Position,
+    uri_by_path: &BTreeMap<PathBuf, String>,
+) -> Vec<IdeLocation> {
+    let Some(definition_span) =
+        find_target_definition_span(session, hovers, semantic_entries, target_path, position)
+    else {
+        return Vec::new();
+    };
+
+    let mut locations = Vec::new();
+    for link in definition_links {
+        if link.definition_span != definition_span || link.linked_definition_span == definition_span
+        {
+            continue;
+        }
+        if let Some(location) =
+            location_from_span(session, link.linked_definition_span, uri_by_path)
+        {
+            locations.push(location);
+        }
+    }
+
+    locations.sort_by_key(location_order_key);
+    locations.dedup();
+    locations
+}
+
+pub(super) fn find_call_hierarchy_item(
+    session: &kernc_utils::Session,
+    hovers: &[AnalysisHover],
+    semantic_entries: &[AnalysisSemanticEntry],
+    target_path: &Path,
+    position: &Position,
+    uri_by_path: &BTreeMap<PathBuf, String>,
+) -> Option<IdeCallHierarchyItem> {
+    let definition_span =
+        find_target_definition_span(session, hovers, semantic_entries, target_path, position)
+            .or_else(|| {
+                hovers.iter().find_map(|hover| {
+                    let file = session.source_manager.get_file(hover.span.file)?;
+                    let offset = super::match_position_in_file(file, target_path, position)?;
+                    super::span_contains_offset(hover.span, offset).then_some(hover.span)
+                })
+            })?;
+    call_hierarchy_item_for_definition(session, semantic_entries, definition_span, uri_by_path)
+}
+
+pub(super) fn find_call_hierarchy_incoming_calls(
+    session: &kernc_utils::Session,
+    semantic_entries: &[AnalysisSemanticEntry],
+    calls: &[AnalysisCall],
+    target_uri: &str,
+    target_range: &Range,
+    uri_by_path: &BTreeMap<PathBuf, String>,
+) -> Vec<IdeCallHierarchyIncomingCall> {
+    let Some(target_span) = span_for_lsp_range(session, target_uri, target_range, uri_by_path)
+    else {
+        return Vec::new();
+    };
+    let Some(target_entry) = call_hierarchy_definition_entry(semantic_entries, target_span) else {
+        return Vec::new();
+    };
+
+    let mut grouped = BTreeMap::<kernc_utils::Span, (IdeCallHierarchyItem, Vec<Range>)>::new();
+    for call in calls
+        .iter()
+        .filter(|call| call.callee_definition_span == target_entry.definition_span)
+    {
+        let Some(from) = call_hierarchy_item_for_definition(
+            session,
+            semantic_entries,
+            call.caller_definition_span,
+            uri_by_path,
+        ) else {
+            continue;
+        };
+        grouped
+            .entry(call.caller_definition_span)
+            .or_insert((from, Vec::new()))
+            .1
+            .push(super::span_to_range(session, call.callee_span));
+    }
+
+    grouped
+        .into_values()
+        .map(|(from, mut from_ranges)| {
+            from_ranges.sort_by_key(range_order_key);
+            from_ranges.dedup();
+            IdeCallHierarchyIncomingCall { from, from_ranges }
+        })
+        .collect()
+}
+
+pub(super) fn find_call_hierarchy_outgoing_calls(
+    session: &kernc_utils::Session,
+    semantic_entries: &[AnalysisSemanticEntry],
+    calls: &[AnalysisCall],
+    target_uri: &str,
+    target_range: &Range,
+    uri_by_path: &BTreeMap<PathBuf, String>,
+) -> Vec<IdeCallHierarchyOutgoingCall> {
+    let Some(target_span) = span_for_lsp_range(session, target_uri, target_range, uri_by_path)
+    else {
+        return Vec::new();
+    };
+    let Some(target_entry) = call_hierarchy_definition_entry(semantic_entries, target_span) else {
+        return Vec::new();
+    };
+
+    let mut grouped = BTreeMap::<kernc_utils::Span, (IdeCallHierarchyItem, Vec<Range>)>::new();
+    for call in calls
+        .iter()
+        .filter(|call| call.caller_definition_span == target_entry.definition_span)
+    {
+        let Some(to) = call_hierarchy_item_for_definition(
+            session,
+            semantic_entries,
+            call.callee_definition_span,
+            uri_by_path,
+        ) else {
+            continue;
+        };
+        grouped
+            .entry(call.callee_definition_span)
+            .or_insert((to, Vec::new()))
+            .1
+            .push(super::span_to_range(session, call.callee_span));
+    }
+
+    grouped
+        .into_values()
+        .map(|(to, mut from_ranges)| {
+            from_ranges.sort_by_key(range_order_key);
+            from_ranges.dedup();
+            IdeCallHierarchyOutgoingCall { to, from_ranges }
+        })
+        .collect()
+}
+
+fn semantic_kind_is_type_definition_target(kind: AnalysisSemanticKind) -> bool {
+    matches!(
+        kind,
+        AnalysisSemanticKind::Module
+            | AnalysisSemanticKind::Namespace
+            | AnalysisSemanticKind::Struct
+            | AnalysisSemanticKind::Enum
+            | AnalysisSemanticKind::Interface
+            | AnalysisSemanticKind::Type
+            | AnalysisSemanticKind::TypeParameter
+    )
+}
+
 pub(super) fn find_reference_locations(query: ReferenceLocationQuery<'_>) -> Vec<IdeLocation> {
     let Some(definition_span) = find_target_definition_span(
         query.session,
@@ -166,18 +375,20 @@ pub(super) fn find_reference_locations(query: ReferenceLocationQuery<'_>) -> Vec
         }
     }
 
-    locations.sort_by_key(|location| {
-        let range = &location.range;
-        (
-            location.uri.clone(),
-            range.start.line,
-            range.start.character,
-            range.end.line,
-            range.end.character,
-        )
-    });
+    locations.sort_by_key(location_order_key);
     locations.dedup();
     locations
+}
+
+fn location_order_key(location: &IdeLocation) -> (String, u32, u32, u32, u32) {
+    let range = &location.range;
+    (
+        location.uri.clone(),
+        range.start.line,
+        range.start.character,
+        range.end.line,
+        range.end.character,
+    )
 }
 
 pub(super) fn find_document_highlights(
@@ -504,6 +715,84 @@ fn uri_for_path(path: &Path, uri_by_path: &BTreeMap<PathBuf, String>) -> Option<
     }
 
     super::file_path_to_uri(path).ok()
+}
+
+fn call_hierarchy_item_for_definition(
+    session: &kernc_utils::Session,
+    semantic_entries: &[AnalysisSemanticEntry],
+    definition_span: kernc_utils::Span,
+    uri_by_path: &BTreeMap<PathBuf, String>,
+) -> Option<IdeCallHierarchyItem> {
+    let entry = call_hierarchy_definition_entry(semantic_entries, definition_span)?;
+    if !matches!(
+        entry.kind,
+        AnalysisSemanticKind::Function | AnalysisSemanticKind::Method
+    ) {
+        return None;
+    }
+    let path = session.source_manager.get_file_path(entry.span.file)?;
+    let uri = uri_for_path(path, uri_by_path)?;
+    Some(IdeCallHierarchyItem {
+        name: span_text(session, entry.span)?,
+        kind: ide_symbol_kind(match entry.kind {
+            AnalysisSemanticKind::Method => AnalysisSymbolKind::Method,
+            _ => AnalysisSymbolKind::Function,
+        }),
+        uri,
+        range: super::span_to_range(session, entry.span),
+        selection_range: super::span_to_range(session, entry.span),
+    })
+}
+
+fn call_hierarchy_definition_entry(
+    semantic_entries: &[AnalysisSemanticEntry],
+    definition_span: kernc_utils::Span,
+) -> Option<&AnalysisSemanticEntry> {
+    semantic_entries.iter().find(|entry| {
+        entry.role == AnalysisSemanticRole::Definition && entry.definition_span == definition_span
+    })
+}
+
+fn span_for_lsp_range(
+    session: &kernc_utils::Session,
+    uri: &str,
+    range: &Range,
+    uri_by_path: &BTreeMap<PathBuf, String>,
+) -> Option<kernc_utils::Span> {
+    let path = uri_by_path
+        .iter()
+        .find_map(|(path, open_uri)| (open_uri == uri).then_some(path.clone()))
+        .or_else(|| super::uri_to_file_path(uri).map(|path| super::normalize_path(&path)))?;
+    let (file_id, file) =
+        session
+            .source_manager
+            .files()
+            .iter()
+            .enumerate()
+            .find(|(index, _file)| {
+                let file_id = kernc_utils::FileId(*index);
+                session
+                    .source_manager
+                    .get_file_path(file_id)
+                    .is_some_and(|file_path| super::normalize_path(file_path) == path)
+            })?;
+    let file_id = kernc_utils::FileId(file_id);
+    let start = super::position_to_byte_offset(file, &range.start)?;
+    let end = super::position_to_byte_offset(file, &range.end)?;
+    Some(kernc_utils::Span {
+        file: file_id,
+        start,
+        end,
+    })
+}
+
+fn range_order_key(range: &Range) -> (u32, u32, u32, u32) {
+    (
+        range.start.line,
+        range.start.character,
+        range.end.line,
+        range.end.character,
+    )
 }
 
 fn span_text(session: &kernc_utils::Session, span: kernc_utils::Span) -> Option<String> {

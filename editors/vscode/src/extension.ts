@@ -549,7 +549,12 @@ async function runCraftTargetCommand(
     const cwd = manifestWorkingDirectory(args.manifestPath);
     const config = vscode.workspace.getConfiguration("kern");
     const command = resolveCraftCommand(config.get<string>("craft.path", ""), cwd);
-    const craftArgs = [mode, ...projectAnalysisArgs(config), "--path", args.manifestPath];
+    const craftArgs = [
+        mode,
+        ...projectAnalysisArgs(config),
+        "--project-path",
+        args.manifestPath,
+    ];
     if (mode === "test") {
         const targetName = (args as CraftTestTargetArgs).targetName;
         if (!targetName) {

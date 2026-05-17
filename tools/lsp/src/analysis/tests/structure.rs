@@ -373,6 +373,28 @@ root = \"src/lib.kn\"
 }
 
 #[test]
+fn document_links_return_empty_when_structure_analysis_fails() {
+    let root = unique_temp_dir("document_links_structure_failure");
+    fs::write(root.join("mod.kn"), "mod missing;\n").unwrap();
+
+    let source = fs::read_to_string(root.join("mod.kn")).unwrap();
+    let uri = file_path_to_uri(&root.join("mod.kn")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+
+    let links = analysis.document_links(&uri).unwrap();
+
+    assert!(links.is_empty(), "{links:#?}");
+}
+
+#[test]
 fn document_links_return_manifest_dependency_targets() {
     let root = unique_temp_dir("document_links_manifest_dependencies");
     fs::create_dir_all(root.join("dep/src")).unwrap();

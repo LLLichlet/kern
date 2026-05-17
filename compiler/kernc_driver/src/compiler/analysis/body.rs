@@ -154,6 +154,7 @@ impl CompilerDriver {
             })
             .collect::<Vec<_>>();
         let hovers = self.collect_analysis_hovers(&ctx);
+        let type_hints = self.collect_analysis_type_hints(&ctx, &analysis_asts);
         let semantic_entries = self.collect_analysis_semantic_entries(&symbols, &ctx, &references);
         drop(ctx);
         cancellation.check()?;
@@ -164,6 +165,7 @@ impl CompilerDriver {
             symbols,
             references,
             hovers,
+            type_hints,
             semantic_entries,
         })
     }
@@ -681,6 +683,7 @@ impl CompilerDriver {
             symbols: Vec::new(),
             references: Vec::new(),
             hovers: Vec::new(),
+            type_hints: Vec::new(),
             semantic_entries: Vec::new(),
         }
     }

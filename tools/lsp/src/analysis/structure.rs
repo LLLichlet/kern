@@ -129,7 +129,7 @@ impl AnalysisEngine {
                     )
                     .map_err(|_| "request was canceled".to_string())?
                 else {
-                    return Err("document link analysis failed".to_string());
+                    return Ok(Vec::new());
                 };
                 let structure = Arc::new(structure);
                 self.prune_cache_family_for_insert(&context.cache_key);

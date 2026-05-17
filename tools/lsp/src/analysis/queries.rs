@@ -346,16 +346,7 @@ impl AnalysisEngine {
         let Some(file) = snapshot.document_source_file(uri) else {
             return Ok(Vec::new());
         };
-        let range = IdeRange {
-            start: IdePosition {
-                line: 0,
-                character: 0,
-            },
-            end: IdePosition {
-                line: 0,
-                character: first_line_end_character(&file),
-            },
-        };
+        let file_header_range = line_range(&file, 0);
 
         let mut lenses = Vec::new();
         for target in project.analysis_targets().map_err(|err| {
@@ -374,9 +365,11 @@ impl AnalysisEngine {
                     let Some(name) = target.name else {
                         continue;
                     };
+                    let range = first_test_function_line_range(&file)
+                        .unwrap_or_else(|| file_header_range.clone());
                     lenses.push(IdeCodeLens {
-                        range: range.clone(),
-                        title: format!("Run Test {name}"),
+                        range,
+                        title: format!("Run test target {name}"),
                         command: "kern.craft.testTarget".to_string(),
                         arguments: vec![serde_json::json!({
                             "manifestPath": manifest,
@@ -387,13 +380,20 @@ impl AnalysisEngine {
                 craft::plan::TargetKind::Lib
                 | craft::plan::TargetKind::Bin
                 | craft::plan::TargetKind::Example => {
+                    let range = match target.kind {
+                        craft::plan::TargetKind::Bin | craft::plan::TargetKind::Example => {
+                            main_function_line_range(&file)
+                                .unwrap_or_else(|| file_header_range.clone())
+                        }
+                        _ => file_header_range.clone(),
+                    };
                     let label = target
                         .name
                         .as_ref()
                         .map(|name| format!("{} {name}", target.kind.as_str()))
                         .unwrap_or_else(|| target.kind.as_str().to_string());
                     lenses.push(IdeCodeLens {
-                        range: range.clone(),
+                        range,
                         title: format!("Build {label}"),
                         command: "kern.craft.buildPackage".to_string(),
                         arguments: vec![serde_json::json!({
@@ -1263,8 +1263,11 @@ impl AnalysisEngine {
             return Err("requested inlay hints for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
+        let context = self
+            .resolve_analysis_context_for_snapshot(snapshot, uri)
+            .map_err(|message| format!("inlay hint analysis failed: {message}"))?;
         let artifact = self
-            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, uri)
+            .analyze_interactive_semantic_classification_artifact_for_context(&context)
             .map_err(|message| format!("inlay hint analysis failed: {message}"))?;
 
         self.record_analysis_tier(AnalysisTier::CleanSemantic);
@@ -1621,9 +1624,63 @@ fn workspace_symbol_same_location(
     lhs.name == rhs.name && lhs.kind == rhs.kind && lhs.location == rhs.location
 }
 
-fn first_line_end_character(file: &SourceFile) -> u32 {
-    let first_line = file.src.lines().next().unwrap_or("");
-    first_line.encode_utf16().count() as u32
+fn line_range(file: &SourceFile, line: u32) -> IdeRange {
+    let character = file
+        .src
+        .lines()
+        .nth(line as usize)
+        .map(|line| line.encode_utf16().count() as u32)
+        .unwrap_or(0);
+    IdeRange {
+        start: IdePosition { line, character: 0 },
+        end: IdePosition { line, character },
+    }
+}
+
+fn main_function_line_range(file: &SourceFile) -> Option<IdeRange> {
+    file.src
+        .lines()
+        .enumerate()
+        .find(|(_, line)| is_function_named(line, "main"))
+        .map(|(line, _)| line_range(file, line as u32))
+}
+
+fn first_test_function_line_range(file: &SourceFile) -> Option<IdeRange> {
+    let mut saw_test_attr = false;
+    for (line_index, line) in file.src.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("#[test]") {
+            saw_test_attr = true;
+            continue;
+        }
+        if saw_test_attr && is_function_declaration_line(trimmed) {
+            return Some(line_range(file, line_index as u32));
+        }
+        if saw_test_attr && !trimmed.is_empty() && !trimmed.starts_with("//") {
+            saw_test_attr = false;
+        }
+    }
+    None
+}
+
+fn is_function_named(line: &str, name: &str) -> bool {
+    let Some(rest) = strip_function_prefix(line.trim_start()) else {
+        return false;
+    };
+    rest.strip_prefix(name)
+        .is_some_and(|rest| rest.starts_with('[') || rest.starts_with('('))
+}
+
+fn is_function_declaration_line(line: &str) -> bool {
+    strip_function_prefix(line)
+        .and_then(|rest| rest.chars().next())
+        .is_some_and(|ch| ch == '_' || ch.is_ascii_alphabetic())
+}
+
+fn strip_function_prefix(line: &str) -> Option<&str> {
+    line.strip_prefix("fn ")
+        .or_else(|| line.strip_prefix("pub fn "))
+        .or_else(|| line.strip_prefix("pub/ fn "))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

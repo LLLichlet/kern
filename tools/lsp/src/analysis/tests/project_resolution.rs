@@ -1220,7 +1220,7 @@ roots = [\"tests/smoke.kn\"]
     .unwrap();
     let lib_source = "pub fn value() i32 { return 1; }\n";
     fs::write(src_dir.join("lib.kn"), lib_source).unwrap();
-    let test_source = "use app.value;\nfn test_smoke() void { let _ = value(); }\n";
+    let test_source = "use app.value;\n#[test]\nfn test_smoke() i32 { return value(); }\n";
     fs::write(tests_dir.join("smoke.kn"), test_source).unwrap();
 
     let mut analysis = AnalysisEngine::default();
@@ -1255,9 +1255,58 @@ roots = [\"tests/smoke.kn\"]
 
     let test_lenses = analysis.code_lenses(&test_uri).unwrap();
     assert_eq!(test_lenses.len(), 1, "{test_lenses:#?}");
-    assert_eq!(test_lenses[0].title, "Run Test smoke");
+    assert_eq!(test_lenses[0].title, "Run test target smoke");
     assert_eq!(test_lenses[0].command, "kern.craft.testTarget");
     assert_eq!(test_lenses[0].arguments[0]["targetName"], "smoke");
+    assert_eq!(test_lenses[0].range.start.line, 2);
+}
+
+#[test]
+fn code_lenses_anchor_build_targets_on_main_function() {
+    let root = unique_temp_dir("analysis_code_lens_main_anchor");
+    let src_dir = root.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[[bin]]
+name = \"app\"
+root = \"src/main.kn\"
+"
+        ),
+    )
+    .unwrap();
+    let source = "\
+fn helper() i32 { return 1; }
+
+fn main() i32 {
+    return helper();
+}
+";
+    fs::write(src_dir.join("main.kn"), source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let uri = file_path_to_uri(&src_dir.join("main.kn")).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let lenses = analysis.code_lenses(&uri).unwrap();
+    assert_eq!(lenses.len(), 1, "{lenses:#?}");
+    assert_eq!(lenses[0].title, "Build bin app");
+    assert_eq!(lenses[0].command, "kern.craft.buildPackage");
+    assert_eq!(lenses[0].range.start.line, 2);
 }
 
 #[test]

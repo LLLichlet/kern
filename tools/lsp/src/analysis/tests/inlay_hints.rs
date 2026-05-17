@@ -39,6 +39,43 @@ fn inlay_hints_include_inferred_let_binding_types() {
 }
 
 #[test]
+fn inlay_hints_reuse_semantic_classification_artifact_after_tokens() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper() usize { return 1usize; }\n",
+        "fn main() i32 {\n",
+        "    let value = helper();\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("inlay_hints_reuse_semantic_classification", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+    let _ = analysis.semantic_tokens(&uri).unwrap();
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        1
+    );
+
+    let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
+
+    assert!(hints.iter().any(|hint| hint.label == ": usize"));
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        1
+    );
+}
+
+#[test]
 fn inlay_hints_skip_explicit_let_binding_types() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

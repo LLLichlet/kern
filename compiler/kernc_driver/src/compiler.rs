@@ -378,6 +378,7 @@ pub struct AnalysisSemanticArtifact {
     pub symbols: Vec<AnalysisSymbol>,
     pub references: Vec<AnalysisReference>,
     pub hovers: Vec<AnalysisHover>,
+    pub type_hints: Vec<AnalysisTypeHint>,
     pub semantic_entries: Vec<AnalysisSemanticEntry>,
 }
 

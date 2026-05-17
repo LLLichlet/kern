@@ -1695,10 +1695,27 @@ struct IndirectCallTargetFacts<'a> {
     direct_targets_by_span: std::collections::BTreeMap<Span, Span>,
     definition_sources_by_node_span:
         std::collections::BTreeMap<Span, CallableValueDefinitionSource>,
+    closure_body_owners_by_closure_span: std::collections::BTreeMap<Span, ClosureBodyCallOwner>,
+    closure_body_callers_by_call_span: std::collections::BTreeMap<Span, Option<Span>>,
     local_binding_by_reference_span: std::collections::BTreeMap<Span, AnalysisFlowBindingId>,
     flow_node_by_reference_binding_span:
         std::collections::BTreeMap<(Span, AnalysisFlowBindingId), AnalysisFlowNodeId>,
     flow_facts: Option<FlowFunctionValueFacts<'a>>,
+}
+
+#[derive(Clone, Copy)]
+enum ClosureBodyCallOwner {
+    Named(Span),
+    Unnamed,
+}
+
+impl ClosureBodyCallOwner {
+    fn definition_span(self) -> Option<Span> {
+        match self {
+            Self::Named(span) => Some(span),
+            Self::Unnamed => None,
+        }
+    }
 }
 
 impl<'a> IndirectCallTargetFacts<'a> {
@@ -1751,6 +1768,25 @@ impl<'a> IndirectCallTargetFacts<'a> {
             }
             AnalysisCallTargetCompleteness::Partial => IndirectCallTargets::partial(targets),
             AnalysisCallTargetCompleteness::Unknown => IndirectCallTargets::unknown(),
+        }
+    }
+
+    fn closure_body_caller_for_call(&self, call_span: Span) -> Option<Option<Span>> {
+        self.closure_body_callers_by_call_span
+            .get(&call_span)
+            .copied()
+    }
+
+    fn record_closure_body_owner_for_value(&mut self, expr: &ast::Expr, owner_span: Span) {
+        match &expr.kind {
+            ast::ExprKind::Closure { .. } => {
+                self.closure_body_owners_by_closure_span
+                    .insert(expr.span, ClosureBodyCallOwner::Named(owner_span));
+            }
+            ast::ExprKind::Grouped { expr } | ast::ExprKind::As { lhs: expr, .. } => {
+                self.record_closure_body_owner_for_value(expr, owner_span);
+            }
+            _ => {}
         }
     }
 
@@ -1975,6 +2011,15 @@ fn collect_indirect_call_target_facts(
     callable_entries: &std::collections::BTreeMap<Span, Span>,
     facts: &mut IndirectCallTargetFacts,
 ) {
+    collect_indirect_call_target_facts_with_closure_owner(expr, callable_entries, facts, None);
+}
+
+fn collect_indirect_call_target_facts_with_closure_owner(
+    expr: &ast::Expr,
+    callable_entries: &std::collections::BTreeMap<Span, Span>,
+    facts: &mut IndirectCallTargetFacts,
+    closure_body_owner: Option<ClosureBodyCallOwner>,
+) {
     if let Some(target_span) = callable_entries.get(&callee_reference_span(expr)).copied() {
         facts
             .direct_targets_by_span
@@ -2006,16 +2051,32 @@ fn collect_indirect_call_target_facts(
                     expr.span,
                     CallableValueDefinitionSource::Target(binding.name_span),
                 );
+                facts.record_closure_body_owner_for_value(init, binding.name_span);
             }
-            collect_indirect_call_target_facts(init, callable_entries, facts);
+            collect_indirect_call_target_facts_with_closure_owner(
+                init,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
             if let Some(else_clause) = else_clause {
                 match else_clause {
                     ast::LetElseClause::Expr(else_expr) => {
-                        collect_indirect_call_target_facts(else_expr, callable_entries, facts);
+                        collect_indirect_call_target_facts_with_closure_owner(
+                            else_expr,
+                            callable_entries,
+                            facts,
+                            closure_body_owner,
+                        );
                     }
                     ast::LetElseClause::Arms(arms) => {
                         for arm in arms {
-                            collect_indirect_call_target_facts(&arm.body, callable_entries, facts);
+                            collect_indirect_call_target_facts_with_closure_owner(
+                                &arm.body,
+                                callable_entries,
+                                facts,
+                                closure_body_owner,
+                            );
                         }
                     }
                 }
@@ -2026,22 +2087,47 @@ fn collect_indirect_call_target_facts(
                 match &stmt.kind {
                     ast::StmtKind::Use(_) => {}
                     ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
-                        collect_indirect_call_target_facts(expr, callable_entries, facts);
+                        collect_indirect_call_target_facts_with_closure_owner(
+                            expr,
+                            callable_entries,
+                            facts,
+                            closure_body_owner,
+                        );
                     }
                 }
             }
             if let Some(result) = result {
-                collect_indirect_call_target_facts(result, callable_entries, facts);
+                collect_indirect_call_target_facts_with_closure_owner(
+                    result,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
             }
         }
         ast::ExprKind::Static { init, .. } => {
             if let Some(init) = init {
-                collect_indirect_call_target_facts(init, callable_entries, facts);
+                collect_indirect_call_target_facts_with_closure_owner(
+                    init,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
             }
         }
         ast::ExprKind::Binary { lhs, rhs, .. } => {
-            collect_indirect_call_target_facts(lhs, callable_entries, facts);
-            collect_indirect_call_target_facts(rhs, callable_entries, facts);
+            collect_indirect_call_target_facts_with_closure_owner(
+                lhs,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
+            collect_indirect_call_target_facts_with_closure_owner(
+                rhs,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
         }
         ast::ExprKind::Assign { lhs, rhs, .. } => {
             if let Some(source) = callable_value_definition_source(rhs, callable_entries) {
@@ -2049,15 +2135,35 @@ fn collect_indirect_call_target_facts(
                     .definition_sources_by_node_span
                     .insert(expr.span, source);
             }
-            collect_indirect_call_target_facts(lhs, callable_entries, facts);
-            collect_indirect_call_target_facts(rhs, callable_entries, facts);
+            collect_indirect_call_target_facts_with_closure_owner(
+                lhs,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
+            collect_indirect_call_target_facts_with_closure_owner(
+                rhs,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
         }
         ast::ExprKind::Range { start, end, .. } => {
             if let Some(start) = start {
-                collect_indirect_call_target_facts(start, callable_entries, facts);
+                collect_indirect_call_target_facts_with_closure_owner(
+                    start,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
             }
             if let Some(end) = end {
-                collect_indirect_call_target_facts(end, callable_entries, facts);
+                collect_indirect_call_target_facts_with_closure_owner(
+                    end,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
             }
         }
         ast::ExprKind::Unary { operand, .. }
@@ -2068,34 +2174,89 @@ fn collect_indirect_call_target_facts(
         | ast::ExprKind::Defer { expr: operand }
         | ast::ExprKind::GenericInstantiation {
             target: operand, ..
-        } => collect_indirect_call_target_facts(operand, callable_entries, facts),
+        } => collect_indirect_call_target_facts_with_closure_owner(
+            operand,
+            callable_entries,
+            facts,
+            closure_body_owner,
+        ),
         ast::ExprKind::IndexAccess { lhs, index, .. } => {
-            collect_indirect_call_target_facts(lhs, callable_entries, facts);
-            collect_indirect_call_target_facts(index, callable_entries, facts);
+            collect_indirect_call_target_facts_with_closure_owner(
+                lhs,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
+            collect_indirect_call_target_facts_with_closure_owner(
+                index,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
         }
         ast::ExprKind::Call { callee, args } => {
-            collect_indirect_call_target_facts(callee, callable_entries, facts);
+            if let Some(owner) = closure_body_owner {
+                facts
+                    .closure_body_callers_by_call_span
+                    .insert(expr.span, owner.definition_span());
+            }
+            collect_indirect_call_target_facts_with_closure_owner(
+                callee,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
             for arg in args {
-                collect_indirect_call_target_facts(arg, callable_entries, facts);
+                collect_indirect_call_target_facts_with_closure_owner(
+                    arg,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
             }
         }
         ast::ExprKind::DataInit { literal, .. } => match literal {
             ast::DataLiteralKind::Struct(fields) => {
                 for field in fields {
-                    collect_indirect_call_target_facts(&field.value, callable_entries, facts);
+                    collect_indirect_call_target_facts_with_closure_owner(
+                        &field.value,
+                        callable_entries,
+                        facts,
+                        closure_body_owner,
+                    );
                 }
             }
             ast::DataLiteralKind::Array(items) => {
                 for item in items {
-                    collect_indirect_call_target_facts(item, callable_entries, facts);
+                    collect_indirect_call_target_facts_with_closure_owner(
+                        item,
+                        callable_entries,
+                        facts,
+                        closure_body_owner,
+                    );
                 }
             }
             ast::DataLiteralKind::Repeat { value, count } => {
-                collect_indirect_call_target_facts(value, callable_entries, facts);
-                collect_indirect_call_target_facts(count, callable_entries, facts);
+                collect_indirect_call_target_facts_with_closure_owner(
+                    value,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
+                collect_indirect_call_target_facts_with_closure_owner(
+                    count,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
             }
             ast::DataLiteralKind::Scalar(value) => {
-                collect_indirect_call_target_facts(value, callable_entries, facts);
+                collect_indirect_call_target_facts_with_closure_owner(
+                    value,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
             }
         },
         ast::ExprKind::If {
@@ -2103,43 +2264,113 @@ fn collect_indirect_call_target_facts(
             then_branch,
             else_branch,
         } => {
-            collect_indirect_call_target_facts(cond, callable_entries, facts);
-            collect_indirect_call_target_facts(then_branch, callable_entries, facts);
+            collect_indirect_call_target_facts_with_closure_owner(
+                cond,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
+            collect_indirect_call_target_facts_with_closure_owner(
+                then_branch,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
             if let Some(else_branch) = else_branch {
-                collect_indirect_call_target_facts(else_branch, callable_entries, facts);
+                collect_indirect_call_target_facts_with_closure_owner(
+                    else_branch,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
             }
         }
         ast::ExprKind::Match { target, arms } => {
-            collect_indirect_call_target_facts(target, callable_entries, facts);
+            collect_indirect_call_target_facts_with_closure_owner(
+                target,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
             for arm in arms {
-                collect_indirect_call_target_facts(&arm.body, callable_entries, facts);
+                collect_indirect_call_target_facts_with_closure_owner(
+                    &arm.body,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
             }
         }
         ast::ExprKind::While { cond, body } => {
-            collect_indirect_call_target_facts(cond, callable_entries, facts);
-            collect_indirect_call_target_facts(body, callable_entries, facts);
+            collect_indirect_call_target_facts_with_closure_owner(
+                cond,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
+            collect_indirect_call_target_facts_with_closure_owner(
+                body,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
         }
         ast::ExprKind::SliceOp {
             lhs, start, end, ..
         } => {
-            collect_indirect_call_target_facts(lhs, callable_entries, facts);
+            collect_indirect_call_target_facts_with_closure_owner(
+                lhs,
+                callable_entries,
+                facts,
+                closure_body_owner,
+            );
             if let Some(start) = start {
-                collect_indirect_call_target_facts(start, callable_entries, facts);
+                collect_indirect_call_target_facts_with_closure_owner(
+                    start,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
             }
             if let Some(end) = end {
-                collect_indirect_call_target_facts(end, callable_entries, facts);
+                collect_indirect_call_target_facts_with_closure_owner(
+                    end,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
             }
         }
         ast::ExprKind::Return(value) => {
             if let Some(value) = value {
-                collect_indirect_call_target_facts(value, callable_entries, facts);
+                collect_indirect_call_target_facts_with_closure_owner(
+                    value,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
             }
         }
         ast::ExprKind::Closure { captures, body, .. } => {
             for capture in captures {
-                collect_indirect_call_target_facts(&capture.value, callable_entries, facts);
+                collect_indirect_call_target_facts_with_closure_owner(
+                    &capture.value,
+                    callable_entries,
+                    facts,
+                    closure_body_owner,
+                );
             }
-            collect_indirect_call_target_facts(body, callable_entries, facts);
+            let body_owner = facts
+                .closure_body_owners_by_closure_span
+                .get(&expr.span)
+                .copied()
+                .unwrap_or(ClosureBodyCallOwner::Unnamed);
+            collect_indirect_call_target_facts_with_closure_owner(
+                body,
+                callable_entries,
+                facts,
+                Some(body_owner),
+            );
         }
         ast::ExprKind::Error
         | ast::ExprKind::Integer { .. }
@@ -3138,9 +3369,16 @@ fn collect_calls_in_expr(
                 .get(&callee_reference_span(callee))
                 .copied();
             let call_kind = analysis_call_kind(ctx, callee);
+            let caller_definition_span = indirect_call_targets
+                .closure_body_caller_for_call(expr.span)
+                .unwrap_or_else(|| {
+                    flow_model
+                        .owner_def_id(expr.span)
+                        .and_then(|caller_def_id| function_definition_spans.get(&caller_def_id))
+                        .copied()
+                });
             if let Some(mut kind) = call_kind
-                && let Some(caller_def_id) = flow_model.owner_def_id(expr.span)
-                && let Some(caller_definition_span) = function_definition_spans.get(&caller_def_id)
+                && let Some(caller_definition_span) = caller_definition_span
             {
                 if kind == AnalysisCallKind::Direct && callee_definition_span.is_none() {
                     kind = AnalysisCallKind::Indirect;
@@ -3155,7 +3393,7 @@ fn collect_calls_in_expr(
                     call_span: expr.span,
                     callee_span: callee.span,
                     callee_definition_span,
-                    caller_definition_span: *caller_definition_span,
+                    caller_definition_span,
                     dynamic_dispatch_targets: dynamic_dispatch_targets(ctx, callee),
                     indirect_targets: indirect_targets.targets,
                     indirect_target_completeness: indirect_targets.completeness,

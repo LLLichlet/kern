@@ -851,6 +851,101 @@ fn analysis_artifact_resolves_local_closure_object_call_targets() {
 }
 
 #[test]
+fn analysis_artifact_records_closure_body_call_edges() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analysis_closure_body_calls_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let source = concat!(
+        "fn leaf() i32 { return 1; }\n",
+        "fn seed() i32 { return 2; }\n",
+        "fn main() i32 {\n",
+        "    let cb = [base = seed()]() i32 { return base + leaf(); };\n",
+        "    return cb();\n",
+        "}\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    let closure_body_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Direct
+                && span_text(source, call.caller_definition_span) == "cb"
+                && span_text(source, call.callee_span) == "leaf"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected closure-body direct call edge, got {:#?}",
+                artifact.calls
+            )
+        });
+    assert_eq!(
+        closure_body_call
+            .callee_definition_span
+            .map(|span| span_text(source, span)),
+        Some("leaf")
+    );
+    assert!(!artifact.calls.iter().any(|call| {
+        call.kind == AnalysisCallKind::Direct
+            && span_text(source, call.caller_definition_span) == "main"
+            && span_text(source, call.callee_span) == "leaf"
+    }));
+
+    let capture_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Direct
+                && span_text(source, call.caller_definition_span) == "main"
+                && span_text(source, call.callee_span) == "seed"
+        })
+        .expect("expected capture initializer call to remain attributed to main");
+    assert_eq!(
+        capture_call
+            .callee_definition_span
+            .map(|span| span_text(source, span)),
+        Some("seed")
+    );
+    assert!(!artifact.calls.iter().any(|call| {
+        call.kind == AnalysisCallKind::Direct
+            && span_text(source, call.caller_definition_span) == "cb"
+            && span_text(source, call.callee_span) == "seed"
+    }));
+
+    let indirect_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Indirect && span_text(source, call.callee_span) == "cb"
+        })
+        .expect("expected closure object indirect call");
+    assert_eq!(
+        span_text(source, indirect_call.caller_definition_span),
+        "main"
+    );
+    assert_eq!(indirect_call.indirect_targets.len(), 1);
+    assert_eq!(span_text(source, indirect_call.indirect_targets[0]), "cb");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn analysis_artifact_propagates_closure_object_parameters_across_direct_calls() {
     let root = std::env::temp_dir().join(format!(
         "kern_analysis_parameter_closure_indirect_calls_{}_{}",

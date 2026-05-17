@@ -1132,9 +1132,11 @@ Tasks:
   including transparent grouping, address-taking, `&Fn` casts, and immutable
   forwarding through erased closure values; they can flow through the same
   parameter facts. LSP exposes them as call hierarchy targets only when the
-  compiler call facts mention them. Unknown argument sources and closure
-  body-as-owner outgoing edges remain pending until the compiler exposes precise
-  facts for those cases.
+  compiler call facts mention them. Closure bodies assigned to named callable
+  values now emit outgoing call edges using the closure value definition as the
+  caller, so call hierarchy can show direct calls made by the closure body
+  without attributing them to the enclosing function. Unknown argument sources
+  remain pending until the compiler exposes precise facts for those cases.
 - Import insertion: unresolved value/function identifiers now carry a structured
   compiler diagnostic code, `kernc_driver` derives visible import candidates
   from the resolved module graph and scope table, and `kern-lsp` returns

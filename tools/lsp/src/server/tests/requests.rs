@@ -2055,10 +2055,11 @@ fn call_hierarchy_expands_function_value_parameter_targets() {
 fn call_hierarchy_expands_closure_object_targets() {
     let mut state = initialized_state();
     let source = concat!(
+        "fn leaf() i32 { return 1; }\n",
         "fn apply(cb: &Fn() i32) i32 { return cb(); }\n",
         "fn main() i32 {\n",
         "    let base = 2i32;\n",
-        "    let local = [base]() i32 { return base; };\n",
+        "    let local = [base]() i32 { return base + leaf(); };\n",
         "    let erased = (local.& as &Fn() i32);\n",
         "    return erased() + apply(erased);\n",
         "}\n",
@@ -2074,7 +2075,7 @@ fn call_hierarchy_expands_closure_object_targets() {
             method: Some("textDocument/prepareCallHierarchy".to_string()),
             params: Some(json!({
                 "textDocument": { "uri": uri },
-                "position": { "line": 0, "character": 3 }
+                "position": { "line": 1, "character": 3 }
             })),
         },
     );
@@ -2104,8 +2105,8 @@ fn call_hierarchy_expands_closure_object_targets() {
         outgoing_calls[0]["fromRanges"],
         json!([
             {
-                "start": { "line": 0, "character": 37 },
-                "end": { "line": 0, "character": 39 }
+                "start": { "line": 1, "character": 37 },
+                "end": { "line": 1, "character": 39 }
             }
         ])
     );
@@ -2118,7 +2119,7 @@ fn call_hierarchy_expands_closure_object_targets() {
             method: Some("textDocument/prepareCallHierarchy".to_string()),
             params: Some(json!({
                 "textDocument": { "uri": uri },
-                "position": { "line": 3, "character": 9 }
+                "position": { "line": 4, "character": 9 }
             })),
         },
     );
@@ -2153,8 +2154,8 @@ fn call_hierarchy_expands_closure_object_targets() {
         incoming_by_name[0].1,
         &json!([
             {
-                "start": { "line": 0, "character": 37 },
-                "end": { "line": 0, "character": 39 }
+                "start": { "line": 1, "character": 37 },
+                "end": { "line": 1, "character": 39 }
             }
         ])
     );
@@ -2163,8 +2164,8 @@ fn call_hierarchy_expands_closure_object_targets() {
         incoming_by_name[1].1,
         &json!([
             {
-                "start": { "line": 5, "character": 11 },
-                "end": { "line": 5, "character": 17 }
+                "start": { "line": 6, "character": 11 },
+                "end": { "line": 6, "character": 17 }
             }
         ])
     );
@@ -2183,7 +2184,17 @@ fn call_hierarchy_expands_closure_object_targets() {
 
     assert_eq!(local_outgoing["id"], json!(25095));
     let local_outgoing_calls = local_outgoing["result"].as_array().unwrap();
-    assert!(local_outgoing_calls.is_empty());
+    assert_eq!(local_outgoing_calls.len(), 1);
+    assert_eq!(local_outgoing_calls[0]["to"]["name"], "leaf");
+    assert_eq!(
+        local_outgoing_calls[0]["fromRanges"],
+        json!([
+            {
+                "start": { "line": 4, "character": 45 },
+                "end": { "line": 4, "character": 49 }
+            }
+        ])
+    );
 }
 
 #[test]

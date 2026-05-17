@@ -1118,22 +1118,23 @@ facts and must not be approximated with name matching.
 Tasks:
 
 - Indirect call hierarchy expansion: compiler analysis now records resolved
-  indirect targets for single-source immutable local function-value bindings.
-  The local target recovery now consumes flow single-source facts for simple
-  immutable forwarding chains such as `let second = first`, and LSP
-  incoming/outgoing call hierarchy expands those targets from the recorded
-  facts. Direct-call interprocedural propagation now records function-value
-  targets passed through immutable parameters, including parameter-to-parameter
-  forwarding chains, with explicit partial completeness so the IDE can expand
-  known targets without pretending the set is globally exhaustive. Immutable
-  closure-object bindings are also recovered as callable value targets, including
-  transparent grouping, address-taking, `&Fn` casts, and immutable forwarding
-  through erased closure values; they can flow through the same parameter facts.
-  LSP exposes them as call hierarchy targets only when the compiler call facts
-  mention them. Mutable or
-  multi-source local values, unknown argument sources, and closure body-as-owner
-  outgoing edges remain pending until the compiler exposes precise facts for
-  those cases.
+  indirect targets for local function-value and closure-object bindings. Target
+  recovery consumes flow reaching-definition facts, so assignment-updated
+  mutable bindings and branch-merged multi-source locals are expanded from the
+  same compiler-backed facts as immutable forwarding chains such as
+  `let second = first`. Single concrete reaching sources are marked exact;
+  ambiguous or branch-merged sources are marked partial. Direct-call
+  interprocedural propagation records function-value targets passed through
+  immutable parameters, including parameter-to-parameter forwarding chains and
+  multi-source local arguments, with explicit partial completeness so the IDE can
+  expand known targets without pretending the set is globally exhaustive.
+  Immutable closure-object bindings are also recovered as callable value targets,
+  including transparent grouping, address-taking, `&Fn` casts, and immutable
+  forwarding through erased closure values; they can flow through the same
+  parameter facts. LSP exposes them as call hierarchy targets only when the
+  compiler call facts mention them. Unknown argument sources and closure
+  body-as-owner outgoing edges remain pending until the compiler exposes precise
+  facts for those cases.
 - Import insertion: unresolved value/function identifiers now carry a structured
   compiler diagnostic code, `kernc_driver` derives visible import candidates
   from the resolved module graph and scope table, and `kern-lsp` returns

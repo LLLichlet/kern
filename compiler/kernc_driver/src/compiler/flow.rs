@@ -8,8 +8,9 @@ use super::{
     AnalysisDeadStore, AnalysisDeadStoreKind, AnalysisFlowBindingId, AnalysisFlowBindingKind,
     AnalysisFlowBindingSummary, AnalysisFlowCfg, AnalysisFlowCfgEdge, AnalysisFlowCfgEdgeKind,
     AnalysisFlowCfgNode, AnalysisFlowCfgNodeKind, AnalysisFlowDefinitionFacts,
-    AnalysisFlowDefinitionKind, AnalysisFlowNodeEffects, AnalysisFlowNodeId, AnalysisFlowOwnerKind,
-    AnalysisFlowRegionKind, AnalysisFlowSingleSourceUse, AnalysisFlowSummary,
+    AnalysisFlowDefinitionKind, AnalysisFlowDefinitionRef, AnalysisFlowNodeEffects,
+    AnalysisFlowNodeId, AnalysisFlowOwnerKind, AnalysisFlowRegionKind, AnalysisFlowResolvedUse,
+    AnalysisFlowSummary,
 };
 use kernc_ast as ast;
 use kernc_flow::{ComputedLiveness, FlowBindingFacts, FlowOwnerFacts, FlowRegionFacts};
@@ -38,8 +39,9 @@ pub(in crate::compiler) struct FlowFunctionValueFacts<'a> {
     pub owner: &'a FlowOwnerFacts,
     binding_by_id: HashMap<AnalysisFlowBindingId, &'a FlowBindingFacts>,
     binding_summary_by_id: HashMap<AnalysisFlowBindingId, &'a AnalysisFlowBindingSummary>,
-    single_source_by_node_binding:
-        HashMap<(AnalysisFlowNodeId, AnalysisFlowBindingId), &'a AnalysisFlowSingleSourceUse>,
+    definition_facts_by_ref: HashMap<AnalysisFlowDefinitionRef, &'a AnalysisFlowDefinitionFacts>,
+    resolved_use_by_node_binding:
+        HashMap<(AnalysisFlowNodeId, AnalysisFlowBindingId), &'a AnalysisFlowResolvedUse>,
 }
 
 impl<'a> FlowFunctionValueFacts<'a> {
@@ -56,22 +58,17 @@ impl<'a> FlowFunctionValueFacts<'a> {
                 .iter()
                 .map(|summary| (summary.binding_id, summary))
                 .collect(),
-            single_source_by_node_binding: owner
-                .single_source_uses
+            definition_facts_by_ref: owner
+                .definition_facts
                 .iter()
-                .map(|single| ((single.node_id, single.binding_id), single))
+                .map(|facts| (facts.definition, facts))
+                .collect(),
+            resolved_use_by_node_binding: owner
+                .resolved_uses
+                .iter()
+                .map(|resolved| ((resolved.node_id, resolved.binding_id), resolved))
                 .collect(),
         }
-    }
-
-    pub fn single_source_use_for(
-        &self,
-        node_id: AnalysisFlowNodeId,
-        binding_id: AnalysisFlowBindingId,
-    ) -> Option<&AnalysisFlowSingleSourceUse> {
-        self.single_source_by_node_binding
-            .get(&(node_id, binding_id))
-            .copied()
     }
 
     pub fn binding(&self, binding_id: AnalysisFlowBindingId) -> Option<&FlowBindingFacts> {
@@ -83,6 +80,23 @@ impl<'a> FlowFunctionValueFacts<'a> {
         binding_id: AnalysisFlowBindingId,
     ) -> Option<&AnalysisFlowBindingSummary> {
         self.binding_summary_by_id.get(&binding_id).copied()
+    }
+
+    pub fn definition_facts(
+        &self,
+        definition: AnalysisFlowDefinitionRef,
+    ) -> Option<&AnalysisFlowDefinitionFacts> {
+        self.definition_facts_by_ref.get(&definition).copied()
+    }
+
+    pub fn resolved_use_for(
+        &self,
+        node_id: AnalysisFlowNodeId,
+        binding_id: AnalysisFlowBindingId,
+    ) -> Option<&AnalysisFlowResolvedUse> {
+        self.resolved_use_by_node_binding
+            .get(&(node_id, binding_id))
+            .copied()
     }
 }
 

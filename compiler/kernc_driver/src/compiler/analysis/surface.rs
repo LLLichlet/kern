@@ -1590,6 +1590,72 @@ enum FunctionValueSource {
     Parameter(Span),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CallableValueDefinitionSource {
+    Target(Span),
+    Reference(Span),
+}
+
+struct FunctionValueSources {
+    sources: Vec<FunctionValueSource>,
+    completeness: AnalysisCallTargetCompleteness,
+}
+
+impl FunctionValueSources {
+    fn exact(source: FunctionValueSource) -> Self {
+        Self {
+            sources: vec![source],
+            completeness: AnalysisCallTargetCompleteness::Exact,
+        }
+    }
+
+    fn unknown() -> Self {
+        Self {
+            sources: Vec::new(),
+            completeness: AnalysisCallTargetCompleteness::Unknown,
+        }
+    }
+
+    fn merged(
+        parts: impl IntoIterator<Item = Self>,
+        completeness: AnalysisCallTargetCompleteness,
+    ) -> Self {
+        let mut sources = Vec::new();
+        let mut saw_partial = completeness == AnalysisCallTargetCompleteness::Partial;
+        let mut saw_unknown = completeness == AnalysisCallTargetCompleteness::Unknown;
+        for part in parts {
+            sources.extend(part.sources);
+            match part.completeness {
+                AnalysisCallTargetCompleteness::Exact => {}
+                AnalysisCallTargetCompleteness::Partial => saw_partial = true,
+                AnalysisCallTargetCompleteness::Unknown => saw_unknown = true,
+            }
+        }
+        let result_completeness = if saw_partial || saw_unknown {
+            AnalysisCallTargetCompleteness::Partial
+        } else {
+            AnalysisCallTargetCompleteness::Exact
+        };
+        Self::with_completeness(&mut sources, result_completeness)
+    }
+
+    fn with_completeness(
+        sources: &mut Vec<FunctionValueSource>,
+        completeness: AnalysisCallTargetCompleteness,
+    ) -> Self {
+        sources.sort();
+        sources.dedup();
+        if sources.is_empty() {
+            Self::unknown()
+        } else {
+            Self {
+                sources: std::mem::take(sources),
+                completeness,
+            }
+        }
+    }
+}
+
 struct IndirectCallTargets {
     targets: Vec<Span>,
     completeness: AnalysisCallTargetCompleteness,
@@ -1627,8 +1693,8 @@ impl IndirectCallTargets {
 #[derive(Default)]
 struct IndirectCallTargetFacts<'a> {
     direct_targets_by_span: std::collections::BTreeMap<Span, Span>,
-    direct_binding_targets_by_definition_span: std::collections::BTreeMap<Span, Span>,
-    binding_initializer_sources_by_definition_span: std::collections::BTreeMap<Span, Span>,
+    definition_sources_by_node_span:
+        std::collections::BTreeMap<Span, CallableValueDefinitionSource>,
     local_binding_by_reference_span: std::collections::BTreeMap<Span, AnalysisFlowBindingId>,
     flow_node_by_reference_binding_span:
         std::collections::BTreeMap<(Span, AnalysisFlowBindingId), AnalysisFlowNodeId>,
@@ -1660,125 +1726,247 @@ impl<'a> IndirectCallTargetFacts<'a> {
         callee: &ast::Expr,
         parameter_call_targets: &InterproceduralFunctionValueFacts,
     ) -> IndirectCallTargets {
-        match self.source_for_expr(callee) {
-            Some(FunctionValueSource::Target(target)) => IndirectCallTargets::exact(target),
-            Some(FunctionValueSource::Parameter(parameter_span)) => IndirectCallTargets::partial(
-                parameter_call_targets.targets_for_parameter(parameter_span),
-            ),
-            None => IndirectCallTargets::unknown(),
+        let sources = self.sources_for_expr(callee);
+        let mut targets = Vec::new();
+        let mut includes_parameter_source = false;
+        for source in sources.sources {
+            match source {
+                FunctionValueSource::Target(target) => targets.push(target),
+                FunctionValueSource::Parameter(parameter_span) => {
+                    includes_parameter_source = true;
+                    targets.extend(parameter_call_targets.targets_for_parameter(parameter_span));
+                }
+            }
+        }
+        if includes_parameter_source {
+            return IndirectCallTargets::partial(targets);
+        }
+        match sources.completeness {
+            AnalysisCallTargetCompleteness::Exact => {
+                if targets.len() == 1 {
+                    IndirectCallTargets::exact(targets[0])
+                } else {
+                    IndirectCallTargets::partial(targets)
+                }
+            }
+            AnalysisCallTargetCompleteness::Partial => IndirectCallTargets::partial(targets),
+            AnalysisCallTargetCompleteness::Unknown => IndirectCallTargets::unknown(),
         }
     }
 
-    fn source_for_expr(&self, expr: &ast::Expr) -> Option<FunctionValueSource> {
+    fn sources_for_expr(&self, expr: &ast::Expr) -> FunctionValueSources {
         match &expr.kind {
             ast::ExprKind::Grouped { expr }
             | ast::ExprKind::As { lhs: expr, .. }
             | ast::ExprKind::GenericInstantiation { target: expr, .. } => {
-                return self.source_for_expr(expr);
+                return self.sources_for_expr(expr);
             }
             ast::ExprKind::Unary {
                 op: ast::UnaryOperator::AddressOf | ast::UnaryOperator::MutAddressOf,
                 operand,
-            } => return self.source_for_expr(operand),
+            } => return self.sources_for_expr(operand),
             _ => {}
         }
 
         let reference_span = callee_reference_span(expr);
-        self.direct_targets_by_span
-            .get(&reference_span)
-            .copied()
-            .map(FunctionValueSource::Target)
-            .or_else(|| self.flow_source_for_reference(reference_span))
+        if let Some(target) = self.direct_targets_by_span.get(&reference_span).copied() {
+            return FunctionValueSources::exact(FunctionValueSource::Target(target));
+        }
+        self.flow_sources_for_reference(reference_span)
     }
 
-    fn flow_source_for_reference(&self, reference_span: Span) -> Option<FunctionValueSource> {
+    fn flow_sources_for_reference(&self, reference_span: Span) -> FunctionValueSources {
         let mut visited = std::collections::BTreeSet::new();
-        self.flow_source_for_reference_with_visited(reference_span, &mut visited)
+        self.flow_sources_for_reference_with_visited(reference_span, &mut visited)
     }
 
-    fn flow_source_for_reference_with_visited(
+    fn flow_sources_for_reference_with_visited(
         &self,
         reference_span: Span,
         visited: &mut std::collections::BTreeSet<AnalysisFlowBindingId>,
-    ) -> Option<FunctionValueSource> {
-        let flow_facts = self.flow_facts.as_ref()?;
+    ) -> FunctionValueSources {
+        let Some(flow_facts) = self.flow_facts.as_ref() else {
+            return FunctionValueSources::unknown();
+        };
         let binding_id = self
             .local_binding_by_reference_span
             .get(&reference_span)
-            .copied()?;
-        let binding = flow_facts.binding(binding_id)?;
+            .copied();
+        let Some(binding_id) = binding_id else {
+            return FunctionValueSources::unknown();
+        };
+        let Some(binding) = flow_facts.binding(binding_id) else {
+            return FunctionValueSources::unknown();
+        };
         if binding.kind == kernc_flow::AnalysisFlowBindingKind::Parameter && !binding.is_mut {
-            return Some(FunctionValueSource::Parameter(binding.definition_span));
+            return FunctionValueSources::exact(FunctionValueSource::Parameter(
+                binding.definition_span,
+            ));
         }
         let node_id = self
             .flow_node_by_reference_binding_span
             .get(&(reference_span, binding_id))
-            .copied()?;
-        let single_source = flow_facts.single_source_use_for(node_id, binding_id)?;
-        if single_source.definition_kind != AnalysisFlowDefinitionKind::Initializer {
-            return None;
+            .copied();
+        let Some(node_id) = node_id else {
+            return FunctionValueSources::unknown();
+        };
+        if let Some(resolved) = flow_facts.resolved_use_for(node_id, binding_id) {
+            let sources = resolved
+                .candidate_definitions
+                .iter()
+                .map(|definition| {
+                    let mut branch_visited = visited.clone();
+                    self.resolve_function_value_definition_sources(*definition, &mut branch_visited)
+                })
+                .collect::<Vec<_>>();
+            return match resolved.kind {
+                kernc_flow::AnalysisFlowResolvedUseKind::Unique => {
+                    FunctionValueSources::merged(sources, AnalysisCallTargetCompleteness::Exact)
+                }
+                kernc_flow::AnalysisFlowResolvedUseKind::Ambiguous => {
+                    FunctionValueSources::merged(sources, AnalysisCallTargetCompleteness::Partial)
+                }
+                kernc_flow::AnalysisFlowResolvedUseKind::Missing => FunctionValueSources::unknown(),
+            };
         }
-        self.resolve_function_value_origin(single_source.definition.binding_id, visited)
+        FunctionValueSources::unknown()
     }
 
-    fn resolve_function_value_origin(
+    fn resolve_function_value_definition_sources(
+        &self,
+        definition: AnalysisFlowDefinitionRef,
+        visited: &mut std::collections::BTreeSet<AnalysisFlowBindingId>,
+    ) -> FunctionValueSources {
+        let Some(flow_facts) = self.flow_facts.as_ref() else {
+            return FunctionValueSources::unknown();
+        };
+        let Some(definition_facts) = flow_facts.definition_facts(definition) else {
+            return FunctionValueSources::unknown();
+        };
+        if !matches!(
+            definition_facts.kind,
+            AnalysisFlowDefinitionKind::Initializer | AnalysisFlowDefinitionKind::Assignment
+        ) {
+            return FunctionValueSources::unknown();
+        }
+        if let Some(source_binding_id) = definition_facts.copy_source_binding_id {
+            return self.resolve_function_value_binding_sources(source_binding_id, visited);
+        }
+        self.direct_definition_sources(definition, visited)
+    }
+
+    fn resolve_function_value_binding_sources(
         &self,
         binding_id: AnalysisFlowBindingId,
         visited: &mut std::collections::BTreeSet<AnalysisFlowBindingId>,
-    ) -> Option<FunctionValueSource> {
-        let flow_facts = self.flow_facts.as_ref()?;
+    ) -> FunctionValueSources {
+        let Some(flow_facts) = self.flow_facts.as_ref() else {
+            return FunctionValueSources::unknown();
+        };
         let mut current = binding_id;
 
         loop {
             if !visited.insert(current) {
-                return None;
+                return FunctionValueSources::unknown();
             }
 
-            let binding = flow_facts.binding(current)?;
+            let Some(binding) = flow_facts.binding(current) else {
+                return FunctionValueSources::unknown();
+            };
             match binding.kind {
                 kernc_flow::AnalysisFlowBindingKind::Parameter if !binding.is_mut => {
-                    return Some(FunctionValueSource::Parameter(binding.definition_span));
+                    return FunctionValueSources::exact(FunctionValueSource::Parameter(
+                        binding.definition_span,
+                    ));
                 }
-                kernc_flow::AnalysisFlowBindingKind::Variable if !binding.is_mut => {}
-                _ => return None,
+                kernc_flow::AnalysisFlowBindingKind::Variable => {}
+                _ => return FunctionValueSources::unknown(),
             }
 
-            let summary = flow_facts.binding_summary(current)?;
+            let Some(summary) = flow_facts.binding_summary(current) else {
+                return FunctionValueSources::unknown();
+            };
             if summary.definition_node_ids.len() != 1 {
-                return None;
+                let sources = summary
+                    .definition_node_ids
+                    .iter()
+                    .map(|node_id| {
+                        let definition = AnalysisFlowDefinitionRef {
+                            binding_id: current,
+                            node_id: *node_id,
+                        };
+                        let mut branch_visited = visited.clone();
+                        self.resolve_function_value_definition_sources(
+                            definition,
+                            &mut branch_visited,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                return FunctionValueSources::merged(
+                    sources,
+                    AnalysisCallTargetCompleteness::Partial,
+                );
             }
-            let definition = flow_facts
-                .owner
-                .definition_facts
-                .iter()
-                .find(|definition| {
-                    definition.definition.binding_id == current
-                        && definition.definition.node_id == summary.definition_node_ids[0]
-                        && definition.kind == AnalysisFlowDefinitionKind::Initializer
-                })?;
+            let definition = AnalysisFlowDefinitionRef {
+                binding_id: current,
+                node_id: summary.definition_node_ids[0],
+            };
+            let Some(definition_facts) = flow_facts.definition_facts(definition) else {
+                return FunctionValueSources::unknown();
+            };
+            if !matches!(
+                definition_facts.kind,
+                AnalysisFlowDefinitionKind::Initializer | AnalysisFlowDefinitionKind::Assignment
+            ) {
+                return FunctionValueSources::unknown();
+            }
 
-            if let Some(source_binding_id) = definition.copy_source_binding_id {
+            if let Some(source_binding_id) = definition_facts.copy_source_binding_id {
                 if source_binding_id == current {
-                    return None;
+                    return FunctionValueSources::unknown();
                 }
                 current = source_binding_id;
                 continue;
             }
 
-            if let Some(target) = self
-                .direct_binding_targets_by_definition_span
-                .get(&binding.definition_span)
-                .copied()
-            {
-                return Some(FunctionValueSource::Target(target));
+            let direct_sources = self.direct_definition_sources(definition, visited);
+            if direct_sources.completeness != AnalysisCallTargetCompleteness::Unknown {
+                return direct_sources;
             }
-
-            let source_span = self
-                .binding_initializer_sources_by_definition_span
-                .get(&binding.definition_span)
-                .copied()?;
-            return self.flow_source_for_reference_with_visited(source_span, visited);
+            return FunctionValueSources::unknown();
         }
+    }
+
+    fn direct_definition_sources(
+        &self,
+        definition: AnalysisFlowDefinitionRef,
+        visited: &mut std::collections::BTreeSet<AnalysisFlowBindingId>,
+    ) -> FunctionValueSources {
+        let Some(flow_facts) = self.flow_facts.as_ref() else {
+            return FunctionValueSources::unknown();
+        };
+        if flow_facts.binding(definition.binding_id).is_none() {
+            return FunctionValueSources::unknown();
+        }
+        let node_span = flow_facts
+            .owner
+            .cfg
+            .nodes
+            .get(definition.node_id.index())
+            .map(|node| node.span);
+        if let Some(source) =
+            node_span.and_then(|span| self.definition_sources_by_node_span.get(&span).copied())
+        {
+            return match source {
+                CallableValueDefinitionSource::Target(target) => {
+                    FunctionValueSources::exact(FunctionValueSource::Target(target))
+                }
+                CallableValueDefinitionSource::Reference(reference_span) => {
+                    self.flow_sources_for_reference_with_visited(reference_span, visited)
+                }
+            };
+        }
+        FunctionValueSources::unknown()
     }
 }
 
@@ -1792,6 +1980,11 @@ fn collect_indirect_call_target_facts(
             .direct_targets_by_span
             .insert(callee_reference_span(expr), target_span);
     }
+    if let Some(source) = callable_value_definition_source(expr, callable_entries) {
+        facts
+            .definition_sources_by_node_span
+            .insert(expr.span, source);
+    }
 
     match &expr.kind {
         ast::ExprKind::Let {
@@ -1800,23 +1993,19 @@ fn collect_indirect_call_target_facts(
             else_clause,
             ..
         } => {
+            if let Some(source) = callable_value_definition_source(init, callable_entries) {
+                facts
+                    .definition_sources_by_node_span
+                    .insert(expr.span, source);
+            }
             if else_clause.is_none()
                 && let ast::PatternKind::Binding(binding) = &pattern.pattern.kind
-                && !binding.is_mut
+                && expr_is_closure_value(init)
             {
-                if let Some(target_span) = callable_value_target_for_expr(init, callable_entries) {
-                    facts
-                        .direct_binding_targets_by_definition_span
-                        .insert(binding.name_span, target_span);
-                } else if expr_is_closure_value(init) {
-                    facts
-                        .direct_binding_targets_by_definition_span
-                        .insert(binding.name_span, binding.name_span);
-                } else if let Some(source_span) = callable_value_source_reference_span(init) {
-                    facts
-                        .binding_initializer_sources_by_definition_span
-                        .insert(binding.name_span, source_span);
-                }
+                facts.definition_sources_by_node_span.insert(
+                    expr.span,
+                    CallableValueDefinitionSource::Target(binding.name_span),
+                );
             }
             collect_indirect_call_target_facts(init, callable_entries, facts);
             if let Some(else_clause) = else_clause {
@@ -1850,7 +2039,16 @@ fn collect_indirect_call_target_facts(
                 collect_indirect_call_target_facts(init, callable_entries, facts);
             }
         }
-        ast::ExprKind::Binary { lhs, rhs, .. } | ast::ExprKind::Assign { lhs, rhs, .. } => {
+        ast::ExprKind::Binary { lhs, rhs, .. } => {
+            collect_indirect_call_target_facts(lhs, callable_entries, facts);
+            collect_indirect_call_target_facts(rhs, callable_entries, facts);
+        }
+        ast::ExprKind::Assign { lhs, rhs, .. } => {
+            if let Some(source) = callable_value_definition_source(rhs, callable_entries) {
+                facts
+                    .definition_sources_by_node_span
+                    .insert(expr.span, source);
+            }
             collect_indirect_call_target_facts(lhs, callable_entries, facts);
             collect_indirect_call_target_facts(rhs, callable_entries, facts);
         }
@@ -1982,6 +2180,16 @@ fn callable_value_target_for_expr(
         } => callable_value_target_for_expr(operand, callable_entries),
         _ => None,
     }
+}
+
+fn callable_value_definition_source(
+    expr: &ast::Expr,
+    callable_entries: &std::collections::BTreeMap<Span, Span>,
+) -> Option<CallableValueDefinitionSource> {
+    if let Some(target) = callable_value_target_for_expr(expr, callable_entries) {
+        return Some(CallableValueDefinitionSource::Target(target));
+    }
+    callable_value_source_reference_span(expr).map(CallableValueDefinitionSource::Reference)
 }
 
 fn callable_value_source_reference_span(expr: &ast::Expr) -> Option<Span> {
@@ -2669,17 +2877,18 @@ fn record_direct_parameter_function_value_edges(
     };
 
     for (arg, parameter_span) in args.iter().zip(parameter_spans.iter().copied()) {
-        match indirect_call_targets.source_for_expr(arg) {
-            Some(FunctionValueSource::Target(target)) => {
-                direct_targets_by_parameter
-                    .entry(parameter_span)
-                    .or_default()
-                    .insert(target);
+        for source in indirect_call_targets.sources_for_expr(arg).sources {
+            match source {
+                FunctionValueSource::Target(target) => {
+                    direct_targets_by_parameter
+                        .entry(parameter_span)
+                        .or_default()
+                        .insert(target);
+                }
+                FunctionValueSource::Parameter(source_parameter_span) => {
+                    parameter_edges.push((source_parameter_span, parameter_span));
+                }
             }
-            Some(FunctionValueSource::Parameter(source_parameter_span)) => {
-                parameter_edges.push((source_parameter_span, parameter_span));
-            }
-            None => {}
         }
     }
 }

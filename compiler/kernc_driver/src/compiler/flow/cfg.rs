@@ -147,7 +147,15 @@ impl<'a> FlowCfgBuilder<'a> {
     fn local_binding_use(&self, expr: &ast::Expr) -> Option<AnalysisFlowBindingId> {
         match &expr.kind {
             ast::ExprKind::Identifier(_) => self.reference_to_binding.get(&expr.span).copied(),
-            ast::ExprKind::Grouped { expr } => self.local_binding_use(expr),
+            ast::ExprKind::Grouped { expr }
+            | ast::ExprKind::As { lhs: expr, .. }
+            | ast::ExprKind::GenericInstantiation { target: expr, .. } => {
+                self.local_binding_use(expr)
+            }
+            ast::ExprKind::Unary {
+                op: ast::UnaryOperator::AddressOf | ast::UnaryOperator::MutAddressOf,
+                operand,
+            } => self.local_binding_use(operand),
             _ => None,
         }
     }

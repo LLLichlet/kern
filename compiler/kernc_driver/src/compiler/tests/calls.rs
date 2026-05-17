@@ -283,6 +283,325 @@ fn analysis_artifact_resolves_forwarded_local_function_value_call_targets() {
 }
 
 #[test]
+fn analysis_artifact_resolves_mutable_function_value_assignment_targets() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analysis_mut_function_value_assignment_calls_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let source = concat!(
+        "fn first() i32 { return 1; }\n",
+        "fn second() i32 { return 2; }\n",
+        "fn main() i32 {\n",
+        "    let mut cb = first;\n",
+        "    cb = second;\n",
+        "    return cb();\n",
+        "}\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    let indirect_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Indirect && span_text(source, call.callee_span) == "cb"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected mutable function-value indirect call, got {:#?}",
+                artifact.calls
+            )
+        });
+    assert_eq!(
+        indirect_call.indirect_target_completeness,
+        AnalysisCallTargetCompleteness::Exact
+    );
+    assert_eq!(indirect_call.indirect_targets.len(), 1);
+    assert_eq!(
+        span_text(source, indirect_call.indirect_targets[0]),
+        "second"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analysis_artifact_resolves_multi_source_function_value_call_targets() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analysis_multi_source_function_value_calls_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let source = concat!(
+        "fn first() i32 { return 1; }\n",
+        "fn second() i32 { return 2; }\n",
+        "fn main(flag: bool) i32 {\n",
+        "    let mut cb = first;\n",
+        "    if (flag) {\n",
+        "        cb = second;\n",
+        "    }\n",
+        "    return cb();\n",
+        "}\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    let indirect_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Indirect && span_text(source, call.callee_span) == "cb"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected multi-source function-value indirect call, got {:#?}",
+                artifact.calls
+            )
+        });
+    assert_eq!(
+        indirect_call.indirect_target_completeness,
+        AnalysisCallTargetCompleteness::Partial
+    );
+    assert_eq!(indirect_call.indirect_targets.len(), 2);
+    assert!(
+        indirect_call
+            .indirect_targets
+            .iter()
+            .any(|span| span_text(source, *span) == "first")
+    );
+    assert!(
+        indirect_call
+            .indirect_targets
+            .iter()
+            .any(|span| span_text(source, *span) == "second")
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analysis_artifact_propagates_multi_source_function_value_parameters() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analysis_multi_source_parameter_function_value_calls_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let source = concat!(
+        "fn first() i32 { return 1; }\n",
+        "fn second() i32 { return 2; }\n",
+        "fn apply(cb: &fn() i32) i32 { return cb(); }\n",
+        "fn main(flag: bool) i32 {\n",
+        "    let mut cb = first;\n",
+        "    if (flag) {\n",
+        "        cb = second;\n",
+        "    }\n",
+        "    return apply(cb);\n",
+        "}\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    let parameter_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Indirect && span_text(source, call.callee_span) == "cb"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected multi-source parameter indirect call, got {:#?}",
+                artifact.calls
+            )
+        });
+    assert_eq!(
+        parameter_call.indirect_target_completeness,
+        AnalysisCallTargetCompleteness::Partial
+    );
+    assert_eq!(parameter_call.indirect_targets.len(), 2);
+    assert!(
+        parameter_call
+            .indirect_targets
+            .iter()
+            .any(|span| span_text(source, *span) == "first")
+    );
+    assert!(
+        parameter_call
+            .indirect_targets
+            .iter()
+            .any(|span| span_text(source, *span) == "second")
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analysis_artifact_preserves_forwarded_multi_source_function_value_completeness() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analysis_forwarded_multi_source_function_value_calls_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let source = concat!(
+        "fn first() i32 { return 1; }\n",
+        "fn second() i32 { return 2; }\n",
+        "fn main(flag: bool) i32 {\n",
+        "    let mut cb = first;\n",
+        "    if (flag) {\n",
+        "        cb = second;\n",
+        "    }\n",
+        "    let alias = cb;\n",
+        "    return alias();\n",
+        "}\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    let indirect_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Indirect
+                && span_text(source, call.callee_span) == "alias"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected forwarded multi-source function-value indirect call, got {:#?}",
+                artifact.calls
+            )
+        });
+    assert_eq!(
+        indirect_call.indirect_target_completeness,
+        AnalysisCallTargetCompleteness::Partial
+    );
+    assert_eq!(indirect_call.indirect_targets.len(), 2);
+    assert!(
+        indirect_call
+            .indirect_targets
+            .iter()
+            .any(|span| span_text(source, *span) == "first")
+    );
+    assert!(
+        indirect_call
+            .indirect_targets
+            .iter()
+            .any(|span| span_text(source, *span) == "second")
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analysis_artifact_keeps_known_targets_for_partially_unknown_function_values() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analysis_partially_unknown_function_value_calls_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let source = concat!(
+        "fn known() i32 { return 1; }\n",
+        "fn apply(flag: bool, incoming: &fn() i32) i32 {\n",
+        "    let mut cb = known;\n",
+        "    if (flag) {\n",
+        "        cb = incoming;\n",
+        "    }\n",
+        "    return cb();\n",
+        "}\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    let indirect_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Indirect && span_text(source, call.callee_span) == "cb"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected partially unknown function-value indirect call, got {:#?}",
+                artifact.calls
+            )
+        });
+    assert_eq!(
+        indirect_call.indirect_target_completeness,
+        AnalysisCallTargetCompleteness::Partial
+    );
+    assert_eq!(indirect_call.indirect_targets.len(), 1);
+    assert_eq!(
+        span_text(source, indirect_call.indirect_targets[0]),
+        "known"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn analysis_artifact_resolves_grouped_function_value_call_targets() {
     let root = std::env::temp_dir().join(format!(
         "kern_analysis_grouped_indirect_calls_{}_{}",

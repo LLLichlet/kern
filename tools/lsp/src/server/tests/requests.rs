@@ -1837,6 +1837,116 @@ fn call_hierarchy_expands_forwarded_local_function_value_targets() {
 }
 
 #[test]
+fn call_hierarchy_expands_multi_source_function_value_targets() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "fn first() i32 { return 1; }\n",
+        "fn second() i32 { return 2; }\n",
+        "fn main(flag: bool) i32 {\n",
+        "    let mut cb = first;\n",
+        "    if (flag) {\n",
+        "        cb = second;\n",
+        "    }\n",
+        "    return cb();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("server_call_hierarchy_multi_source_indirect_call", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let prepare_main = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25096)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 2, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare_main["id"], json!(25096));
+    let main_items = prepare_main["result"].as_array().unwrap();
+    assert_eq!(main_items.len(), 1);
+    assert_eq!(main_items[0]["name"], "main");
+
+    let outgoing = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25097)),
+            method: Some("callHierarchy/outgoingCalls".to_string()),
+            params: Some(json!({
+                "item": main_items[0]
+            })),
+        },
+    );
+
+    assert_eq!(outgoing["id"], json!(25097));
+    let outgoing_calls = outgoing["result"].as_array().unwrap();
+    let mut outgoing_names = outgoing_calls
+        .iter()
+        .map(|call| call["to"]["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    outgoing_names.sort();
+    assert_eq!(outgoing_names, vec!["first", "second"]);
+    assert!(outgoing_calls.iter().all(|call| {
+        call["fromRanges"]
+            == json!([
+                {
+                    "start": { "line": 7, "character": 11 },
+                    "end": { "line": 7, "character": 13 }
+                }
+            ])
+    }));
+
+    let prepare_second = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25098)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare_second["id"], json!(25098));
+    let second_items = prepare_second["result"].as_array().unwrap();
+    assert_eq!(second_items.len(), 1);
+    assert_eq!(second_items[0]["name"], "second");
+
+    let incoming = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25099)),
+            method: Some("callHierarchy/incomingCalls".to_string()),
+            params: Some(json!({
+                "item": second_items[0]
+            })),
+        },
+    );
+
+    assert_eq!(incoming["id"], json!(25099));
+    let incoming_calls = incoming["result"].as_array().unwrap();
+    assert_eq!(incoming_calls.len(), 1);
+    assert_eq!(incoming_calls[0]["from"]["name"], "main");
+    assert_eq!(
+        incoming_calls[0]["fromRanges"],
+        json!([
+            {
+                "start": { "line": 7, "character": 11 },
+                "end": { "line": 7, "character": 13 }
+            }
+        ])
+    );
+}
+
+#[test]
 fn call_hierarchy_expands_function_value_parameter_targets() {
     let mut state = initialized_state();
     let source = concat!(

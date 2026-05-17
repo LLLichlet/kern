@@ -1,5 +1,5 @@
 use super::ide::{IdeCodeAction, IdeDiagnostic, IdeTextEdit, IdeWorkspaceEdit};
-use crate::protocol::{Position, Range};
+use super::{IdePosition, IdeRange};
 use kernc_driver::{AnalysisArtifact, AnalysisDeadStoreKind};
 use kernc_lexer::{TokenType, Tokenizer};
 use kernc_utils::{DiagnosticCode, FileId};
@@ -25,6 +25,10 @@ pub(super) fn quick_fix_for_diagnostic(
     }
 
     fallback_text_quick_fix(uri, artifact, diagnostic, ide_diagnostic)
+}
+
+pub(super) fn ide_ranges_overlap(left: &IdeRange, right: &IdeRange) -> bool {
+    ranges_overlap(left, right)
 }
 
 pub(super) fn lightweight_quick_fix_for_diagnostic(
@@ -236,7 +240,7 @@ fn insert_text_at_diagnostic_start(
         title,
         fix_id,
         text,
-        Range {
+        IdeRange {
             start: diagnostic.range.start.clone(),
             end: diagnostic.range.start.clone(),
         },
@@ -269,7 +273,7 @@ fn insert_text_code_action(
     title: &str,
     fix_id: &'static str,
     text: &str,
-    range: Range,
+    range: IdeRange,
     diagnostic: IdeDiagnostic,
 ) -> IdeCodeAction {
     single_edit_code_action(
@@ -346,7 +350,7 @@ fn unused_binding_code_action(
                 "Rename binding to `_`",
                 "rename-unused-binding-to-underscore",
                 IdeTextEdit {
-                    range: super::span_to_range(&artifact.session, diagnostic.primary_span),
+                    range: super::span_to_range(&artifact.session, diagnostic.primary_span).into(),
                     new_text: "_".to_string(),
                 },
                 ide_diagnostic,
@@ -377,7 +381,7 @@ fn dead_store_code_action(
         "Remove dead assignment",
         "remove-dead-assignment",
         IdeTextEdit {
-            range: delete_range,
+            range: delete_range.into(),
             new_text: String::new(),
         },
         ide_diagnostic,
@@ -406,7 +410,7 @@ fn unused_private_item_code_action(
         "Make item public",
         "make-private-item-public",
         IdeTextEdit {
-            range: empty_range_at(file, insertion_offset),
+            range: empty_range_at(file, insertion_offset).into(),
             new_text: "pub ".to_string(),
         },
         ide_diagnostic,
@@ -443,7 +447,7 @@ fn add_match_catch_all_code_action(
         "Add `_ => @unreachable()` arm",
         "add-match-catch-all",
         IdeTextEdit {
-            range: insertion_range,
+            range: insertion_range.into(),
             new_text: insertion_text,
         },
         ide_diagnostic,
@@ -463,7 +467,7 @@ fn remove_irrefutable_let_else_code_action(
         .get_file(diagnostic.primary_span.file)?;
     let else_offset =
         top_level_token_offset(file, diagnostic.primary_span, TokenType::Else, false)?;
-    let delete_range = Range {
+    let delete_range = IdeRange {
         start: super::byte_offset_to_position(file, else_offset),
         end: super::byte_offset_to_position(file, diagnostic.primary_span.end),
     };
@@ -473,7 +477,7 @@ fn remove_irrefutable_let_else_code_action(
         "Remove invalid `else` branch",
         "remove-irrefutable-let-else",
         IdeTextEdit {
-            range: delete_range,
+            range: delete_range.into(),
             new_text: String::new(),
         },
         ide_diagnostic,
@@ -500,19 +504,19 @@ pub(super) fn workspace_edit_key(edit: &IdeWorkspaceEdit) -> String {
     key
 }
 
-fn empty_range_at(file: &kernc_utils::SourceFile, offset: usize) -> Range {
+fn empty_range_at(file: &kernc_utils::SourceFile, offset: usize) -> IdeRange {
     let position = super::byte_offset_to_position(file, offset);
-    Range {
+    IdeRange {
         start: position.clone(),
         end: position,
     }
 }
 
-pub(super) fn ranges_overlap(left: &Range, right: &Range) -> bool {
+pub(super) fn ranges_overlap(left: &IdeRange, right: &IdeRange) -> bool {
     position_leq(&left.start, &right.end) && position_leq(&right.start, &left.end)
 }
 
-fn position_leq(left: &Position, right: &Position) -> bool {
+fn position_leq(left: &IdePosition, right: &IdePosition) -> bool {
     left.line < right.line || (left.line == right.line && left.character <= right.character)
 }
 
@@ -620,7 +624,7 @@ fn top_level_token_offset(
 fn standalone_statement_delete_range(
     file: &kernc_utils::SourceFile,
     span: kernc_utils::Span,
-) -> Option<Range> {
+) -> Option<IdeRange> {
     if span.end > file.src.len() || span.start >= span.end {
         return None;
     }
@@ -646,7 +650,7 @@ fn standalone_statement_delete_range(
         line_end
     };
 
-    Some(Range {
+    Some(IdeRange {
         start: super::byte_offset_to_position(file, line_start),
         end: super::byte_offset_to_position(file, range_end),
     })

@@ -5,8 +5,7 @@ use super::ide::{
     IdeParameterInformation, IdeSignatureHelp, IdeSignatureInformation, IdeSymbolKind, IdeTextEdit,
     IdeWorkspaceSymbol,
 };
-use super::{RenameBehavior, RenameTarget};
-use crate::protocol::{Position, Range};
+use super::{IdePosition, IdeRange, RenameBehavior, RenameTarget};
 use kernc_driver::{
     AnalysisCall, AnalysisCallKind, AnalysisCompletionItem, AnalysisCompletionKind,
     AnalysisDefinitionLink, AnalysisHover, AnalysisSemanticEntry, AnalysisSemanticKind,
@@ -23,7 +22,7 @@ pub(super) struct ReferenceLocationQuery<'a> {
     pub definition_links: &'a [AnalysisDefinitionLink],
     pub semantic_entries: &'a [AnalysisSemanticEntry],
     pub target_path: &'a Path,
-    pub position: &'a Position,
+    pub position: &'a IdePosition,
     pub include_declaration: bool,
     pub uri_by_path: &'a BTreeMap<PathBuf, String>,
 }
@@ -45,8 +44,8 @@ pub(super) fn analysis_symbol_to_document_symbol(
         name: symbol.name.clone(),
         detail: symbol.detail.clone(),
         kind: ide_symbol_kind(symbol.kind),
-        range: super::span_to_range(session, symbol.span),
-        selection_range: super::span_to_range(session, symbol.selection_span),
+        range: super::span_to_range(session, symbol.span).into(),
+        selection_range: super::span_to_range(session, symbol.selection_span).into(),
         children: symbol
             .children
             .iter()
@@ -125,7 +124,7 @@ pub(super) fn analysis_type_hint_to_ide_hint(
         }
     };
     IdeInlayHint {
-        position,
+        position: position.into(),
         label: hint.label.clone(),
         kind: Some(ide_inlay_hint_kind(hint.kind)),
         padding_left: Some(false),
@@ -146,7 +145,7 @@ pub(super) fn find_rename_target(
     hovers: &[AnalysisHover],
     semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
-    position: &Position,
+    position: &IdePosition,
 ) -> Option<RenameTarget> {
     let matching_entries =
         semantic_entries_at_position(session, semantic_entries, target_path, position);
@@ -173,7 +172,7 @@ pub(super) fn find_definition_location(
     hovers: &[AnalysisHover],
     semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
-    position: &Position,
+    position: &IdePosition,
     uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> Option<IdeLocation> {
     let definition_span =
@@ -185,7 +184,7 @@ pub(super) fn find_type_definition_location(
     session: &kernc_utils::Session,
     semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
-    position: &Position,
+    position: &IdePosition,
     uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> Option<IdeLocation> {
     let matching_entries =
@@ -204,7 +203,7 @@ pub(super) fn find_implementation_locations(
     definition_links: &[AnalysisDefinitionLink],
     semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
-    position: &Position,
+    position: &IdePosition,
     uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> Vec<IdeLocation> {
     let Some(definition_span) =
@@ -236,7 +235,7 @@ pub(super) fn find_call_hierarchy_item(
     hovers: &[AnalysisHover],
     semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
-    position: &Position,
+    position: &IdePosition,
     uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> Option<IdeCallHierarchyItem> {
     let definition_span =
@@ -256,10 +255,10 @@ pub(super) fn find_call_hierarchy_incoming_calls(
     semantic_entries: &[AnalysisSemanticEntry],
     calls: &[AnalysisCall],
     target_uri: &str,
-    target_range: &Range,
+    target_range: &IdeRange,
     uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> Vec<IdeCallHierarchyIncomingCall> {
-    let Some(target_span) = span_for_lsp_range(session, target_uri, target_range, uri_by_path)
+    let Some(target_span) = span_for_ide_range(session, target_uri, target_range, uri_by_path)
     else {
         return Vec::new();
     };
@@ -267,7 +266,7 @@ pub(super) fn find_call_hierarchy_incoming_calls(
         return Vec::new();
     };
 
-    let mut grouped = BTreeMap::<kernc_utils::Span, (IdeCallHierarchyItem, Vec<Range>)>::new();
+    let mut grouped = BTreeMap::<kernc_utils::Span, (IdeCallHierarchyItem, Vec<IdeRange>)>::new();
     for call in calls.iter().filter(|call| match call.kind {
         AnalysisCallKind::Direct => {
             call.callee_definition_span == Some(target_entry.definition_span)
@@ -292,7 +291,7 @@ pub(super) fn find_call_hierarchy_incoming_calls(
             .entry(call.caller_definition_span)
             .or_insert((from, Vec::new()))
             .1
-            .push(super::span_to_range(session, call.callee_span));
+            .push(super::span_to_range(session, call.callee_span).into());
     }
 
     grouped
@@ -310,10 +309,10 @@ pub(super) fn find_call_hierarchy_outgoing_calls(
     semantic_entries: &[AnalysisSemanticEntry],
     calls: &[AnalysisCall],
     target_uri: &str,
-    target_range: &Range,
+    target_range: &IdeRange,
     uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> Vec<IdeCallHierarchyOutgoingCall> {
-    let Some(target_span) = span_for_lsp_range(session, target_uri, target_range, uri_by_path)
+    let Some(target_span) = span_for_ide_range(session, target_uri, target_range, uri_by_path)
     else {
         return Vec::new();
     };
@@ -321,7 +320,7 @@ pub(super) fn find_call_hierarchy_outgoing_calls(
         return Vec::new();
     };
 
-    let mut grouped = BTreeMap::<kernc_utils::Span, (IdeCallHierarchyItem, Vec<Range>)>::new();
+    let mut grouped = BTreeMap::<kernc_utils::Span, (IdeCallHierarchyItem, Vec<IdeRange>)>::new();
     for call in calls
         .iter()
         .filter(|call| call.caller_definition_span == target_entry.definition_span)
@@ -370,7 +369,7 @@ fn add_outgoing_call_target(
     session: &kernc_utils::Session,
     semantic_entries: &[AnalysisSemanticEntry],
     uri_by_path: &BTreeMap<PathBuf, String>,
-    grouped: &mut BTreeMap<kernc_utils::Span, (IdeCallHierarchyItem, Vec<Range>)>,
+    grouped: &mut BTreeMap<kernc_utils::Span, (IdeCallHierarchyItem, Vec<IdeRange>)>,
     callee_definition_span: kernc_utils::Span,
     callee_span: kernc_utils::Span,
 ) {
@@ -386,7 +385,7 @@ fn add_outgoing_call_target(
         .entry(callee_definition_span)
         .or_insert((to, Vec::new()))
         .1
-        .push(super::span_to_range(session, callee_span));
+        .push(super::span_to_range(session, callee_span).into());
 }
 
 fn semantic_kind_is_type_definition_target(kind: AnalysisSemanticKind) -> bool {
@@ -509,7 +508,7 @@ pub(super) fn find_document_highlights(
     semantic_entries: &[AnalysisSemanticEntry],
     hovers: &[AnalysisHover],
     target_path: &Path,
-    position: &Position,
+    position: &IdePosition,
 ) -> Vec<IdeDocumentHighlight> {
     let Some(definition_span) =
         find_target_definition_span(session, hovers, semantic_entries, target_path, position)
@@ -532,7 +531,7 @@ pub(super) fn find_document_highlights(
             continue;
         }
         highlights.push(IdeDocumentHighlight {
-            range: super::span_to_range(session, *definition_span),
+            range: super::span_to_range(session, *definition_span).into(),
             kind: Some(IdeDocumentHighlightKind::Text),
         });
     }
@@ -546,7 +545,7 @@ pub(super) fn find_document_highlights(
         }
 
         highlights.push(IdeDocumentHighlight {
-            range: super::span_to_range(session, entry.span),
+            range: super::span_to_range(session, entry.span).into(),
             kind: Some(IdeDocumentHighlightKind::Text),
         });
     }
@@ -568,7 +567,7 @@ fn find_target_definition_span(
     hovers: &[AnalysisHover],
     semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
-    position: &Position,
+    position: &IdePosition,
 ) -> Option<kernc_utils::Span> {
     let matching_entries =
         semantic_entries_at_position(session, semantic_entries, target_path, position);
@@ -580,7 +579,7 @@ pub(super) fn navigation_definition_span_for_position(
     hovers: &[AnalysisHover],
     semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
-    position: &Position,
+    position: &IdePosition,
 ) -> Option<kernc_utils::Span> {
     find_target_definition_span(session, hovers, semantic_entries, target_path, position)
 }
@@ -590,7 +589,7 @@ pub(super) fn find_hover(
     hovers: &[AnalysisHover],
     semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
-    position: &Position,
+    position: &IdePosition,
 ) -> Option<IdeHover> {
     let matching_entries =
         semantic_entries_at_position(session, semantic_entries, target_path, position);
@@ -635,7 +634,7 @@ fn hover_at_definition_position(
     session: &kernc_utils::Session,
     hovers: &[AnalysisHover],
     target_path: &Path,
-    position: &Position,
+    position: &IdePosition,
 ) -> Option<IdeHover> {
     let mut best_match = None;
 
@@ -674,7 +673,7 @@ fn analysis_hover_to_ide_hover_with_range(
 ) -> IdeHover {
     IdeHover {
         contents: hover.contents.clone(),
-        range: Some(super::span_to_range(session, range_span)),
+        range: Some(super::span_to_range(session, range_span).into()),
     }
 }
 
@@ -771,7 +770,7 @@ fn rename_edit_from_span(
     Some((
         uri,
         IdeTextEdit {
-            range: super::span_to_range(session, span),
+            range: super::span_to_range(session, span).into(),
             new_text: new_name.to_string(),
         },
     ))
@@ -828,7 +827,7 @@ fn location_from_span(
     let uri = uri_for_path(path, uri_by_path)?;
     Some(IdeLocation {
         uri,
-        range: super::span_to_range(session, span),
+        range: super::span_to_range(session, span).into(),
     })
 }
 
@@ -863,8 +862,8 @@ fn call_hierarchy_item_for_definition(
             _ => AnalysisSymbolKind::Function,
         }),
         uri,
-        range: super::span_to_range(session, entry.span),
-        selection_range: super::span_to_range(session, entry.span),
+        range: super::span_to_range(session, entry.span).into(),
+        selection_range: super::span_to_range(session, entry.span).into(),
     })
 }
 
@@ -877,10 +876,10 @@ fn call_hierarchy_definition_entry(
     })
 }
 
-fn span_for_lsp_range(
+fn span_for_ide_range(
     session: &kernc_utils::Session,
     uri: &str,
-    range: &Range,
+    range: &IdeRange,
     uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> Option<kernc_utils::Span> {
     let path = uri_by_path
@@ -910,7 +909,7 @@ fn span_for_lsp_range(
     })
 }
 
-fn range_order_key(range: &Range) -> (u32, u32, u32, u32) {
+fn range_order_key(range: &IdeRange) -> (u32, u32, u32, u32) {
     (
         range.start.line,
         range.start.character,
@@ -979,7 +978,7 @@ fn semantic_entries_at_position<'a>(
     session: &kernc_utils::Session,
     semantic_entries: &'a [AnalysisSemanticEntry],
     target_path: &Path,
-    position: &Position,
+    position: &IdePosition,
 ) -> Vec<&'a AnalysisSemanticEntry> {
     let mut matching_entries = Vec::new();
 
@@ -1138,7 +1137,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let target_path = session.source_manager.get_file_path(FileId(0)).unwrap();
-        let position = Position {
+        let position = IdePosition {
             line: 0,
             character: 1,
         };

@@ -66,7 +66,7 @@ impl AnalysisEngine {
     pub fn selection_ranges(
         &self,
         uri: &str,
-        positions: Vec<Position>,
+        positions: Vec<impl IntoIdePosition>,
     ) -> Result<Vec<IdeSelectionRange>, String> {
         let snapshot = self.snapshot(None, CancellationToken::new());
         self.selection_ranges_in_snapshot(&snapshot, uri, positions)
@@ -76,8 +76,12 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        positions: Vec<Position>,
+        positions: Vec<impl IntoIdePosition>,
     ) -> Result<Vec<IdeSelectionRange>, String> {
+        let positions = positions
+            .into_iter()
+            .map(IntoIdePosition::into_ide_position)
+            .collect::<Vec<IdePosition>>();
         snapshot.check_canceled()?;
         let file = snapshot.document_source_file(uri).ok_or_else(|| {
             "requested selection ranges for a document that is not open".to_string()
@@ -142,7 +146,7 @@ impl AnalysisEngine {
                 continue;
             };
             links.push(IdeDocumentLink {
-                range: span_to_range(structure.session(), link.origin_span),
+                range: span_to_range(structure.session(), link.origin_span).into(),
                 target: target_uri,
             });
         }
@@ -191,7 +195,7 @@ impl AnalysisEngine {
                 continue;
             };
             links.push(IdeDocumentLink {
-                range: entry.range,
+                range: entry.range.into(),
                 target: target_uri,
             });
         }
@@ -214,7 +218,7 @@ struct ManifestDependencyEntry {
     section: ManifestDependencySection,
     name: String,
     raw_value: String,
-    range: Range,
+    range: IdeRange,
 }
 
 #[derive(Debug)]
@@ -222,7 +226,7 @@ struct PendingManifestDependencyEntry {
     section: ManifestDependencySection,
     name: String,
     raw_value: String,
-    range: Range,
+    range: IdeRange,
     balance: ManifestValueBalance,
 }
 
@@ -341,12 +345,12 @@ fn manifest_dependency_entries(source: &str) -> Vec<ManifestDependencyEntry> {
             section,
             name,
             raw_value,
-            range: Range {
-                start: Position {
+            range: IdeRange {
+                start: IdePosition {
                     line: line_index as u32,
                     character: start_character as u32,
                 },
-                end: Position {
+                end: IdePosition {
                     line: line_index as u32,
                     character: end_character as u32,
                 },
@@ -611,7 +615,7 @@ fn folding_range_for_span(
 fn selection_range_for_position(
     file: &SourceFile,
     delimiter_spans: &[DelimiterSpan],
-    position: &Position,
+    position: &IdePosition,
 ) -> Result<IdeSelectionRange, String> {
     let Some(offset) = position_to_byte_offset(file, position) else {
         return Err(format!(
@@ -631,14 +635,14 @@ fn selection_range_for_position(
         .iter()
         .filter(|span| offset >= span.start && offset <= span.end)
     {
-        ranges.push(Range {
+        ranges.push(IdeRange {
             start: byte_offset_to_position(file, span.start),
             end: byte_offset_to_position(file, span.end),
         });
     }
     if !file.src.is_empty() {
-        ranges.push(Range {
-            start: Position {
+        ranges.push(IdeRange {
+            start: IdePosition {
                 line: 0,
                 character: 0,
             },
@@ -705,7 +709,7 @@ fn delimiters_match(open: TokenType, close: LexemeType) -> bool {
     )
 }
 
-fn token_range_at_offset(file: &SourceFile, offset: usize) -> Option<Range> {
+fn token_range_at_offset(file: &SourceFile, offset: usize) -> Option<IdeRange> {
     let mut tokenizer = Tokenizer::new(&file.src, FileId(0));
     loop {
         let lexeme = tokenizer.next_lexeme();
@@ -714,7 +718,7 @@ fn token_range_at_offset(file: &SourceFile, offset: usize) -> Option<Range> {
             LexemeType::Whitespace => {}
             _ => {
                 if offset >= lexeme.span.start && offset < lexeme.span.end {
-                    return Some(Range {
+                    return Some(IdeRange {
                         start: byte_offset_to_position(file, lexeme.span.start),
                         end: byte_offset_to_position(file, lexeme.span.end),
                     });
@@ -724,7 +728,7 @@ fn token_range_at_offset(file: &SourceFile, offset: usize) -> Option<Range> {
     }
 }
 
-fn line_range_at_offset(file: &SourceFile, offset: usize) -> Option<Range> {
+fn line_range_at_offset(file: &SourceFile, offset: usize) -> Option<IdeRange> {
     let line = file.lookup_line(offset).saturating_sub(1);
     let line_start = *file.line_starts.get(line)?;
     let next_line_start = file
@@ -733,13 +737,13 @@ fn line_range_at_offset(file: &SourceFile, offset: usize) -> Option<Range> {
         .copied()
         .unwrap_or(file.src.len());
     let line_end = trim_line_ending(&file.src, line_start, next_line_start);
-    (line_start < line_end).then(|| Range {
+    (line_start < line_end).then(|| IdeRange {
         start: byte_offset_to_position(file, line_start),
         end: byte_offset_to_position(file, line_end),
     })
 }
 
-fn range_extent_key(range: &Range) -> (u32, u32, u32, u32) {
+fn range_extent_key(range: &IdeRange) -> (u32, u32, u32, u32) {
     (
         range.end.line.saturating_sub(range.start.line),
         range.end.character.saturating_sub(range.start.character),

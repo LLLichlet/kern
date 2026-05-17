@@ -2,9 +2,8 @@ use crate::protocol::{
     CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, CodeAction,
     CodeActionResolveData, CodeLens, Command, CompletionItem, CompletionResolveData, Diagnostic,
     DiagnosticRelatedInformation, DiagnosticTag, DocumentHighlight, DocumentLink, DocumentSymbol,
-    FoldingRange, InlayHint, Location, ParameterInformation, PrepareRenameResult, Range,
-    SelectionRange, SemanticTokens, SignatureHelp, SignatureInformation, TextEdit, WorkspaceEdit,
-    WorkspaceSymbol,
+    FoldingRange, InlayHint, Location, ParameterInformation, PrepareRenameResult, SelectionRange,
+    SemanticTokens, SignatureHelp, SignatureInformation, TextEdit, WorkspaceEdit, WorkspaceSymbol,
 };
 use std::collections::BTreeMap;
 
@@ -26,14 +25,14 @@ pub(crate) struct IdeWorkspaceEdit {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IdeTextEdit {
-    pub range: Range,
+    pub range: super::IdeRange,
     pub new_text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IdeLocation {
     pub uri: String,
-    pub range: Range,
+    pub range: super::IdeRange,
 }
 
 #[derive(Debug, Clone)]
@@ -41,8 +40,8 @@ pub(crate) struct IdeDocumentSymbol {
     pub name: String,
     pub detail: Option<String>,
     pub kind: IdeSymbolKind,
-    pub range: Range,
-    pub selection_range: Range,
+    pub range: super::IdeRange,
+    pub selection_range: super::IdeRange,
     pub children: Vec<IdeDocumentSymbol>,
 }
 
@@ -59,20 +58,20 @@ pub(crate) struct IdeCallHierarchyItem {
     pub name: String,
     pub kind: IdeSymbolKind,
     pub uri: String,
-    pub range: Range,
-    pub selection_range: Range,
+    pub range: super::IdeRange,
+    pub selection_range: super::IdeRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IdeCallHierarchyIncomingCall {
     pub from: IdeCallHierarchyItem,
-    pub from_ranges: Vec<Range>,
+    pub from_ranges: Vec<super::IdeRange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IdeCallHierarchyOutgoingCall {
     pub to: IdeCallHierarchyItem,
-    pub from_ranges: Vec<Range>,
+    pub from_ranges: Vec<super::IdeRange>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,7 +90,7 @@ pub(crate) enum IdeSymbolKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IdeDocumentHighlight {
-    pub range: Range,
+    pub range: super::IdeRange,
     pub kind: Option<IdeDocumentHighlightKind>,
 }
 
@@ -111,19 +110,19 @@ pub(crate) enum IdeFoldingRangeKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IdeSelectionRange {
-    pub range: Range,
+    pub range: super::IdeRange,
     pub parent: Option<Box<IdeSelectionRange>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IdeDocumentLink {
-    pub range: Range,
+    pub range: super::IdeRange,
     pub target: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IdeCodeLens {
-    pub range: Range,
+    pub range: super::IdeRange,
     pub title: String,
     pub command: String,
     pub arguments: Vec<serde_json::Value>,
@@ -136,7 +135,7 @@ pub(crate) enum IdeDocumentHighlightKind {
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdeInlayHint {
-    pub position: crate::protocol::Position,
+    pub position: super::IdePosition,
     pub label: String,
     pub kind: Option<IdeInlayHintKind>,
     pub padding_left: Option<bool>,
@@ -168,7 +167,7 @@ pub(crate) struct IdeParameterInformation {
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdePrepareRenameResult {
-    pub range: Range,
+    pub range: super::IdeRange,
     pub placeholder: String,
 }
 
@@ -190,7 +189,7 @@ pub(crate) struct IdeCompletionItem {
 #[derive(Debug, Clone)]
 pub(crate) struct IdeHover {
     pub contents: String,
-    pub range: Option<Range>,
+    pub range: Option<super::IdeRange>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -211,7 +210,7 @@ pub(crate) enum IdeCompletionKind {
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdeDiagnostic {
-    pub range: Range,
+    pub range: super::IdeRange,
     pub severity: IdeDiagnosticSeverity,
     pub source: &'static str,
     pub message: String,
@@ -235,7 +234,7 @@ pub(crate) enum IdeDiagnosticTag {
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdeDiagnosticRelatedInformation {
-    pub location: Location,
+    pub location: IdeLocation,
     pub message: String,
 }
 
@@ -274,7 +273,7 @@ impl IdeWorkspaceEdit {
 impl IdeTextEdit {
     pub(crate) fn into_lsp(self) -> TextEdit {
         TextEdit {
-            range: self.range,
+            range: self.range.into(),
             new_text: self.new_text,
         }
     }
@@ -284,7 +283,7 @@ impl IdeLocation {
     pub(crate) fn into_lsp(self) -> Location {
         Location {
             uri: self.uri,
-            range: self.range,
+            range: self.range.into(),
         }
     }
 }
@@ -295,8 +294,8 @@ impl IdeDocumentSymbol {
             name: self.name,
             detail: self.detail,
             kind: self.kind.into_lsp(),
-            range: self.range,
-            selection_range: self.selection_range,
+            range: self.range.into(),
+            selection_range: self.selection_range.into(),
             children: self
                 .children
                 .into_iter()
@@ -320,7 +319,7 @@ impl IdeWorkspaceSymbol {
 impl IdeCodeLens {
     pub(crate) fn into_lsp(self) -> CodeLens {
         CodeLens {
-            range: self.range,
+            range: self.range.into(),
             command: Command {
                 title: self.title,
                 command: self.command,
@@ -336,8 +335,8 @@ impl IdeCallHierarchyItem {
             name: self.name,
             kind: self.kind.into_lsp(),
             uri: self.uri,
-            range: self.range,
-            selection_range: self.selection_range,
+            range: self.range.into(),
+            selection_range: self.selection_range.into(),
         }
     }
 }
@@ -346,7 +345,7 @@ impl IdeCallHierarchyIncomingCall {
     pub(crate) fn into_lsp(self) -> CallHierarchyIncomingCall {
         CallHierarchyIncomingCall {
             from: self.from.into_lsp(),
-            from_ranges: self.from_ranges,
+            from_ranges: self.from_ranges.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -355,7 +354,7 @@ impl IdeCallHierarchyOutgoingCall {
     pub(crate) fn into_lsp(self) -> CallHierarchyOutgoingCall {
         CallHierarchyOutgoingCall {
             to: self.to.into_lsp(),
-            from_ranges: self.from_ranges,
+            from_ranges: self.from_ranges.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -380,7 +379,7 @@ impl IdeSymbolKind {
 impl IdeDocumentHighlight {
     pub(crate) fn into_lsp(self) -> DocumentHighlight {
         DocumentHighlight {
-            range: self.range,
+            range: self.range.into(),
             kind: self.kind.map(IdeDocumentHighlightKind::into_lsp),
         }
     }
@@ -417,7 +416,7 @@ impl IdeFoldingRangeKind {
 impl IdeSelectionRange {
     pub(crate) fn into_lsp(self) -> SelectionRange {
         SelectionRange {
-            range: self.range,
+            range: self.range.into(),
             parent: self.parent.map(|parent| Box::new(parent.into_lsp())),
         }
     }
@@ -426,7 +425,7 @@ impl IdeSelectionRange {
 impl IdeDocumentLink {
     pub(crate) fn into_lsp(self) -> DocumentLink {
         DocumentLink {
-            range: self.range,
+            range: self.range.into(),
             target: self.target,
         }
     }
@@ -435,7 +434,7 @@ impl IdeDocumentLink {
 impl IdeInlayHint {
     pub(crate) fn into_lsp(self) -> InlayHint {
         InlayHint {
-            position: self.position,
+            position: self.position.into(),
             label: self.label,
             kind: self.kind.map(IdeInlayHintKind::into_lsp),
             padding_left: self.padding_left,
@@ -488,7 +487,7 @@ impl IdeParameterInformation {
 impl IdePrepareRenameResult {
     pub(crate) fn into_lsp(self) -> PrepareRenameResult {
         PrepareRenameResult {
-            range: self.range,
+            range: self.range.into(),
             placeholder: self.placeholder,
         }
     }
@@ -549,7 +548,7 @@ impl IdeHover {
                 kind: "markdown".to_string(),
                 value: self.contents,
             },
-            range: self.range,
+            range: self.range.map(Into::into),
         }
     }
 }
@@ -561,7 +560,7 @@ fn completion_insert_uses_snippet(text: &str) -> bool {
 impl IdeDiagnostic {
     pub(crate) fn into_lsp(self) -> Diagnostic {
         Diagnostic {
-            range: self.range,
+            range: self.range.into(),
             severity: self.severity.into_lsp(),
             source: self.source.to_string(),
             message: self.message,
@@ -610,7 +609,7 @@ impl IdeDiagnosticTag {
 impl IdeDiagnosticRelatedInformation {
     fn into_lsp(self) -> DiagnosticRelatedInformation {
         DiagnosticRelatedInformation {
-            location: self.location,
+            location: self.location.into_lsp(),
             message: self.message,
         }
     }

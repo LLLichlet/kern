@@ -18,8 +18,8 @@ use self::cache::{
     hash_source_text,
 };
 use self::code_actions::{
-    lightweight_quick_fix_for_diagnostic, quick_fix_for_diagnostic, ranges_overlap,
-    workspace_edit_key,
+    ide_ranges_overlap, lightweight_quick_fix_for_diagnostic, quick_fix_for_diagnostic,
+    ranges_overlap, workspace_edit_key,
 };
 use self::completion::{completion_sort_key, keyword_completion_item};
 pub use self::diagnostics::cleared_uris;
@@ -53,11 +53,7 @@ use self::text::{
 };
 pub(crate) use self::text::{single_server_diagnostic, uri_to_file_path};
 use crate::defaults::default_analysis_compile_options;
-use crate::protocol::{
-    CodeActionResolveData, CompletionResolveData, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, Position, Range,
-    TextDocumentContentChangeEvent,
-};
+use crate::protocol::{CodeActionResolveData, CompletionResolveData, Position, Range};
 use crate::server::DiagnosticsAnalysisMode;
 use craft::error::Error as CraftError;
 use craft::project::{AnalysisProject, ResolvedAnalysis, resolve_project_manifest_path};
@@ -96,6 +92,153 @@ pub struct OpenDocument {
     pub text: String,
     pub is_dirty: bool,
     pub text_hash: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdePosition {
+    pub line: u32,
+    pub character: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdeRange {
+    pub start: IdePosition,
+    pub end: IdePosition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdeTextDocumentChange {
+    pub range: Option<IdeRange>,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdeOpenDocument {
+    pub uri: String,
+    pub version: i64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdeChangeDocument {
+    pub uri: String,
+    pub version: i64,
+    pub changes: Vec<IdeTextDocumentChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdeCloseDocument {
+    pub uri: String,
+}
+
+pub trait IntoIdeOpenDocument {
+    fn into_ide_open_document(self) -> IdeOpenDocument;
+}
+
+pub trait IntoIdeChangeDocument {
+    fn into_ide_change_document(self) -> IdeChangeDocument;
+}
+
+pub trait IntoIdeCloseDocument {
+    fn into_ide_close_document(self) -> IdeCloseDocument;
+}
+
+pub trait IntoIdePosition {
+    fn into_ide_position(self) -> IdePosition;
+}
+
+pub trait IntoIdeRange {
+    fn into_ide_range(self) -> IdeRange;
+}
+
+impl IntoIdeOpenDocument for IdeOpenDocument {
+    fn into_ide_open_document(self) -> IdeOpenDocument {
+        self
+    }
+}
+
+impl IntoIdeChangeDocument for IdeChangeDocument {
+    fn into_ide_change_document(self) -> IdeChangeDocument {
+        self
+    }
+}
+
+impl IntoIdeCloseDocument for IdeCloseDocument {
+    fn into_ide_close_document(self) -> IdeCloseDocument {
+        self
+    }
+}
+
+impl IntoIdePosition for IdePosition {
+    fn into_ide_position(self) -> IdePosition {
+        self
+    }
+}
+
+impl IntoIdeRange for IdeRange {
+    fn into_ide_range(self) -> IdeRange {
+        self
+    }
+}
+
+impl From<IdePosition> for Position {
+    fn from(value: IdePosition) -> Self {
+        Self {
+            line: value.line,
+            character: value.character,
+        }
+    }
+}
+
+impl From<Position> for IdePosition {
+    fn from(value: Position) -> Self {
+        Self {
+            line: value.line,
+            character: value.character,
+        }
+    }
+}
+
+impl PartialEq<Position> for IdePosition {
+    fn eq(&self, other: &Position) -> bool {
+        self.line == other.line && self.character == other.character
+    }
+}
+
+impl PartialEq<IdePosition> for Position {
+    fn eq(&self, other: &IdePosition) -> bool {
+        self.line == other.line && self.character == other.character
+    }
+}
+
+impl From<IdeRange> for Range {
+    fn from(value: IdeRange) -> Self {
+        Self {
+            start: value.start.into(),
+            end: value.end.into(),
+        }
+    }
+}
+
+impl From<Range> for IdeRange {
+    fn from(value: Range) -> Self {
+        Self {
+            start: value.start.into(),
+            end: value.end.into(),
+        }
+    }
+}
+
+impl PartialEq<Range> for IdeRange {
+    fn eq(&self, other: &Range) -> bool {
+        self.start == other.start && self.end == other.end
+    }
+}
+
+impl PartialEq<IdeRange> for Range {
+    fn eq(&self, other: &IdeRange) -> bool {
+        self.start == other.start && self.end == other.end
+    }
 }
 
 #[derive(Debug, Clone)]

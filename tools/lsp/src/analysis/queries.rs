@@ -212,7 +212,7 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: &Position,
+        position: &IdePosition,
     ) -> Result<Option<usize>, String> {
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested semantic query for a document that is not open".to_string());
@@ -331,12 +331,12 @@ impl AnalysisEngine {
         let Some(file) = snapshot.document_source_file(uri) else {
             return Ok(Vec::new());
         };
-        let range = Range {
-            start: Position {
+        let range = IdeRange {
+            start: IdePosition {
                 line: 0,
                 character: 0,
             },
-            end: Position {
+            end: IdePosition {
                 line: 0,
                 character: first_line_end_character(&file),
             },
@@ -411,7 +411,7 @@ impl AnalysisEngine {
     pub fn goto_definition(
         &self,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Option<IdeLocation>, String> {
         let snapshot = self.snapshot(None, CancellationToken::new());
         self.goto_definition_in_snapshot(&snapshot, uri, position)
@@ -421,7 +421,7 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Option<IdeLocation>, String> {
         self.goto_definition_like_in_snapshot(snapshot, uri, position, "definition")
     }
@@ -430,7 +430,7 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Option<IdeLocation>, String> {
         self.goto_definition_like_in_snapshot(snapshot, uri, position, "declaration")
     }
@@ -439,9 +439,10 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
         query_name: &str,
     ) -> Result<Option<IdeLocation>, String> {
+        let position = position.into_ide_position();
         if self
             .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
@@ -472,7 +473,7 @@ impl AnalysisEngine {
     pub fn references(
         &self,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
         include_declaration: bool,
     ) -> Result<Vec<IdeLocation>, String> {
         let snapshot = self.snapshot(None, CancellationToken::new());
@@ -483,9 +484,10 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
         include_declaration: bool,
     ) -> Result<Vec<IdeLocation>, String> {
+        let position = position.into_ide_position();
         if self
             .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
@@ -616,8 +618,9 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Vec<IdeLocation>, String> {
+        let position = position.into_ide_position();
         if self
             .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
@@ -647,8 +650,9 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Option<IdeCallHierarchyItem>, String> {
+        let position = position.into_ide_position();
         if self
             .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
@@ -677,8 +681,9 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         item_uri: &str,
-        item_range: &Range,
+        item_range: impl IntoIdeRange,
     ) -> Result<Vec<IdeCallHierarchyIncomingCall>, String> {
+        let item_range = item_range.into_ide_range();
         let artifact = self
             .analyze_interactive_navigation_artifact_for_snapshot(snapshot, item_uri)
             .map_err(|message| format!("call hierarchy analysis failed: {message}"))?;
@@ -688,7 +693,7 @@ impl AnalysisEngine {
             &artifact.semantic_entries,
             &artifact.calls,
             item_uri,
-            item_range,
+            &item_range,
             snapshot.uri_by_normalized_path(),
         ))
     }
@@ -697,8 +702,9 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         item_uri: &str,
-        item_range: &Range,
+        item_range: impl IntoIdeRange,
     ) -> Result<Vec<IdeCallHierarchyOutgoingCall>, String> {
+        let item_range = item_range.into_ide_range();
         let artifact = self
             .analyze_interactive_navigation_artifact_for_snapshot(snapshot, item_uri)
             .map_err(|message| format!("call hierarchy analysis failed: {message}"))?;
@@ -708,7 +714,7 @@ impl AnalysisEngine {
             &artifact.semantic_entries,
             &artifact.calls,
             item_uri,
-            item_range,
+            &item_range,
             snapshot.uri_by_normalized_path(),
         ))
     }
@@ -717,8 +723,9 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Option<IdeLocation>, String> {
+        let position = position.into_ide_position();
         if self
             .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
@@ -746,7 +753,7 @@ impl AnalysisEngine {
     pub fn document_highlights(
         &self,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Vec<IdeDocumentHighlight>, String> {
         let snapshot = self.snapshot(None, CancellationToken::new());
         self.document_highlights_in_snapshot(&snapshot, uri, position)
@@ -756,8 +763,9 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Vec<IdeDocumentHighlight>, String> {
+        let position = position.into_ide_position();
         if self
             .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
@@ -785,7 +793,11 @@ impl AnalysisEngine {
     }
 
     #[cfg(test)]
-    pub fn hover(&self, uri: &str, position: Position) -> Result<Option<IdeHover>, String> {
+    pub fn hover(
+        &self,
+        uri: &str,
+        position: impl IntoIdePosition,
+    ) -> Result<Option<IdeHover>, String> {
         let snapshot = self.snapshot(None, CancellationToken::new());
         self.hover_in_snapshot(&snapshot, uri, position)
     }
@@ -794,8 +806,9 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Option<IdeHover>, String> {
+        let position = position.into_ide_position();
         if self
             .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
@@ -823,7 +836,7 @@ impl AnalysisEngine {
     pub fn signature_help(
         &self,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Option<IdeSignatureHelp>, String> {
         let snapshot = self.snapshot(None, CancellationToken::new());
         self.signature_help_in_snapshot(&snapshot, uri, position)
@@ -833,8 +846,9 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Option<IdeSignatureHelp>, String> {
+        let position = position.into_ide_position();
         let Some(offset) = self.semantic_query_offset(snapshot, uri, &position)? else {
             return Ok(None);
         };
@@ -855,7 +869,7 @@ impl AnalysisEngine {
     pub fn completion(
         &self,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Vec<IdeCompletionItem>, String> {
         let snapshot = self.snapshot(None, CancellationToken::new());
         self.completion_in_snapshot(&snapshot, uri, position)
@@ -865,8 +879,9 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Vec<IdeCompletionItem>, String> {
+        let position = position.into_ide_position();
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested completion for a document that is not open".to_string());
         };
@@ -956,7 +971,7 @@ impl AnalysisEngine {
                 item.resolve_data = Some(CompletionResolveData {
                     uri: uri.to_string(),
                     version: target_doc.version,
-                    position: position.clone(),
+                    position: position.clone().into(),
                     label: item.label.clone(),
                 });
             }
@@ -993,7 +1008,7 @@ impl AnalysisEngine {
     pub fn prepare_rename(
         &self,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Option<IdePrepareRenameResult>, String> {
         let snapshot = self.snapshot(None, CancellationToken::new());
         self.prepare_rename_in_snapshot(&snapshot, uri, position)
@@ -1003,8 +1018,9 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
     ) -> Result<Option<IdePrepareRenameResult>, String> {
+        let position = position.into_ide_position();
         if self
             .semantic_query_offset(snapshot, uri, &position)?
             .is_none()
@@ -1029,7 +1045,7 @@ impl AnalysisEngine {
         };
 
         Ok(Some(IdePrepareRenameResult {
-            range: span_to_range(&artifact.session, target.query_span),
+            range: span_to_range(&artifact.session, target.query_span).into(),
             placeholder: target.placeholder,
         }))
     }
@@ -1038,7 +1054,7 @@ impl AnalysisEngine {
     pub fn rename(
         &self,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
         new_name: &str,
     ) -> Result<IdeWorkspaceEdit, String> {
         let snapshot = self.snapshot(None, CancellationToken::new());
@@ -1049,9 +1065,10 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        position: Position,
+        position: impl IntoIdePosition,
         new_name: &str,
     ) -> Result<IdeWorkspaceEdit, String> {
+        let position = position.into_ide_position();
         if !is_valid_identifier(new_name) {
             return Err(format!("`{}` is not a valid Kern identifier", new_name));
         }
@@ -1158,8 +1175,9 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        range: Range,
+        range: impl IntoIdeRange,
     ) -> Result<IdeSemanticTokens, String> {
+        let range = range.into_ide_range();
         snapshot.check_canceled()?;
         let tokens = self.semantic_tokens_in_snapshot(snapshot, uri)?;
         semantic::filter_semantic_tokens_to_range_cancelable(
@@ -1170,7 +1188,11 @@ impl AnalysisEngine {
     }
 
     #[cfg(test)]
-    pub fn inlay_hints(&self, uri: &str, range: Range) -> Result<Vec<IdeInlayHint>, String> {
+    pub fn inlay_hints(
+        &self,
+        uri: &str,
+        range: impl IntoIdeRange,
+    ) -> Result<Vec<IdeInlayHint>, String> {
         let snapshot = self.snapshot(None, CancellationToken::new());
         self.inlay_hints_in_snapshot(&snapshot, uri, range)
     }
@@ -1179,8 +1201,9 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        range: Range,
+        range: impl IntoIdeRange,
     ) -> Result<Vec<IdeInlayHint>, String> {
+        let range = range.into_ide_range();
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested inlay hints for a document that is not open".to_string());
         };
@@ -1202,7 +1225,7 @@ impl AnalysisEngine {
             })
             .map(|hint| analysis_type_hint_to_ide_hint(&artifact.session, hint))
             .filter(|hint| {
-                let hint_range = Range {
+                let hint_range = IdeRange {
                     start: hint.position.clone(),
                     end: hint.position.clone(),
                 };
@@ -1212,7 +1235,11 @@ impl AnalysisEngine {
     }
 
     #[cfg(test)]
-    pub fn code_actions(&self, uri: &str, range: Range) -> Result<Vec<IdeCodeAction>, String> {
+    pub fn code_actions(
+        &self,
+        uri: &str,
+        range: impl IntoIdeRange,
+    ) -> Result<Vec<IdeCodeAction>, String> {
         let snapshot = self.snapshot(None, CancellationToken::new());
         self.code_actions_in_snapshot(&snapshot, uri, range)
     }
@@ -1221,7 +1248,7 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        range: Range,
+        range: impl IntoIdeRange,
     ) -> Result<Vec<IdeCodeAction>, String> {
         self.code_actions_in_snapshot_with_deferred(snapshot, uri, range, true)
     }
@@ -1230,9 +1257,10 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        range: Range,
+        range: impl IntoIdeRange,
         defer_heavy_actions: bool,
     ) -> Result<Vec<IdeCodeAction>, String> {
+        let range = range.into_ide_range();
         let analysis_context = self.resolve_analysis_context_for_snapshot(snapshot, uri)?;
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested code actions for a document that is not open".to_string());
@@ -1265,7 +1293,7 @@ impl AnalysisEngine {
 
             let ide_diagnostic =
                 convert_diagnostic_for_document(&diagnostics_session, diagnostic, target_doc);
-            if !ranges_overlap(&ide_diagnostic.range, &range) {
+            if !ide_ranges_overlap(&ide_diagnostic.range, &range) {
                 continue;
             }
 
@@ -1335,7 +1363,7 @@ fn code_action_with_resolve_data(
     mut action: IdeCodeAction,
     uri: &str,
     version: i64,
-    request_range: &Range,
+    request_range: &IdeRange,
 ) -> IdeCodeAction {
     if action.fix_id.is_some_and(defer_code_action_fix)
         && let Some(diagnostic) = action.diagnostics.first()
@@ -1345,8 +1373,8 @@ fn code_action_with_resolve_data(
         action.resolve_data = Some(CodeActionResolveData {
             uri: uri.to_string(),
             version,
-            range: request_range.clone(),
-            diagnostic_range: diagnostic.range.clone(),
+            range: request_range.clone().into(),
+            diagnostic_range: diagnostic.range.clone().into(),
             diagnostic_code: diagnostic.code.clone(),
             action_kind: action_kind.to_string(),
             fix_id: fix_id.to_string(),

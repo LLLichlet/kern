@@ -1,5 +1,4 @@
-use super::{AnalysisOutcome, TextDocumentContentChangeEvent};
-use crate::protocol::{Position, Range};
+use super::{AnalysisOutcome, IdePosition, IdeRange, IdeTextDocumentChange};
 use kernc_lexer::{LexemeType, Token, TokenType, Tokenizer};
 use kernc_utils::FileId;
 use std::collections::hash_map::DefaultHasher;
@@ -79,7 +78,7 @@ const TYPE_KEYWORD_COMPLETIONS: &[&str] = &[
 pub(super) fn apply_content_change(
     path: &Path,
     text: &mut String,
-    change: &TextDocumentContentChangeEvent,
+    change: &IdeTextDocumentChange,
 ) -> Result<(), String> {
     let Some(range) = &change.range else {
         text.clear();
@@ -111,7 +110,7 @@ pub(super) fn apply_content_change(
 pub(super) fn match_position_in_file(
     file: &kernc_utils::SourceFile,
     target_path: &Path,
-    position: &Position,
+    position: &IdePosition,
 ) -> Option<usize> {
     if normalize_path(&file.path) != target_path {
         return None;
@@ -120,18 +119,21 @@ pub(super) fn match_position_in_file(
     position_to_byte_offset(file, position)
 }
 
-pub(super) fn span_to_range(session: &kernc_utils::Session, span: kernc_utils::Span) -> Range {
+pub(super) fn span_to_range(session: &kernc_utils::Session, span: kernc_utils::Span) -> IdeRange {
     let Some(file) = session.source_manager.get_file(span.file) else {
         return empty_range();
     };
 
-    Range {
+    IdeRange {
         start: byte_offset_to_position(file, span.start),
         end: byte_offset_to_position(file, span.end),
     }
 }
 
-pub(super) fn byte_offset_to_position(file: &kernc_utils::SourceFile, offset: usize) -> Position {
+pub(super) fn byte_offset_to_position(
+    file: &kernc_utils::SourceFile,
+    offset: usize,
+) -> IdePosition {
     let mut clamped = offset.min(file.src.len());
     while clamped > 0 && !file.src.is_char_boundary(clamped) {
         clamped -= 1;
@@ -140,7 +142,7 @@ pub(super) fn byte_offset_to_position(file: &kernc_utils::SourceFile, offset: us
     let line_start = file.line_starts[line.saturating_sub(1)];
     let character = file.src[line_start..clamped].encode_utf16().count() as u32;
 
-    Position {
+    IdePosition {
         line: line.saturating_sub(1) as u32,
         character,
     }
@@ -148,7 +150,7 @@ pub(super) fn byte_offset_to_position(file: &kernc_utils::SourceFile, offset: us
 
 pub(super) fn position_to_byte_offset(
     file: &kernc_utils::SourceFile,
-    position: &Position,
+    position: &IdePosition,
 ) -> Option<usize> {
     let line_index = usize::try_from(position.line).ok()?;
     let line_start = *file.line_starts.get(line_index)?;
@@ -202,13 +204,13 @@ pub(super) fn span_contains_offset(span: kernc_utils::Span, offset: usize) -> bo
     offset >= span.start && offset < end
 }
 
-pub(super) fn empty_range() -> Range {
-    Range {
-        start: Position {
+pub(super) fn empty_range() -> IdeRange {
+    IdeRange {
+        start: IdePosition {
             line: 0,
             character: 0,
         },
-        end: Position {
+        end: IdePosition {
             line: 0,
             character: 0,
         },
@@ -220,7 +222,7 @@ pub(crate) fn single_server_diagnostic(uri: String, message: impl Into<String>) 
         bundles: vec![super::DiagnosticBundle {
             uri,
             diagnostics: vec![super::ide::IdeDiagnostic {
-                range: empty_range(),
+                range: empty_range().into(),
                 severity: super::ide::IdeDiagnosticSeverity::Warning,
                 source: "kern-lsp",
                 message: message.into(),

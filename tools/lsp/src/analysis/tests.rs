@@ -15,8 +15,11 @@ use super::cache::AnalysisCacheKey;
 use super::semantic::{SemanticModifiers, SemanticTokenTypes};
 use super::{
     AnalysisEngine, AnalysisSettings, AnalysisTier, CancellationToken, DiagnosticBundle,
-    byte_offset_to_position, cleared_uris, file_path_to_uri, hash_source_text, normalize_path,
-    position_to_byte_offset, uri_to_analysis_path, uri_to_file_path,
+    IdeChangeDocument, IdeCloseDocument, IdeOpenDocument, IdePosition, IdeRange,
+    IdeTextDocumentChange, IntoIdeChangeDocument, IntoIdeCloseDocument, IntoIdeOpenDocument,
+    IntoIdePosition, IntoIdeRange, byte_offset_to_position, cleared_uris, file_path_to_uri,
+    hash_source_text, normalize_path, position_to_byte_offset, uri_to_analysis_path,
+    uri_to_file_path,
 };
 use crate::analysis::DocumentSyncAction;
 use crate::analysis::ide::{
@@ -39,6 +42,68 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 static UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(0);
 const CURRENT_KERN_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+impl IntoIdeOpenDocument for DidOpenTextDocumentParams {
+    fn into_ide_open_document(self) -> IdeOpenDocument {
+        IdeOpenDocument {
+            uri: self.text_document.uri,
+            version: self.text_document.version,
+            text: self.text_document.text,
+        }
+    }
+}
+
+impl IntoIdeChangeDocument for DidChangeTextDocumentParams {
+    fn into_ide_change_document(self) -> IdeChangeDocument {
+        IdeChangeDocument {
+            uri: self.text_document.uri,
+            version: self.text_document.version,
+            changes: self
+                .content_changes
+                .into_iter()
+                .map(|change| IdeTextDocumentChange {
+                    range: change.range.map(|range| IdeRange {
+                        start: IdePosition {
+                            line: range.start.line,
+                            character: range.start.character,
+                        },
+                        end: IdePosition {
+                            line: range.end.line,
+                            character: range.end.character,
+                        },
+                    }),
+                    text: change.text,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl IntoIdeCloseDocument for DidCloseTextDocumentParams {
+    fn into_ide_close_document(self) -> IdeCloseDocument {
+        IdeCloseDocument {
+            uri: self.text_document.uri,
+        }
+    }
+}
+
+impl IntoIdePosition for Position {
+    fn into_ide_position(self) -> IdePosition {
+        IdePosition {
+            line: self.line,
+            character: self.character,
+        }
+    }
+}
+
+impl IntoIdeRange for Range {
+    fn into_ide_range(self) -> IdeRange {
+        IdeRange {
+            start: self.start.into_ide_position(),
+            end: self.end.into_ide_position(),
+        }
+    }
+}
 
 fn temp_file_uri(prefix: &str, initial_text: &str) -> String {
     let path = unique_temp_file_path(prefix);
@@ -213,6 +278,124 @@ fn decode_semantic_tokens(tokens: &IdeSemanticTokens) -> Vec<(Position, u32, u32
     }
 
     decoded
+}
+
+#[test]
+fn non_test_analysis_modules_do_not_import_protocol_sync_payloads() {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut paths = vec![manifest_dir.join("src/analysis.rs")];
+    for entry in fs::read_dir(manifest_dir.join("src/analysis")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|extension| extension.to_str()) == Some("rs")
+            && path.file_name().and_then(|name| name.to_str()) != Some("tests.rs")
+        {
+            paths.push(path);
+        }
+    }
+    let forbidden_payloads = [
+        "DidChangeTextDocumentParams",
+        "DidCloseTextDocumentParams",
+        "DidOpenTextDocumentParams",
+        "DidSaveTextDocumentParams",
+        "TextDocumentContentChangeEvent",
+        "TextDocumentIdentifier",
+        "TextDocumentItem",
+        "VersionedTextDocumentIdentifier",
+    ];
+    let mut violations = Vec::new();
+
+    for path in paths {
+        let source = fs::read_to_string(&path).unwrap();
+        let file_name = path.file_name().and_then(|name| name.to_str()).unwrap();
+        for payload in forbidden_payloads {
+            if source.contains(payload) {
+                violations.push(format!("{} mentions {payload}", path.display()));
+            }
+        }
+        for forbidden in [
+            "pub location: Location",
+            "pub position: crate::protocol::Position",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{} exposes protocol field `{forbidden}`",
+                    path.display()
+                ));
+            }
+        }
+        for forbidden in [
+            "pub range: Range",
+            "pub selection_range: Range",
+            "pub range: crate::protocol::Range",
+            "pub selection_range: crate::protocol::Range",
+            "pub from_ranges: Vec<Range>",
+            "pub from_ranges: Vec<crate::protocol::Range>",
+            "pub range: Option<Range>",
+            "pub range: Option<crate::protocol::Range>",
+            "pub position: Position",
+            "pub position: crate::protocol::Position",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{} exposes protocol IDE field `{forbidden}`",
+                    path.display()
+                ));
+            }
+        }
+        for line in source.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("pub fn ")
+                && (trimmed.contains("position: Position")
+                    || trimmed.contains("range: Range")
+                    || trimmed.contains("requested_range: Range")
+                    || trimmed.contains("positions: Vec<Position>")
+                    || trimmed.contains("item_range: &Range"))
+            {
+                violations.push(format!(
+                    "{} exposes protocol coordinate input `{trimmed}`",
+                    path.display()
+                ));
+            }
+        }
+        for line in source.lines() {
+            let Some(imports) = line.trim().strip_prefix("use crate::protocol::{") else {
+                continue;
+            };
+            let Some(imports) = imports.strip_suffix("};") else {
+                continue;
+            };
+            for imported in imports
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            {
+                if !protocol_import_allowed(file_name, imported) {
+                    violations.push(format!(
+                        "{} imports unexpected protocol type `{imported}`",
+                        path.display()
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "analysis protocol boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+fn protocol_import_allowed(file_name: &str, imported: &str) -> bool {
+    match file_name {
+        "analysis.rs" => matches!(
+            imported,
+            "CodeActionResolveData" | "CompletionResolveData" | "Position" | "Range"
+        ),
+        "ide.rs" => true,
+        "diagnostics.rs" => imported == "DiagnosticTag",
+        _ => false,
+    }
 }
 
 fn assert_token_type(tokens: &[(Position, u32, u32, u32)], position: Position, expected_type: u32) {

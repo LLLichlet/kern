@@ -20,8 +20,9 @@ impl AnalysisEngine {
         &self,
         snapshot: &AnalysisSnapshot,
         uri: &str,
-        requested_range: Range,
+        requested_range: impl IntoIdeRange,
     ) -> Result<Vec<IdeTextEdit>, String> {
+        let requested_range = requested_range.into_ide_range();
         snapshot.check_canceled()?;
         let document = snapshot.document(uri).ok_or_else(|| {
             "requested range formatting for a document that is not open".to_string()
@@ -84,7 +85,7 @@ fn format_text_edits(path: &Path, source: &str, config: &FormatConfig) -> Vec<Id
             let source_suffix_start = common_suffix_start(line.text, &formatted, prefix_len);
             let formatted_suffix_start = common_suffix_start(&formatted, line.text, prefix_len);
             Some(IdeTextEdit {
-                range: Range {
+                range: IdeRange {
                     start: byte_offset_to_position(&file, line.start + prefix_len),
                     end: byte_offset_to_position(&file, line.start + source_suffix_start),
                 },
@@ -188,12 +189,12 @@ mod tests {
         assert_eq!(edits.len(), 2);
         assert_eq!(
             edits[0].range,
-            Range {
-                start: Position {
+            IdeRange {
+                start: IdePosition {
                     line: 0,
                     character: 16,
                 },
-                end: Position {
+                end: IdePosition {
                     line: 0,
                     character: 18,
                 },
@@ -202,12 +203,12 @@ mod tests {
         assert_eq!(edits[0].new_text, "");
         assert_eq!(
             edits[1].range,
-            Range {
-                start: Position {
+            IdeRange {
+                start: IdePosition {
                     line: 1,
                     character: 1,
                 },
-                end: Position {
+                end: IdePosition {
                     line: 1,
                     character: 2,
                 },
@@ -227,14 +228,14 @@ mod tests {
         assert_eq!(edits.len(), 2);
         assert_eq!(
             edits[0].range.start,
-            Position {
+            IdePosition {
                 line: 0,
                 character: 17,
             }
         );
         assert_eq!(
             edits[1].range.start,
-            Position {
+            IdePosition {
                 line: 2,
                 character: 18,
             }

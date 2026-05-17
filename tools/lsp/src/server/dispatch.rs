@@ -13,6 +13,10 @@ use super::{
     INVALID_REQUEST, METHOD_NOT_FOUND, SERVER_NOT_INITIALIZED, SchedulerLane, ServerError,
     ServerState, WorkspaceRefreshKind,
 };
+use crate::analysis::{
+    IdeChangeDocument, IdeCloseDocument, IdeOpenDocument, IdePosition, IdeRange,
+    IdeTextDocumentChange,
+};
 use crate::protocol::{
     CallHierarchyIncomingCallsParams, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
     CancelRequestParams, CodeAction, CodeActionParams, CodeActionResolveData, CodeLensParams,
@@ -20,8 +24,8 @@ use crate::protocol::{
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
     DocumentHighlightParams, DocumentLinkParams, DocumentSymbolParams, FoldingRangeParams,
-    FormattingParams, IncomingMessage, InitializeParams, InlayHintParams, MarkupContent,
-    RangeFormattingParams, ReferenceParams, RenameParams, SelectionRangeParams,
+    FormattingParams, IncomingMessage, InitializeParams, InlayHintParams, MarkupContent, Position,
+    Range, RangeFormattingParams, ReferenceParams, RenameParams, SelectionRangeParams,
     SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams,
     WorkspaceSymbolParams, error_response, initialize_result, log_message,
 };
@@ -245,34 +249,37 @@ fn handle_message_with_document_request_policy(
         "textDocument/didOpen" => {
             let params = required_params::<DidOpenTextDocumentParams>(message.params)?;
             let target_uri = params.text_document.uri.clone();
+            let document = ide_open_document_from_protocol(params);
             execute_document_diagnostics(
                 state,
                 writer,
                 &target_uri,
                 SchedulerLane::Diagnostics,
-                |analysis| analysis.open_document_state(params),
+                |analysis| analysis.open_document_state(document),
             )?;
         }
         "textDocument/didChange" => {
             let params = required_params::<DidChangeTextDocumentParams>(message.params)?;
             let target_uri = params.text_document.uri.clone();
+            let change = ide_change_document_from_protocol(params);
             execute_document_diagnostics(
                 state,
                 writer,
                 &target_uri,
                 SchedulerLane::Diagnostics,
-                |analysis| analysis.change_document_state(params),
+                |analysis| analysis.change_document_state(change),
             )?;
         }
         "textDocument/didClose" => {
             let params = required_params::<DidCloseTextDocumentParams>(message.params)?;
             let target_uri = params.text_document.uri.clone();
+            let document = ide_close_document_from_protocol(params);
             execute_document_diagnostics(
                 state,
                 writer,
                 &target_uri,
                 SchedulerLane::Diagnostics,
-                |analysis| analysis.close_document_state(params),
+                |analysis| analysis.close_document_state(document),
             )?;
             state.clear_active_document(&target_uri);
         }
@@ -324,7 +331,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<DefinitionParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let position = params.position;
+            let position = ide_position_from_protocol(params.position);
             execute_optional_document_request(
                 state,
                 writer,
@@ -348,7 +355,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<DefinitionParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let position = params.position;
+            let position = ide_position_from_protocol(params.position);
             execute_optional_document_request(
                 state,
                 writer,
@@ -372,7 +379,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<DefinitionParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let position = params.position;
+            let position = ide_position_from_protocol(params.position);
             execute_optional_document_request(
                 state,
                 writer,
@@ -396,7 +403,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<DefinitionParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let position = params.position;
+            let position = ide_position_from_protocol(params.position);
             execute_document_request(
                 state,
                 writer,
@@ -425,7 +432,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<CallHierarchyPrepareParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let position = params.position;
+            let position = ide_position_from_protocol(params.position);
             execute_document_request(
                 state,
                 writer,
@@ -453,7 +460,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<CallHierarchyIncomingCallsParams>(message.params)?;
             let target_uri = params.item.uri.clone();
             let query_uri = target_uri.clone();
-            let target_range = params.item.selection_range;
+            let target_range = ide_range_from_protocol(params.item.selection_range);
             execute_document_request(
                 state,
                 writer,
@@ -466,7 +473,7 @@ fn handle_message_with_document_request_policy(
                         .call_hierarchy_incoming_calls_in_snapshot(
                             snapshot,
                             &query_uri,
-                            &target_range,
+                            target_range,
                         )
                         .map(|calls| {
                             calls
@@ -486,7 +493,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<CallHierarchyOutgoingCallsParams>(message.params)?;
             let target_uri = params.item.uri.clone();
             let query_uri = target_uri.clone();
-            let target_range = params.item.selection_range;
+            let target_range = ide_range_from_protocol(params.item.selection_range);
             execute_document_request(
                 state,
                 writer,
@@ -499,7 +506,7 @@ fn handle_message_with_document_request_policy(
                         .call_hierarchy_outgoing_calls_in_snapshot(
                             snapshot,
                             &query_uri,
-                            &target_range,
+                            target_range,
                         )
                         .map(|calls| {
                             calls
@@ -519,7 +526,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<DocumentHighlightParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let position = params.position;
+            let position = ide_position_from_protocol(params.position);
             execute_document_request(
                 state,
                 writer,
@@ -548,7 +555,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<ReferenceParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let position = params.position;
+            let position = ide_position_from_protocol(params.position);
             let include_declaration = params.context.include_declaration;
             let work_done_token = params.work_done_token;
             execute_document_request_with_progress(
@@ -580,7 +587,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<DefinitionParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let position = params.position;
+            let position = ide_position_from_protocol(params.position);
             #[cfg(test)]
             let barriers = super::TEST_DOCUMENT_REQUEST_BARRIERS
                 .lock()
@@ -614,7 +621,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<SignatureHelpParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let position = params.position;
+            let position = ide_position_from_protocol(params.position);
             execute_optional_document_request(
                 state,
                 writer,
@@ -638,7 +645,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<CompletionParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let position = params.position;
+            let position = ide_position_from_protocol(params.position);
             execute_document_request(
                 state,
                 writer,
@@ -732,7 +739,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<SemanticTokensRangeParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let range = params.range;
+            let range = ide_range_from_protocol(params.range);
             execute_document_request(
                 state,
                 writer,
@@ -756,7 +763,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<InlayHintParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let range = params.range;
+            let range = ide_range_from_protocol(params.range);
             execute_document_request(
                 state,
                 writer,
@@ -813,7 +820,11 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<SelectionRangeParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let positions = params.positions;
+            let positions = params
+                .positions
+                .into_iter()
+                .map(ide_position_from_protocol)
+                .collect();
             execute_document_request(
                 state,
                 writer,
@@ -924,7 +935,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<RangeFormattingParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let range = params.range;
+            let range = ide_range_from_protocol(params.range);
             execute_document_request(
                 state,
                 writer,
@@ -953,7 +964,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<DefinitionParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let position = params.position;
+            let position = ide_position_from_protocol(params.position);
             execute_optional_document_request(
                 state,
                 writer,
@@ -977,7 +988,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<RenameParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            let position = params.position;
+            let position = ide_position_from_protocol(params.position);
             let new_name = params.new_name;
             execute_document_request(
                 state,
@@ -1013,7 +1024,7 @@ fn handle_message_with_document_request_policy(
                 )?;
             } else {
                 let query_uri = target_uri.clone();
-                let range = params.range;
+                let range = ide_range_from_protocol(params.range);
                 execute_document_request(
                     state,
                     writer,
@@ -1111,6 +1122,64 @@ fn context_allows_quickfix(only: &Option<Vec<String>>) -> bool {
 
     only.iter()
         .any(|kind| kind == "quickfix" || kind.starts_with("quickfix."))
+}
+
+pub(crate) fn ide_open_document_from_protocol(
+    params: DidOpenTextDocumentParams,
+) -> IdeOpenDocument {
+    IdeOpenDocument {
+        uri: params.text_document.uri,
+        version: params.text_document.version,
+        text: params.text_document.text,
+    }
+}
+
+pub(crate) fn ide_change_document_from_protocol(
+    params: DidChangeTextDocumentParams,
+) -> IdeChangeDocument {
+    IdeChangeDocument {
+        uri: params.text_document.uri,
+        version: params.text_document.version,
+        changes: params
+            .content_changes
+            .into_iter()
+            .map(|change| IdeTextDocumentChange {
+                range: change.range.map(|range| IdeRange {
+                    start: IdePosition {
+                        line: range.start.line,
+                        character: range.start.character,
+                    },
+                    end: IdePosition {
+                        line: range.end.line,
+                        character: range.end.character,
+                    },
+                }),
+                text: change.text,
+            })
+            .collect(),
+    }
+}
+
+pub(crate) fn ide_close_document_from_protocol(
+    params: DidCloseTextDocumentParams,
+) -> IdeCloseDocument {
+    IdeCloseDocument {
+        uri: params.text_document.uri,
+    }
+}
+
+pub(crate) fn ide_position_from_protocol(position: Position) -> IdePosition {
+    IdePosition {
+        line: position.line,
+        character: position.character,
+    }
+}
+
+pub(crate) fn ide_range_from_protocol(range: Range) -> IdeRange {
+    IdeRange {
+        start: ide_position_from_protocol(range.start),
+        end: ide_position_from_protocol(range.end),
+    }
 }
 
 fn requires_initialization(method: &str) -> bool {

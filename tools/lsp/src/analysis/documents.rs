@@ -3,8 +3,8 @@ use std::path::Path;
 
 impl AnalysisEngine {
     #[cfg(test)]
-    pub fn open_document(&mut self, params: DidOpenTextDocumentParams) -> AnalysisOutcome {
-        match self.open_document_state(params) {
+    pub fn open_document(&mut self, params: impl IntoIdeOpenDocument) -> AnalysisOutcome {
+        match self.open_document_state(params.into_ide_open_document()) {
             DocumentSyncAction::ScheduleTarget { uri, mode } => match mode {
                 DiagnosticsAnalysisMode::Structure => self.analyze_document_structure(&uri),
                 DiagnosticsAnalysisMode::Full => self.analyze_document(&uri),
@@ -13,8 +13,8 @@ impl AnalysisEngine {
         }
     }
 
-    pub fn open_document_state(&mut self, params: DidOpenTextDocumentParams) -> DocumentSyncAction {
-        let doc = params.text_document;
+    pub fn open_document_state(&mut self, doc: impl IntoIdeOpenDocument) -> DocumentSyncAction {
+        let doc = doc.into_ide_open_document();
         let uri = doc.uri.clone();
         let Some(path) = uri_to_analysis_path(&uri) else {
             return DocumentSyncAction::Immediate(single_server_diagnostic(
@@ -45,8 +45,8 @@ impl AnalysisEngine {
     }
 
     #[cfg(test)]
-    pub fn change_document(&mut self, params: DidChangeTextDocumentParams) -> AnalysisOutcome {
-        match self.change_document_state(params) {
+    pub fn change_document(&mut self, params: impl IntoIdeChangeDocument) -> AnalysisOutcome {
+        match self.change_document_state(params.into_ide_change_document()) {
             DocumentSyncAction::ScheduleTarget { uri, mode } => match mode {
                 DiagnosticsAnalysisMode::Structure => self.analyze_document_structure(&uri),
                 DiagnosticsAnalysisMode::Full => self.analyze_document(&uri),
@@ -57,41 +57,41 @@ impl AnalysisEngine {
 
     pub fn change_document_state(
         &mut self,
-        params: DidChangeTextDocumentParams,
+        params: impl IntoIdeChangeDocument,
     ) -> DocumentSyncAction {
-        let Some(doc) = self.documents.get_mut(&params.text_document.uri) else {
+        let params = params.into_ide_change_document();
+        let Some(doc) = self.documents.get_mut(&params.uri) else {
             return DocumentSyncAction::Immediate(single_server_diagnostic(
-                params.text_document.uri,
+                params.uri,
                 "received didChange for a document that is not open",
             ));
         };
 
         let mut updated_text = doc.text.clone();
-        for change in params.content_changes {
+        for change in params.changes {
             if let Err(message) = apply_content_change(&doc.path, &mut updated_text, &change) {
                 return DocumentSyncAction::Immediate(single_server_diagnostic(
-                    params.text_document.uri.clone(),
-                    message,
+                    params.uri, message,
                 ));
             }
         }
 
         doc.text = updated_text;
-        doc.version = params.text_document.version;
+        doc.version = params.version;
         doc.is_dirty = Self::document_differs_from_disk(&doc.path, &doc.text);
         doc.text_hash = hash_source_text(&doc.text);
         self.invalidate_dirty_document_snapshot();
         self.invalidate_render_caches();
 
         DocumentSyncAction::ScheduleTarget {
-            uri: params.text_document.uri,
+            uri: params.uri,
             mode: DiagnosticsAnalysisMode::Structure,
         }
     }
 
     #[cfg(test)]
-    pub fn close_document(&mut self, params: DidCloseTextDocumentParams) -> AnalysisOutcome {
-        match self.close_document_state(params) {
+    pub fn close_document(&mut self, params: impl IntoIdeCloseDocument) -> AnalysisOutcome {
+        match self.close_document_state(params.into_ide_close_document()) {
             DocumentSyncAction::ScheduleTarget { uri, mode } => match mode {
                 DiagnosticsAnalysisMode::Structure => self.analyze_document_structure(&uri),
                 DiagnosticsAnalysisMode::Full => self.analyze_document(&uri),
@@ -102,11 +102,12 @@ impl AnalysisEngine {
 
     pub fn close_document_state(
         &mut self,
-        params: DidCloseTextDocumentParams,
+        params: impl IntoIdeCloseDocument,
     ) -> DocumentSyncAction {
+        let params = params.into_ide_close_document();
         let _was_dirty = self
             .documents
-            .remove(&params.text_document.uri)
+            .remove(&params.uri)
             .map(|doc| doc.is_dirty)
             .unwrap_or(false);
         self.invalidate_open_path_index();
@@ -114,7 +115,7 @@ impl AnalysisEngine {
         self.invalidate_render_caches();
         DocumentSyncAction::Immediate(AnalysisOutcome {
             bundles: vec![DiagnosticBundle {
-                uri: params.text_document.uri,
+                uri: params.uri,
                 diagnostics: Vec::new(),
             }],
         })

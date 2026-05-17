@@ -1,5 +1,5 @@
 use super::ide::IdeSemanticTokens;
-use crate::protocol::{Position, Range};
+use super::{IdePosition, IdeRange};
 use kernc_driver::{
     AnalysisHover, AnalysisReference, AnalysisSemanticEntry, AnalysisSemanticKind,
     AnalysisSemanticRole, AnalysisSymbol, AnalysisSymbolKind,
@@ -89,7 +89,7 @@ pub(super) fn lexical_semantic_tokens_cancelable(
 
 pub(super) fn filter_semantic_tokens_to_range_cancelable(
     tokens: &IdeSemanticTokens,
-    range: &Range,
+    range: &IdeRange,
     cancellation: &CancellationToken,
 ) -> Result<IdeSemanticTokens, String> {
     let entries = decode_semantic_token_entries_cancelable(&tokens.data, cancellation)?
@@ -878,12 +878,12 @@ fn decode_semantic_token_entries_cancelable(
     Ok(entries)
 }
 
-fn semantic_token_intersects_range(entry: &SemanticTokenEntry, range: &Range) -> bool {
-    let start = Position {
+fn semantic_token_intersects_range(entry: &SemanticTokenEntry, range: &IdeRange) -> bool {
+    let start = IdePosition {
         line: entry.line,
         character: entry.start_char,
     };
-    let end = Position {
+    let end = IdePosition {
         line: entry.line,
         character: entry.start_char + entry.length,
     };
@@ -891,7 +891,7 @@ fn semantic_token_intersects_range(entry: &SemanticTokenEntry, range: &Range) ->
     position_less_than(&start, &range.end) && position_less_than(&range.start, &end)
 }
 
-fn position_less_than(left: &Position, right: &Position) -> bool {
+fn position_less_than(left: &IdePosition, right: &IdePosition) -> bool {
     left.line < right.line || left.line == right.line && left.character < right.character
 }
 
@@ -902,7 +902,6 @@ fn span_key(span: kernc_utils::Span) -> SpanKey {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::Position;
     use kernc_driver::{AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole};
     use kernc_utils::{FileId, Session, Span};
     use std::path::PathBuf;
@@ -985,12 +984,12 @@ mod tests {
 
         let result = filter_semantic_tokens_to_range_cancelable(
             &tokens,
-            &Range {
-                start: Position {
+            &IdeRange {
+                start: IdePosition {
                     line: 0,
                     character: 0,
                 },
-                end: Position {
+                end: IdePosition {
                     line: 1,
                     character: 0,
                 },

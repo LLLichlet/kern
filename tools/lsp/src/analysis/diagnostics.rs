@@ -1,8 +1,9 @@
+use super::IdeRange;
 use super::OpenDocument;
 use super::ide::{
     IdeDiagnostic, IdeDiagnosticRelatedInformation, IdeDiagnosticSeverity, IdeDiagnosticTag,
+    IdeLocation,
 };
-use crate::protocol::{Location, Range};
 use kernc_driver::{AnalysisArtifact, TargetedAnalysisReport};
 use kernc_utils::{Session, SourceFile, Span};
 use std::collections::{BTreeMap, BTreeSet};
@@ -58,7 +59,7 @@ fn push_bounded_diagnostic(bundle: &mut Vec<IdeDiagnostic>, diagnostic: IdeDiagn
 
     if bundle.len() == MAX_DIAGNOSTICS_PER_URI {
         bundle.push(IdeDiagnostic {
-            range: crate::analysis::text::empty_range(),
+            range: crate::analysis::text::empty_range().into(),
             severity: IdeDiagnosticSeverity::Warning,
             source: "kern-lsp",
             message: format!(
@@ -114,7 +115,7 @@ fn convert_diagnostic_with_fallback(
     uri_by_path: Option<&BTreeMap<PathBuf, String>>,
 ) -> IdeDiagnostic {
     IdeDiagnostic {
-        range: diagnostic_range(session, diagnostic.primary_span, fallback_file),
+        range: diagnostic_range(session, diagnostic.primary_span, fallback_file).into(),
         severity: diagnostic_severity(diagnostic.level),
         source: "kernc",
         message: diagnostic_message(diagnostic),
@@ -128,9 +129,9 @@ fn diagnostic_range(
     session: &kernc_utils::Session,
     span: kernc_utils::Span,
     fallback_file: Option<&SourceFile>,
-) -> crate::protocol::Range {
+) -> IdeRange {
     if let Some(file) = session.source_manager.get_file(span.file) {
-        return crate::protocol::Range {
+        return IdeRange {
             start: super::byte_offset_to_position(file, span.start),
             end: super::byte_offset_to_position(file, span.end),
         };
@@ -139,7 +140,7 @@ fn diagnostic_range(
     let Some(file) = fallback_file else {
         return super::text::empty_range();
     };
-    crate::protocol::Range {
+    IdeRange {
         start: super::byte_offset_to_position(file, span.start),
         end: super::byte_offset_to_position(file, span.end),
     }
@@ -194,9 +195,9 @@ fn diagnostic_related_information(
                 .cloned()
                 .or_else(|| super::file_path_to_uri(path).ok())?;
             Some(IdeDiagnosticRelatedInformation {
-                location: Location {
+                location: IdeLocation {
                     uri,
-                    range: super::span_to_range(session, *span),
+                    range: super::span_to_range(session, *span).into(),
                 },
                 message: message.clone(),
             })
@@ -267,7 +268,8 @@ fn remap_clean_diagnostic(
         dirty_file,
         diagnostic.primary_span,
         replacements,
-    )?;
+    )?
+    .into();
 
     if let Some(related_information) = converted.related_information_mut() {
         for (related, (span, _)) in related_information
@@ -279,7 +281,7 @@ fn remap_clean_diagnostic(
             }
             related.location.uri = target_uri.to_string();
             related.location.range =
-                remap_span_to_range(clean_file, dirty_file, *span, replacements)?;
+                remap_span_to_range(clean_file, dirty_file, *span, replacements)?.into();
         }
     }
 
@@ -291,14 +293,14 @@ fn remap_span_to_range(
     dirty_file: &SourceFile,
     span: Span,
     replacements: &[OffsetReplacement],
-) -> Option<Range> {
+) -> Option<IdeRange> {
     if span.end > clean_file.src.len() {
         return None;
     }
 
     let start = remap_offset(span.start, replacements)?;
     let end = remap_offset(span.end, replacements)?;
-    Some(Range {
+    Some(IdeRange {
         start: super::byte_offset_to_position(dirty_file, start),
         end: super::byte_offset_to_position(dirty_file, end),
     })

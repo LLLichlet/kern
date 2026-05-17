@@ -1629,6 +1629,67 @@ fn call_hierarchy_excludes_unresolved_indirect_calls() {
 }
 
 #[test]
+fn call_hierarchy_keeps_known_targets_when_parameter_arguments_are_partial() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "fn known() i32 { return 1; }\n",
+        "fn apply(cb: &fn() i32) i32 { return cb(); }\n",
+        "fn main(flag: bool, incoming: &fn() i32) i32 {\n",
+        "    if (flag) {\n",
+        "        return apply(known);\n",
+        "    }\n",
+        "    return apply(incoming);\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("server_call_hierarchy_partial_parameter_argument", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let prepare_apply = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25110)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare_apply["id"], json!(25110));
+    let apply_items = prepare_apply["result"].as_array().unwrap();
+    assert_eq!(apply_items.len(), 1);
+    assert_eq!(apply_items[0]["name"], "apply");
+
+    let outgoing = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25111)),
+            method: Some("callHierarchy/outgoingCalls".to_string()),
+            params: Some(json!({
+                "item": apply_items[0]
+            })),
+        },
+    );
+
+    assert_eq!(outgoing["id"], json!(25111));
+    let outgoing_calls = outgoing["result"].as_array().unwrap();
+    assert_eq!(outgoing_calls.len(), 1);
+    assert_eq!(outgoing_calls[0]["to"]["name"], "known");
+    assert_eq!(
+        outgoing_calls[0]["fromRanges"],
+        json!([
+            {
+                "start": { "line": 1, "character": 37 },
+                "end": { "line": 1, "character": 39 }
+            }
+        ])
+    );
+}
+
+#[test]
 fn call_hierarchy_expands_local_function_value_targets() {
     let mut state = initialized_state();
     let source = concat!(

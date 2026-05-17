@@ -1117,44 +1117,44 @@ facts and must not be approximated with name matching.
 
 Tasks:
 
-- Indirect call hierarchy expansion: compiler analysis now records resolved
-  indirect targets for local function-value and closure-object bindings. Target
-  recovery consumes flow reaching-definition facts, so assignment-updated
-  mutable bindings and branch-merged multi-source locals are expanded from the
-  same compiler-backed facts as immutable forwarding chains such as
-  `let second = first`. Single concrete reaching sources are marked exact;
-  ambiguous or branch-merged sources are marked partial. Direct-call
-  interprocedural propagation records function-value targets passed through
-  immutable parameters, including parameter-to-parameter forwarding chains and
-  multi-source local arguments, with explicit partial completeness so the IDE can
-  expand known targets without pretending the set is globally exhaustive.
-  Immutable closure-object bindings are also recovered as callable value targets,
-  including transparent grouping, address-taking, `&Fn` casts, and immutable
-  forwarding through erased closure values; they can flow through the same
-  parameter facts. LSP exposes them as call hierarchy targets only when the
-  compiler call facts mention them. Closure bodies assigned to named callable
-  values now emit outgoing call edges using the closure value definition as the
-  caller, so call hierarchy can show direct calls made by the closure body
-  without attributing them to the enclosing function. Unknown argument sources
-  remain pending until the compiler exposes precise facts for those cases.
-- Import insertion: unresolved value/function identifiers now carry a structured
-  compiler diagnostic code, `kernc_driver` derives visible import candidates
-  from the resolved module graph and scope table, and `kern-lsp` returns
-  deferred quick fixes whose `codeAction/resolve` materializes the `use`
-  insertion. Analysis and server tests cover the full request/resolve/edit
-  path. Type-position import insertion now uses structured `unresolved-type`
-  diagnostics, precise type-name spans, and imported-structure facts so the
-  quick fix still works when full typed structure construction is blocked by
-  the unresolved type.
-- Larger refactoring/code-action providers: implement trait impl stubs and wider
-  multi-edit fixes through deferred resolve payloads backed by compiler facts.
-- Add stress and correctness tests for the new facts before advertising any new
-  provider behavior.
+- Done: indirect call hierarchy expansion is backed by compiler call facts
+  rather than name matching. Compiler analysis records resolved indirect targets
+  for local function-value and closure-object bindings. Target recovery consumes
+  flow reaching-definition facts, so assignment-updated mutable bindings and
+  branch-merged multi-source locals are expanded from the same facts as
+  immutable forwarding chains such as `let second = first`. Single concrete
+  local reaching sources are marked exact; ambiguous, branch-merged, parameter,
+  or otherwise incomplete sources are marked partial. Parameter propagation
+  records known function-value and closure-object targets passed through direct
+  calls, parameter-to-parameter forwarding chains, multi-source local arguments,
+  and partially unknown argument sets while preserving useful known targets
+  without pretending the set is exhaustive. Closure-object recovery covers
+  transparent grouping, address-taking, `&Fn` casts, immutable forwarding through
+  erased closure values, and closure body outgoing edges for named callable
+  values. Anonymous closure bodies remain unrepresented instead of being
+  attributed to an enclosing function.
+- Done: import insertion is backed by structured compiler diagnostics and import
+  candidates. Unresolved value/function identifiers and unresolved type names
+  produce stable diagnostic codes and precise spans; `kernc_driver` derives
+  visible candidates from the resolved module graph, scope table, and imported
+  structure facts; `kern-lsp` returns deferred quick fixes whose
+  `codeAction/resolve` materializes the `use` insertion.
+- Done: trait impl stubs are compiler-backed deferred code actions. Missing
+  required trait methods produce structured diagnostics and stub facts, and
+  `kern-lsp` resolves the edit through the same deferred action path as other
+  multi-edit fixes.
+- Done: correctness and stress coverage now covers the advanced facts at the
+  compiler, analysis, and server layers, including partial argument sources,
+  closure body outgoing calls, import insertion resolve, trait impl stub resolve,
+  and mixed advanced-provider request sequences.
 
 Exit criteria:
 
 - Advanced providers either use stable compiler facts with tests or remain
   unadvertised/unimplemented. No name-synthesis fallback is accepted.
+
+Status: complete. Phase 14 is ready for the Phase 13 manual VS Code smoke test
+and release verification pass.
 
 ## Observability Requirements
 

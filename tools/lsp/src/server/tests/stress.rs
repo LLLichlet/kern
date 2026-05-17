@@ -185,6 +185,167 @@ fn protocol_stress_alternates_edits_and_completion_requests() {
 }
 
 #[test]
+fn protocol_stress_phase14_advanced_facts_remain_stable_across_requests() {
+    let mut state = initialized_state();
+    state.diagnostics_flush_policy.target_task_budget = usize::MAX;
+    let root = unique_temp_dir("server_protocol_stress_phase14");
+    fs::write(
+        root.join("helper.kn"),
+        "pub fn imported() i32 { return 1; }\n",
+    )
+    .unwrap();
+    let call_source = concat!(
+        "fn known() i32 { return 2; }\n",
+        "fn apply(cb: &fn() i32) i32 { return cb(); }\n",
+        "fn main(flag: bool, incoming: &fn() i32) i32 {\n",
+        "    if (flag) {\n",
+        "        return apply(known);\n",
+        "    }\n",
+        "    return apply(incoming);\n",
+        "}\n",
+    );
+    let import_source = "mod helper;\nfn main() i32 { return imported(); }\n";
+    let trait_source = concat!(
+        "trait Render { fn render(value: i32) i32; }\n",
+        "struct Widget {}\n",
+        "impl Widget: Render {}\n",
+    );
+    let call_path = root.join("call.kn");
+    let import_path = root.join("import.kn");
+    let trait_path = root.join("trait.kn");
+    fs::write(&call_path, call_source).unwrap();
+    fs::write(&import_path, import_source).unwrap();
+    fs::write(&trait_path, trait_source).unwrap();
+    let call_uri = format!("file://{}", call_path.to_string_lossy());
+    let import_uri = format!("file://{}", import_path.to_string_lossy());
+    let trait_uri = format!("file://{}", trait_path.to_string_lossy());
+
+    let _ = dispatch_messages(&mut state, did_open_message(&call_uri, call_source, 1));
+    let _ = dispatch_messages(&mut state, did_open_message(&import_uri, import_source, 1));
+    let _ = dispatch_messages(&mut state, did_open_message(&trait_uri, trait_source, 1));
+
+    let prepare_apply = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(9301)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": call_uri },
+                "position": { "line": 1, "character": 3 }
+            })),
+        },
+    );
+    let apply_items = prepare_apply["result"].as_array().unwrap();
+    assert_eq!(apply_items.len(), 1);
+    assert_eq!(apply_items[0]["name"], "apply");
+
+    let outgoing = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(9302)),
+            method: Some("callHierarchy/outgoingCalls".to_string()),
+            params: Some(json!({ "item": apply_items[0] })),
+        },
+    );
+    let outgoing_calls = outgoing["result"].as_array().unwrap();
+    assert_eq!(outgoing_calls.len(), 1);
+    assert_eq!(outgoing_calls[0]["to"]["name"], "known");
+
+    let import_actions = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(9303)),
+            method: Some("textDocument/codeAction".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": import_uri },
+                "range": {
+                    "start": { "line": 1, "character": 25 },
+                    "end": { "line": 1, "character": 33 }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["quickfix"]
+                }
+            })),
+        },
+    );
+    let import_action = import_actions["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == json!("Import `/helper.imported`"))
+        .unwrap()
+        .clone();
+    assert_eq!(import_action["data"]["fixId"], json!("insert-import"));
+
+    let resolved_import = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(9304)),
+            method: Some("codeAction/resolve".to_string()),
+            params: Some(import_action),
+        },
+    );
+    assert_eq!(
+        resolved_import["result"]["edit"]["changes"][&import_uri][0]["newText"],
+        "use /helper.imported;\n"
+    );
+
+    let trait_actions = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(9305)),
+            method: Some("textDocument/codeAction".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": trait_uri },
+                "range": {
+                    "start": { "line": 2, "character": 0 },
+                    "end": { "line": 2, "character": 21 }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["quickfix"]
+                }
+            })),
+        },
+    );
+    let trait_action = trait_actions["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == json!("Add `render` method stub"))
+        .unwrap()
+        .clone();
+    assert_eq!(
+        trait_action["data"]["fixId"],
+        json!("add-trait-impl-method-stub")
+    );
+
+    let resolved_trait = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(9306)),
+            method: Some("codeAction/resolve".to_string()),
+            params: Some(trait_action),
+        },
+    );
+    assert_eq!(
+        resolved_trait["result"]["edit"]["changes"][&trait_uri][0]["newText"],
+        "\n    fn render(value: i32) i32 {\n        @unreachable();\n    }\n"
+    );
+
+    assert!(state.pending_diagnostics_targets.is_empty());
+    assert!(state.pending_diagnostics.is_empty());
+    assert!(!state.has_pending_worker_work());
+}
+
+#[test]
 fn protocol_stress_cancel_references_then_edit_and_hover() {
     let mut state = ServerState::with_options(
         AnalysisEngine::default(),

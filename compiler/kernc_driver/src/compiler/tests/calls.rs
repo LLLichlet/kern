@@ -602,6 +602,64 @@ fn analysis_artifact_keeps_known_targets_for_partially_unknown_function_values()
 }
 
 #[test]
+fn analysis_artifact_marks_parameters_partial_when_any_argument_source_is_unknown() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analysis_partially_unknown_parameter_calls_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let source = concat!(
+        "fn known() i32 { return 1; }\n",
+        "fn apply(cb: &fn() i32) i32 { return cb(); }\n",
+        "fn main(flag: bool, incoming: &fn() i32) i32 {\n",
+        "    if (flag) {\n",
+        "        return apply(known);\n",
+        "    }\n",
+        "    return apply(incoming);\n",
+        "}\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    let parameter_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Indirect && span_text(source, call.callee_span) == "cb"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected partially unknown parameter indirect call, got {:#?}",
+                artifact.calls
+            )
+        });
+    assert_eq!(
+        parameter_call.indirect_target_completeness,
+        AnalysisCallTargetCompleteness::Partial
+    );
+    assert_eq!(parameter_call.indirect_targets.len(), 1);
+    assert_eq!(
+        span_text(source, parameter_call.indirect_targets[0]),
+        "known"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn analysis_artifact_resolves_grouped_function_value_call_targets() {
     let root = std::env::temp_dir().join(format!(
         "kern_analysis_grouped_indirect_calls_{}_{}",

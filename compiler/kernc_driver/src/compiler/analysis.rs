@@ -89,7 +89,12 @@ impl CompilerDriver {
         let mut session = Session::new();
         session.apply_options(&self.options);
 
-        let report = match self.try_analyze_structure(session, input_file, source_overrides) {
+        let report = match self.try_analyze_structure_cancelable(
+            session,
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
             Ok(structure) => self.analyze_report_from_structure(&structure, cancellation)?,
             Err(session) => AnalysisReport {
                 session: *session,
@@ -110,7 +115,12 @@ impl CompilerDriver {
         let mut session = Session::new();
         session.apply_options(&self.options);
 
-        let structure = match self.try_analyze_structure(session, input_file, source_overrides) {
+        let structure = match self.try_analyze_structure_cancelable(
+            session,
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
             Ok(structure) => structure,
             Err(session) => return Ok(self.empty_analysis_artifact(*session)),
         };
@@ -128,7 +138,12 @@ impl CompilerDriver {
         let mut session = Session::new();
         session.apply_options(&self.options);
 
-        let structure = match self.try_analyze_structure(session, input_file, source_overrides) {
+        let structure = match self.try_analyze_structure_cancelable(
+            session,
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
             Ok(structure) => structure,
             Err(session) => return Ok(self.empty_analysis_navigation_artifact(*session)),
         };
@@ -234,15 +249,12 @@ impl CompilerDriver {
         }
 
         cancellation.check()?;
-        if let Some(collected) = self.analyze_collected_structure(input_file, source_overrides) {
-            cancellation.check()?;
-            return Ok(self.analyze_outline_from_collected(&collected));
-        }
-
-        cancellation.check()?;
-        let outline = match self.try_parse_modules_with_frontend_cache(input_file, source_overrides)
-        {
-            Some(parsed) => self.analyze_outline_from_parsed(&parsed),
+        let outline = match self.analyze_collected_structure_cancelable(
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
+            Some(collected) => self.analyze_outline_from_collected(&collected),
             None => {
                 let mut session = Session::new();
                 session.apply_options(&self.options);
@@ -285,13 +297,9 @@ impl CompilerDriver {
         }
 
         cancellation.check()?;
-        if let Some(collected) = self.analyze_collected_structure(input_file, source_overrides) {
-            cancellation.check()?;
-            return Ok(Some(self.parsed_modules_from_collected(&collected)));
-        }
-
-        cancellation.check()?;
-        let parsed = self.try_parse_modules_with_frontend_cache(input_file, source_overrides);
+        let parsed = self
+            .analyze_collected_structure_cancelable(input_file, source_overrides, cancellation)?
+            .map(|collected| self.parsed_modules_from_collected(&collected));
         cancellation.check()?;
         Ok(parsed)
     }

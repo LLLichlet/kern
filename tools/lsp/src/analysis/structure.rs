@@ -116,10 +116,15 @@ impl AnalysisEngine {
             if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
                 Arc::clone(structure)
             } else {
-                let Some(structure) = context.driver.analyze_structure(
-                    &context.resolved.input_file.to_string_lossy(),
-                    &context.dirty_documents.overrides,
-                ) else {
+                let Some(structure) = context
+                    .driver
+                    .analyze_structure_cancelable(
+                        &context.resolved.input_file.to_string_lossy(),
+                        &context.dirty_documents.overrides,
+                        &snapshot.cancellation,
+                    )
+                    .map_err(|_| "request was canceled".to_string())?
+                else {
                     return Err("document link analysis failed".to_string());
                 };
                 let structure = Arc::new(structure);

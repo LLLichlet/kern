@@ -119,6 +119,37 @@ impl Database {
         result.map(|value| (value, frame.deps))
     }
 
+    fn execute_frame_fallible<T, E, F>(
+        &self,
+        name: &'static str,
+        token: DependencyToken,
+        f: F,
+    ) -> Result<QueryResult<(T, Vec<Box<dyn DependencyEdge>>)>, E>
+    where
+        F: FnOnce() -> Result<QueryResult<T>, E>,
+    {
+        {
+            let mut runtime = self.runtime.lock().unwrap();
+            runtime.stack.push(ActiveFrame {
+                token,
+                name,
+                deps: Vec::new(),
+            });
+        }
+
+        let result = f();
+
+        let frame = {
+            let mut runtime = self.runtime.lock().unwrap();
+            runtime
+                .stack
+                .pop()
+                .expect("active query frame must exist while executing")
+        };
+
+        result.map(|query_result| query_result.map(|value| (value, frame.deps)))
+    }
+
     fn cycle_for(&self, token: DependencyToken, name: &'static str) -> Cycle {
         let runtime = self.runtime.lock().unwrap();
         let start = runtime
@@ -555,6 +586,108 @@ where
         }
     }
 
+    pub fn try_get_with<E, F>(
+        &self,
+        db: &Database,
+        name: &'static str,
+        key: K,
+        compute: F,
+    ) -> Result<QueryResult<V>, E>
+    where
+        F: FnOnce() -> Result<QueryResult<V>, E>,
+    {
+        loop {
+            let current_revision = db.revision();
+            let snapshot = self.inner.ensure_entry_snapshot(db, key.clone());
+
+            if snapshot.state == QueryState::Evaluating {
+                return Ok(Err(db.cycle_for(snapshot.token, name)));
+            }
+
+            if snapshot.value.is_some() && snapshot.verified_at == current_revision {
+                return Ok(Ok(snapshot
+                    .value
+                    .clone()
+                    .expect("ready memo entry must have a cached value")));
+            }
+
+            if snapshot.value.is_some() {
+                match dependencies_changed_since(db, &snapshot.deps, snapshot.verified_at) {
+                    Ok(false) => {
+                        let mut entries = self.inner.entries.lock().unwrap();
+                        let entry = entries
+                            .get_mut(&key)
+                            .expect("memo entry must exist while refreshing verification");
+                        if entry.state == QueryState::Ready {
+                            entry.verified_at = current_revision;
+                            return Ok(Ok(entry
+                                .value
+                                .clone()
+                                .expect("ready memo entry must have a cached value")));
+                        }
+                        continue;
+                    }
+                    Ok(true) => {}
+                    Err(err) => return Ok(Err(err)),
+                }
+            }
+
+            {
+                let mut entries = self.inner.entries.lock().unwrap();
+                let entry = entries
+                    .get_mut(&key)
+                    .expect("memo entry must exist before computing");
+                if entry.state == QueryState::Evaluating {
+                    return Ok(Err(db.cycle_for(snapshot.token, name)));
+                }
+                entry.state = QueryState::Evaluating;
+            }
+
+            let computed = match db.execute_frame_fallible(name, snapshot.token, compute) {
+                Ok(computed) => computed,
+                Err(err) => {
+                    let mut entries = self.inner.entries.lock().unwrap();
+                    let entry = entries
+                        .get_mut(&key)
+                        .expect("memo entry must exist after failed computation");
+                    entry.state = snapshot.state;
+                    entry.value = snapshot.value.clone();
+                    entry.changed_at = snapshot.changed_at;
+                    entry.verified_at = snapshot.verified_at;
+                    entry.deps = snapshot.deps.clone();
+                    return Err(err);
+                }
+            };
+
+            match computed {
+                Ok((value, deps)) => {
+                    let mut entries = self.inner.entries.lock().unwrap();
+                    let entry = entries
+                        .get_mut(&key)
+                        .expect("memo entry must exist after computing");
+                    entry.value = Some(value.clone());
+                    entry.changed_at = current_revision;
+                    entry.verified_at = current_revision;
+                    entry.deps = deps;
+                    entry.state = QueryState::Ready;
+                    return Ok(Ok(value));
+                }
+                Err(err) => {
+                    let mut entries = self.inner.entries.lock().unwrap();
+                    let entry = entries
+                        .get_mut(&key)
+                        .expect("memo entry must exist after failed computation");
+                    entry.state = snapshot.state;
+                    entry.value = snapshot.value.clone();
+                    entry.changed_at = snapshot.changed_at;
+                    entry.verified_at = snapshot.verified_at;
+                    entry.deps = snapshot.deps.clone();
+                    return Ok(Err(err));
+                }
+            }
+        }
+    }
+
     pub fn get_cached(&self, db: &Database, name: &'static str, key: K) -> QueryResult<Option<V>> {
         let current_revision = db.revision();
         let snapshot = self.inner.ensure_entry_snapshot(db, key.clone());
@@ -711,7 +844,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{Cycle, Database, Input, Memo, Query};
+    use super::{Cycle, Database, Input, Memo, Query, QueryResult};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
@@ -873,6 +1006,65 @@ mod tests {
 
         input.set(&db, 0, "lang".to_string());
         assert_eq!(memo.get_cached(&db, "parsed_len_memo", 0).unwrap(), None);
+    }
+
+    #[test]
+    fn memo_try_get_with_does_not_cache_external_errors() {
+        let db = Database::new();
+        let memo = Memo::<u32, usize>::new();
+        let evals = Arc::new(AtomicUsize::new(0));
+
+        let err = memo
+            .try_get_with(&db, "fallible_memo", 0, {
+                let evals = evals.clone();
+                move || {
+                    evals.fetch_add(1, Ordering::SeqCst);
+                    Err("canceled")
+                }
+            })
+            .unwrap_err();
+        assert_eq!(err, "canceled");
+        assert_eq!(memo.get_cached(&db, "fallible_memo", 0).unwrap(), None);
+
+        let value = memo
+            .try_get_with(&db, "fallible_memo", 0, {
+                let evals = evals.clone();
+                move || {
+                    evals.fetch_add(1, Ordering::SeqCst);
+                    Ok::<QueryResult<usize>, &'static str>(Ok(42))
+                }
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(value, 42);
+        assert_eq!(evals.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn memo_try_get_with_preserves_query_cycle_errors() {
+        let db = Database::new();
+        let memo = Memo::<u32, usize>::new();
+        let slot = Arc::new(Mutex::new(None::<Memo<u32, usize>>));
+        *slot.lock().unwrap() = Some(memo.clone());
+
+        let result = memo
+            .try_get_with(&db, "fallible_cycle_memo", 0, {
+                let db = db.clone();
+                let slot = slot.clone();
+                move || {
+                    let memo = slot.lock().unwrap().clone().unwrap();
+                    Ok::<QueryResult<usize>, &'static str>(memo.try_get_with::<&'static str, _>(
+                        &db,
+                        "fallible_cycle_memo",
+                        0,
+                        || Ok::<QueryResult<usize>, &'static str>(Ok(1)),
+                    )?)
+                }
+            })
+            .unwrap();
+
+        let err = result.unwrap_err();
+        assert_cycle(err, &["fallible_cycle_memo", "fallible_cycle_memo"]);
     }
 
     fn assert_cycle(cycle: Cycle, expected: &[&str]) {

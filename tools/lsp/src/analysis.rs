@@ -753,10 +753,12 @@ impl AnalysisEngine {
             } else {
                 context
                     .driver
-                    .analyze_structure(
+                    .analyze_structure_cancelable(
                         &context.resolved.input_file.to_string_lossy(),
                         &context.dirty_documents.overrides,
+                        &context.cancellation,
                     )
+                    .map_err(|_| "request was canceled".to_string())?
                     .map(Arc::new)
             };
         self.prune_cache_family_for_insert(&context.cache_key);
@@ -909,10 +911,12 @@ impl AnalysisEngine {
             } else {
                 context
                     .driver
-                    .analyze_structure(
+                    .analyze_structure_cancelable(
                         &context.resolved.input_file.to_string_lossy(),
                         &context.dirty_documents.overrides,
+                        &context.cancellation,
                     )
+                    .map_err(|_| "request was canceled".to_string())?
                     .map(Arc::new)
             };
         self.prune_cache_family_for_insert(&context.cache_key);
@@ -967,10 +971,12 @@ impl AnalysisEngine {
             } else {
                 context
                     .driver
-                    .analyze_structure(
+                    .analyze_structure_cancelable(
                         &context.resolved.input_file.to_string_lossy(),
                         &context.dirty_documents.overrides,
+                        &context.cancellation,
                     )
+                    .map_err(|_| "request was canceled".to_string())?
                     .map(Arc::new)
             };
         self.prune_cache_family_for_insert(&context.cache_key);

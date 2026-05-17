@@ -2,17 +2,6 @@ use super::*;
 use crate::compiler::completion;
 
 impl CompilerDriver {
-    pub(super) fn try_parse_modules_with_frontend_cache(
-        &self,
-        input_file: &str,
-        source_overrides: &SourceOverrides,
-    ) -> Option<ParsedModuleArtifact> {
-        let mut session = Session::new();
-        session.apply_options(&self.options);
-        self.try_parse_modules(session, input_file, source_overrides)
-            .ok()
-    }
-
     pub(super) fn analyze_outline_from_structure(
         &self,
         structure: &StructureArtifact,
@@ -65,16 +54,6 @@ impl CompilerDriver {
         }
     }
 
-    pub(super) fn analyze_outline_from_parsed(
-        &self,
-        parsed: &ParsedModuleArtifact,
-    ) -> AnalysisOutline {
-        AnalysisOutline {
-            session: parsed.session.clone(),
-            symbols: self.collect_parsed_module_symbols(&parsed.session, &parsed.modules),
-        }
-    }
-
     pub(super) fn parsed_modules_from_structure(
         &self,
         structure: &StructureArtifact,
@@ -119,12 +98,6 @@ impl CompilerDriver {
         let modules = asts
             .iter()
             .map(|(mod_id, ast)| {
-                let name = match &ctx.defs[mod_id.0 as usize] {
-                    kernc_sema::def::Def::Module(module_def) => {
-                        ctx.resolve(module_def.name).to_string()
-                    }
-                    _ => "<unknown>".to_string(),
-                };
                 let file_id = match &ctx.defs[mod_id.0 as usize] {
                     kernc_sema::def::Def::Module(module_def) => module_def.file_id,
                     _ => kernc_utils::FileId(0),
@@ -137,7 +110,6 @@ impl CompilerDriver {
                     .unwrap_or_default();
                 let path = module_analysis_path_from_source(&source_path, ast);
                 ParsedModule {
-                    name,
                     file_id,
                     source_path,
                     path,
@@ -175,20 +147,48 @@ impl CompilerDriver {
         input_file: &str,
         collect_docs: bool,
     ) -> Option<LoadedAstArtifact> {
-        let mut loader = ModuleLoader::new(ctx, &self.frontend, collect_docs);
+        self.load_asts_impl(ctx, input_file, collect_docs, &CancellationToken::new())
+            .ok()
+            .flatten()
+    }
+
+    pub(super) fn load_asts_cancelable<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+        input_file: &str,
+        collect_docs: bool,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<LoadedAstArtifact>, Canceled> {
+        self.load_asts_impl(ctx, input_file, collect_docs, cancellation)
+    }
+
+    fn load_asts_impl<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+        input_file: &str,
+        collect_docs: bool,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<LoadedAstArtifact>, Canceled> {
+        cancellation.check()?;
+        let mut loader =
+            ModuleLoader::new_cancelable(ctx, &self.frontend, collect_docs, cancellation);
         let root_name = loader
             .ctx
             .intern(self.options.root_module_name.as_deref().unwrap_or("root"));
-        loader.load_root(input_file, root_name)?;
+        let root_loaded = loader.try_load_root(input_file, root_name)?;
+        if root_loaded.is_none() {
+            return Ok(None);
+        }
         if !Self::report_diagnostics_if_errors(loader.ctx) {
-            return None;
+            return Ok(None);
         }
 
+        cancellation.check()?;
         loader.ctx.inject_alias_roots();
-        Some(LoadedAstArtifact {
+        Ok(Some(LoadedAstArtifact {
             asts: std::mem::take(&mut loader.asts),
             phase_timings: loader.phase_timings(),
-        })
+        }))
     }
 
     pub(in crate::compiler) fn try_analyze_structure(
@@ -254,6 +254,67 @@ impl CompilerDriver {
                     .ok_or_else(|| Box::new(session))
             }
         }
+    }
+
+    pub(in crate::compiler) fn try_analyze_structure_cancelable(
+        &self,
+        mut session: Session,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+        cancellation: &CancellationToken,
+    ) -> Result<Result<StructureArtifact, Box<Session>>, Canceled> {
+        cancellation.check()?;
+        self.sync_source_overrides(source_overrides);
+        if let Some(structure) = self.cached_structure_artifact(input_file, source_overrides) {
+            cancellation.check()?;
+            return Ok(Ok(self.finalize_structure_artifact(
+                input_file,
+                source_overrides,
+                structure,
+            )));
+        }
+        cancellation.check()?;
+        if let Some(imported) =
+            self.cached_imported_structure_artifact(input_file, source_overrides)
+        {
+            if let Some(structure) = self.build_typed_structure(&imported) {
+                cancellation.check()?;
+                return Ok(Ok(self.finalize_structure_artifact(
+                    input_file,
+                    source_overrides,
+                    structure,
+                )));
+            }
+
+            let structure = self.compute_structure_artifact_into_session_cancelable(
+                &mut session,
+                input_file,
+                cancellation,
+            )?;
+            return Ok(structure
+                .map(|structure| {
+                    self.finalize_structure_artifact(input_file, source_overrides, structure)
+                })
+                .ok_or_else(|| Box::new(session)));
+        }
+        cancellation.check()?;
+        let computed = self
+            .try_reuse_clean_typed_structure_artifact(input_file, source_overrides)
+            .or_else(|| {
+                self.compute_structure_artifact_into_session_cancelable(
+                    &mut session,
+                    input_file,
+                    cancellation,
+                )
+                .ok()
+                .flatten()
+            });
+        cancellation.check()?;
+        Ok(computed
+            .map(|structure| {
+                self.finalize_structure_artifact(input_file, source_overrides, structure)
+            })
+            .ok_or_else(|| Box::new(session)))
     }
 
     #[cfg(test)]
@@ -356,18 +417,28 @@ impl CompilerDriver {
         cached
     }
 
-    pub(super) fn analyze_collected_structure(
+    pub(super) fn analyze_collected_structure_cancelable(
         &self,
         input_file: &str,
         source_overrides: &SourceOverrides,
-    ) -> Option<CollectedStructureArtifact> {
+        cancellation: &CancellationToken,
+    ) -> Result<Option<CollectedStructureArtifact>, Canceled> {
+        cancellation.check()?;
         let mut session = Session::new();
         session.apply_options(&self.options);
-        self.try_analyze_collected_structure(session, input_file, source_overrides)
-            .ok()
-            .map(|collected| {
-                self.finalize_collected_structure_artifact(input_file, source_overrides, collected)
-            })
+        match self.try_analyze_collected_structure_cancelable(
+            session,
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
+            Ok(collected) => Ok(Some(self.finalize_collected_structure_artifact(
+                input_file,
+                source_overrides,
+                collected,
+            ))),
+            Err(_) => Ok(None),
+        }
     }
 
     pub(super) fn cached_structure_artifact(
@@ -477,61 +548,59 @@ impl CompilerDriver {
         cached
     }
 
-    pub(super) fn try_analyze_collected_structure(
+    pub(super) fn try_analyze_collected_structure_cancelable(
         &self,
         mut session: Session,
         input_file: &str,
         source_overrides: &SourceOverrides,
-    ) -> Result<CollectedStructureArtifact, Box<Session>> {
+        cancellation: &CancellationToken,
+    ) -> Result<Result<CollectedStructureArtifact, Box<Session>>, Canceled> {
+        cancellation.check()?;
         self.sync_source_overrides(source_overrides);
+        if let Some(collected) =
+            self.cached_collected_structure_artifact(input_file, source_overrides)
+        {
+            cancellation.check()?;
+            return Ok(Ok(self.finalize_collected_structure_artifact(
+                input_file,
+                source_overrides,
+                collected,
+            )));
+        }
+
         let cache_key = self.structure_cache_key(input_file, source_overrides);
-        match self.collected_artifacts.get_with(
+        let collected = match self.collected_artifacts.try_get_with(
             self.frontend.db(),
             "driver_collected_structure_artifact",
             cache_key,
             || {
-                Ok(self
-                    .try_reuse_clean_collected_structure_artifact(input_file, source_overrides)
-                    .or_else(|| {
-                        self.compute_collected_structure_artifact_into_session(
-                            &mut session,
-                            input_file,
-                        )
-                    }))
+                if let Some(reused) =
+                    self.try_reuse_clean_collected_structure_artifact(input_file, source_overrides)
+                {
+                    return Ok(Ok(Some(reused)));
+                }
+                self.compute_collected_structure_artifact_into_session_cancelable(
+                    &mut session,
+                    input_file,
+                    cancellation,
+                )
+                .map(Ok)
             },
-        ) {
-            Ok(Some(collected)) => Ok(self.finalize_collected_structure_artifact(
+        )? {
+            Ok(collected) => collected,
+            Err(_) => self.compute_collected_structure_artifact_into_session_cancelable(
+                &mut session,
                 input_file,
-                source_overrides,
-                collected,
-            )),
-            Ok(None) => {
-                let collected = self
-                    .compute_collected_structure_artifact_into_session(&mut session, input_file);
-                collected
-                    .map(|collected| {
-                        self.finalize_collected_structure_artifact(
-                            input_file,
-                            source_overrides,
-                            collected,
-                        )
-                    })
-                    .ok_or_else(|| Box::new(session))
-            }
-            Err(_) => {
-                let collected = self
-                    .compute_collected_structure_artifact_into_session(&mut session, input_file);
-                collected
-                    .map(|collected| {
-                        self.finalize_collected_structure_artifact(
-                            input_file,
-                            source_overrides,
-                            collected,
-                        )
-                    })
-                    .ok_or_else(|| Box::new(session))
-            }
-        }
+                cancellation,
+            )?,
+        };
+        cancellation.check()?;
+
+        Ok(collected
+            .map(|collected| {
+                self.finalize_collected_structure_artifact(input_file, source_overrides, collected)
+            })
+            .ok_or_else(|| Box::new(session)))
     }
 
     pub(super) fn try_analyze_imported_structure(
@@ -571,14 +640,20 @@ impl CompilerDriver {
         }
     }
 
-    pub(super) fn compute_collected_structure_artifact_into_session(
+    pub(super) fn compute_collected_structure_artifact_into_session_cancelable(
         &self,
         session: &mut Session,
         input_file: &str,
-    ) -> Option<CollectedStructureArtifact> {
+        cancellation: &CancellationToken,
+    ) -> Result<Option<CollectedStructureArtifact>, Canceled> {
+        cancellation.check()?;
         let mut ctx = self.build_sema_context(session);
-        let loaded = self.load_asts(&mut ctx, input_file, true)?;
-        self.build_collected_structure_from_context(&mut ctx, loaded.asts)
+        let loaded = self.load_asts_cancelable(&mut ctx, input_file, true, cancellation)?;
+        let Some(loaded) = loaded else {
+            return Ok(None);
+        };
+        cancellation.check()?;
+        Ok(self.build_collected_structure_from_context(&mut ctx, loaded.asts))
     }
 
     pub(super) fn compute_imported_structure_artifact_into_session(
@@ -871,6 +946,48 @@ impl CompilerDriver {
         })
     }
 
+    pub(super) fn compute_structure_artifact_into_session_cancelable(
+        &self,
+        session: &mut Session,
+        input_file: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<StructureArtifact>, Canceled> {
+        cancellation.check()?;
+        let mut ctx = self.build_sema_context(session);
+        let loaded = self.load_asts_cancelable(&mut ctx, input_file, true, cancellation)?;
+        let Some(loaded) = loaded else {
+            return Ok(None);
+        };
+        let asts = loaded.asts;
+        cancellation.check()?;
+        if !self.run_collect_phase(&mut ctx, &asts) {
+            return Ok(None);
+        }
+        cancellation.check()?;
+        let symbols = self.collect_analysis_symbols(&ctx, &asts);
+        cancellation.check()?;
+        if !self.run_import_phase(&mut ctx) {
+            return Ok(None);
+        }
+        cancellation.check()?;
+        if !self.run_type_resolution_phase(&mut ctx, true) {
+            return Ok(None);
+        }
+        cancellation.check()?;
+
+        let completion_model = self.collect_structure_completion_model(&ctx, &asts);
+        let snapshot = ctx.into_structure_snapshot();
+        let session = std::mem::take(session);
+
+        Ok(Some(StructureArtifact {
+            session,
+            asts,
+            symbols,
+            snapshot,
+            completion_model,
+        }))
+    }
+
     pub(super) fn imported_structure_from_typed(
         &self,
         structure: &StructureArtifact,
@@ -945,12 +1062,6 @@ impl CompilerDriver {
             .asts
             .into_iter()
             .map(|(mod_id, ast)| {
-                let name = match &ctx.defs[mod_id.0 as usize] {
-                    kernc_sema::def::Def::Module(module_def) => {
-                        ctx.resolve(module_def.name).to_string()
-                    }
-                    _ => "<unknown>".to_string(),
-                };
                 let file_id = match &ctx.defs[mod_id.0 as usize] {
                     kernc_sema::def::Def::Module(module_def) => module_def.file_id,
                     _ => kernc_utils::FileId(0),
@@ -963,7 +1074,6 @@ impl CompilerDriver {
                     .unwrap_or_default();
                 let path = module_analysis_path_from_source(&source_path, &ast);
                 ParsedModule {
-                    name,
                     file_id,
                     source_path,
                     path,

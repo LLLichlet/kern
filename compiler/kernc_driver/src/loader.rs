@@ -8,7 +8,7 @@ use crate::metadata;
 use kernc_ast as ast;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, ModuleDef};
-use kernc_utils::{FastHashMap, FastHashSet, SymbolId};
+use kernc_utils::{Canceled, CancellationToken, FastHashMap, FastHashSet, SymbolId};
 
 struct ResolvedRootModule {
     entry_path: PathBuf,
@@ -49,6 +49,7 @@ pub struct ModuleLoader<'a, 'ctx> {
     frontend: &'a FrontendDatabase,
     timings: ModuleLoadTimings,
     collect_docs: bool,
+    cancellation: Option<&'a CancellationToken>,
 }
 
 impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
@@ -86,7 +87,19 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             frontend,
             timings: ModuleLoadTimings::default(),
             collect_docs,
+            cancellation: None,
         }
+    }
+
+    pub fn new_cancelable(
+        ctx: &'a mut SemaContext<'ctx>,
+        frontend: &'a FrontendDatabase,
+        collect_docs: bool,
+        cancellation: &'a CancellationToken,
+    ) -> Self {
+        let mut loader = Self::new(ctx, frontend, collect_docs);
+        loader.cancellation = Some(cancellation);
+        loader
     }
 
     pub fn phase_timings(&self) -> Vec<PhaseTiming> {
@@ -111,28 +124,34 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         .collect()
     }
 
-    pub fn load_root(&mut self, root_file: &str, root_name: SymbolId) -> Option<DefId> {
+    pub fn try_load_root(
+        &mut self,
+        root_file: &str,
+        root_name: SymbolId,
+    ) -> Result<Option<DefId>, Canceled> {
+        self.check_canceled()?;
         let path = PathBuf::from(root_file);
-        let root_id = self.load_module(path, None, root_name, false);
+        let root_id = self.try_load_module(path, None, root_name, false)?;
         if let (Some(root_id), Some(package_name)) =
             (root_id, self.ctx.resolution.current_package_name)
         {
             self.ctx.register_root_module_package(root_id, package_name);
         }
         self.ctx.set_root_module(root_id);
-        self.load_referenced_alias_roots(false);
-        self.load_referenced_alias_roots(true);
-        root_id
+        self.try_load_referenced_alias_roots(false)?;
+        self.try_load_referenced_alias_roots(true)?;
+        Ok(root_id)
     }
 
-    fn load_referenced_alias_roots(&mut self, imported: bool) {
+    fn try_load_referenced_alias_roots(&mut self, imported: bool) -> Result<(), Canceled> {
+        self.check_canceled()?;
         let aliases = if imported {
             self.ctx.resolution.module_interface_aliases.clone()
         } else {
             self.ctx.resolution.module_aliases.clone()
         };
         if aliases.is_empty() {
-            return;
+            return Ok(());
         }
 
         let mut pending = aliases
@@ -141,6 +160,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             .collect::<Vec<_>>();
 
         loop {
+            self.check_canceled()?;
             if pending.is_empty() {
                 break;
             }
@@ -158,6 +178,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             let mut remaining = Vec::with_capacity(pending.len());
 
             for (alias_sym, alias_path) in pending {
+                self.check_canceled()?;
                 if !referenced_aliases.contains(&alias_sym) {
                     remaining.push((alias_sym, alias_path));
                     continue;
@@ -177,7 +198,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                         .is_some_and(|package_name| package_name == alias_sym))
                 .then_some(alias_sym);
                 let module_name = root.declared_root_name.unwrap_or(alias_sym);
-                if let Some(mod_id) = self.load_module(root.entry_path, None, module_name, imported)
+                if let Some(mod_id) =
+                    self.try_load_module(root.entry_path, None, module_name, imported)?
                 {
                     if let Some(package_name) = root.package_name.or(alias_package_name) {
                         self.ctx.register_root_module_package(mod_id, package_name);
@@ -193,6 +215,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
             pending = remaining;
         }
+        Ok(())
     }
 
     fn collect_referenced_aliases(
@@ -1045,28 +1068,30 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         }
     }
 
-    fn load_module(
+    fn try_load_module(
         &mut self,
         path: PathBuf,
         parent: Option<DefId>,
         name: SymbolId,
         is_imported: bool,
-    ) -> Option<DefId> {
+    ) -> Result<Option<DefId>, Canceled> {
+        self.check_canceled()?;
         let normalize_started = Instant::now();
         let abs_path = Self::normalize_path(&path);
         self.timings.normalize_path += normalize_started.elapsed();
-        self.load_module_normalized(abs_path, parent, name, is_imported)
+        self.try_load_module_normalized(abs_path, parent, name, is_imported)
     }
 
-    fn load_module_normalized(
+    fn try_load_module_normalized(
         &mut self,
         abs_path: PathBuf,
         parent: Option<DefId>,
         name: SymbolId,
         is_imported: bool,
-    ) -> Option<DefId> {
+    ) -> Result<Option<DefId>, Canceled> {
+        self.check_canceled()?;
         if let Some(&mod_id) = self.loaded_files.get(&abs_path) {
-            return Some(mod_id);
+            return Ok(Some(mod_id));
         }
 
         let parsed = match self.frontend.load_parsed_module_normalized_profiled(
@@ -1088,7 +1113,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     "Error: Cannot read or parse module file '{}'.",
                     abs_path.display()
                 );
-                return None;
+                return Ok(None);
             }
             Err(err) => {
                 self.ctx.sess.error_count += 1;
@@ -1097,16 +1122,17 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     abs_path.display(),
                     err
                 );
-                return None;
+                return Ok(None);
             }
         };
+        self.check_canceled()?;
         let Some(source_dir_path) = abs_path.parent().map(|p| p.to_path_buf()) else {
             self.ctx.sess.error_count += 1;
             eprintln!(
                 "Error: Cannot determine parent directory for module file '{}'.",
                 abs_path.display()
             );
-            return None;
+            return Ok(None);
         };
 
         let mod_id = self.ctx.defs.next_id();
@@ -1141,9 +1167,10 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
         let mut submodules = HashMap::new();
         for decl in &ast.decls {
+            self.check_canceled()?;
             if let ast::DeclKind::Mod { decls } = &decl.kind {
                 let sub_id = match decls {
-                    Some(decls) => self.load_inline_module(InlineModuleInput {
+                    Some(decls) => self.try_load_inline_module(InlineModuleInput {
                         decl,
                         decls,
                         parent: Some(mod_id),
@@ -1151,15 +1178,22 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                         file_id,
                         parent_path: &module_path,
                         is_imported,
-                    }),
+                    })?,
                     None => {
                         let resolve_started = Instant::now();
                         let resolved = self.resolve_submodule_path(&dir_path, decl);
                         self.timings.resolve_submodule_paths += resolve_started.elapsed();
 
-                        resolved.and_then(|path| {
-                            self.load_module_normalized(path, Some(mod_id), decl.name, is_imported)
-                        })
+                        if let Some(path) = resolved {
+                            self.try_load_module_normalized(
+                                path,
+                                Some(mod_id),
+                                decl.name,
+                                is_imported,
+                            )?
+                        } else {
+                            None
+                        }
                     }
                 };
                 if let Some(sub_id) = sub_id {
@@ -1180,10 +1214,14 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         );
         self.module_alias_references.push(module_alias_references);
         self.asts.push((mod_id, ast));
-        Some(mod_id)
+        Ok(Some(mod_id))
     }
 
-    fn load_inline_module(&mut self, input: InlineModuleInput<'_>) -> Option<DefId> {
+    fn try_load_inline_module(
+        &mut self,
+        input: InlineModuleInput<'_>,
+    ) -> Result<Option<DefId>, Canceled> {
+        self.check_canceled()?;
         let InlineModuleInput {
             decl,
             decls,
@@ -1218,9 +1256,10 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
         let mut submodules = HashMap::new();
         for child in decls {
+            self.check_canceled()?;
             if let ast::DeclKind::Mod { decls } = &child.kind {
                 let sub_id = match decls {
-                    Some(decls) => self.load_inline_module(InlineModuleInput {
+                    Some(decls) => self.try_load_inline_module(InlineModuleInput {
                         decl: child,
                         decls,
                         parent: Some(mod_id),
@@ -1228,15 +1267,22 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                         file_id,
                         parent_path: &module_path,
                         is_imported,
-                    }),
+                    })?,
                     None => {
                         let resolve_started = Instant::now();
                         let resolved = self.resolve_submodule_path(&module_dir_path, child);
                         self.timings.resolve_submodule_paths += resolve_started.elapsed();
 
-                        resolved.and_then(|path| {
-                            self.load_module_normalized(path, Some(mod_id), child.name, is_imported)
-                        })
+                        if let Some(path) = resolved {
+                            self.try_load_module_normalized(
+                                path,
+                                Some(mod_id),
+                                child.name,
+                                is_imported,
+                            )?
+                        } else {
+                            None
+                        }
                     }
                 };
                 if let Some(sub_id) = sub_id {
@@ -1263,7 +1309,15 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         );
         self.module_alias_references.push(module_alias_references);
         self.asts.push((mod_id, module));
-        Some(mod_id)
+        Ok(Some(mod_id))
+    }
+
+    fn check_canceled(&self) -> Result<(), Canceled> {
+        if let Some(cancellation) = self.cancellation {
+            cancellation.check()
+        } else {
+            Ok(())
+        }
     }
 
     fn module_child_anchor_dir(

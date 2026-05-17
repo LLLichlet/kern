@@ -845,11 +845,15 @@ Tasks:
   structure-plus-parsed report paths. Deterministic tests use a check-budgeted
   token to cancel after structure analysis and inside the type-checking
   worklist, not merely at the request boundary.
-- Thread `CancellationToken` through parser module loading and parse loops,
-  including token-stream traversal, recursive descent recovery paths, and
-  multi-module loading.
-- Thread cancellation through structure collection, import resolution, type
-  resolution, lowering preparation, and body worklist construction.
+- Done: `ModuleLoader`, `load_asts`, `parse_modules`, outline, document-link,
+  semantic, and navigation structure paths now have cancelable module traversal.
+  Collected-structure cache production uses a fallible memo API so cancellation
+  does not cache partial or failed results. Deterministic tests cancel inside
+  multi-module loading for parse and analysis requests.
+- Continue parser cancellation inside token-stream traversal and recursive
+  descent recovery paths.
+- Continue structure cancellation inside collector/import/type-resolution
+  passes and lowering preparation/body worklist construction.
 - Continue type-checker cancellation from worklist boundaries into large
   expression/pattern traversal loops.
 - Thread cancellation through flow analysis, unused/dead-store passes, linkage

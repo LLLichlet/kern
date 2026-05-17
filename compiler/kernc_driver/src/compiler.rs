@@ -357,7 +357,6 @@ pub struct ParsedModuleArtifact {
 
 #[derive(Clone)]
 struct ParsedModule {
-    name: String,
     file_id: kernc_utils::FileId,
     source_path: PathBuf,
     path: PathBuf,

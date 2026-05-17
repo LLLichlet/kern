@@ -9,8 +9,8 @@ use super::codegen_units::{
 #[cfg(test)]
 use super::flow::FlowModel;
 use super::{
-    CompileCacheStats, CompileReport, CompilerDriver, LinkTarget, PhaseTiming, SourceOverrides,
-    StructureArtifact, StructureCacheKey,
+    Canceled, CancellationToken, CompileCacheStats, CompileReport, CompilerDriver, LinkTarget,
+    PhaseTiming, SourceOverrides, StructureArtifact, StructureCacheKey,
 };
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -140,6 +140,25 @@ impl CompilerDriver {
         session.apply_options(&self.options);
         self.try_analyze_structure(session, input_file, source_overrides)
             .ok()
+    }
+
+    pub fn analyze_structure_cancelable(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<StructureArtifact>, Canceled> {
+        let mut session = Session::new();
+        session.apply_options(&self.options);
+        match self.try_analyze_structure_cancelable(
+            session,
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
+            Ok(structure) => Ok(Some(structure)),
+            Err(_) => Ok(None),
+        }
     }
 
     #[cfg(test)]

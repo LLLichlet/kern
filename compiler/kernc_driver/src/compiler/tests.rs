@@ -107,6 +107,78 @@ fn navigation_artifact_cancellation_reaches_typeck_body_worklist() {
     let _ = fs::remove_dir_all(&root);
 }
 
+#[test]
+fn parse_modules_cancellation_reaches_module_loader() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_driver_module_loader_canceled_parse_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let mut source = String::new();
+    for index in 0..64 {
+        source.push_str(&format!("mod m{index};\n"));
+        fs::write(
+            root.join(format!("m{index}.kn")),
+            format!("fn f{index}() i32 {{ return {index}; }}\n"),
+        )
+        .unwrap();
+    }
+    fs::write(&main, source).unwrap();
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let cancellation = CancellationToken::with_check_budget_for_testing(8);
+
+    let result = driver.parse_modules(
+        main.to_str().unwrap(),
+        &SourceOverrides::new(),
+        &cancellation,
+    );
+
+    assert!(result.is_err());
+    assert!(cancellation.is_canceled());
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analysis_artifact_cancellation_reaches_structure_module_loader() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_driver_module_loader_canceled_analysis_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let mut source = String::new();
+    for index in 0..64 {
+        source.push_str(&format!("mod m{index};\n"));
+        fs::write(
+            root.join(format!("m{index}.kn")),
+            format!("fn f{index}() i32 {{ return {index}; }}\n"),
+        )
+        .unwrap();
+    }
+    fs::write(&main, source).unwrap();
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let cancellation = CancellationToken::with_check_budget_for_testing(8);
+
+    let result = driver.analyze_artifact(
+        main.to_str().unwrap(),
+        &SourceOverrides::new(),
+        &cancellation,
+    );
+
+    assert!(result.is_err());
+    assert!(cancellation.is_canceled());
+    let _ = fs::remove_dir_all(&root);
+}
+
 fn count_assignments_in_block(block: &MastBlock) -> usize {
     let stmt_count: usize = block.stmts.iter().map(count_assignments_in_stmt).sum();
     let result_count = block

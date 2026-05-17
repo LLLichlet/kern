@@ -1588,9 +1588,8 @@ fn call_hierarchy_expands_dynamic_dispatch_targets() {
 fn call_hierarchy_excludes_unresolved_indirect_calls() {
     let mut state = initialized_state();
     let source = concat!(
-        "fn leaf() i32 { return 1; }\n",
         "fn apply(cb: &fn() i32) i32 { return cb(); }\n",
-        "fn main() i32 { return apply(leaf); }\n",
+        "fn main() i32 { return 0; }\n",
     );
     let uri = temp_file_uri("server_call_hierarchy_indirect_call", source);
 
@@ -1603,7 +1602,7 @@ fn call_hierarchy_excludes_unresolved_indirect_calls() {
             method: Some("textDocument/prepareCallHierarchy".to_string()),
             params: Some(json!({
                 "textDocument": { "uri": uri },
-                "position": { "line": 1, "character": 3 }
+                "position": { "line": 0, "character": 3 }
             })),
         },
     );
@@ -1729,6 +1728,352 @@ fn call_hierarchy_expands_local_function_value_targets() {
             }
         ])
     );
+}
+
+#[test]
+fn call_hierarchy_expands_forwarded_local_function_value_targets() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "fn leaf() i32 { return 1; }\n",
+        "fn main() i32 {\n",
+        "    let first = leaf;\n",
+        "    let second = first;\n",
+        "    return second();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri(
+        "server_call_hierarchy_forwarded_local_indirect_call",
+        source,
+    );
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let prepare_main = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25083)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare_main["id"], json!(25083));
+    let main_items = prepare_main["result"].as_array().unwrap();
+    assert_eq!(main_items.len(), 1);
+    assert_eq!(main_items[0]["name"], "main");
+
+    let outgoing = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25084)),
+            method: Some("callHierarchy/outgoingCalls".to_string()),
+            params: Some(json!({
+                "item": main_items[0]
+            })),
+        },
+    );
+
+    assert_eq!(outgoing["id"], json!(25084));
+    let outgoing_calls = outgoing["result"].as_array().unwrap();
+    assert_eq!(outgoing_calls.len(), 1);
+    assert_eq!(outgoing_calls[0]["to"]["name"], "leaf");
+    assert_eq!(
+        outgoing_calls[0]["fromRanges"],
+        json!([
+            {
+                "start": { "line": 4, "character": 11 },
+                "end": { "line": 4, "character": 17 }
+            }
+        ])
+    );
+
+    let prepare_leaf = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25085)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare_leaf["id"], json!(25085));
+    let leaf_items = prepare_leaf["result"].as_array().unwrap();
+    assert_eq!(leaf_items.len(), 1);
+    assert_eq!(leaf_items[0]["name"], "leaf");
+
+    let incoming = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25086)),
+            method: Some("callHierarchy/incomingCalls".to_string()),
+            params: Some(json!({
+                "item": leaf_items[0]
+            })),
+        },
+    );
+
+    assert_eq!(incoming["id"], json!(25086));
+    let incoming_calls = incoming["result"].as_array().unwrap();
+    assert_eq!(incoming_calls.len(), 1);
+    assert_eq!(incoming_calls[0]["from"]["name"], "main");
+    assert_eq!(
+        incoming_calls[0]["fromRanges"],
+        json!([
+            {
+                "start": { "line": 4, "character": 11 },
+                "end": { "line": 4, "character": 17 }
+            }
+        ])
+    );
+}
+
+#[test]
+fn call_hierarchy_expands_function_value_parameter_targets() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "fn first() i32 { return 1; }\n",
+        "fn second() i32 { return 2; }\n",
+        "fn apply(cb: &fn() i32) i32 { return cb(); }\n",
+        "fn main() i32 { return apply(first) + apply(second); }\n",
+    );
+    let uri = temp_file_uri("server_call_hierarchy_parameter_indirect_call", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let prepare_apply = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25087)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 2, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare_apply["id"], json!(25087));
+    let apply_items = prepare_apply["result"].as_array().unwrap();
+    assert_eq!(apply_items.len(), 1);
+    assert_eq!(apply_items[0]["name"], "apply");
+
+    let outgoing = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25088)),
+            method: Some("callHierarchy/outgoingCalls".to_string()),
+            params: Some(json!({
+                "item": apply_items[0]
+            })),
+        },
+    );
+
+    assert_eq!(outgoing["id"], json!(25088));
+    let outgoing_calls = outgoing["result"].as_array().unwrap();
+    let mut outgoing_names = outgoing_calls
+        .iter()
+        .map(|call| call["to"]["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    outgoing_names.sort();
+    assert_eq!(outgoing_names, vec!["first", "second"]);
+    assert!(outgoing_calls.iter().all(|call| {
+        call["fromRanges"]
+            == json!([
+                {
+                    "start": { "line": 2, "character": 37 },
+                    "end": { "line": 2, "character": 39 }
+                }
+            ])
+    }));
+
+    let prepare_first = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25089)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare_first["id"], json!(25089));
+    let first_items = prepare_first["result"].as_array().unwrap();
+    assert_eq!(first_items.len(), 1);
+    assert_eq!(first_items[0]["name"], "first");
+
+    let incoming = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25090)),
+            method: Some("callHierarchy/incomingCalls".to_string()),
+            params: Some(json!({
+                "item": first_items[0]
+            })),
+        },
+    );
+
+    assert_eq!(incoming["id"], json!(25090));
+    let incoming_calls = incoming["result"].as_array().unwrap();
+    assert_eq!(incoming_calls.len(), 1);
+    assert_eq!(incoming_calls[0]["from"]["name"], "apply");
+    assert_eq!(
+        incoming_calls[0]["fromRanges"],
+        json!([
+            {
+                "start": { "line": 2, "character": 37 },
+                "end": { "line": 2, "character": 39 }
+            }
+        ])
+    );
+}
+
+#[test]
+fn call_hierarchy_expands_closure_object_targets() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "fn apply(cb: &Fn() i32) i32 { return cb(); }\n",
+        "fn main() i32 {\n",
+        "    let base = 2i32;\n",
+        "    let local = [base]() i32 { return base; };\n",
+        "    let erased = (local.& as &Fn() i32);\n",
+        "    return erased() + apply(erased);\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("server_call_hierarchy_closure_object_call", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let prepare_apply = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25091)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare_apply["id"], json!(25091));
+    let apply_items = prepare_apply["result"].as_array().unwrap();
+    assert_eq!(apply_items.len(), 1);
+    assert_eq!(apply_items[0]["name"], "apply");
+
+    let outgoing = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25092)),
+            method: Some("callHierarchy/outgoingCalls".to_string()),
+            params: Some(json!({
+                "item": apply_items[0]
+            })),
+        },
+    );
+
+    assert_eq!(outgoing["id"], json!(25092));
+    let outgoing_calls = outgoing["result"].as_array().unwrap();
+    assert_eq!(outgoing_calls.len(), 1);
+    assert_eq!(outgoing_calls[0]["to"]["name"], "local");
+    assert_eq!(
+        outgoing_calls[0]["fromRanges"],
+        json!([
+            {
+                "start": { "line": 0, "character": 37 },
+                "end": { "line": 0, "character": 39 }
+            }
+        ])
+    );
+
+    let prepare_local = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25093)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 3, "character": 9 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare_local["id"], json!(25093));
+    let local_items = prepare_local["result"].as_array().unwrap();
+    assert_eq!(local_items.len(), 1);
+    assert_eq!(local_items[0]["name"], "local");
+
+    let incoming = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25094)),
+            method: Some("callHierarchy/incomingCalls".to_string()),
+            params: Some(json!({
+                "item": local_items[0]
+            })),
+        },
+    );
+
+    assert_eq!(incoming["id"], json!(25094));
+    let incoming_calls = incoming["result"].as_array().unwrap();
+    assert_eq!(incoming_calls.len(), 2);
+    let mut incoming_by_name = incoming_calls
+        .iter()
+        .map(|call| (call["from"]["name"].as_str().unwrap(), &call["fromRanges"]))
+        .collect::<Vec<_>>();
+    incoming_by_name.sort_by_key(|(name, _)| *name);
+    assert_eq!(incoming_by_name[0].0, "apply");
+    assert_eq!(
+        incoming_by_name[0].1,
+        &json!([
+            {
+                "start": { "line": 0, "character": 37 },
+                "end": { "line": 0, "character": 39 }
+            }
+        ])
+    );
+    assert_eq!(incoming_by_name[1].0, "main");
+    assert_eq!(
+        incoming_by_name[1].1,
+        &json!([
+            {
+                "start": { "line": 5, "character": 11 },
+                "end": { "line": 5, "character": 17 }
+            }
+        ])
+    );
+
+    let local_outgoing = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25095)),
+            method: Some("callHierarchy/outgoingCalls".to_string()),
+            params: Some(json!({
+                "item": local_items[0]
+            })),
+        },
+    );
+
+    assert_eq!(local_outgoing["id"], json!(25095));
+    let local_outgoing_calls = local_outgoing["result"].as_array().unwrap();
+    assert!(local_outgoing_calls.is_empty());
 }
 
 #[test]

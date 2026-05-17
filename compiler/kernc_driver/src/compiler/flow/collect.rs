@@ -518,6 +518,11 @@ impl FlowModel {
 
         cancellation.check()?;
         let owner_body_lookup_by_file = build_owner_def_lookup_by_file(&owners);
+        let owner_lookup_by_def_id = owners
+            .iter()
+            .enumerate()
+            .map(|(index, owner)| (owner.def_id, index))
+            .collect();
         let referenced_item_edges = owners
             .iter()
             .flat_map(|owner| {
@@ -535,6 +540,7 @@ impl FlowModel {
         Ok(Self {
             owners,
             owner_body_lookup_by_file,
+            owner_lookup_by_def_id,
             referenced_item_edges,
             phase_timings,
         })
@@ -546,6 +552,15 @@ impl FlowModel {
 
     pub fn referenced_item_edges(&self) -> &[(DefId, DefId)] {
         &self.referenced_item_edges
+    }
+
+    pub(in crate::compiler) fn function_value_facts(
+        &self,
+        owner_def_id: DefId,
+    ) -> Option<FlowFunctionValueFacts<'_>> {
+        let owner_index = self.owner_lookup_by_def_id.get(&owner_def_id).copied()?;
+        let owner = self.owners.get(owner_index)?;
+        Some(FlowFunctionValueFacts::new(owner))
     }
 
     pub fn public_owners(&self) -> Vec<AnalysisFlowOwner> {

@@ -141,6 +141,7 @@ pub struct AnalysisCall {
     pub caller_definition_span: kernc_utils::Span,
     pub dynamic_dispatch_targets: Vec<kernc_utils::Span>,
     pub indirect_targets: Vec<kernc_utils::Span>,
+    pub indirect_target_completeness: AnalysisCallTargetCompleteness,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,6 +149,13 @@ pub enum AnalysisCallKind {
     Direct,
     DynamicDispatch,
     Indirect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalysisCallTargetCompleteness {
+    Exact,
+    Partial,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

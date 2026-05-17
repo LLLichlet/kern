@@ -714,6 +714,7 @@ impl AnalysisEngine {
             &artifact.session,
             &artifact.hovers,
             &artifact.semantic_entries,
+            &artifact.calls,
             &target_path,
             &position,
             snapshot.uri_by_normalized_path(),

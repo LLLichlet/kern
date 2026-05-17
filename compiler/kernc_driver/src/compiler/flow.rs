@@ -6,10 +6,10 @@ mod optimize;
 
 use super::{
     AnalysisDeadStore, AnalysisDeadStoreKind, AnalysisFlowBindingId, AnalysisFlowBindingKind,
-    AnalysisFlowCfg, AnalysisFlowCfgEdge, AnalysisFlowCfgEdgeKind, AnalysisFlowCfgNode,
-    AnalysisFlowCfgNodeKind, AnalysisFlowDefinitionFacts, AnalysisFlowDefinitionKind,
-    AnalysisFlowNodeEffects, AnalysisFlowNodeId, AnalysisFlowOwnerKind, AnalysisFlowRegionKind,
-    AnalysisFlowSummary,
+    AnalysisFlowBindingSummary, AnalysisFlowCfg, AnalysisFlowCfgEdge, AnalysisFlowCfgEdgeKind,
+    AnalysisFlowCfgNode, AnalysisFlowCfgNodeKind, AnalysisFlowDefinitionFacts,
+    AnalysisFlowDefinitionKind, AnalysisFlowNodeEffects, AnalysisFlowNodeId, AnalysisFlowOwnerKind,
+    AnalysisFlowRegionKind, AnalysisFlowSingleSourceUse, AnalysisFlowSummary,
 };
 use kernc_ast as ast;
 use kernc_flow::{ComputedLiveness, FlowBindingFacts, FlowOwnerFacts, FlowRegionFacts};
@@ -29,8 +29,61 @@ pub struct FlowTiming {
 pub struct FlowModel {
     owners: Vec<FlowOwnerFacts>,
     owner_body_lookup_by_file: HashMap<kernc_utils::FileId, Vec<(Span, DefId)>>,
+    owner_lookup_by_def_id: HashMap<DefId, usize>,
     referenced_item_edges: Vec<(DefId, DefId)>,
     phase_timings: Vec<FlowTiming>,
+}
+
+pub(in crate::compiler) struct FlowFunctionValueFacts<'a> {
+    pub owner: &'a FlowOwnerFacts,
+    binding_by_id: HashMap<AnalysisFlowBindingId, &'a FlowBindingFacts>,
+    binding_summary_by_id: HashMap<AnalysisFlowBindingId, &'a AnalysisFlowBindingSummary>,
+    single_source_by_node_binding:
+        HashMap<(AnalysisFlowNodeId, AnalysisFlowBindingId), &'a AnalysisFlowSingleSourceUse>,
+}
+
+impl<'a> FlowFunctionValueFacts<'a> {
+    fn new(owner: &'a FlowOwnerFacts) -> Self {
+        Self {
+            owner,
+            binding_by_id: owner
+                .bindings
+                .iter()
+                .map(|binding| (binding.id, binding))
+                .collect(),
+            binding_summary_by_id: owner
+                .binding_summaries
+                .iter()
+                .map(|summary| (summary.binding_id, summary))
+                .collect(),
+            single_source_by_node_binding: owner
+                .single_source_uses
+                .iter()
+                .map(|single| ((single.node_id, single.binding_id), single))
+                .collect(),
+        }
+    }
+
+    pub fn single_source_use_for(
+        &self,
+        node_id: AnalysisFlowNodeId,
+        binding_id: AnalysisFlowBindingId,
+    ) -> Option<&AnalysisFlowSingleSourceUse> {
+        self.single_source_by_node_binding
+            .get(&(node_id, binding_id))
+            .copied()
+    }
+
+    pub fn binding(&self, binding_id: AnalysisFlowBindingId) -> Option<&FlowBindingFacts> {
+        self.binding_by_id.get(&binding_id).copied()
+    }
+
+    pub fn binding_summary(
+        &self,
+        binding_id: AnalysisFlowBindingId,
+    ) -> Option<&AnalysisFlowBindingSummary> {
+        self.binding_summary_by_id.get(&binding_id).copied()
+    }
 }
 
 #[derive(Clone, Copy)]

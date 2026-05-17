@@ -145,10 +145,11 @@ impl<'a> FlowCfgBuilder<'a> {
     }
 
     fn local_binding_use(&self, expr: &ast::Expr) -> Option<AnalysisFlowBindingId> {
-        let ast::ExprKind::Identifier(_) = expr.kind else {
-            return None;
-        };
-        self.reference_to_binding.get(&expr.span).copied()
+        match &expr.kind {
+            ast::ExprKind::Identifier(_) => self.reference_to_binding.get(&expr.span).copied(),
+            ast::ExprKind::Grouped { expr } => self.local_binding_use(expr),
+            _ => None,
+        }
     }
 
     fn local_binding_uses_in_expr(&self, expr: &ast::Expr) -> Vec<AnalysisFlowBindingId> {

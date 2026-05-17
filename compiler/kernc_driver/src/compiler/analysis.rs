@@ -12,11 +12,12 @@ use self::reuse::{
     rebind_module_defs,
 };
 use super::completion::CompletionModel;
-use super::flow::FlowModel;
+use super::flow::{FlowFunctionValueFacts, FlowModel};
 use super::signature::SignatureModel;
 use super::{
-    AnalysisArtifact, AnalysisCall, AnalysisCallKind, AnalysisDefinitionLink, AnalysisHover,
-    AnalysisNavigationArtifact, AnalysisOutline, AnalysisReference, AnalysisReport,
+    AnalysisArtifact, AnalysisCall, AnalysisCallKind, AnalysisCallTargetCompleteness,
+    AnalysisDefinitionLink, AnalysisFlowBindingId, AnalysisFlowDefinitionKind, AnalysisFlowNodeId,
+    AnalysisHover, AnalysisNavigationArtifact, AnalysisOutline, AnalysisReference, AnalysisReport,
     AnalysisSemanticArtifact, AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole,
     AnalysisSpanReplacement, AnalysisSurfaceArtifact, AnalysisSymbol, AnalysisSymbolKind,
     AnalysisUnusedBinding, AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind,

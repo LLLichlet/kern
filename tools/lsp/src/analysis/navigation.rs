@@ -234,6 +234,7 @@ pub(super) fn find_call_hierarchy_item(
     session: &kernc_utils::Session,
     hovers: &[AnalysisHover],
     semantic_entries: &[AnalysisSemanticEntry],
+    calls: &[AnalysisCall],
     target_path: &Path,
     position: &IdePosition,
     uri_by_path: &BTreeMap<PathBuf, String>,
@@ -247,7 +248,14 @@ pub(super) fn find_call_hierarchy_item(
                     super::span_contains_offset(hover.span, offset).then_some(hover.span)
                 })
             })?;
-    call_hierarchy_item_for_definition(session, semantic_entries, definition_span, uri_by_path)
+    let callable_value_targets = callable_value_targets(calls);
+    call_hierarchy_item_for_definition(
+        session,
+        semantic_entries,
+        definition_span,
+        uri_by_path,
+        &callable_value_targets,
+    )
 }
 
 pub(super) fn find_call_hierarchy_incoming_calls(
@@ -262,9 +270,13 @@ pub(super) fn find_call_hierarchy_incoming_calls(
     else {
         return Vec::new();
     };
+    let callable_value_targets = callable_value_targets(calls);
     let Some(target_entry) = call_hierarchy_definition_entry(semantic_entries, target_span) else {
         return Vec::new();
     };
+    if !call_hierarchy_entry_is_supported(target_entry, &callable_value_targets) {
+        return Vec::new();
+    }
 
     let mut grouped = BTreeMap::<kernc_utils::Span, (IdeCallHierarchyItem, Vec<IdeRange>)>::new();
     for call in calls.iter().filter(|call| match call.kind {
@@ -286,6 +298,7 @@ pub(super) fn find_call_hierarchy_incoming_calls(
             semantic_entries,
             call.caller_definition_span,
             uri_by_path,
+            &callable_value_targets,
         ) else {
             continue;
         };
@@ -318,9 +331,13 @@ pub(super) fn find_call_hierarchy_outgoing_calls(
     else {
         return Vec::new();
     };
+    let callable_value_targets = callable_value_targets(calls);
     let Some(target_entry) = call_hierarchy_definition_entry(semantic_entries, target_span) else {
         return Vec::new();
     };
+    if !call_hierarchy_entry_is_supported(target_entry, &callable_value_targets) {
+        return Vec::new();
+    }
 
     let mut grouped = BTreeMap::<kernc_utils::Span, (IdeCallHierarchyItem, Vec<IdeRange>)>::new();
     for call in calls
@@ -339,6 +356,7 @@ pub(super) fn find_call_hierarchy_outgoing_calls(
                     &mut grouped,
                     callee_definition_span,
                     call.callee_span,
+                    &callable_value_targets,
                 );
             }
             AnalysisCallKind::DynamicDispatch => {
@@ -350,6 +368,7 @@ pub(super) fn find_call_hierarchy_outgoing_calls(
                         &mut grouped,
                         *target,
                         call.callee_span,
+                        &callable_value_targets,
                     );
                 }
             }
@@ -362,6 +381,7 @@ pub(super) fn find_call_hierarchy_outgoing_calls(
                         &mut grouped,
                         *target,
                         call.callee_span,
+                        &callable_value_targets,
                     );
                 }
             }
@@ -385,12 +405,14 @@ fn add_outgoing_call_target(
     grouped: &mut BTreeMap<kernc_utils::Span, (IdeCallHierarchyItem, Vec<IdeRange>)>,
     callee_definition_span: kernc_utils::Span,
     callee_span: kernc_utils::Span,
+    callable_value_targets: &BTreeSet<kernc_utils::Span>,
 ) {
     let Some(to) = call_hierarchy_item_for_definition(
         session,
         semantic_entries,
         callee_definition_span,
         uri_by_path,
+        callable_value_targets,
     ) else {
         return;
     };
@@ -858,26 +880,48 @@ fn call_hierarchy_item_for_definition(
     semantic_entries: &[AnalysisSemanticEntry],
     definition_span: kernc_utils::Span,
     uri_by_path: &BTreeMap<PathBuf, String>,
+    callable_value_targets: &BTreeSet<kernc_utils::Span>,
 ) -> Option<IdeCallHierarchyItem> {
     let entry = call_hierarchy_definition_entry(semantic_entries, definition_span)?;
-    if !matches!(
-        entry.kind,
-        AnalysisSemanticKind::Function | AnalysisSemanticKind::Method
-    ) {
+    if !call_hierarchy_entry_is_supported(entry, callable_value_targets) {
         return None;
     }
     let path = session.source_manager.get_file_path(entry.span.file)?;
     let uri = uri_for_path(path, uri_by_path)?;
     Some(IdeCallHierarchyItem {
         name: span_text(session, entry.span)?,
-        kind: ide_symbol_kind(match entry.kind {
-            AnalysisSemanticKind::Method => AnalysisSymbolKind::Method,
-            _ => AnalysisSymbolKind::Function,
-        }),
+        kind: match entry.kind {
+            AnalysisSemanticKind::Method => IdeSymbolKind::Method,
+            AnalysisSemanticKind::Function => IdeSymbolKind::Function,
+            AnalysisSemanticKind::Variable | AnalysisSemanticKind::Parameter => {
+                IdeSymbolKind::Variable
+            }
+            _ => return None,
+        },
         uri,
         range: super::span_to_range(session, entry.span).into(),
         selection_range: super::span_to_range(session, entry.span).into(),
     })
+}
+
+fn call_hierarchy_entry_is_supported(
+    entry: &AnalysisSemanticEntry,
+    callable_value_targets: &BTreeSet<kernc_utils::Span>,
+) -> bool {
+    matches!(
+        entry.kind,
+        AnalysisSemanticKind::Function | AnalysisSemanticKind::Method
+    ) || (matches!(
+        entry.kind,
+        AnalysisSemanticKind::Variable | AnalysisSemanticKind::Parameter
+    ) && callable_value_targets.contains(&entry.definition_span))
+}
+
+fn callable_value_targets(calls: &[AnalysisCall]) -> BTreeSet<kernc_utils::Span> {
+    calls
+        .iter()
+        .flat_map(|call| call.indirect_targets.iter().copied())
+        .collect()
 }
 
 fn call_hierarchy_definition_entry(

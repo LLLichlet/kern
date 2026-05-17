@@ -571,17 +571,45 @@ impl AnalysisEngine {
         definition_key: &SpanIdentityKey,
         include_declaration: bool,
     ) -> Result<Option<Vec<IdeLocation>>, String> {
-        let Some(project) = self.project_for_path(&target_doc.path)? else {
+        let mut targets = Vec::new();
+        let mut saw_project = false;
+        if snapshot.workspace_roots().is_empty() {
+            let Some(project) = self.project_for_path(&target_doc.path)? else {
+                return Ok(None);
+            };
+            saw_project = true;
+            targets.extend(
+                project
+                    .workspace_targets(&self.settings.compile_options)
+                    .map_err(|err| {
+                        format!(
+                            "workspace references project analysis failed for `{}`: {err}",
+                            project.manifest_path().display()
+                        )
+                    })?,
+            );
+        } else {
+            for workspace_root in snapshot.workspace_roots() {
+                snapshot.check_canceled()?;
+                let Some(project) = self.project_for_path(workspace_root)? else {
+                    continue;
+                };
+                saw_project = true;
+                targets.extend(
+                    project
+                        .workspace_targets(&self.settings.compile_options)
+                        .map_err(|err| {
+                            format!(
+                                "workspace references project analysis failed for `{}`: {err}",
+                                project.manifest_path().display()
+                            )
+                        })?,
+                );
+            }
+        }
+        if !saw_project {
             return Ok(None);
-        };
-        let targets = project
-            .workspace_targets(&self.settings.compile_options)
-            .map_err(|err| {
-                format!(
-                    "workspace references project analysis failed for `{}`: {err}",
-                    project.manifest_path().display()
-                )
-            })?;
+        }
         if targets.len() <= 1 {
             return Ok(None);
         }

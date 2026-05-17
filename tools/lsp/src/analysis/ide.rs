@@ -1,9 +1,10 @@
 use crate::protocol::{
     CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, CodeAction,
-    CodeActionResolveData, CodeLens, Command, CompletionItem, CompletionResolveData, Diagnostic,
-    DiagnosticRelatedInformation, DiagnosticTag, DocumentHighlight, DocumentLink, DocumentSymbol,
-    FoldingRange, InlayHint, Location, ParameterInformation, PrepareRenameResult, SelectionRange,
-    SemanticTokens, SignatureHelp, SignatureInformation, TextEdit, WorkspaceEdit, WorkspaceSymbol,
+    CodeActionResolveData, CodeLens, CodeLensResolveData, CompletionItem, CompletionResolveData,
+    Diagnostic, DiagnosticRelatedInformation, DiagnosticTag, DocumentHighlight, DocumentLink,
+    DocumentLinkResolveData, DocumentSymbol, FoldingRange, InlayHint, Location,
+    ParameterInformation, PrepareRenameResult, SelectionRange, SemanticTokens, SignatureHelp,
+    SignatureInformation, TextEdit, WorkspaceEdit, WorkspaceSymbol,
 };
 use std::collections::BTreeMap;
 
@@ -320,11 +321,15 @@ impl IdeCodeLens {
     pub(crate) fn into_lsp(self) -> CodeLens {
         CodeLens {
             range: self.range.into(),
-            command: Command {
-                title: self.title,
-                command: self.command,
-                arguments: self.arguments,
-            },
+            command: None,
+            data: Some(
+                serde_json::to_value(CodeLensResolveData {
+                    title: self.title,
+                    command: self.command,
+                    arguments: self.arguments,
+                })
+                .expect("code lens resolve data is serializable"),
+            ),
         }
     }
 }
@@ -426,7 +431,13 @@ impl IdeDocumentLink {
     pub(crate) fn into_lsp(self) -> DocumentLink {
         DocumentLink {
             range: self.range.into(),
-            target: self.target,
+            target: None,
+            data: Some(
+                serde_json::to_value(DocumentLinkResolveData {
+                    target: self.target,
+                })
+                .expect("document link resolve data is serializable"),
+            ),
         }
     }
 }

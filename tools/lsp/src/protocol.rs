@@ -420,6 +420,20 @@ pub struct DocumentLinkParams {
     pub text_document: TextDocumentIdentifier,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeLensResolveData {
+    pub title: String,
+    pub command: String,
+    pub arguments: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentLinkResolveData {
+    pub target: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormattingParams {
@@ -544,14 +558,17 @@ pub struct CodeAction {
     pub data: Option<Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeLens {
     pub range: Range,
-    pub command: Command,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<Command>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Command {
     pub title: String,
@@ -766,11 +783,14 @@ pub struct SelectionRange {
     pub parent: Option<Box<SelectionRange>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentLink {
     pub range: Range,
-    pub target: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -900,7 +920,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
     capabilities.insert("documentHighlightProvider".to_string(), Value::Bool(true));
     capabilities.insert(
         "codeLensProvider".to_string(),
-        json!({ "resolveProvider": false }),
+        json!({ "resolveProvider": true }),
     );
     capabilities.insert(
         "referencesProvider".to_string(),
@@ -911,7 +931,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
     capabilities.insert("selectionRangeProvider".to_string(), Value::Bool(true));
     capabilities.insert(
         "documentLinkProvider".to_string(),
-        json!({ "resolveProvider": false }),
+        json!({ "resolveProvider": true }),
     );
     capabilities.insert("documentFormattingProvider".to_string(), Value::Bool(true));
     capabilities.insert(

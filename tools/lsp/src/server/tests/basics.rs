@@ -36,7 +36,7 @@ fn initialize_result_advertises_precise_capabilities() {
     assert_eq!(result["capabilities"]["documentHighlightProvider"], true);
     assert_eq!(
         result["capabilities"]["codeLensProvider"]["resolveProvider"],
-        false
+        true
     );
     assert_eq!(result["capabilities"]["declarationProvider"], true);
     assert_eq!(result["capabilities"]["typeDefinitionProvider"], true);
@@ -53,7 +53,7 @@ fn initialize_result_advertises_precise_capabilities() {
     assert_eq!(result["capabilities"]["selectionRangeProvider"], true);
     assert_eq!(
         result["capabilities"]["documentLinkProvider"]["resolveProvider"],
-        false
+        true
     );
     assert_eq!(result["capabilities"]["documentFormattingProvider"], true);
     assert_eq!(
@@ -234,8 +234,11 @@ fn advertised_request_coverages(capabilities: &Value) -> Vec<CapabilityRequestCo
     if capabilities.get("codeLensProvider").is_some() {
         coverages.push(CapabilityRequestCoverage {
             capability: "codeLensProvider",
-            methods: &["textDocument/codeLens"],
-            test_markers: &["code_lens_request_returns_craft_target_commands"],
+            methods: &["textDocument/codeLens", "codeLens/resolve"],
+            test_markers: &[
+                "code_lens_request_returns_deferred_craft_target_commands",
+                "code_lens_resolve_materializes_craft_target_command",
+            ],
         });
     }
     if capabilities.get("referencesProvider").is_some() {
@@ -248,8 +251,11 @@ fn advertised_request_coverages(capabilities: &Value) -> Vec<CapabilityRequestCo
     if capabilities.get("documentLinkProvider").is_some() {
         coverages.push(CapabilityRequestCoverage {
             capability: "documentLinkProvider",
-            methods: &["textDocument/documentLink"],
-            test_markers: &["document_link_request_returns_import_targets"],
+            methods: &["textDocument/documentLink", "documentLink/resolve"],
+            test_markers: &[
+                "document_link_request_returns_deferred_import_targets",
+                "document_link_resolve_materializes_import_target",
+            ],
         });
     }
     if capabilities.get("signatureHelpProvider").is_some() {

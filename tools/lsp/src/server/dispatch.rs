@@ -19,16 +19,16 @@ use crate::analysis::{
 };
 use crate::protocol::{
     CallHierarchyIncomingCallsParams, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
-    CancelRequestParams, CodeAction, CodeActionParams, CodeActionResolveData, CodeLensParams,
-    CompletionItem, CompletionParams, CompletionResolveData, DefinitionParams,
-    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentHighlightParams, DocumentLinkParams, DocumentSymbolParams,
-    FoldingRangeParams, FormattingParams, IncomingMessage, InitializeParams, InlayHintParams,
-    MarkupContent, Position, Range, RangeFormattingParams, ReferenceParams, RenameParams,
-    SelectionRangeParams, SemanticTokensDeltaParams, SemanticTokensParams,
-    SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams, WorkspaceSymbolParams,
-    error_response, initialize_result, log_message,
+    CancelRequestParams, CodeAction, CodeActionParams, CodeActionResolveData, CodeLens,
+    CodeLensParams, CodeLensResolveData, CompletionItem, CompletionParams, CompletionResolveData,
+    DefinitionParams, DidChangeConfigurationParams, DidChangeTextDocumentParams,
+    DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentHighlightParams, DocumentLink,
+    DocumentLinkParams, DocumentLinkResolveData, DocumentSymbolParams, FoldingRangeParams,
+    FormattingParams, IncomingMessage, InitializeParams, InlayHintParams, MarkupContent, Position,
+    Range, RangeFormattingParams, ReferenceParams, RenameParams, SelectionRangeParams,
+    SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams,
+    SignatureHelpParams, WorkspaceSymbolParams, error_response, initialize_result, log_message,
 };
 use crate::transport::MessageWriter;
 use serde_json::Value;
@@ -936,6 +936,26 @@ fn handle_message_with_document_request_policy(
                 },
             )?;
         }
+        "codeLens/resolve" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol("codeLens/resolve must be sent as a request".to_string())
+            })?;
+            let mut lens = required_params::<CodeLens>(message.params)?;
+            let resolve_data = lens
+                .data
+                .clone()
+                .and_then(|data| serde_json::from_value::<CodeLensResolveData>(data).ok());
+            if let Some(resolve_data) = resolve_data {
+                lens.command = Some(crate::protocol::Command {
+                    title: resolve_data.title,
+                    command: resolve_data.command,
+                    arguments: resolve_data.arguments,
+                });
+            }
+            lens.data = None;
+            let request = state.request_context(id);
+            write_success_response(state, writer, &request, serde_json::to_value(lens)?)?;
+        }
         "textDocument/documentLink" => {
             let id = message.id.ok_or_else(|| {
                 ServerError::Protocol(
@@ -963,6 +983,22 @@ fn handle_message_with_document_request_policy(
                         })
                 },
             )?;
+        }
+        "documentLink/resolve" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol("documentLink/resolve must be sent as a request".to_string())
+            })?;
+            let mut link = required_params::<DocumentLink>(message.params)?;
+            let resolve_data = link
+                .data
+                .clone()
+                .and_then(|data| serde_json::from_value::<DocumentLinkResolveData>(data).ok());
+            if let Some(resolve_data) = resolve_data {
+                link.target = Some(resolve_data.target);
+            }
+            link.data = None;
+            let request = state.request_context(id);
+            write_success_response(state, writer, &request, serde_json::to_value(link)?)?;
         }
         "textDocument/formatting" => {
             let id = message.id.ok_or_else(|| {

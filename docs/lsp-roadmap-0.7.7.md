@@ -274,8 +274,9 @@ Completed foundation work:
   environment settings.
 - Semantic token range requests are advertised and implemented. Range requests
   reuse the same semantic/lexical token production path as full-document
-  requests, then filter the encoded token stream to the requested range; delta
-  support remains intentionally unadvertised.
+  requests, then filter the encoded token stream to the requested range. Delta
+  requests are also advertised when the client supports them and use
+  server-owned result ids with edit-aware invalidation.
 - Completion responses include insert text/snippet data eagerly and advertise
   `completionItem/resolve` for real documentation hydration. Initial completion
   items carry opaque resolve data; `completionItem/resolve` expands that data into
@@ -507,11 +508,12 @@ implemented by adding more direct compiler calls inside request dispatch.
 These are known capability gaps, not completed work:
 
 - Multi-root workspace polish beyond the current correct in-memory behavior:
-  root-scoped invalidation and cross-root reference expansion should continue
-  to be hardened, but the server no longer uses the old single-root policy.
-- Code lens and document link resolve providers. Existing code lenses and
-  document links are eager; advertise resolve only after there is a real lazy
-  payload to compute.
+  root-scoped invalidation should continue to be hardened, but the server no
+  longer uses the old single-root policy and cross-root workspace
+  symbols/references are implemented.
+- Advanced compiler-backed IDE facts: indirect call hierarchy expansion,
+  import insertion, trait impl stubs, and wider refactoring/code-action
+  providers are tracked in Phase 14.
 
 ## Work Breakdown
 
@@ -653,7 +655,7 @@ Tasks:
 - Selection ranges.
 - Type definition, declaration, implementation.
 - Call hierarchy.
-- Semantic token range is done; delta is intentionally unadvertised.
+- Semantic token range and delta support are done.
 - Completion insert text is eager; `completionItem/resolve` adds markdown
   documentation.
 - Code action quick fixes may remain eager for the cheapest edits, but deferred
@@ -1056,25 +1058,34 @@ Tasks:
   notifications, handles `workspace/didChangeWorkspaceFolders`, refreshes
   project metadata after folder changes, and makes workspace symbol queries and
   index warmup walk every configured root with deterministic de-duplication.
-  Server tests cover initialization, folder changes, refreshed indexing, and
-  cross-root workspace symbol results. Remaining polish is tracked separately:
-  root-scoped invalidation and cross-root reference expansion need deeper
-  compiler/project-index work before they should be called complete.
-- `codeLens/resolve` and `documentLink/resolve`: keep eager providers until
-  there is a real lazy payload; implement resolve only with stable opaque data,
-  stale checks, and capability tests.
-- Indirect call hierarchy expansion: use compiler/data-flow facts to recover
-  function-value and closure-object call targets. Do not synthesize targets from
-  names.
-- Larger refactoring/code-action providers: import insertion, trait impl stubs,
-  and wider multi-edit fixes must use the deferred resolve model and real
-  compiler facts.
+  Cross-root references also walk every configured root's resolved workspace
+  targets instead of stopping at the queried document's project. Server tests
+  cover initialization, folder changes, refreshed indexing, cross-root
+  workspace symbol results, and cross-root references.
+- Done: `codeLens/resolve` and `documentLink/resolve` now have real lazy
+  payloads. Initial code-lens and document-link requests return range plus
+  stable opaque `data`; `codeLens/resolve` materializes the Craft command and
+  `documentLink/resolve` materializes the target URI. Both providers are
+  advertised only with server dispatch and tests, so there is no no-op resolve
+  support.
+- Moved to Phase 14: indirect call hierarchy expansion needs new compiler or
+  data-flow facts to recover function-value and closure-object call targets.
+  Phase 12 must not synthesize targets from names or treat the current
+  classified-but-unexpanded indirect calls as completed work.
+- Moved to Phase 14: larger refactoring/code-action providers such as import
+  insertion, trait impl stubs, and wider multi-edit fixes need dedicated
+  compiler facts plus the deferred resolve model. They are not advertised as
+  existing 0.7.7 LSP behavior until implemented.
 
 Exit criteria:
 
 - Each capability is either implemented with advertised provider support and
   server tests, or remains explicitly unadvertised with a tracked task. No
   unsupported request is counted as completed work.
+
+Status: complete. The remaining known capability ideas are now tracked as
+post-Phase-12 compiler-backed work instead of being counted as unfinished Phase
+12 LSP protocol support.
 
 ### Phase 13: Documentation, VS Code, and Release Verification
 
@@ -1097,6 +1108,28 @@ Exit criteria:
 
 - Release checklist below is complete and there is no stale documentation that
   contradicts server capabilities.
+
+### Phase 14: Compiler-Backed Advanced IDE Facts
+
+Purpose: finish advanced IDE behavior that cannot be implemented correctly with
+LSP protocol glue alone. These items require explicit compiler or data-flow
+facts and must not be approximated with name matching.
+
+Tasks:
+
+- Indirect call hierarchy expansion: expose enough compiler/data-flow facts to
+  recover function-value and closure-object call targets, then expand incoming
+  and outgoing call hierarchy results from those facts.
+- Larger refactoring/code-action providers: implement import insertion, trait
+  impl stubs, and wider multi-edit fixes through deferred resolve payloads
+  backed by compiler facts.
+- Add stress and correctness tests for the new facts before advertising any new
+  provider behavior.
+
+Exit criteria:
+
+- Advanced providers either use stable compiler facts with tests or remain
+  unadvertised/unimplemented. No name-synthesis fallback is accepted.
 
 ## Observability Requirements
 

@@ -1806,6 +1806,83 @@ dep = {{ path = \"../dep\" }}
 }
 
 #[test]
+fn references_request_includes_cross_root_workspace_uses() {
+    let dep_root = unique_temp_dir("server_references_cross_root_dep");
+    let app_root = unique_temp_dir("server_references_cross_root_app");
+    fs::create_dir_all(dep_root.join("src")).unwrap();
+    fs::create_dir_all(app_root.join("src")).unwrap();
+    fs::write(
+        dep_root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"dep\"
+version = \"0.1.0\"
+kern = \"{}\"\n
+[lib]
+root = \"src/lib.kn\"
+",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    let dep_source = "pub fn helper() i32 { return 1; }\n";
+    fs::write(dep_root.join("src/lib.kn"), dep_source).unwrap();
+    fs::write(
+        app_root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{}\"\n
+[lib]
+root = \"src/lib.kn\"
+
+[dependencies]
+dep = {{ path = \"{}\" }}
+",
+            env!("CARGO_PKG_VERSION"),
+            dep_root.to_string_lossy().replace('\\', "\\\\")
+        ),
+    )
+    .unwrap();
+    let app_source = "use dep.helper;\npub fn run() i32 { return helper(); }\n";
+    fs::write(app_root.join("src/lib.kn"), app_source).unwrap();
+    let dep_uri = file_path_to_uri_for_test(&dep_root.join("src/lib.kn"));
+
+    let mut state = initialized_state();
+    state.workspace_roots = vec![dep_root, app_root];
+    let _ = dispatch_messages(&mut state, did_open_message(&dep_uri, dep_source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(42)),
+            method: Some("textDocument/references".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": dep_uri },
+                "position": { "line": 0, "character": 7 },
+                "context": { "includeDeclaration": true }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(42));
+    let locations = response["result"].as_array().unwrap();
+    assert_eq!(locations.len(), 3, "{locations:#?}");
+    let app_locations = locations
+        .iter()
+        .filter(|location| {
+            location["uri"]
+                .as_str()
+                .is_some_and(|uri| uri.ends_with("/src/lib.kn") && uri.contains("cross_root_app"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(app_locations.len(), 2, "{locations:#?}");
+}
+
+#[test]
 fn hover_request_returns_signature_markup() {
     let mut state = initialized_state();
     let source = "fn helper(x: i32) i32 { return x; }\nfn main() i32 { return helper(1); }\n";
@@ -1981,7 +2058,7 @@ fn document_symbol_request_returns_top_level_symbols() {
 }
 
 #[test]
-fn code_lens_request_returns_craft_target_commands() {
+fn code_lens_request_returns_deferred_craft_target_commands() {
     let root = unique_temp_dir("server_code_lens_targets");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
@@ -2020,16 +2097,78 @@ root = \"src/lib.kn\"
     assert_eq!(response["id"], json!(205));
     let lenses = response["result"].as_array().unwrap();
     assert_eq!(lenses.len(), 1, "{lenses:#?}");
-    assert_eq!(lenses[0]["command"]["title"], "Build lib");
-    assert_eq!(lenses[0]["command"]["command"], "kern.craft.buildPackage");
-    assert_eq!(lenses[0]["command"]["arguments"][0]["targetKind"], "lib");
+    assert!(lenses[0].get("command").is_none(), "{lenses:#?}");
+    assert_eq!(lenses[0]["data"]["title"], "Build lib");
+    assert_eq!(lenses[0]["data"]["command"], "kern.craft.buildPackage");
+    assert_eq!(lenses[0]["data"]["arguments"][0]["targetKind"], "lib");
     assert!(
-        lenses[0]["command"]["arguments"][0]["manifestPath"]
+        lenses[0]["data"]["arguments"][0]["manifestPath"]
             .as_str()
             .unwrap()
             .ends_with("/Craft.toml"),
         "{}",
-        lenses[0]["command"]["arguments"][0]
+        lenses[0]["data"]["arguments"][0]
+    );
+}
+
+#[test]
+fn code_lens_resolve_materializes_craft_target_command() {
+    let root = unique_temp_dir("server_code_lens_resolve");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{}\"\n
+[lib]
+root = \"src/lib.kn\"
+",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    let source = "pub fn value() i32 { return 1; }\n";
+    fs::write(root.join("src/lib.kn"), source).unwrap();
+    let uri = format!("file://{}", root.join("src/lib.kn").to_string_lossy());
+
+    let mut state = initialized_state();
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let lens_response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(206)),
+            method: Some("textDocument/codeLens".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+    let lens = lens_response["result"].as_array().unwrap()[0].clone();
+
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(207)),
+            method: Some("codeLens/resolve".to_string()),
+            params: Some(lens),
+        },
+    );
+
+    assert_eq!(response["id"], json!(207));
+    assert!(response["result"].get("data").is_none());
+    assert_eq!(response["result"]["command"]["title"], "Build lib");
+    assert_eq!(
+        response["result"]["command"]["command"],
+        "kern.craft.buildPackage"
+    );
+    assert_eq!(
+        response["result"]["command"]["arguments"][0]["targetKind"],
+        "lib"
     );
 }
 
@@ -2320,15 +2459,19 @@ fn document_link_request_returns_external_module_targets() {
             "end": { "line": 0, "character": 9 }
         })
     );
+    assert!(links[0].get("target").is_none(), "{links:#?}");
     assert!(
-        links[0]["target"].as_str().unwrap().ends_with("/child.kn"),
+        links[0]["data"]["target"]
+            .as_str()
+            .unwrap()
+            .ends_with("/child.kn"),
         "{}",
-        links[0]["target"]
+        links[0]["data"]["target"]
     );
 }
 
 #[test]
-fn document_link_request_returns_import_targets() {
+fn document_link_request_returns_deferred_import_targets() {
     let root = unique_temp_dir("server_document_link_import");
     let dep_dir = root.join("dep/src");
     let app_dir = root.join("app/src");
@@ -2410,10 +2553,108 @@ dep = {{ path = \"../dep\" }}
             "end": { "line": 0, "character": 13 }
         })
     );
+    assert!(links[0].get("target").is_none(), "{links:#?}");
     assert!(
-        links[0]["target"].as_str().unwrap().ends_with("/child.kn"),
+        links[0]["data"]["target"]
+            .as_str()
+            .unwrap()
+            .ends_with("/child.kn")
+    );
+}
+
+#[test]
+fn document_link_resolve_materializes_import_target() {
+    let root = unique_temp_dir("server_document_link_resolve_import");
+    let dep_dir = root.join("dep/src");
+    let app_dir = root.join("app/src");
+    fs::create_dir_all(&dep_dir).unwrap();
+    fs::create_dir_all(&app_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        "[workspace]\nname = \"workspace\"\nmembers = [\"dep\", \"app\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("dep/Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"dep\"
+version = \"0.1.0\"
+kern = \"{}\"\n
+[lib]
+root = \"src/lib.kn\"
+",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    fs::write(dep_dir.join("lib.kn"), "pub mod child;\n").unwrap();
+    fs::write(
+        dep_dir.join("child.kn"),
+        "pub fn helper() i32 { return 1; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("app/Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{}\"\n
+[lib]
+root = \"src/lib.kn\"
+
+[dependencies]
+dep = {{ path = \"../dep\" }}
+",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("lib.kn"),
+        "use dep.child;\nfn main() i32 { return child.helper(); }\n",
+    )
+    .unwrap();
+    let source = fs::read_to_string(app_dir.join("lib.kn")).unwrap();
+    let uri = format!("file://{}", app_dir.join("lib.kn").to_string_lossy());
+
+    let mut state = initialized_state();
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, &source, 1));
+    let link_response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(333)),
+            method: Some("textDocument/documentLink".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+    let link = link_response["result"].as_array().unwrap()[0].clone();
+
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(334)),
+            method: Some("documentLink/resolve".to_string()),
+            params: Some(link),
+        },
+    );
+
+    assert_eq!(response["id"], json!(334));
+    assert!(response["result"].get("data").is_none());
+    assert!(
+        response["result"]["target"]
+            .as_str()
+            .unwrap()
+            .ends_with("/child.kn"),
         "{}",
-        links[0]["target"]
+        response["result"]["target"]
     );
 }
 
@@ -2485,13 +2726,14 @@ dep = {{ path = \"../dep\" }}
             "end": { "line": 9, "character": 3 }
         })
     );
+    assert!(links[0].get("target").is_none(), "{links:#?}");
     assert!(
-        links[0]["target"]
+        links[0]["data"]["target"]
             .as_str()
             .unwrap()
             .ends_with("/dep/Craft.toml"),
         "{}",
-        links[0]["target"]
+        links[0]["data"]["target"]
     );
 }
 

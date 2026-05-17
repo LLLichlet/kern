@@ -134,6 +134,24 @@ impl CompilerDriver {
                 is_pub: definition.is_pub,
             });
         }
+        for import_binding in scoped_definition_by_span.values() {
+            if import_binding.definition_span == import_binding.span {
+                continue;
+            }
+            if !definition_by_span.contains_key(&import_binding.definition_span)
+                && !scoped_definition_by_span.contains_key(&import_binding.definition_span)
+            {
+                continue;
+            }
+            entries.push(AnalysisSemanticEntry {
+                span: import_binding.span,
+                definition_span: import_binding.definition_span,
+                kind: import_binding.kind,
+                role: AnalysisSemanticRole::Reference,
+                is_mut: import_binding.is_mut,
+                is_pub: import_binding.is_pub,
+            });
+        }
 
         entries.sort_by_key(|entry| {
             (
@@ -332,6 +350,13 @@ impl CompilerDriver {
     ) -> kernc_utils::Span {
         match &ctx.defs[def_id.0 as usize] {
             kernc_sema::def::Def::Function(function) => function.name_span,
+            kernc_sema::def::Def::Struct(def) => def.name_span,
+            kernc_sema::def::Def::Union(def) => def.name_span,
+            kernc_sema::def::Def::Enum(def) => def.name_span,
+            kernc_sema::def::Def::Trait(def) => def.name_span,
+            kernc_sema::def::Def::AssociatedType(def) => def.name_span,
+            kernc_sema::def::Def::Global(def) => def.name_span,
+            kernc_sema::def::Def::TypeAlias(def) => def.name_span,
             _ => fallback_span,
         }
     }

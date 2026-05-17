@@ -817,6 +817,7 @@ mod tests {
                 fields: vec![],
                 is_extern: false,
                 span: Span::default(),
+                name_span: Span::default(),
                 docs: None,
             })
         });

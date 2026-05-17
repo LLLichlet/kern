@@ -1494,6 +1494,7 @@ mod tests {
         let trait_id = ctx.add_def(Def::Trait(TraitDef {
             id: trait_id_value,
             name: mapper_name,
+            name_span: Span::default(),
             vis: Visibility::Private,
             is_imported: false,
             generics: Vec::new(),
@@ -1519,6 +1520,7 @@ mod tests {
         let assoc_id = ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: assoc_id_value,
             name: apply_name,
+            name_span: Span::default(),
             parent_trait: Some(trait_id),
             parent_impl: None,
             implemented_trait_assoc: None,
@@ -1562,6 +1564,7 @@ mod tests {
         let trait_id = ctx.add_def(Def::Trait(TraitDef {
             id: trait_id_value,
             name: trait_name,
+            name_span: Span::default(),
             vis: Visibility::Private,
             is_imported: false,
             generics: Vec::new(),
@@ -1580,6 +1583,7 @@ mod tests {
         let assoc_id = ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: assoc_id_value,
             name: assoc_name,
+            name_span: Span::default(),
             parent_trait: Some(trait_id),
             parent_impl: None,
             implemented_trait_assoc: None,
@@ -1645,6 +1649,7 @@ mod tests {
             let assoc_id = ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
                 id: assoc_id_value,
                 name: assoc_name,
+                name_span: Span::default(),
                 parent_trait: *parent_trait,
                 parent_impl: Some(impl_id),
                 implemented_trait_assoc,
@@ -1709,6 +1714,7 @@ mod tests {
         let impl_assoc_id = ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: impl_assoc_id_value,
             name: assoc_name,
+            name_span: Span::default(),
             parent_trait: Some(trait_id),
             parent_impl: Some(impl_id),
             implemented_trait_assoc: Some(trait_assoc_id),

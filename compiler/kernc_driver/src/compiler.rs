@@ -845,6 +845,9 @@ impl StructureArtifact {
                 if !import_spans.contains(&info.span) {
                     continue;
                 }
+                if info.kind != kernc_sema::scope::SymbolKind::Module {
+                    continue;
+                }
                 let Some(def_id) = info.def_id else {
                     continue;
                 };

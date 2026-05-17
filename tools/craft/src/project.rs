@@ -151,6 +151,9 @@ impl AnalysisProject {
             if matched.target_kind == TargetKind::Lib {
                 compile_options.root_module_name = Some(matched.package.id.name.clone());
             }
+            if matched.target_kind == TargetKind::Test {
+                compile_options.test_mode = true;
+            }
             compile_options.metadata_package_name = Some(matched.package.id.name.clone());
         } else if let Some(package) = self.package_for_file(file) {
             resolved_package = Some(package);
@@ -174,6 +177,9 @@ impl AnalysisProject {
             }
             if resolved_target_kind == Some(TargetKind::Lib) {
                 compile_options.root_module_name = Some(package.id.name.clone());
+            }
+            if resolved_target_kind == Some(TargetKind::Test) {
+                compile_options.test_mode = true;
             }
             insert_self_library_alias(
                 &mut compile_options,
@@ -255,6 +261,9 @@ impl AnalysisProject {
                 insert_self_library_alias(&mut compile_options, package, unit.target_kind);
                 if unit.target_kind == TargetKind::Lib {
                     compile_options.root_module_name = Some(package.id.name.clone());
+                }
+                if unit.target_kind == TargetKind::Test {
+                    compile_options.test_mode = true;
                 }
                 compile_options.metadata_package_name = Some(package.id.name.clone());
                 apply_target_runtime_defaults(&mut compile_options, unit.target_kind);
@@ -531,7 +540,13 @@ impl AnalysisProject {
             ScriptCommand::Build,
             &feature_selection,
         )?;
-        let plan = build_plan::derive(&elaboration, ScriptCommand::Build)?;
+        let plan = build_plan::derive_with_options(
+            &elaboration,
+            ScriptCommand::Check,
+            build_plan::DeriveOptions {
+                include_examples: true,
+            },
+        )?;
         self.build_plan_cache
             .lock()
             .unwrap()

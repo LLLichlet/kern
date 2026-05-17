@@ -1205,6 +1205,7 @@ mod tests {
         let trait_id = ctx.add_def(Def::Trait(TraitDef {
             id: trait_id_value,
             name: marker_name,
+            name_span: Span::default(),
             vis: Visibility::Private,
             is_imported: false,
             generics: vec![generic_param.clone()],
@@ -1294,6 +1295,7 @@ mod tests {
         let trait_id = ctx.add_def(Def::Trait(TraitDef {
             id: trait_id_value,
             name: trait_name,
+            name_span: Span::default(),
             vis: Visibility::Private,
             is_imported: false,
             generics: Vec::new(),
@@ -1312,6 +1314,7 @@ mod tests {
         let assoc_id = ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: assoc_id_value,
             name: assoc_name,
+            name_span: Span::default(),
             parent_trait: Some(trait_id),
             parent_impl: None,
             implemented_trait_assoc: None,

@@ -370,6 +370,7 @@ roots = [\"tests/smoke.kn\"]
     let resolved =
         project.resolve_for_file(&root.join("tests/smoke.kn"), &CompileOptions::default());
 
+    assert!(resolved.compile_options.test_mode);
     assert_eq!(resolved.compile_options.runtime_entry, RuntimeEntry::Rt);
     assert!(!resolved.compile_options.runtime_libc);
     assert_eq!(resolved.compile_options.library_bundle, LibraryBundle::Base);

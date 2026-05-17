@@ -316,6 +316,63 @@ dep = {{ path = \"../dep\" }}
 }
 
 #[test]
+fn document_links_skip_grouped_import_leaf_symbols() {
+    let root = unique_temp_dir("document_links_grouped_import_leaf");
+    let src_dir = root.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    let source = "pub mod types;\npub use .types.{ Answer, Widget };\n";
+    fs::write(src_dir.join("lib.kn"), source).unwrap();
+    fs::write(
+        src_dir.join("types.kn"),
+        "pub const Answer = 42i32;\npub type Widget = i32;\n",
+    )
+    .unwrap();
+
+    let uri = file_path_to_uri(&src_dir.join("lib.kn")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let links = analysis.document_links(&uri).unwrap();
+
+    assert_eq!(links.len(), 1, "{links:#?}");
+    assert_eq!(
+        links[0].range,
+        Range {
+            start: Position {
+                line: 0,
+                character: 8,
+            },
+            end: Position {
+                line: 0,
+                character: 13,
+            },
+        }
+    );
+}
+
+#[test]
 fn document_links_return_manifest_dependency_targets() {
     let root = unique_temp_dir("document_links_manifest_dependencies");
     fs::create_dir_all(root.join("dep/src")).unwrap();

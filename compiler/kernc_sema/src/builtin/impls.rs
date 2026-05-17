@@ -175,6 +175,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 Def::AssociatedType(AssociatedTypeDef {
                     id: assoc_def_id,
                     name: assoc_name,
+                    name_span: Span::default(),
                     parent_trait: Some(trait_def_id),
                     parent_impl: Some(impl_id),
                     implemented_trait_assoc: Some(trait_assoc_id),

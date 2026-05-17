@@ -763,6 +763,7 @@ mod tests {
             Def::Struct(StructDef {
                 id,
                 name,
+                name_span: Span::default(),
                 vis: Visibility::Private,
                 parent_module,
                 is_imported: false,

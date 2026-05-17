@@ -731,6 +731,7 @@ mod tests {
         let defs = vec![Def::AssociatedType(crate::def::AssociatedTypeDef {
             id: assoc_id,
             name: SymbolId(2),
+            name_span: Default::default(),
             parent_trait: None,
             parent_impl: None,
             implemented_trait_assoc: None,

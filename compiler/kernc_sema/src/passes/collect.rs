@@ -864,6 +864,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Global(GlobalDef {
                 id: def_id,
                 name: decl.name,
+                name_span: decl.name_span,
                 vis: spec.vis,
                 parent: self.current_module,
                 is_imported: self.current_module_imported,
@@ -920,6 +921,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Global(GlobalDef {
                 id: def_id,
                 name,
+                name_span,
                 vis,
                 parent: self.current_module,
                 is_imported: self.current_module_imported,
@@ -990,6 +992,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Struct(StructDef {
                 id: def_id,
                 name: decl.name,
+                name_span: decl.name_span,
                 vis,
                 parent_module: self.current_module,
                 is_imported: self.current_module_imported,
@@ -1026,6 +1029,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Union(UnionDef {
                 id: def_id,
                 name: decl.name,
+                name_span: decl.name_span,
                 vis,
                 parent_module: self.current_module,
                 is_imported: self.current_module_imported,
@@ -1053,6 +1057,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Enum(EnumDef {
                 id: def_id,
                 name: decl.name,
+                name_span: decl.name_span,
                 vis: spec.vis,
                 is_imported: self.current_module_imported,
                 is_extern: spec.is_extern,
@@ -1080,6 +1085,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Trait(TraitDef {
                 id: def_id,
                 name: decl.name,
+                name_span: decl.name_span,
                 vis: spec.vis,
                 is_imported: self.current_module_imported,
                 generics: spec.generics.to_vec(),
@@ -1135,6 +1141,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Struct(StructDef {
                 id: def_id,
                 name,
+                name_span,
                 vis,
                 parent_module: self.current_module,
                 is_imported: self.current_module_imported,
@@ -1172,6 +1179,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Union(UnionDef {
                 id: def_id,
                 name,
+                name_span,
                 vis,
                 parent_module: self.current_module,
                 is_imported: self.current_module_imported,
@@ -1209,6 +1217,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Enum(EnumDef {
                 id: def_id,
                 name,
+                name_span,
                 vis,
                 is_imported: self.current_module_imported,
                 is_extern,
@@ -1247,6 +1256,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Trait(TraitDef {
                 id: def_id,
                 name,
+                name_span,
                 vis,
                 is_imported: self.current_module_imported,
                 generics,
@@ -1293,6 +1303,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 Def::AssociatedType(AssociatedTypeDef {
                     id: def_id,
                     name: assoc.name,
+                    name_span: assoc.name_span,
                     parent_trait: Some(trait_id),
                     parent_impl: None,
                     implemented_trait_assoc: None,
@@ -1324,6 +1335,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 Def::AssociatedType(AssociatedTypeDef {
                     id: def_id,
                     name: assoc.name,
+                    name_span: assoc.name_span,
                     parent_trait: Some(trait_id),
                     parent_impl: None,
                     implemented_trait_assoc: None,
@@ -1434,6 +1446,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::TypeAlias(TypeAliasDef {
                 id: def_id,
                 name: decl.name,
+                name_span: decl.name_span,
                 vis: spec.vis,
                 is_imported: self.current_module_imported,
                 generics: spec.generics.to_vec(),
@@ -1475,6 +1488,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::TypeAlias(TypeAliasDef {
                 id: def_id,
                 name,
+                name_span,
                 vis,
                 is_imported: self.current_module_imported,
                 generics,
@@ -1547,6 +1561,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     Def::AssociatedType(AssociatedTypeDef {
                         id: def_id,
                         name: method_decl.name,
+                        name_span: method_decl.name_span,
                         parent_trait: None,
                         parent_impl: Some(impl_id),
                         implemented_trait_assoc: None,
@@ -1638,6 +1653,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 }
                 Decl {
                     name,
+                    name_span,
                     span,
                     docs,
                     kind:
@@ -1659,6 +1675,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         Def::AssociatedType(AssociatedTypeDef {
                             id: def_id,
                             name,
+                            name_span,
                             parent_trait: None,
                             parent_impl: Some(impl_id),
                             implemented_trait_assoc: None,

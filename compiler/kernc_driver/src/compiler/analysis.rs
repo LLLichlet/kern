@@ -169,7 +169,22 @@ impl CompilerDriver {
             cancellation,
         )? {
             Ok(structure) => structure,
-            Err(session) => return Ok(self.empty_analysis_navigation_artifact(*session)),
+            Err(session) => {
+                let mut diagnostic_session = Session::new();
+                diagnostic_session.apply_options(&self.options);
+                match self.analyze_diagnostic_structure_cancelable(
+                    diagnostic_session,
+                    input_file,
+                    source_overrides,
+                    cancellation,
+                )? {
+                    Ok(structure) => {
+                        return self
+                            .analyze_navigation_artifact_from_structure(&structure, cancellation);
+                    }
+                    Err(_) => return Ok(self.empty_analysis_navigation_artifact(*session)),
+                }
+            }
         };
         cancellation.check()?;
         self.analyze_navigation_artifact_from_structure(&structure, cancellation)
@@ -192,7 +207,22 @@ impl CompilerDriver {
             cancellation,
         )? {
             Ok(structure) => structure,
-            Err(session) => return Ok(self.empty_analysis_semantic_artifact(*session)),
+            Err(session) => {
+                let mut diagnostic_session = Session::new();
+                diagnostic_session.apply_options(&self.options);
+                match self.analyze_diagnostic_structure_cancelable(
+                    diagnostic_session,
+                    input_file,
+                    source_overrides,
+                    cancellation,
+                )? {
+                    Ok(structure) => {
+                        return self
+                            .analyze_semantic_artifact_from_structure(&structure, cancellation);
+                    }
+                    Err(_) => return Ok(self.empty_analysis_semantic_artifact(*session)),
+                }
+            }
         };
         cancellation.check()?;
         self.analyze_semantic_artifact_from_structure(&structure, cancellation)

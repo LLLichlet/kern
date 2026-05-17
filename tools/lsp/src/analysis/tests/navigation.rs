@@ -355,6 +355,69 @@ fn goto_definition_resolves_type_identifier_references() {
 }
 
 #[test]
+fn goto_definition_resolves_grouped_reexport_leaf_definitions() {
+    let root = unique_temp_dir("goto_definition_grouped_reexport");
+    let src_dir = root.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    let lib_source = "pub mod types;\npub use .types.{\n    Answer,\n    Widget,\n};\n";
+    let types_source = "pub const Answer = 42i32;\npub type Widget = i32;\n";
+    fs::write(src_dir.join("lib.kn"), lib_source).unwrap();
+    fs::write(src_dir.join("types.kn"), types_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let uri = file_path_to_uri(&src_dir.join("lib.kn")).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: lib_source.to_string(),
+        },
+    });
+
+    let answer_definition = analysis
+        .goto_definition(&uri, position_of_nth(lib_source, "Answer", 0, 1))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        normalize_path(&uri_to_file_path(&answer_definition.uri).unwrap()),
+        normalize_path(&src_dir.join("types.kn"))
+    );
+    assert_eq!(
+        answer_definition.range.start,
+        position_of_nth(types_source, "Answer", 0, 0)
+    );
+
+    let widget_definition = analysis
+        .goto_definition(&uri, position_of_nth(lib_source, "Widget", 0, 1))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        normalize_path(&uri_to_file_path(&widget_definition.uri).unwrap()),
+        normalize_path(&src_dir.join("types.kn"))
+    );
+    assert_eq!(
+        widget_definition.range.start,
+        position_of_nth(types_source, "Widget", 0, 0)
+    );
+}
+
+#[test]
 fn navigation_queries_use_navigation_cache_without_full_artifact() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";

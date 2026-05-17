@@ -187,6 +187,7 @@ pub struct TraitDefaultMethodInfo {
 pub struct StructDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub vis: Visibility,
     pub parent_module: Option<DefId>,
     pub is_imported: bool,
@@ -203,6 +204,7 @@ pub struct StructDef {
 pub struct UnionDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub vis: Visibility,
     pub parent_module: Option<DefId>,
     pub is_imported: bool,
@@ -218,6 +220,7 @@ pub struct UnionDef {
 pub struct EnumDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub vis: Visibility,
     pub is_imported: bool,
     pub is_extern: bool,
@@ -240,6 +243,7 @@ pub struct TraitMethodDef {
 pub struct TraitDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub vis: Visibility,
     pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
@@ -259,6 +263,7 @@ pub struct TraitDef {
 pub struct AssociatedTypeDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub parent_trait: Option<DefId>,
     pub parent_impl: Option<DefId>,
     pub implemented_trait_assoc: Option<DefId>,
@@ -276,6 +281,7 @@ pub struct AssociatedTypeDef {
 pub struct TypeAliasDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub vis: Visibility,
     pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
@@ -305,6 +311,7 @@ pub struct ImplDef {
 pub struct GlobalDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub vis: Visibility,
     pub parent: Option<DefId>,
     pub is_imported: bool,

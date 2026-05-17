@@ -24,6 +24,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 Def::Global(GlobalDef {
                     id: def_id,
                     name: name_id,
+                    name_span: Span::default(),
                     vis: Visibility::Private,
                     parent: None,
                     is_imported: true,

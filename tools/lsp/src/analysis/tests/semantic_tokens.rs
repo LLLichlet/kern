@@ -184,12 +184,12 @@ fn semantic_tokens_classify_prefixed_and_qualified_type_contexts() {
     assert_token_type(
         &decoded,
         position_of_nth(source, "Layout", 0, 0),
-        SemanticTokenTypes::TYPE,
+        SemanticTokenTypes::STRUCT,
     );
     assert_token_type(
         &decoded,
         position_of_nth(source, "Allocator", 1, 0),
-        SemanticTokenTypes::TYPE,
+        SemanticTokenTypes::STRUCT,
     );
 }
 
@@ -534,6 +534,87 @@ fn semantic_tokens_classify_imported_function_references_in_submodules() {
         position_of_nth(use_helper_source, "helper", 2, 0),
         SemanticTokenTypes::FUNCTION,
         0,
+    );
+}
+
+#[test]
+fn semantic_tokens_cover_declared_example_and_test_roots() {
+    let root = unique_temp_dir("semantic_tokens_declared_targets");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("examples")).unwrap();
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+
+[example]
+roots = [\"examples/demo.kn\"]
+
+[test]
+roots = [\"tests/smoke.kn\"]
+"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.kn"),
+        "pub fn helper() i32 { return 1; }\n",
+    )
+    .unwrap();
+    let example_source = "use app.helper;\nfn main() i32 { return helper(); }\n";
+    let test_source = "use app.helper;\n#[test]\nfn test_smoke() i32 { return helper(); }\n";
+    fs::write(root.join("examples/demo.kn"), example_source).unwrap();
+    fs::write(root.join("tests/smoke.kn"), test_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let example_uri = file_path_to_uri(&root.join("examples/demo.kn")).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: example_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: example_source.to_string(),
+        },
+    });
+    let example_tokens = decode_semantic_tokens(&analysis.semantic_tokens(&example_uri).unwrap());
+    assert_token(
+        &example_tokens,
+        position_of_nth(example_source, "helper", 1, 0),
+        SemanticTokenTypes::FUNCTION,
+        0,
+    );
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::CleanSemantic)
+    );
+
+    let test_uri = file_path_to_uri(&root.join("tests/smoke.kn")).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: test_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: test_source.to_string(),
+        },
+    });
+    let test_tokens = decode_semantic_tokens(&analysis.semantic_tokens(&test_uri).unwrap());
+    assert_token(
+        &test_tokens,
+        position_of_nth(test_source, "helper", 1, 0),
+        SemanticTokenTypes::FUNCTION,
+        0,
+    );
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::CleanSemantic)
     );
 }
 

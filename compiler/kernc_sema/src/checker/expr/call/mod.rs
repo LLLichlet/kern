@@ -1040,7 +1040,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         let (actual_ret_ty, has_returned) = {
-            let mut sub_checker = ExprChecker::new(self.ctx, Some(expected_ret));
+            let mut sub_checker = ExprChecker::with_cancellation(
+                self.ctx,
+                Some(expected_ret),
+                self.cancellation.clone(),
+            );
             let ty = {
                 let ty = sub_checker.check_expr(body, Some(expected_ret));
                 sub_checker.finalize_numeric_inference(ty)

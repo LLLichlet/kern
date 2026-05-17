@@ -92,6 +92,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut field_exprs = Vec::with_capacity(natural_fields.len());
         for &ast_idx in &physical_to_ast {
+            if self.check_canceled().is_err() {
+                break;
+            }
             let field = &natural_fields[ast_idx];
             let name = self.ctx.resolve(field.name);
             let expr = match name {
@@ -178,6 +181,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut field_exprs = Vec::with_capacity(natural_fields.len());
         for &ast_idx in &physical_to_ast {
+            if self.check_canceled().is_err() {
+                break;
+            }
             let field = &natural_fields[ast_idx];
             let name = self.ctx.resolve(field.name);
             let expr = match name {

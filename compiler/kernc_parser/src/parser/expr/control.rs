@@ -15,10 +15,12 @@ enum PatternLead {
 
 impl<'a> Parser<'a> {
     pub fn parse_block_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
+        self.check_canceled()?;
         let mut stmts = Vec::new();
         let mut result = None;
 
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let before = self.peek().span;
             let attributes = self.parse_attributes(false).unwrap_or_default();
             if self.check(TokenType::Defer) {
@@ -374,6 +376,7 @@ impl<'a> Parser<'a> {
 
         let mut arms = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let before = self.peek().span;
             match self.parse_match_arm() {
                 Ok(arm) => arms.push(arm),
@@ -400,6 +403,9 @@ impl<'a> Parser<'a> {
     fn synchronize_match_arm(&mut self) {
         self.panic_mode = false;
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            if self.check_canceled().is_err() {
+                return;
+            }
             if self.match_token(&[TokenType::Comma]) {
                 return;
             }
@@ -440,6 +446,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::LBrace)?;
         let mut arms = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             arms.push(self.parse_let_else_arm()?);
         }
         self.expect(TokenType::RBrace)?;
@@ -449,6 +456,7 @@ impl<'a> Parser<'a> {
     fn parse_match_patterns(&mut self) -> ParseResult<Vec<MatchPattern>> {
         let mut patterns = Vec::new();
         loop {
+            self.check_canceled()?;
             let before = self.peek().span;
             patterns.push(self.parse_single_match_pattern()?);
             if !self.continue_after_comma(&[TokenType::Arrow]) {
@@ -534,6 +542,7 @@ impl<'a> Parser<'a> {
         };
 
         while self.match_token(&[TokenType::Dot]) {
+            self.check_canceled()?;
             let field = self.expect(TokenType::Identifier)?;
             let field_id = self.intern_token(field);
             expr = Expr {
@@ -594,6 +603,7 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
 
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let field_tok = self.expect(TokenType::Identifier)?;
             let field_name = self.intern_token(field_tok);
             let pattern = if self.match_token(&[TokenType::Colon]) {
@@ -785,6 +795,9 @@ impl<'a> Parser<'a> {
             let mut depth = 1;
             index += 1;
             while depth > 0 {
+                if self.check_canceled().is_err() {
+                    return None;
+                }
                 match self.stream.peek_tag_nth(index) {
                     TokenType::LBracket => depth += 1,
                     TokenType::RBracket => depth -= 1,
@@ -804,6 +817,9 @@ impl<'a> Parser<'a> {
         while self.stream.peek_tag_nth(index) == TokenType::Dot
             && self.stream.peek_tag_nth(index + 1) == TokenType::Identifier
         {
+            if self.check_canceled().is_err() {
+                return None;
+            }
             index = self.lookahead_type_path_segment_end(index + 1)?;
             segments += 1;
         }
@@ -815,6 +831,9 @@ impl<'a> Parser<'a> {
         let mut index = start;
 
         loop {
+            if self.check_canceled().is_err() {
+                return None;
+            }
             if self.stream.peek_tag_nth(index) == TokenType::RBrace {
                 return Some(index + 1);
             }

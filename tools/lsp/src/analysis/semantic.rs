@@ -5,7 +5,7 @@ use kernc_driver::{
     AnalysisSemanticRole, AnalysisSymbol, AnalysisSymbolKind,
 };
 use kernc_lexer::{Token, TokenType, Tokenizer};
-use kernc_utils::FileId;
+use kernc_utils::{CancellationToken, FileId};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -62,47 +62,56 @@ pub(super) struct SemanticArtifactView<'a> {
     pub semantic_entries: &'a [AnalysisSemanticEntry],
 }
 
-pub(super) fn semantic_tokens(
+pub(super) fn semantic_tokens_cancelable(
     artifact: SemanticArtifactView<'_>,
     file: &kernc_utils::SourceFile,
     target_path: &Path,
-) -> IdeSemanticTokens {
-    let span_classes = build_semantic_span_classes(artifact, target_path);
-    let entries = collect_semantic_token_entries(file, &span_classes);
+    cancellation: &CancellationToken,
+) -> Result<IdeSemanticTokens, String> {
+    let span_classes = build_semantic_span_classes_cancelable(artifact, target_path, cancellation)?;
+    let entries = collect_semantic_token_entries_cancelable(file, &span_classes, cancellation)?;
 
-    IdeSemanticTokens {
-        data: encode_semantic_tokens(&entries),
-    }
+    Ok(IdeSemanticTokens {
+        data: encode_semantic_tokens_cancelable(&entries, cancellation)?,
+    })
 }
 
-pub(super) fn lexical_semantic_tokens(file: &kernc_utils::SourceFile) -> IdeSemanticTokens {
-    let entries = collect_semantic_token_entries(file, &BTreeMap::new());
+pub(super) fn lexical_semantic_tokens_cancelable(
+    file: &kernc_utils::SourceFile,
+    cancellation: &CancellationToken,
+) -> Result<IdeSemanticTokens, String> {
+    let entries = collect_semantic_token_entries_cancelable(file, &BTreeMap::new(), cancellation)?;
 
-    IdeSemanticTokens {
-        data: encode_semantic_tokens(&entries),
-    }
+    Ok(IdeSemanticTokens {
+        data: encode_semantic_tokens_cancelable(&entries, cancellation)?,
+    })
 }
 
-pub(super) fn filter_semantic_tokens_to_range(
+pub(super) fn filter_semantic_tokens_to_range_cancelable(
     tokens: &IdeSemanticTokens,
     range: &Range,
-) -> IdeSemanticTokens {
-    let entries = decode_semantic_token_entries(&tokens.data)
+    cancellation: &CancellationToken,
+) -> Result<IdeSemanticTokens, String> {
+    let entries = decode_semantic_token_entries_cancelable(&tokens.data, cancellation)?
         .into_iter()
         .filter(|entry| semantic_token_intersects_range(entry, range))
         .collect::<Vec<_>>();
 
-    IdeSemanticTokens {
-        data: encode_semantic_tokens(&entries),
-    }
+    Ok(IdeSemanticTokens {
+        data: encode_semantic_tokens_cancelable(&entries, cancellation)?,
+    })
 }
 
-fn build_semantic_span_classes(
+fn build_semantic_span_classes_cancelable(
     artifact: SemanticArtifactView<'_>,
     target_path: &Path,
-) -> BTreeMap<SpanKey, SemanticClass> {
+    cancellation: &CancellationToken,
+) -> Result<BTreeMap<SpanKey, SemanticClass>, String> {
     let mut definition_classes = BTreeMap::new();
     for entry in artifact.semantic_entries {
+        cancellation
+            .check()
+            .map_err(|_| "request was canceled".to_string())?;
         if entry.role != AnalysisSemanticRole::Definition {
             continue;
         }
@@ -111,9 +120,16 @@ fn build_semantic_span_classes(
             .or_insert_with(|| semantic_class_from_entry(entry));
     }
     for module_symbol in artifact.symbols {
-        collect_semantic_definition_classes(module_symbol, &mut definition_classes);
+        collect_semantic_definition_classes_cancelable(
+            module_symbol,
+            &mut definition_classes,
+            cancellation,
+        )?;
     }
     for hover in artifact.hovers {
+        cancellation
+            .check()
+            .map_err(|_| "request was canceled".to_string())?;
         if let Some(class) = semantic_class_from_hover(&hover.contents) {
             definition_classes.entry(hover.span).or_insert(class);
         }
@@ -121,6 +137,9 @@ fn build_semantic_span_classes(
 
     let mut document_classes = BTreeMap::new();
     for (span, class) in &definition_classes {
+        cancellation
+            .check()
+            .map_err(|_| "request was canceled".to_string())?;
         let span = *span;
         if super::span_in_path(artifact.session, span, target_path) {
             document_classes.insert(span_key(span), *class);
@@ -128,6 +147,9 @@ fn build_semantic_span_classes(
     }
 
     for entry in artifact.semantic_entries {
+        cancellation
+            .check()
+            .map_err(|_| "request was canceled".to_string())?;
         if entry.role != AnalysisSemanticRole::Reference {
             continue;
         }
@@ -141,6 +163,9 @@ fn build_semantic_span_classes(
     }
 
     for reference in artifact.references {
+        cancellation
+            .check()
+            .map_err(|_| "request was canceled".to_string())?;
         if !super::span_in_path(artifact.session, reference.reference_span, target_path) {
             continue;
         }
@@ -154,7 +179,7 @@ fn build_semantic_span_classes(
         );
     }
 
-    document_classes
+    Ok(document_classes)
 }
 
 fn semantic_class_from_entry(entry: &AnalysisSemanticEntry) -> SemanticClass {
@@ -200,17 +225,22 @@ fn semantic_class_from_entry(entry: &AnalysisSemanticEntry) -> SemanticClass {
     }
 }
 
-fn collect_semantic_definition_classes(
+fn collect_semantic_definition_classes_cancelable(
     symbol: &AnalysisSymbol,
     classes: &mut BTreeMap<kernc_utils::Span, SemanticClass>,
-) {
+    cancellation: &CancellationToken,
+) -> Result<(), String> {
+    cancellation
+        .check()
+        .map_err(|_| "request was canceled".to_string())?;
     classes.insert(
         symbol.selection_span,
         semantic_class_from_symbol_kind(symbol.kind),
     );
     for child in &symbol.children {
-        collect_semantic_definition_classes(child, classes);
+        collect_semantic_definition_classes_cancelable(child, classes, cancellation)?;
     }
+    Ok(())
 }
 
 fn semantic_class_from_symbol_kind(kind: AnalysisSymbolKind) -> SemanticClass {
@@ -328,14 +358,18 @@ fn semantic_reference_class(class: SemanticClass) -> SemanticClass {
     }
 }
 
-fn collect_semantic_token_entries(
+fn collect_semantic_token_entries_cancelable(
     file: &kernc_utils::SourceFile,
     span_classes: &BTreeMap<SpanKey, SemanticClass>,
-) -> Vec<SemanticTokenEntry> {
+    cancellation: &CancellationToken,
+) -> Result<Vec<SemanticTokenEntry>, String> {
     let mut tokenizer = Tokenizer::new(&file.src, FileId(0));
     let mut tokens = Vec::new();
 
     loop {
+        cancellation
+            .check()
+            .map_err(|_| "request was canceled".to_string())?;
         let token = tokenizer.next_token();
         if token.tag == TokenType::Eof {
             break;
@@ -345,6 +379,9 @@ fn collect_semantic_token_entries(
 
     let mut entries = Vec::new();
     for (index, token) in tokens.iter().copied().enumerate() {
+        cancellation
+            .check()
+            .map_err(|_| "request was canceled".to_string())?;
         let class = match token.tag {
             TokenType::Identifier => parameter_declaration_class(&tokens, index)
                 .or_else(|| span_classes.get(&span_key(token.span)).copied())
@@ -454,7 +491,7 @@ fn collect_semantic_token_entries(
         push_semantic_token_entries(&mut entries, file, token.span.start, token.span.end, class);
     }
 
-    entries
+    Ok(entries)
 }
 
 fn heuristic_identifier_class(tokens: &[Token], index: usize) -> Option<SemanticClass> {
@@ -766,8 +803,14 @@ fn push_semantic_token_entries(
     }
 }
 
-fn encode_semantic_tokens(entries: &[SemanticTokenEntry]) -> Vec<u32> {
+fn encode_semantic_tokens_cancelable(
+    entries: &[SemanticTokenEntry],
+    cancellation: &CancellationToken,
+) -> Result<Vec<u32>, String> {
     let mut sorted = entries.to_vec();
+    cancellation
+        .check()
+        .map_err(|_| "request was canceled".to_string())?;
     sorted.sort();
 
     let mut data = Vec::with_capacity(sorted.len() * 5);
@@ -775,6 +818,9 @@ fn encode_semantic_tokens(entries: &[SemanticTokenEntry]) -> Vec<u32> {
     let mut previous_start = 0;
 
     for (index, entry) in sorted.iter().enumerate() {
+        cancellation
+            .check()
+            .map_err(|_| "request was canceled".to_string())?;
         let delta_line = if index == 0 {
             entry.line
         } else {
@@ -798,15 +844,21 @@ fn encode_semantic_tokens(entries: &[SemanticTokenEntry]) -> Vec<u32> {
         previous_start = entry.start_char;
     }
 
-    data
+    Ok(data)
 }
 
-fn decode_semantic_token_entries(data: &[u32]) -> Vec<SemanticTokenEntry> {
+fn decode_semantic_token_entries_cancelable(
+    data: &[u32],
+    cancellation: &CancellationToken,
+) -> Result<Vec<SemanticTokenEntry>, String> {
     let mut entries = Vec::new();
     let mut line = 0;
     let mut start_char = 0;
 
     for chunk in data.chunks_exact(5) {
+        cancellation
+            .check()
+            .map_err(|_| "request was canceled".to_string())?;
         line += chunk[0];
         if chunk[0] == 0 {
             start_char += chunk[1];
@@ -823,7 +875,7 @@ fn decode_semantic_token_entries(data: &[u32]) -> Vec<SemanticTokenEntry> {
         });
     }
 
-    entries
+    Ok(entries)
 }
 
 fn semantic_token_intersects_range(entry: &SemanticTokenEntry, range: &Range) -> bool {
@@ -845,4 +897,108 @@ fn position_less_than(left: &Position, right: &Position) -> bool {
 
 fn span_key(span: kernc_utils::Span) -> SpanKey {
     (span.start, span.end)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::Position;
+    use kernc_driver::{AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole};
+    use kernc_utils::{FileId, Session, Span};
+    use std::path::PathBuf;
+
+    fn span(start: usize, end: usize) -> Span {
+        Span {
+            file: FileId(0),
+            start,
+            end,
+        }
+    }
+
+    #[test]
+    fn semantic_tokenization_loop_observes_cancellation() {
+        let file = kernc_utils::SourceFile::new(
+            PathBuf::from("semantic_cancel.kn"),
+            "fn main() void {\n    let value = 1;\n    let other = value;\n}\n",
+        );
+        let cancellation = CancellationToken::with_check_budget_for_testing(3);
+
+        let result = lexical_semantic_tokens_cancelable(&file, &cancellation);
+
+        assert_eq!(result.unwrap_err(), "request was canceled");
+        assert!(cancellation.is_canceled());
+    }
+
+    #[test]
+    fn semantic_reference_merge_loop_observes_cancellation() {
+        let mut session = Session::new();
+        let file_id = session.source_manager.add_file(
+            "semantic_reference_cancel.kn".to_string(),
+            "fn target() void {}\n",
+        );
+        let definition_span = Span {
+            file: file_id,
+            start: 3,
+            end: 9,
+        };
+        let semantic_entries = (0..12)
+            .map(|index| AnalysisSemanticEntry {
+                span: span(index, index + 1),
+                definition_span,
+                kind: AnalysisSemanticKind::Function,
+                role: if index == 0 {
+                    AnalysisSemanticRole::Definition
+                } else {
+                    AnalysisSemanticRole::Reference
+                },
+                is_mut: false,
+                is_pub: false,
+            })
+            .collect::<Vec<_>>();
+        let view = SemanticArtifactView {
+            session: &session,
+            symbols: &[],
+            references: &[],
+            hovers: &[],
+            semantic_entries: &semantic_entries,
+        };
+        let file = session.source_manager.get_file(file_id).unwrap();
+        let cancellation = CancellationToken::with_check_budget_for_testing(4);
+
+        let result = semantic_tokens_cancelable(
+            view,
+            file,
+            session.source_manager.get_file_path(file_id).unwrap(),
+            &cancellation,
+        );
+
+        assert_eq!(result.unwrap_err(), "request was canceled");
+        assert!(cancellation.is_canceled());
+    }
+
+    #[test]
+    fn semantic_token_range_decode_loop_observes_cancellation() {
+        let tokens = IdeSemanticTokens {
+            data: (0..20).flat_map(|_| [0, 1, 1, 1, 0]).collect(),
+        };
+        let cancellation = CancellationToken::with_check_budget_for_testing(3);
+
+        let result = filter_semantic_tokens_to_range_cancelable(
+            &tokens,
+            &Range {
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 1,
+                    character: 0,
+                },
+            },
+            &cancellation,
+        );
+
+        assert_eq!(result.unwrap_err(), "request was canceled");
+        assert!(cancellation.is_canceled());
+    }
 }

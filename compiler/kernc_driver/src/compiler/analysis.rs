@@ -39,17 +39,17 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 #[derive(Debug)]
-struct FunctionBodyReusePlan {
+pub(in crate::compiler) struct FunctionBodyReusePlan {
     worklist: Vec<(DefId, ScopeId)>,
     replaced_spans: Vec<AnalysisSpanReplacement>,
 }
 
 pub(super) struct LoadedAstArtifact {
-    asts: Vec<(DefId, ast::Module)>,
-    phase_timings: Vec<PhaseTiming>,
+    pub(in crate::compiler) asts: Vec<(DefId, ast::Module)>,
+    pub(super) phase_timings: Vec<PhaseTiming>,
 }
 
-pub(super) struct BodyPipelineReport {
+pub(in crate::compiler) struct BodyPipelineReport {
     pub(super) flow_lowering_hints: FlowLoweringHints,
     pub(super) lowered_module_items: std::collections::HashSet<DefId>,
     pub(super) phase_timings: Vec<PhaseTiming>,
@@ -181,9 +181,15 @@ impl CompilerDriver {
         if let Some(collected) =
             self.cached_collected_structure_artifact(input_file, source_overrides)
         {
-            let imported = self.build_imported_structure(&collected).map(|imported| {
-                self.finalize_imported_structure_artifact(input_file, source_overrides, imported)
-            });
+            let imported = self
+                .build_imported_structure_cancelable(&collected, cancellation)?
+                .map(|imported| {
+                    self.finalize_imported_structure_artifact(
+                        input_file,
+                        source_overrides,
+                        imported,
+                    )
+                });
             cancellation.check()?;
             return Ok(imported);
         }
@@ -192,7 +198,12 @@ impl CompilerDriver {
         let mut session = Session::new();
         session.apply_options(&self.options);
         let imported = self
-            .try_analyze_imported_structure(session, input_file, source_overrides)
+            .try_analyze_imported_structure_cancelable(
+                session,
+                input_file,
+                source_overrides,
+                cancellation,
+            )?
             .ok()
             .map(|imported| {
                 self.finalize_imported_structure_artifact(input_file, source_overrides, imported)

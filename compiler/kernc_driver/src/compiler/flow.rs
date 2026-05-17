@@ -15,7 +15,7 @@ use kernc_ast as ast;
 use kernc_flow::{ComputedLiveness, FlowBindingFacts, FlowOwnerFacts, FlowRegionFacts};
 use kernc_sema::SemaContext;
 use kernc_sema::def::DefId;
-use kernc_utils::Span;
+use kernc_utils::{Canceled, CancellationToken, Span};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 

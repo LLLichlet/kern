@@ -46,6 +46,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_type(&mut self) -> ParseResult<TypeNode> {
+        self.check_canceled()?;
         let current = self.peek();
         if Self::token_can_end_missing_type(current.tag) {
             return Ok(self.error_type(current.span, "Expected type"));
@@ -453,6 +454,7 @@ impl<'a> Parser<'a> {
 
         if !self.check(TokenType::RParen) {
             loop {
+                self.check_canceled()?;
                 // Variadic `...` must appear in the final parameter slot.
                 if self.match_token(&[TokenType::Ellipsis]) {
                     is_variadic = true;
@@ -521,6 +523,7 @@ impl<'a> Parser<'a> {
         }
 
         while self.match_token(&[TokenType::Dot]) {
+            self.check_canceled()?;
             let id_token = self.expect(TokenType::Identifier)?;
             let segment = self.parse_type_path_segment_after_name(id_token)?;
             span = span.to(segment.name_span);
@@ -603,6 +606,7 @@ impl<'a> Parser<'a> {
         let mut args = Vec::new();
         if !self.check(TokenType::RBracket) {
             loop {
+                self.check_canceled()?;
                 args.push(self.parse_generic_arg(true)?);
                 if !self.continue_after_comma(&[TokenType::RBracket]) {
                     break;
@@ -641,6 +645,7 @@ impl<'a> Parser<'a> {
 
         let mut fields = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let docs = self.parse_item_doc_block(doc_target);
             let (vis, _) = self.parse_visibility();
             let name_token = self.expect(TokenType::Identifier)?;
@@ -700,6 +705,7 @@ impl<'a> Parser<'a> {
         let mut variants = Vec::new();
 
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let docs = self.parse_item_doc_block("variant");
             let name_token = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name_token);
@@ -766,6 +772,7 @@ impl<'a> Parser<'a> {
         let mut assoc_types = Vec::new();
         let mut methods = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let docs = self.parse_item_doc_block("trait item");
             if self.match_token(&[TokenType::Type]) {
                 let name_token = self.expect(TokenType::Identifier)?;
@@ -773,6 +780,7 @@ impl<'a> Parser<'a> {
                 let mut bounds = Vec::new();
                 if self.match_token(&[TokenType::Colon]) {
                     loop {
+                        self.check_canceled()?;
                         bounds.push(self.parse_type()?);
                         if !self.match_token(&[TokenType::Plus]) {
                             break;
@@ -805,6 +813,7 @@ impl<'a> Parser<'a> {
                 let mut is_variadic = false;
                 if !self.check(TokenType::RParen) {
                     loop {
+                        self.check_canceled()?;
                         if self.match_token(&[TokenType::Ellipsis]) {
                             is_variadic = true;
                             break;
@@ -918,6 +927,7 @@ impl<'a> Parser<'a> {
         let mut params = Vec::new();
         if !self.check(TokenType::RParen) {
             loop {
+                self.check_canceled()?;
                 params.push(self.parse_type()?);
                 if !self.continue_after_comma(&[TokenType::RParen]) {
                     break;

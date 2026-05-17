@@ -31,6 +31,7 @@ impl<'a> Parser<'a> {
 
         // 2. Consume path segments until the target form is known.
         loop {
+            self.check_canceled()?;
             if self.match_token(&[TokenType::LBrace]) {
                 target = UseTarget::Tree(self.parse_use_tree_items()?);
                 break;
@@ -92,6 +93,7 @@ impl<'a> Parser<'a> {
         }
         let mut params = Vec::new();
         while !self.check(TokenType::RBracket) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let name = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name);
             let mut span = name.span;
@@ -125,6 +127,7 @@ impl<'a> Parser<'a> {
 
         // Parse clauses such as `where &T: TraitA + TraitB, U: TraitC`.
         loop {
+            self.check_canceled()?;
             let start_span = self.peek().span;
 
             // 1. Left-hand side: constrained target type, for example `&mut T`.
@@ -136,6 +139,7 @@ impl<'a> Parser<'a> {
             // 3. Right-hand side: one or more trait bounds.
             let mut bounds = Vec::new();
             loop {
+                self.check_canceled()?;
                 bounds.push(self.parse_type()?);
                 if !self.match_token(&[TokenType::Plus]) {
                     break;
@@ -164,6 +168,7 @@ impl<'a> Parser<'a> {
         let mut is_variadic = false;
 
         while !self.check(TokenType::RParen) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             if self.match_token(&[TokenType::Ellipsis]) {
                 is_variadic = true;
                 break;
@@ -190,10 +195,12 @@ impl<'a> Parser<'a> {
 
     // Top Level
     pub fn parse_module(&mut self) -> ParseResult<Module> {
+        self.check_canceled()?;
         let (docs, attributes) = self.parse_module_leading_meta();
 
         let mut decls = Vec::new();
         while !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let before = self.peek().span;
             match self.parse_decl() {
                 Ok(Some(decl)) => decls.push(decl),
@@ -215,6 +222,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_decl(&mut self) -> ParseResult<Option<Decl>> {
+        self.check_canceled()?;
         let (docs, attributes) = self.parse_item_leading_meta("item");
 
         if self.check(TokenType::Eof) {
@@ -324,6 +332,7 @@ impl<'a> Parser<'a> {
             self.expect(TokenType::LBrace)?;
             let mut decls = Vec::new();
             while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+                self.check_canceled()?;
                 let before = self.peek().span;
                 match self.parse_decl() {
                     Ok(Some(decl)) => decls.push(decl),
@@ -421,6 +430,7 @@ impl<'a> Parser<'a> {
 
         let mut decls = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let (docs, attributes) = self.parse_item_leading_meta("extern item");
             if self.check(TokenType::RBrace) || self.check(TokenType::Eof) {
                 if let Some(docs) = &docs {
@@ -483,6 +493,7 @@ impl<'a> Parser<'a> {
 
         let mut decls = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let (docs, attributes) = self.parse_item_leading_meta("impl item");
             if self.check(TokenType::RBrace) || self.check(TokenType::Eof) {
                 if let Some(docs) = &docs {
@@ -814,6 +825,7 @@ impl<'a> Parser<'a> {
         let mut supertraits = Vec::new();
         if self.match_token(&[TokenType::Colon]) {
             loop {
+                self.check_canceled()?;
                 supertraits.push(self.parse_type()?);
                 if !self.match_token(&[TokenType::Plus]) {
                     break;
@@ -873,6 +885,7 @@ impl<'a> Parser<'a> {
     fn parse_use_tree_items(&mut self) -> ParseResult<Vec<UseTree>> {
         let mut items = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             items.push(self.parse_use_tree_item()?);
             if !self.continue_after_comma(&[TokenType::RBrace]) {
                 break;
@@ -907,6 +920,7 @@ impl<'a> Parser<'a> {
         let mut nested = None;
 
         while self.match_token(&[TokenType::Dot]) {
+            self.check_canceled()?;
             if self.check(TokenType::LBrace) {
                 break;
             }

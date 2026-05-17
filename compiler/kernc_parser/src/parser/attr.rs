@@ -27,6 +27,7 @@ impl<'a> Parser<'a> {
         let mut attrs = Vec::new();
 
         while self.is_at_attribute() {
+            self.check_canceled()?;
             let is_bang = self.stream.peek_tag_nth(1) == TokenType::Bang;
 
             // Stop as soon as the attribute level no longer matches the caller's expectation.
@@ -58,6 +59,7 @@ impl<'a> Parser<'a> {
                 // Form 2: metadata attributes such as `#[cold, export_name("foo")]`.
                 let mut items = Vec::new();
                 while !self.check(TokenType::RBracket) && !self.check(TokenType::Eof) {
+                    self.check_canceled()?;
                     let ident_tok = self.expect(TokenType::Identifier)?;
                     let ident_id = self.intern_token(ident_tok);
 

@@ -13,6 +13,7 @@ use kernc_driver::{
     AnalysisSemanticRole, AnalysisSignatureHelp, AnalysisSymbol, AnalysisSymbolKind,
     AnalysisTypeHint, AnalysisTypeHintKind,
 };
+use kernc_utils::CancellationToken;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -54,13 +55,17 @@ pub(super) fn analysis_symbol_to_document_symbol(
     }
 }
 
-pub(super) fn analysis_symbol_to_workspace_symbols(
+pub(super) fn analysis_symbol_to_workspace_symbols_cancelable(
     session: &kernc_utils::Session,
     symbol: &AnalysisSymbol,
     container_name: Option<&str>,
     uri_by_path: &BTreeMap<PathBuf, String>,
     out: &mut Vec<IdeWorkspaceSymbol>,
-) {
+    cancellation: &CancellationToken,
+) -> Result<(), String> {
+    cancellation
+        .check()
+        .map_err(|_| "request was canceled".to_string())?;
     if !matches!(
         symbol.kind,
         AnalysisSymbolKind::Module | AnalysisSymbolKind::Namespace
@@ -75,14 +80,16 @@ pub(super) fn analysis_symbol_to_workspace_symbols(
     }
 
     for child in &symbol.children {
-        analysis_symbol_to_workspace_symbols(
+        analysis_symbol_to_workspace_symbols_cancelable(
             session,
             child,
             Some(symbol.name.as_str()),
             uri_by_path,
             out,
-        );
+            cancellation,
+        )?;
     }
+    Ok(())
 }
 
 pub(super) fn analysis_signature_help_to_ide_help(help: AnalysisSignatureHelp) -> IdeSignatureHelp {
@@ -395,7 +402,10 @@ fn semantic_kind_is_type_definition_target(kind: AnalysisSemanticKind) -> bool {
     )
 }
 
-pub(super) fn find_reference_locations(query: ReferenceLocationQuery<'_>) -> Vec<IdeLocation> {
+pub(super) fn find_reference_locations_cancelable(
+    query: ReferenceLocationQuery<'_>,
+    cancellation: &CancellationToken,
+) -> Result<Vec<IdeLocation>, String> {
     let Some(definition_span) = find_target_definition_span(
         query.session,
         query.hovers,
@@ -403,13 +413,16 @@ pub(super) fn find_reference_locations(query: ReferenceLocationQuery<'_>) -> Vec
         query.target_path,
         query.position,
     ) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let definition_spans = rename_definition_span_group(definition_span, query.definition_links);
 
     let mut locations = Vec::new();
     if query.include_declaration {
         for definition_span in &definition_spans {
+            cancellation
+                .check()
+                .map_err(|_| "request was canceled".to_string())?;
             if let Some(location) =
                 location_from_span(query.session, *definition_span, query.uri_by_path)
             {
@@ -419,6 +432,9 @@ pub(super) fn find_reference_locations(query: ReferenceLocationQuery<'_>) -> Vec
     }
 
     for entry in query.semantic_entries {
+        cancellation
+            .check()
+            .map_err(|_| "request was canceled".to_string())?;
         if entry.role != AnalysisSemanticRole::Reference
             || !definition_spans.contains(&entry.definition_span)
         {
@@ -432,18 +448,22 @@ pub(super) fn find_reference_locations(query: ReferenceLocationQuery<'_>) -> Vec
 
     locations.sort_by_key(location_order_key);
     locations.dedup();
-    locations
+    Ok(locations)
 }
 
-pub(super) fn find_reference_locations_for_definition(
+pub(super) fn find_reference_locations_for_definition_cancelable(
     query: KnownReferenceLocationQuery<'_>,
-) -> Vec<IdeLocation> {
+    cancellation: &CancellationToken,
+) -> Result<Vec<IdeLocation>, String> {
     let definition_spans =
         rename_definition_span_group(query.definition_span, query.definition_links);
 
     let mut locations = Vec::new();
     if query.include_declaration {
         for definition_span in &definition_spans {
+            cancellation
+                .check()
+                .map_err(|_| "request was canceled".to_string())?;
             if let Some(location) =
                 location_from_span(query.session, *definition_span, query.uri_by_path)
             {
@@ -453,6 +473,9 @@ pub(super) fn find_reference_locations_for_definition(
     }
 
     for entry in query.semantic_entries {
+        cancellation
+            .check()
+            .map_err(|_| "request was canceled".to_string())?;
         if entry.role != AnalysisSemanticRole::Reference
             || !definition_spans.contains(&entry.definition_span)
         {
@@ -466,7 +489,7 @@ pub(super) fn find_reference_locations_for_definition(
 
     locations.sort_by_key(location_order_key);
     locations.dedup();
-    locations
+    Ok(locations)
 }
 
 fn location_order_key(location: &IdeLocation) -> (String, u32, u32, u32, u32) {
@@ -1030,4 +1053,147 @@ fn best_definition_entry_with_hover<'a>(
     }
 
     best_match
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kernc_driver::{
+        AnalysisDefinitionLink, AnalysisHover, AnalysisSemanticEntry, AnalysisSemanticKind,
+        AnalysisSemanticRole, AnalysisSymbolKind,
+    };
+    use kernc_utils::{FileId, Session, Span};
+
+    fn span(start: usize, end: usize) -> Span {
+        Span {
+            file: FileId(0),
+            start,
+            end,
+        }
+    }
+
+    fn session_with_source(source: &str) -> Session {
+        let mut session = Session::new();
+        session
+            .source_manager
+            .add_file("navigation_cancel.kn".to_string(), source.to_string());
+        session
+    }
+
+    #[test]
+    fn workspace_symbol_recursion_observes_cancellation() {
+        let session = session_with_source("fn root() void {}\n");
+        let child = AnalysisSymbol {
+            name: "child".to_string(),
+            kind: AnalysisSymbolKind::Function,
+            span: span(0, 4),
+            selection_span: span(0, 4),
+            detail: None,
+            children: Vec::new(),
+        };
+        let symbol = AnalysisSymbol {
+            name: "root".to_string(),
+            kind: AnalysisSymbolKind::Function,
+            span: span(0, 4),
+            selection_span: span(0, 4),
+            detail: None,
+            children: vec![child; 12],
+        };
+        let cancellation = CancellationToken::with_check_budget_for_testing(4);
+        let mut out = Vec::new();
+
+        let result = analysis_symbol_to_workspace_symbols_cancelable(
+            &session,
+            &symbol,
+            None,
+            &BTreeMap::new(),
+            &mut out,
+            &cancellation,
+        );
+
+        assert_eq!(result.unwrap_err(), "request was canceled");
+        assert!(cancellation.is_canceled());
+    }
+
+    #[test]
+    fn reference_location_scan_observes_cancellation() {
+        let session = session_with_source("target target target target target\n");
+        let definition_span = span(0, 6);
+        let hovers = vec![AnalysisHover {
+            span: definition_span,
+            contents: "```kern\nfn target() void\n```".to_string(),
+        }];
+        let semantic_entries = (0..12)
+            .map(|index| AnalysisSemanticEntry {
+                span: span(index, index + 1),
+                definition_span,
+                kind: AnalysisSemanticKind::Function,
+                role: if index == 0 {
+                    AnalysisSemanticRole::Definition
+                } else {
+                    AnalysisSemanticRole::Reference
+                },
+                is_mut: false,
+                is_pub: false,
+            })
+            .collect::<Vec<_>>();
+        let target_path = session.source_manager.get_file_path(FileId(0)).unwrap();
+        let position = Position {
+            line: 0,
+            character: 1,
+        };
+        let cancellation = CancellationToken::with_check_budget_for_testing(6);
+
+        let result = find_reference_locations_cancelable(
+            ReferenceLocationQuery {
+                session: &session,
+                hovers: &hovers,
+                definition_links: &[],
+                semantic_entries: &semantic_entries,
+                target_path,
+                position: &position,
+                include_declaration: true,
+                uri_by_path: &BTreeMap::new(),
+            },
+            &cancellation,
+        );
+
+        assert_eq!(result.unwrap_err(), "request was canceled");
+        assert!(cancellation.is_canceled());
+    }
+
+    #[test]
+    fn known_reference_location_scan_observes_cancellation() {
+        let session = session_with_source("target target target target target\n");
+        let definition_span = span(0, 6);
+        let semantic_entries = (0..12)
+            .map(|index| AnalysisSemanticEntry {
+                span: span(index, index + 1),
+                definition_span,
+                kind: AnalysisSemanticKind::Function,
+                role: AnalysisSemanticRole::Reference,
+                is_mut: false,
+                is_pub: false,
+            })
+            .collect::<Vec<_>>();
+        let cancellation = CancellationToken::with_check_budget_for_testing(4);
+
+        let result = find_reference_locations_for_definition_cancelable(
+            KnownReferenceLocationQuery {
+                session: &session,
+                definition_links: &[AnalysisDefinitionLink {
+                    definition_span,
+                    linked_definition_span: definition_span,
+                }],
+                semantic_entries: &semantic_entries,
+                definition_span,
+                include_declaration: true,
+                uri_by_path: &BTreeMap::new(),
+            },
+            &cancellation,
+        );
+
+        assert_eq!(result.unwrap_err(), "request was canceled");
+        assert!(cancellation.is_canceled());
+    }
 }

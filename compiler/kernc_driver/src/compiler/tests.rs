@@ -77,6 +77,82 @@ fn analysis_artifact_cancellation_reaches_typeck_body_worklist() {
 }
 
 #[test]
+fn analysis_artifact_cancellation_reaches_typeck_expression_traversal() {
+    let root = temp_test_dir("kern_driver_typeck_expr_canceled_artifact");
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let mut source = String::from("fn main() i32 {\n");
+    for index in 0..128 {
+        source.push_str(&format!("    let value{index} = {index};\n"));
+    }
+    source.push_str("    return value127;\n}\n");
+    fs::write(&main, source).unwrap();
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let structure = driver
+        .analyze_structure(main.to_str().unwrap(), &SourceOverrides::new())
+        .expect("nested expression source should structure-check");
+    let cancellation = CancellationToken::with_check_budget_for_testing(10);
+
+    let result = driver.analyze_artifact_from_structure(&structure, &cancellation);
+
+    assert!(result.is_err());
+    assert!(cancellation.is_canceled());
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analysis_artifact_cancellation_reaches_flow_collection() {
+    let root = temp_test_dir("kern_driver_flow_canceled_artifact");
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let mut source = String::new();
+    source.push_str("fn main() i32 { return f0(); }\n");
+    for index in 0..64 {
+        source.push_str(&format!(
+            "fn f{index}() i32 {{ let value = {index}; return value; }}\n"
+        ));
+    }
+    fs::write(&main, source).unwrap();
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let structure = driver
+        .analyze_structure(main.to_str().unwrap(), &SourceOverrides::new())
+        .expect("large test source should structure-check");
+    let cancellation = CancellationToken::with_check_budget_for_testing(140);
+
+    let result = driver.analyze_artifact_from_structure(&structure, &cancellation);
+
+    assert!(result.is_err());
+    assert!(cancellation.is_canceled());
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analysis_artifact_cancellation_reaches_body_diagnostics_after_flow() {
+    let root = temp_test_dir("kern_driver_body_diagnostics_canceled_artifact");
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let mut source = String::new();
+    source.push_str("fn main() i32 { return f0(); }\n");
+    for index in 0..128 {
+        source.push_str(&format!(
+            "fn f{index}() i32 {{ let unused_{index} = {index}; return {index}; }}\n"
+        ));
+    }
+    fs::write(&main, source).unwrap();
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let structure = driver
+        .analyze_structure(main.to_str().unwrap(), &SourceOverrides::new())
+        .expect("large test source should structure-check");
+    let cancellation = CancellationToken::with_check_budget_for_testing(260);
+
+    let result = driver.analyze_artifact_from_structure(&structure, &cancellation);
+
+    assert!(result.is_err());
+    assert!(cancellation.is_canceled());
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn navigation_artifact_cancellation_reaches_typeck_body_worklist() {
     let root = std::env::temp_dir().join(format!(
         "kern_driver_typeck_canceled_navigation_{}_{}",
@@ -177,6 +253,160 @@ fn analysis_artifact_cancellation_reaches_structure_module_loader() {
     assert!(result.is_err());
     assert!(cancellation.is_canceled());
     let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn parse_modules_cancellation_reaches_parser_loop_without_poisoning_cache() {
+    let root = temp_test_dir("kern_driver_parser_canceled");
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let mut source = String::new();
+    for index in 0..128 {
+        source.push_str(&format!("fn f{index}() i32 {{ return {index}; }}\n"));
+    }
+    fs::write(&main, source).unwrap();
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let cancellation = CancellationToken::with_check_budget_for_testing(4);
+
+    let canceled = driver.parse_modules(
+        main.to_str().unwrap(),
+        &SourceOverrides::new(),
+        &cancellation,
+    );
+
+    assert!(canceled.is_err());
+    assert!(cancellation.is_canceled());
+
+    let parsed = driver
+        .parse_modules(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .expect("fresh cancellation token cannot be canceled");
+
+    assert!(parsed.is_some());
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn collected_structure_cancellation_reaches_collector_loop() {
+    let root = temp_test_dir("kern_driver_collector_canceled");
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let mut source = String::new();
+    for index in 0..64 {
+        source.push_str(&format!("fn f{index}() i32 {{ return {index}; }}\n"));
+    }
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let mut session = Session::new();
+    session.apply_options(&CompileOptions::default());
+    let mut ctx = driver.build_sema_context(&mut session);
+    let loaded = driver
+        .load_asts(&mut ctx, main.to_str().unwrap(), true)
+        .expect("large test source should load");
+    let cancellation = CancellationToken::with_check_budget_for_testing(3);
+
+    let result = driver.build_collected_structure_from_context_cancelable(
+        &mut ctx,
+        loaded.asts,
+        &cancellation,
+    );
+
+    assert!(result.is_err());
+    assert!(cancellation.is_canceled());
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn imported_structure_cancellation_reaches_import_resolver_loop() {
+    let root = temp_test_dir("kern_driver_import_resolver_canceled");
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let mut source = String::new();
+    for index in 0..64 {
+        source.push_str(&format!("use helper.f{index};\n"));
+    }
+    source.push_str("mod helper;\n");
+    fs::write(&main, source).unwrap();
+    let mut helper = String::new();
+    for index in 0..64 {
+        helper.push_str(&format!("fn f{index}() i32 {{ return {index}; }}\n"));
+    }
+    fs::write(root.join("helper.kn"), helper).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let mut session = Session::new();
+    session.apply_options(&CompileOptions::default());
+    let mut ctx = driver.build_sema_context(&mut session);
+    let loaded = driver
+        .load_asts(&mut ctx, main.to_str().unwrap(), true)
+        .expect("large test source should load");
+    let collected = driver
+        .build_collected_structure_from_context_cancelable(
+            &mut ctx,
+            loaded.asts,
+            &CancellationToken::new(),
+        )
+        .expect("fresh cancellation token cannot be canceled")
+        .expect("large test source should collect");
+    let cancellation = CancellationToken::with_check_budget_for_testing(3);
+
+    let result = driver.build_imported_structure_cancelable(&collected, &cancellation);
+
+    assert!(result.is_err());
+    assert!(cancellation.is_canceled());
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn structure_cancellation_reaches_type_resolver_loop_from_imported_cache() {
+    let root = temp_test_dir("kern_driver_type_resolver_canceled");
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let mut source = String::new();
+    for index in 0..64 {
+        source.push_str(&format!("type Alias{index} = i32;\n"));
+        source.push_str(&format!(
+            "fn f{index}() Alias{index} {{ return {index}; }}\n"
+        ));
+    }
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let imported = driver
+        .analyze_imported_structure(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .expect("fresh cancellation token cannot be canceled")
+        .expect("large test source should import-check");
+    let cancellation = CancellationToken::with_check_budget_for_testing(3);
+
+    let result = driver.analyze_structure_cancelable(
+        main.to_str().unwrap(),
+        &SourceOverrides::new(),
+        &cancellation,
+    );
+
+    assert!(result.is_err());
+    assert!(cancellation.is_canceled());
+    drop(imported);
+    let _ = fs::remove_dir_all(&root);
+}
+
+fn temp_test_dir(prefix: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "{prefix}_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ))
 }
 
 fn count_assignments_in_block(block: &MastBlock) -> usize {

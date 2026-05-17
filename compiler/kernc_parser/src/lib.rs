@@ -8,7 +8,7 @@ pub use stream::TokenStream;
 mod tests {
     use super::Parser;
     use kernc_ast as ast;
-    use kernc_utils::Session;
+    use kernc_utils::{CancellationToken, Session};
 
     fn parse_module(source: &str) -> (Session, ast::Module) {
         let mut session = Session::new();
@@ -19,6 +19,20 @@ mod tests {
         let mut parser = Parser::new(source, file_id, &mut session);
         let module = parser.parse_module().unwrap();
         (session, module)
+    }
+
+    fn assert_cancelable_parse_cancels(source: &str, successful_checks: usize) {
+        let mut session = Session::new();
+        let file_id = session
+            .source_manager
+            .add_file("parser_cancel_loop.kn".to_string(), source.to_string());
+        let cancellation = CancellationToken::with_check_budget_for_testing(successful_checks);
+        let mut parser = Parser::new_cancelable(source, file_id, &mut session, &cancellation);
+
+        let result = parser.parse_module_cancelable();
+
+        assert!(result.is_err());
+        assert!(cancellation.is_canceled());
     }
 
     #[test]
@@ -47,6 +61,76 @@ mod tests {
 
         assert_eq!(&source[expr.span.start..expr.span.end], "return 1 + 2");
         assert_eq!(&source[value.span.start..value.span.end], "1 + 2");
+    }
+
+    #[test]
+    fn cancelable_parse_distinguishes_cancellation_from_parse_errors() {
+        let invalid_source = "fn main( i32 { return 0; }\n";
+        let mut invalid_session = Session::new();
+        let invalid_file = invalid_session
+            .source_manager
+            .add_file("parser_invalid.kn".to_string(), invalid_source.to_string());
+        let token = CancellationToken::new();
+        let mut invalid_parser =
+            Parser::new_cancelable(invalid_source, invalid_file, &mut invalid_session, &token);
+
+        let invalid = invalid_parser
+            .parse_module_cancelable()
+            .expect("uncanceled parse errors should stay parse errors");
+
+        assert!(invalid.is_ok());
+        assert!(!token.is_canceled());
+        assert!(!invalid_session.diagnostics.is_empty());
+
+        let mut source = String::new();
+        for index in 0..128 {
+            source.push_str(&format!("fn f{index}() i32 {{ return {index}; }}\n"));
+        }
+        let mut canceled_session = Session::new();
+        let canceled_file = canceled_session
+            .source_manager
+            .add_file("parser_canceled.kn".to_string(), source.clone());
+        let cancellation = CancellationToken::with_check_budget_for_testing(4);
+        let mut canceled_parser =
+            Parser::new_cancelable(&source, canceled_file, &mut canceled_session, &cancellation);
+
+        let canceled = canceled_parser.parse_module_cancelable();
+
+        assert!(canceled.is_err());
+        assert!(cancellation.is_canceled());
+    }
+
+    #[test]
+    fn cancelable_parse_reaches_attribute_metadata_list_loop() {
+        let mut source = "#[".to_string();
+        for index in 0..64 {
+            source.push_str(&format!("attr{index}, "));
+        }
+        source.push_str("last]\nfn main() void {}\n");
+
+        assert_cancelable_parse_cancels(&source, 6);
+    }
+
+    #[test]
+    fn cancelable_parse_reaches_call_argument_list_loop() {
+        let mut source = "fn main() void { target(".to_string();
+        for index in 0..64 {
+            source.push_str(&format!("arg{index}, "));
+        }
+        source.push_str("last); }\n");
+
+        assert_cancelable_parse_cancels(&source, 18);
+    }
+
+    #[test]
+    fn cancelable_parse_reaches_data_initializer_recovery_loop() {
+        let mut source = "fn main() void { let value = .{ ".to_string();
+        for index in 0..64 {
+            source.push_str(&format!("bad{index} "));
+        }
+        source.push_str("}; }\n");
+
+        assert_cancelable_parse_cancels(&source, 18);
     }
 
     #[test]

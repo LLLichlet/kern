@@ -148,13 +148,14 @@ impl AnalysisEngine {
         self.refresh_workspace_targets()
     }
 
-    pub fn reload_project_metadata_index(
+    pub(crate) fn reload_project_metadata_index_cancelable(
         &mut self,
         workspace_root: Option<PathBuf>,
-    ) -> WorkspaceIndexRefresh {
+        cancellation: CancellationToken,
+    ) -> Result<WorkspaceIndexRefresh, String> {
         self.project_cache.lock().unwrap().clear();
         self.driver_cache.lock().unwrap().clear();
-        self.refresh_workspace_index(workspace_root)
+        self.refresh_workspace_index_cancelable(workspace_root, cancellation)
     }
 
     pub fn refresh_workspace_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
@@ -164,22 +165,27 @@ impl AnalysisEngine {
         self.workspace_refresh_targets()
     }
 
-    pub fn refresh_workspace_index(
+    pub(crate) fn refresh_workspace_index_cancelable(
         &mut self,
         workspace_root: Option<PathBuf>,
-    ) -> WorkspaceIndexRefresh {
+        cancellation: CancellationToken,
+    ) -> Result<WorkspaceIndexRefresh, String> {
         self.driver_cache.lock().unwrap().clear();
         self.invalidate_artifact_cache();
         self.invalidate_render_caches();
+        if cancellation.is_canceled() {
+            return Err("request was canceled".to_string());
+        }
         let targets = self.workspace_refresh_targets();
-        let (indexed_targets, failed_targets) = self.warm_workspace_symbol_indexes(workspace_root);
+        let (indexed_targets, failed_targets) =
+            self.warm_workspace_symbol_indexes_cancelable(workspace_root, cancellation)?;
         let stats = self.finish_workspace_index_refresh(indexed_targets, failed_targets);
-        WorkspaceIndexRefresh {
+        Ok(WorkspaceIndexRefresh {
             targets,
             indexed_targets: stats.indexed_targets,
             failed_targets: stats.failed_targets,
             generation: stats.generation,
-        }
+        })
     }
 
     fn workspace_refresh_targets(&self) -> Vec<(String, DiagnosticsAnalysisMode)> {

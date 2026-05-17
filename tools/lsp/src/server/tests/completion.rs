@@ -133,6 +133,15 @@ fn verbose_trace_reports_completion_analysis_tier() {
             .unwrap()
             .contains("tier=lexical")
     );
+    let verbose = messages[1]["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("request_id=37"), "{verbose}");
+    assert!(verbose.contains("document_generation=1"), "{verbose}");
+    assert!(verbose.contains("document_version=1"), "{verbose}");
+    assert!(verbose.contains("snapshot_generation="), "{verbose}");
+    assert!(
+        verbose.contains("cache=lexical:hit=0,miss=1,store=1"),
+        "{verbose}"
+    );
     assert!(
         messages[1]["params"]["verbose"]
             .as_str()

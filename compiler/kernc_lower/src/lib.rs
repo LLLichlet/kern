@@ -14,7 +14,7 @@ use kernc_sema::ty::{
     ConstExprKind, ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg, Substituter,
     TypeId, TypeKind,
 };
-use kernc_utils::{NodeId, Span, SymbolId};
+use kernc_utils::{Canceled, CancellationToken, NodeId, Span, SymbolId};
 
 pub(crate) mod expr;
 mod inline;
@@ -118,6 +118,7 @@ pub struct Lowerer<'a, 'ctx> {
     collect_phase_timings: bool,
     phase_totals: HashMap<&'static str, Duration>,
     cache_stats: LowerCacheStats,
+    cancellation: CancellationToken,
 }
 
 type StructLayoutMapping = (Vec<usize>, Vec<usize>);
@@ -185,7 +186,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             collect_phase_timings,
             phase_totals: HashMap::new(),
             cache_stats: LowerCacheStats::default(),
+            cancellation: CancellationToken::new(),
         }
+    }
+
+    pub fn set_cancellation_token(&mut self, cancellation: CancellationToken) {
+        self.cancellation = cancellation;
+    }
+
+    pub(crate) fn check_canceled(&self) -> Result<(), Canceled> {
+        self.cancellation.check()
     }
 
     fn cached_forwarding_symbol(&mut self, name: &str) -> SymbolId {
@@ -499,11 +509,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     /// Entry point for lowering with internal timing breakdowns.
     pub fn lower_all_with_report(&mut self) -> LowerReport {
+        self.lower_all_with_report_cancelable()
+            .expect("fresh cancellation token cannot be canceled")
+    }
+
+    pub fn lower_all_with_report_cancelable(&mut self) -> Result<LowerReport, Canceled> {
+        self.check_canceled()?;
         let def_ids: Vec<_> = self.ctx.defs.ids().collect();
 
         // Phase 1: preallocate `MonoId`s for globals.
         self.measure_phase("  lower_preallocate_globals", |this| {
             for &id in &def_ids {
+                if this.check_canceled().is_err() {
+                    break;
+                }
                 let global_name = if let Def::Global(g) = &this.ctx.defs[id.0 as usize] {
                     Some(g.name)
                 } else {
@@ -518,11 +537,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             }
         });
+        self.check_canceled()?;
 
         // Phase 2: lower concrete entities for real.
         let actions = self.measure_phase("  lower_collect_roots", |this| {
             let mut actions = Vec::new();
             for id in def_ids {
+                if this.check_canceled().is_err() {
+                    break;
+                }
                 match &this.ctx.defs[id.0 as usize] {
                     Def::Function(f) => {
                         if f.is_imported || f.is_intrinsic {
@@ -563,8 +586,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
             actions
         });
+        self.check_canceled()?;
 
         for action in actions {
+            self.check_canceled()?;
             match action {
                 LowerRootAction::InstantiateFunction(id) => {
                     self.measure_phase("  lower_root_functions", |this| {
@@ -594,10 +619,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        self.drain_pending_function_instantiations();
+        self.drain_pending_function_instantiations_cancelable()?;
         self.measure_phase("  lower_inline", |this| {
             this.run_inline_pass();
         });
+        self.check_canceled()?;
 
         self.module.mono = MonoModuleMetadata {
             def_mono_map: self.mono_cache.clone(),
@@ -626,11 +652,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .collect::<Vec<_>>();
         phase_timings.sort_by_key(|timing| timing.name);
 
-        LowerReport {
+        Ok(LowerReport {
             module,
             phase_timings,
             cache_stats: self.cache_stats,
-        }
+        })
     }
 
     pub(crate) fn extract_meta_items(&self, attrs: &[ast::Attribute]) -> Vec<ast::MetaItem> {

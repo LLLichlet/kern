@@ -1094,12 +1094,16 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             return Ok(Some(mod_id));
         }
 
-        let parsed = match self.frontend.load_parsed_module_normalized_profiled(
-            self.ctx.sess,
-            &abs_path,
-            self.collect_docs,
-        ) {
-            Ok(Some((parsed, timings))) => {
+        let parsed = match self
+            .frontend
+            .load_parsed_module_normalized_profiled_cancelable(
+                self.ctx.sess,
+                &abs_path,
+                self.collect_docs,
+                self.cancellation
+                    .expect("cancelable module loader must carry a cancellation token"),
+            ) {
+            Ok(Ok(Some((parsed, timings)))) => {
                 self.timings.frontend_read_source += timings.read_source;
                 self.timings.frontend_ensure_file_id += timings.ensure_file_id;
                 self.timings.frontend_parse += timings.parse;
@@ -1107,7 +1111,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 self.timings.frontend_rebind += timings.rebind;
                 parsed
             }
-            Ok(None) => {
+            Ok(Ok(None)) => {
                 self.ctx.sess.error_count += 1;
                 eprintln!(
                     "Error: Cannot read or parse module file '{}'.",
@@ -1115,7 +1119,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 );
                 return Ok(None);
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 self.ctx.sess.error_count += 1;
                 eprintln!(
                     "Error: Query cycle while loading module '{}': {}",
@@ -1124,6 +1128,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 );
                 return Ok(None);
             }
+            Err(canceled) => return Err(canceled),
         };
         self.check_canceled()?;
         let Some(source_dir_path) = abs_path.parent().map(|p| p.to_path_buf()) else {

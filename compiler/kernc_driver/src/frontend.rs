@@ -10,7 +10,10 @@ use kernc_db::Memo;
 use kernc_db::{Database, Input, Query};
 use kernc_parser::Parser;
 use kernc_sema::passes::Pruner;
-use kernc_utils::{Diagnostic, DiagnosticLevel, FileId, NodeId, Session, Span, SymbolId};
+use kernc_utils::{
+    Canceled, CancellationToken, Diagnostic, DiagnosticLevel, FileId, NodeId, Session, Span,
+    SymbolId,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrontendParsedModule {
@@ -191,39 +194,70 @@ impl FrontendDatabase {
             .map(|parsed| parsed.map(|(parsed, _)| parsed))
     }
 
+    #[cfg(test)]
     pub(crate) fn load_parsed_module_normalized_profiled(
         &self,
         session: &mut Session,
         normalized: &Path,
         collect_docs: bool,
     ) -> Result<Option<(FrontendParsedModule, FrontendLoadTimings)>, kernc_db::Cycle> {
+        self.load_parsed_module_normalized_profiled_cancelable(
+            session,
+            normalized,
+            collect_docs,
+            &CancellationToken::new(),
+        )
+        .expect("fresh cancellation token cannot be canceled")
+    }
+
+    pub(crate) fn load_parsed_module_normalized_profiled_cancelable(
+        &self,
+        session: &mut Session,
+        normalized: &Path,
+        collect_docs: bool,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        Result<Option<(FrontendParsedModule, FrontendLoadTimings)>, kernc_db::Cycle>,
+        Canceled,
+    > {
+        cancellation.check()?;
         let mut timings = FrontendLoadTimings::default();
         let key = (normalized.to_path_buf(), collect_docs);
         let mut computed_parse_timings = FrontendLoadTimings::default();
-        let Some(raw_record) =
+        let raw_record =
             self.parsed_modules
-                .get_with(&self.db, "frontend_parsed_module", key, || {
+                .try_get_with(&self.db, "frontend_parsed_module", key, || {
+                    cancellation.check()?;
                     let read_started = Instant::now();
-                    let Some(source) = self.source_texts.get(&self.db, normalized.to_path_buf())?
-                    else {
-                        return Ok(None);
+                    let source = match self.source_texts.get(&self.db, normalized.to_path_buf()) {
+                        Ok(Some(source)) => source,
+                        Ok(None) => return Ok(Ok(None)),
+                        Err(cycle) => return Ok(Err(cycle)),
                     };
                     computed_parse_timings.read_source = read_started.elapsed();
-                    let (outcome, parse_timings) =
-                        self.compute_cached_parse_outcome(&source, collect_docs);
+                    let (outcome, parse_timings) = self.compute_cached_parse_outcome_cancelable(
+                        &source,
+                        collect_docs,
+                        cancellation,
+                    )?;
                     computed_parse_timings.add(parse_timings);
-                    Ok(Some(Arc::new(CachedParseRecord { source, outcome })))
-                })?
-        else {
-            return Ok(None);
+                    Ok(Ok(Some(Arc::new(CachedParseRecord { source, outcome }))))
+                })?;
+        let raw_record = match raw_record {
+            Ok(raw_record) => raw_record,
+            Err(cycle) => return Ok(Err(cycle)),
+        };
+        let Some(raw_record) = raw_record else {
+            return Ok(Ok(None));
         };
         timings.add(computed_parse_timings);
+        cancellation.check()?;
 
         let mut computed_prune_timings = FrontendLoadTimings::default();
         let record = if source_may_need_conditional_pruning(raw_record.source.as_ref()) {
             let prune_profile = FrontendPruneProfile::from_session(session);
             let raw_record_for_prune = raw_record.clone();
-            let Some(pruned_record) = self.pruned_modules.get_with(
+            let pruned_record = match self.pruned_modules.get_with(
                 &self.db,
                 "frontend_pruned_module",
                 (
@@ -238,9 +272,10 @@ impl FrontendDatabase {
                     computed_prune_timings.prune = prune_started.elapsed();
                     Ok(record.map(Arc::new))
                 },
-            )?
-            else {
-                return Ok(None);
+            ) {
+                Ok(Some(pruned_record)) => pruned_record,
+                Ok(None) => return Ok(Ok(None)),
+                Err(cycle) => return Ok(Err(cycle)),
             };
             timings.add(computed_prune_timings);
             pruned_record
@@ -249,10 +284,12 @@ impl FrontendDatabase {
         };
 
         let ensure_started = Instant::now();
+        cancellation.check()?;
         let file_id = self.ensure_file_id(session, normalized, &record.source);
         timings.ensure_file_id += ensure_started.elapsed();
 
         let rebind_started = Instant::now();
+        cancellation.check()?;
         let parsed = match &record.outcome {
             CachedParseOutcome::Parsed(cached) => {
                 self.replay_diagnostics(session, file_id, &cached.diagnostics);
@@ -265,7 +302,8 @@ impl FrontendDatabase {
         };
         timings.rebind += rebind_started.elapsed();
 
-        Ok(parsed.map(|parsed| (parsed, timings)))
+        cancellation.check()?;
+        Ok(Ok(parsed.map(|parsed| (parsed, timings))))
     }
 
     pub fn uncached_parse_count(&self) -> usize {
@@ -295,20 +333,22 @@ impl FrontendDatabase {
             .add_file(path.to_string_lossy().to_string(), source.clone())
     }
 
-    fn compute_cached_parse_outcome(
+    fn compute_cached_parse_outcome_cancelable(
         &self,
         source: &Arc<str>,
         collect_docs: bool,
-    ) -> (CachedParseOutcome, FrontendLoadTimings) {
+        cancellation: &CancellationToken,
+    ) -> Result<(CachedParseOutcome, FrontendLoadTimings), Canceled> {
         self.uncached_parse_count.fetch_add(1, Ordering::SeqCst);
 
         let mut parse_session = Session::new();
-        let (parsed, timings) = self.parse_frontend_module_profiled(
+        let (parsed, timings) = self.parse_frontend_module_profiled_cancelable(
             &mut parse_session,
             FileId(0),
             source,
             collect_docs,
-        );
+            cancellation,
+        )?;
         let diagnostics = parse_session.diagnostics.clone();
         let outcome = match parsed {
             Some(ast) => CachedParseOutcome::Parsed(CachedParsedModule {
@@ -319,7 +359,7 @@ impl FrontendDatabase {
             }),
             None => CachedParseOutcome::Failed(CachedParseFailure { diagnostics }),
         };
-        (outcome, timings)
+        Ok((outcome, timings))
     }
 
     fn compute_pruned_parse_record(
@@ -361,28 +401,29 @@ impl FrontendDatabase {
         }
     }
 
-    fn parse_frontend_module_profiled(
+    fn parse_frontend_module_profiled_cancelable(
         &self,
         session: &mut Session,
         file_id: FileId,
         source: &Arc<str>,
         collect_docs: bool,
-    ) -> (Option<ast::Module>, FrontendLoadTimings) {
+        cancellation: &CancellationToken,
+    ) -> Result<(Option<ast::Module>, FrontendLoadTimings), Canceled> {
         let mut timings = FrontendLoadTimings::default();
 
         let parse_started = Instant::now();
         let mut parser = if collect_docs {
-            Parser::new(source.as_ref(), file_id, session)
+            Parser::new_cancelable(source.as_ref(), file_id, session, cancellation)
         } else {
-            Parser::new_without_docs(source.as_ref(), file_id, session)
+            Parser::new_without_docs_cancelable(source.as_ref(), file_id, session, cancellation)
         };
-        let ast = match parser.parse_module() {
+        let ast = match parser.parse_module_cancelable()? {
             Ok(ast) => ast,
-            Err(_) => return (None, timings),
+            Err(_) => return Ok((None, timings)),
         };
         timings.parse = parse_started.elapsed();
 
-        (Some(ast), timings)
+        Ok((Some(ast), timings))
     }
 
     fn bind_cached_module(

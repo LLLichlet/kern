@@ -68,6 +68,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, GenericArg>,
         expected_ty: Option<TypeId>,
     ) -> MastExpr {
+        if self.check_canceled().is_err() {
+            return MastExpr::new(TypeId::ERROR, MastExprKind::Trap, expr.span);
+        }
         let raw_ty = self.resolve_expr_type(expr);
         let concrete_ty = self.substitute_type_with_map(raw_ty, subst_map);
         let exp_ty = expected_ty.unwrap_or(concrete_ty);

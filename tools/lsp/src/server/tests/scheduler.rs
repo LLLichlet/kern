@@ -375,8 +375,9 @@ fn diagnostics_lane_respects_per_drain_target_budget() {
     flush_diagnostics_lane(&mut state, &mut writer).unwrap();
 
     assert!(state.pending_diagnostics_worker_tasks <= 2);
-    let submitted_or_completed =
-        state.pending_diagnostics_worker_tasks + state.pending_diagnostics.len();
+    let submitted_or_completed = state.pending_diagnostics_worker_tasks
+        + state.pending_diagnostics.len()
+        + state.published_by_target.len();
     assert_eq!(submitted_or_completed, 2);
     assert_eq!(state.pending_diagnostics_targets.len(), 1);
     assert!(state.has_pending_diagnostics_work());
@@ -716,6 +717,7 @@ fn analysis_cancellation_text_alone_is_not_reclassified_as_lsp_cancellation() {
 #[test]
 fn panicking_document_request_returns_error_response() {
     let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
     let uri = temp_file_uri("server_panicking_request", "fn main() void {}\n");
     let mut output = Vec::new();
     let mut writer = MessageWriter::new(&mut output);
@@ -736,7 +738,7 @@ fn panicking_document_request_returns_error_response() {
     std::panic::set_hook(previous_hook);
 
     let messages = read_all_messages(&output);
-    assert_eq!(messages.len(), 1);
+    assert_eq!(messages.len(), 2);
     assert_eq!(messages[0]["id"], json!(47));
     assert!(
         messages[0]["error"]["message"]
@@ -744,6 +746,15 @@ fn panicking_document_request_returns_error_response() {
             .unwrap()
             .contains("synthetic analysis panic")
     );
+    assert_eq!(messages[1]["method"], "$/logTrace");
+    assert_eq!(messages[1]["params"]["message"], "analysis tier selected");
+    let verbose = messages[1]["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("request_id=47"), "{verbose}");
+    assert!(verbose.contains("document_generation=None"), "{verbose}");
+    assert!(verbose.contains("document_version=None"), "{verbose}");
+    assert!(verbose.contains("snapshot_generation="), "{verbose}");
+    assert!(verbose.contains("cache=none"), "{verbose}");
+    assert!(verbose.contains("error_class=InternalBug"), "{verbose}");
 }
 
 #[test]
@@ -950,6 +961,7 @@ fn optional_document_request_none_returns_null_response() {
 #[test]
 fn stale_document_request_generation_drops_response() {
     let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
     let uri = temp_file_uri("server_stale_request", "fn main() void {}\n");
     let _current = state.begin_target_analysis(&uri);
     let request = state.request_context_for_document(json!(43), &uri);
@@ -959,7 +971,17 @@ fn stale_document_request_generation_drops_response() {
 
     write_success_response(&mut state, &mut writer, &request, json!({ "ok": true })).unwrap();
 
-    assert!(output.is_empty());
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["method"], "$/logTrace");
+    assert_eq!(messages[0]["params"]["message"], "stale response dropped");
+    let verbose = messages[0]["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("request_id=43"), "{verbose}");
+    assert!(verbose.contains("document_generation=1"), "{verbose}");
+    assert!(verbose.contains("document_version=None"), "{verbose}");
+    assert!(verbose.contains("snapshot_generation=None"), "{verbose}");
+    assert!(verbose.contains("status=stale"), "{verbose}");
+    assert!(verbose.contains("cache=none"), "{verbose}");
 }
 
 #[test]
@@ -1009,10 +1031,13 @@ fn stale_document_request_task_result_drops_response() {
             target_uri: uri,
             lane: SchedulerLane::Interactive,
             method: "textDocument/hover".to_string(),
+            trace: TraceContext::default(),
             queue_wait_ms: 0,
             elapsed_ms: 0,
             analysis_tier: None,
+            analysis_trace: Default::default(),
             canceled: false,
+            error_class: None,
             response: DocumentRequestResponse::Success(json!({ "ok": true })),
         },
     )

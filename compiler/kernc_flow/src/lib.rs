@@ -3,10 +3,15 @@
 mod dataflow;
 
 pub use dataflow::{
-    CfgTopology, ComputedLiveness, ComputedReaching, collect_binding_summaries, collect_def_uses,
-    collect_definition_facts, collect_node_facts, collect_node_transfers, collect_resolved_uses,
-    collect_single_source_uses, collect_use_defs, compute_liveness, compute_reaching_definitions,
-    materialize_liveness, materialize_reaching_definitions,
+    CfgTopology, ComputedLiveness, ComputedReaching, collect_binding_summaries,
+    collect_binding_summaries_cancelable, collect_def_uses, collect_def_uses_cancelable,
+    collect_definition_facts, collect_definition_facts_cancelable, collect_node_facts,
+    collect_node_facts_cancelable, collect_node_transfers, collect_node_transfers_cancelable,
+    collect_resolved_uses, collect_resolved_uses_cancelable, collect_single_source_uses,
+    collect_single_source_uses_cancelable, collect_use_defs, collect_use_defs_cancelable,
+    compute_liveness, compute_liveness_cancelable, compute_reaching_definitions,
+    compute_reaching_definitions_cancelable, materialize_liveness, materialize_liveness_cancelable,
+    materialize_reaching_definitions, materialize_reaching_definitions_cancelable,
 };
 pub use kernc_middle::NodeFacts;
 use kernc_ty::DefId;

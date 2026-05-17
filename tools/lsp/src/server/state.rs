@@ -1,5 +1,5 @@
 use super::lifecycle::TraceValue;
-use crate::analysis::{AnalysisEngine, AnalysisOutcome, AnalysisTier};
+use crate::analysis::{AnalysisEngine, AnalysisOutcome, AnalysisTier, AnalysisTrace};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -114,10 +114,13 @@ pub(super) struct DocumentRequestTaskResult {
     pub(super) target_uri: String,
     pub(super) lane: SchedulerLane,
     pub(super) method: String,
+    pub(super) trace: TraceContext,
     pub(super) queue_wait_ms: u128,
     pub(super) elapsed_ms: u128,
     pub(super) analysis_tier: Option<AnalysisTier>,
+    pub(super) analysis_trace: AnalysisTrace,
     pub(super) canceled: bool,
+    pub(super) error_class: Option<LspErrorClass>,
     pub(super) response: DocumentRequestResponse,
 }
 
@@ -134,17 +137,23 @@ pub(super) struct DiagnosticsTaskResult {
     pub(super) target_uri: String,
     pub(super) generation: AnalysisGeneration,
     pub(super) mode: DiagnosticsAnalysisMode,
+    pub(super) trace: TraceContext,
     pub(super) queue_wait_ms: u128,
     pub(super) elapsed_ms: u128,
     pub(super) analysis_tier: Option<AnalysisTier>,
+    pub(super) analysis_trace: AnalysisTrace,
+    pub(super) error_class: Option<LspErrorClass>,
     pub(super) outcome: AnalysisOutcome,
 }
 
 pub(super) struct WorkspaceRefreshTaskResult {
     pub(super) reason: String,
     pub(super) progress_token: Option<Value>,
+    pub(super) trace: TraceContext,
     pub(super) queue_wait_ms: u128,
     pub(super) elapsed_ms: u128,
+    pub(super) analysis_trace: AnalysisTrace,
+    pub(super) error_class: Option<LspErrorClass>,
     pub(super) refresh: Result<crate::analysis::WorkspaceIndexRefresh, String>,
 }
 
@@ -165,6 +174,36 @@ pub(super) enum DocumentRequestResponse {
     Success(Value),
     Null,
     Error { code: i64, message: String },
+}
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct TraceContext {
+    pub(super) request_id: Option<Value>,
+    pub(super) document_generation: Option<AnalysisGeneration>,
+    pub(super) document_version: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LspErrorClass {
+    ProjectUnavailable,
+    ProjectInvalid,
+    AnalysisFailed,
+    RequestCanceled,
+    InternalBug,
+    ProtocolError,
+}
+
+impl LspErrorClass {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::ProjectUnavailable => "ProjectUnavailable",
+            Self::ProjectInvalid => "ProjectInvalid",
+            Self::AnalysisFailed => "AnalysisFailed",
+            Self::RequestCanceled => "RequestCanceled",
+            Self::InternalBug => "InternalBug",
+            Self::ProtocolError => "ProtocolError",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

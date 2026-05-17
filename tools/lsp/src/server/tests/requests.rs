@@ -551,6 +551,7 @@ root = "src/lib.kn"
     .unwrap();
 
     let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
     state.workspace_root = Some(root);
     let _ = dispatch_messages(
         &mut state,
@@ -565,7 +566,7 @@ root = "src/lib.kn"
     );
     assert_eq!(state.analysis.cached_workspace_symbol_index_count(), 1);
 
-    let response = dispatch_single_response(
+    let messages = dispatch_messages(
         &mut state,
         IncomingMessage {
             jsonrpc: JSONRPC_VERSION.to_string(),
@@ -576,11 +577,30 @@ root = "src/lib.kn"
             })),
         },
     );
+    let response = messages
+        .iter()
+        .find(|message| message.get("id") == Some(&json!(242)))
+        .expect("expected workspace symbol response");
 
     assert_eq!(response["id"], json!(242));
     assert_eq!(response["result"].as_array().unwrap().len(), 1);
     assert_eq!(response["result"][0]["name"], "RefreshedNeedle");
     assert_eq!(state.analysis.cached_workspace_symbol_index_count(), 1);
+    let trace = messages
+        .iter()
+        .find(|message| {
+            message["method"] == "$/logTrace"
+                && message["params"]["message"] == "analysis tier selected"
+        })
+        .expect("expected workspace symbol trace");
+    let verbose = trace["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("request_id=242"), "{verbose}");
+    assert!(verbose.contains("method=workspace/symbol"), "{verbose}");
+    assert!(verbose.contains("snapshot_generation="), "{verbose}");
+    assert!(
+        verbose.contains("workspace-symbol-index:hit=1,miss=0,store=0"),
+        "{verbose}"
+    );
 }
 
 #[test]
@@ -1928,6 +1948,62 @@ fn semantic_tokens_request_returns_encoded_token_data() {
     let data = response["result"]["data"].as_array().unwrap();
     assert!(!data.is_empty());
     assert_eq!(data.len() % 5, 0);
+}
+
+#[test]
+fn verbose_trace_reports_semantic_tokens_cache_hit() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let source = concat!(
+        "struct Point { x: i32 }\n",
+        "fn helper(point: Point) i32 {\n",
+        "    return point.x;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("server_semantic_tokens_cache_trace", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let _ = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(3101)),
+            method: Some("textDocument/semanticTokens/full".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(3102)),
+            method: Some("textDocument/semanticTokens/full".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+
+    let trace = messages
+        .iter()
+        .find(|message| {
+            message["method"] == "$/logTrace"
+                && message["params"]["message"] == "analysis tier selected"
+        })
+        .expect("expected semantic token trace");
+    let verbose = trace["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("request_id=3102"), "{verbose}");
+    assert!(
+        verbose.contains("method=textDocument/semanticTokens/full"),
+        "{verbose}"
+    );
+    assert!(verbose.contains("snapshot_generation="), "{verbose}");
+    assert!(
+        verbose.contains("semantic-tokens:hit=1,miss=0,store=0"),
+        "{verbose}"
+    );
 }
 
 #[test]

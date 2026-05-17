@@ -467,6 +467,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         actual_ty: TypeId,
         define_bindings: bool,
     ) {
+        if self.is_canceled() {
+            return;
+        }
         match &pattern.kind {
             ast::PatternKind::Binding(binding) => {
                 if define_bindings {
@@ -601,6 +604,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                         let mut seen = FastHashSet::default();
                         for field in &destructure.fields {
+                            if self.is_canceled() {
+                                return;
+                            }
                             if !seen.insert(field.name) {
                                 self.ctx
                                     .struct_error(

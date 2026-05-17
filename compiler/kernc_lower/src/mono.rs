@@ -32,9 +32,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         padded as usize
     }
 
-    pub(crate) fn drain_pending_function_instantiations(&mut self) {
+    pub(crate) fn drain_pending_function_instantiations_cancelable(
+        &mut self,
+    ) -> Result<(), kernc_utils::Canceled> {
         while self.next_pending_function_instantiation < self.pending_function_instantiations.len()
         {
+            self.check_canceled()?;
             let pending = self.pending_function_instantiations
                 [self.next_pending_function_instantiation]
                 .clone();
@@ -55,6 +58,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
         self.pending_function_instantiations.clear();
         self.next_pending_function_instantiation = 0;
+        Ok(())
     }
 
     pub(crate) fn lower_const_value_expr(
@@ -426,7 +430,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .len()
             .saturating_sub(self.next_pending_function_instantiation);
         if pending_outstanding >= MAX_PENDING_FUNCTION_SPECIALIZATIONS {
-            self.drain_pending_function_instantiations();
+            let _ = self.drain_pending_function_instantiations_cancelable();
         }
         if let Some(limit) = self.recursive_specialization_limit() {
             self.cache_stats.mono_function_misses += 1;
@@ -489,6 +493,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         id: MonoId,
         request_span: Span,
     ) -> MonoId {
+        if self.check_canceled().is_err() {
+            return id;
+        }
         let Some(def_ptr) = self
             .ctx
             .defs

@@ -41,8 +41,14 @@ fn verbose_trace_reports_diagnostics_lane_analysis() {
     assert!(verbose.contains("mode=Structure"), "{verbose}");
     assert!(verbose.contains("queue_wait_ms="), "{verbose}");
     assert!(verbose.contains("elapsed_ms="), "{verbose}");
+    assert!(verbose.contains("request_id=None"), "{verbose}");
+    assert!(verbose.contains("document_generation=1"), "{verbose}");
+    assert!(verbose.contains("document_version=1"), "{verbose}");
+    assert!(verbose.contains("snapshot_generation="), "{verbose}");
+    assert!(verbose.contains("cache="), "{verbose}");
     assert!(verbose.contains("status=completed"), "{verbose}");
     assert!(verbose.contains("budget=ok"), "{verbose}");
+    assert!(verbose.contains("error_class=None"), "{verbose}");
     assert_eq!(messages[1]["method"], "textDocument/publishDiagnostics");
 }
 
@@ -75,6 +81,10 @@ fn verbose_trace_reports_interactive_request_method() {
         .expect("expected interactive analysis trace");
     let verbose = trace["params"]["verbose"].as_str().unwrap();
     assert!(verbose.contains("tier=surface"), "{verbose}");
+    assert!(verbose.contains("request_id=81"), "{verbose}");
+    assert!(verbose.contains("document_generation=1"), "{verbose}");
+    assert!(verbose.contains("document_version=1"), "{verbose}");
+    assert!(verbose.contains("snapshot_generation="), "{verbose}");
     assert!(
         verbose.contains("method=textDocument/documentSymbol"),
         "{verbose}"
@@ -83,6 +93,8 @@ fn verbose_trace_reports_interactive_request_method() {
     assert!(verbose.contains("queue_wait_ms="), "{verbose}");
     assert!(verbose.contains("status=completed"), "{verbose}");
     assert!(verbose.contains("budget=ok"), "{verbose}");
+    assert!(verbose.contains("cache="), "{verbose}");
+    assert!(verbose.contains("error_class=None"), "{verbose}");
 }
 
 #[test]
@@ -115,8 +127,14 @@ fn verbose_trace_reports_workspace_refresh_latency() {
                         && verbose.contains("targets=")
                         && verbose.contains("queue_wait_ms=")
                         && verbose.contains("elapsed_ms=")
+                        && verbose.contains("request_id=None")
+                        && verbose.contains("document_generation=None")
+                        && verbose.contains("document_version=None")
+                        && verbose.contains("snapshot_generation=")
                         && verbose.contains("status=completed")
                         && verbose.contains("budget=ok")
+                        && verbose.contains("cache=")
+                        && verbose.contains("error_class=None")
                 })
     }));
 }
@@ -190,6 +208,9 @@ fn watched_project_metadata_change_uses_project_reload() {
                 .as_str()
                 .is_some_and(|verbose| {
                     verbose.contains("reason=workspace project metadata changed")
+                        && verbose.contains("snapshot_generation=")
+                        && verbose.contains("cache=")
+                        && verbose.contains("error_class=None")
                 })
     }));
 }

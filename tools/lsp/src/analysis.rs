@@ -36,12 +36,12 @@ use self::ide::{
 use self::navigation::{
     KnownReferenceLocationQuery, ReferenceLocationQuery, analysis_completion_to_ide_item,
     analysis_signature_help_to_ide_help, analysis_symbol_to_document_symbol,
-    analysis_symbol_to_workspace_symbols, analysis_type_hint_to_ide_hint, build_rename_changes,
-    find_call_hierarchy_incoming_calls, find_call_hierarchy_item,
+    analysis_symbol_to_workspace_symbols_cancelable, analysis_type_hint_to_ide_hint,
+    build_rename_changes, find_call_hierarchy_incoming_calls, find_call_hierarchy_item,
     find_call_hierarchy_outgoing_calls, find_definition_location, find_document_highlights,
-    find_hover, find_implementation_locations, find_reference_locations,
-    find_reference_locations_for_definition, find_rename_target, find_type_definition_location,
-    navigation_definition_span_for_position,
+    find_hover, find_implementation_locations, find_reference_locations_cancelable,
+    find_reference_locations_for_definition_cancelable, find_rename_target,
+    find_type_definition_location, navigation_definition_span_for_position,
 };
 use self::text::{
     LexicalIndex, apply_content_change, byte_offset_to_position, completion_context,
@@ -74,6 +74,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalysisSettings {
@@ -112,6 +113,113 @@ pub struct WorkspaceIndexRefresh {
     pub indexed_targets: usize,
     pub failed_targets: usize,
     pub generation: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AnalysisTrace {
+    pub(crate) snapshot_generation: Option<u64>,
+    cache_events: Vec<AnalysisCacheTraceEvent>,
+    dirty_fallbacks: Vec<&'static str>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum AnalysisCacheTraceKind {
+    ProjectResolution,
+    Driver,
+    ParseArtifact,
+    SurfaceArtifact,
+    StructureArtifact,
+    SemanticArtifact,
+    NavigationArtifact,
+    WorkspaceSymbolIndex,
+    SemanticTokens,
+    LexicalIndex,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum AnalysisCacheTraceOutcome {
+    Hit,
+    Miss,
+    Store,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AnalysisCacheTraceEvent {
+    kind: AnalysisCacheTraceKind,
+    outcome: AnalysisCacheTraceOutcome,
+}
+
+impl AnalysisTrace {
+    pub(crate) fn cache_summary(&self) -> String {
+        if self.cache_events.is_empty() && self.dirty_fallbacks.is_empty() {
+            return "none".to_string();
+        }
+
+        let mut counts = BTreeMap::new();
+        for event in &self.cache_events {
+            *counts.entry((event.kind, event.outcome)).or_insert(0usize) += 1;
+        }
+
+        let mut parts = Vec::new();
+        let kinds = [
+            AnalysisCacheTraceKind::ProjectResolution,
+            AnalysisCacheTraceKind::Driver,
+            AnalysisCacheTraceKind::ParseArtifact,
+            AnalysisCacheTraceKind::SurfaceArtifact,
+            AnalysisCacheTraceKind::StructureArtifact,
+            AnalysisCacheTraceKind::SemanticArtifact,
+            AnalysisCacheTraceKind::NavigationArtifact,
+            AnalysisCacheTraceKind::WorkspaceSymbolIndex,
+            AnalysisCacheTraceKind::SemanticTokens,
+            AnalysisCacheTraceKind::LexicalIndex,
+        ];
+        for kind in kinds {
+            let hit = counts
+                .get(&(kind, AnalysisCacheTraceOutcome::Hit))
+                .copied()
+                .unwrap_or(0);
+            let miss = counts
+                .get(&(kind, AnalysisCacheTraceOutcome::Miss))
+                .copied()
+                .unwrap_or(0);
+            let store = counts
+                .get(&(kind, AnalysisCacheTraceOutcome::Store))
+                .copied()
+                .unwrap_or(0);
+            if hit > 0 || miss > 0 || store > 0 {
+                parts.push(format!(
+                    "{}:hit={},miss={},store={}",
+                    kind.as_str(),
+                    hit,
+                    miss,
+                    store
+                ));
+            }
+        }
+
+        if !self.dirty_fallbacks.is_empty() {
+            parts.push(format!("dirty-fallback={}", self.dirty_fallbacks.join(",")));
+        }
+
+        parts.join(";")
+    }
+}
+
+impl AnalysisCacheTraceKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ProjectResolution => "project",
+            Self::Driver => "driver",
+            Self::ParseArtifact => "parse",
+            Self::SurfaceArtifact => "surface",
+            Self::StructureArtifact => "structure",
+            Self::SemanticArtifact => "semantic",
+            Self::NavigationArtifact => "navigation",
+            Self::WorkspaceSymbolIndex => "workspace-symbol-index",
+            Self::SemanticTokens => "semantic-tokens",
+            Self::LexicalIndex => "lexical",
+        }
+    }
 }
 
 struct SurfaceSymbolIndex {
@@ -237,6 +345,10 @@ impl AnalysisSnapshot {
         self.documents.get(uri)
     }
 
+    pub(crate) fn document_version(&self, uri: &str) -> Option<i64> {
+        self.document(uri).map(|document| document.version)
+    }
+
     fn document_source_file(&self, uri: &str) -> Option<SourceFile> {
         let document = self.document(uri)?;
         Some(SourceFile::new(
@@ -333,6 +445,8 @@ pub struct AnalysisEngine {
     dirty_documents_snapshot: Arc<Mutex<Option<Arc<DirtyDocumentsSnapshot>>>>,
     open_uri_by_path: Arc<Mutex<Option<Arc<BTreeMap<PathBuf, String>>>>>,
     last_analysis_tier: Arc<Mutex<Option<AnalysisTier>>>,
+    next_snapshot_generation: Arc<AtomicU64>,
+    last_analysis_trace: Arc<Mutex<AnalysisTrace>>,
 }
 
 impl Clone for AnalysisEngine {
@@ -353,6 +467,8 @@ impl Clone for AnalysisEngine {
             dirty_documents_snapshot: self.dirty_documents_snapshot.clone(),
             open_uri_by_path: self.open_uri_by_path.clone(),
             last_analysis_tier: Arc::new(Mutex::new(None)),
+            next_snapshot_generation: self.next_snapshot_generation.clone(),
+            last_analysis_trace: Arc::new(Mutex::new(AnalysisTrace::default())),
         }
     }
 }
@@ -381,6 +497,8 @@ impl AnalysisEngine {
             dirty_documents_snapshot: Arc::new(Mutex::new(None)),
             open_uri_by_path: Arc::new(Mutex::new(None)),
             last_analysis_tier: Arc::new(Mutex::new(None)),
+            next_snapshot_generation: Arc::new(AtomicU64::new(0)),
+            last_analysis_trace: Arc::new(Mutex::new(AnalysisTrace::default())),
         }
     }
 
@@ -404,8 +522,53 @@ impl AnalysisEngine {
         self.last_analysis_tier.lock().unwrap().replace(tier);
     }
 
+    fn record_cache_hit(&self, kind: AnalysisCacheTraceKind) {
+        self.record_cache_event(kind, AnalysisCacheTraceOutcome::Hit);
+    }
+
+    fn record_cache_miss(&self, kind: AnalysisCacheTraceKind) {
+        self.record_cache_event(kind, AnalysisCacheTraceOutcome::Miss);
+    }
+
+    fn record_cache_store(&self, kind: AnalysisCacheTraceKind) {
+        self.record_cache_event(kind, AnalysisCacheTraceOutcome::Store);
+    }
+
+    fn record_cache_event(&self, kind: AnalysisCacheTraceKind, outcome: AnalysisCacheTraceOutcome) {
+        self.last_analysis_trace
+            .lock()
+            .unwrap()
+            .cache_events
+            .push(AnalysisCacheTraceEvent { kind, outcome });
+    }
+
+    fn record_dirty_fallback(&self, fallback: &'static str) {
+        self.last_analysis_trace
+            .lock()
+            .unwrap()
+            .dirty_fallbacks
+            .push(fallback);
+    }
+
+    pub(crate) fn start_analysis_trace(&self) -> u64 {
+        let generation = self.next_snapshot_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        *self.last_analysis_trace.lock().unwrap() = AnalysisTrace {
+            snapshot_generation: Some(generation),
+            ..AnalysisTrace::default()
+        };
+        generation
+    }
+
     pub(crate) fn clear_last_analysis_tier(&self) {
         self.last_analysis_tier.lock().unwrap().take();
+    }
+
+    pub(crate) fn clear_last_analysis_trace(&self) {
+        *self.last_analysis_trace.lock().unwrap() = AnalysisTrace::default();
+    }
+
+    pub(crate) fn last_analysis_trace(&self) -> AnalysisTrace {
+        self.last_analysis_trace.lock().unwrap().clone()
     }
 
     pub(crate) fn snapshot(
@@ -413,6 +576,7 @@ impl AnalysisEngine {
         workspace_root: Option<PathBuf>,
         cancellation: CancellationToken,
     ) -> AnalysisSnapshot {
+        self.start_analysis_trace();
         AnalysisSnapshot {
             documents: self.documents.clone(),
             dirty_documents: self.dirty_documents_snapshot(),
@@ -561,10 +725,12 @@ impl AnalysisEngine {
             .get(&clean_key)
             .cloned()
         else {
+            self.record_dirty_fallback("targeted-missing-clean-structure");
             return Ok(None);
         };
         let Some(clean_artifact) = self.artifact_cache.lock().unwrap().get(&clean_key).cloned()
         else {
+            self.record_dirty_fallback("targeted-missing-clean-artifact");
             return Ok(None);
         };
         let target_doc = self
@@ -580,6 +746,7 @@ impl AnalysisEngine {
                     &target_path,
                 )
         }) {
+            self.record_dirty_fallback("targeted-clean-errors");
             return Ok(None);
         }
         let mut bundles_by_uri = diagnostics_from_session(&clean_artifact.session, &self.documents);
@@ -595,6 +762,7 @@ impl AnalysisEngine {
             )
             .map_err(|_| "request was canceled".to_string())?
         else {
+            self.record_dirty_fallback("targeted-body-reuse-unavailable");
             return Ok(None);
         };
 
@@ -664,6 +832,7 @@ impl AnalysisEngine {
             .get(&clean_key)
             .cloned()
         else {
+            self.record_dirty_fallback("dirty-report-missing-clean-structure");
             return Ok(None);
         };
 
@@ -690,6 +859,10 @@ impl AnalysisEngine {
 
     pub(crate) fn last_analysis_tier(&self) -> Option<AnalysisTier> {
         *self.last_analysis_tier.lock().unwrap()
+    }
+
+    pub(crate) fn document_version(&self, uri: &str) -> Option<i64> {
+        self.documents.get(uri).map(|document| document.version)
     }
 
     fn dirty_documents_snapshot(&self) -> Arc<DirtyDocumentsSnapshot> {
@@ -741,16 +914,20 @@ impl AnalysisEngine {
     fn analyze_diagnostic_report(&self, target_uri: &str) -> Result<AnalysisReport, String> {
         let context = self.resolve_analysis_context(target_uri)?;
         if let Some(artifact) = self.artifact_cache.lock().unwrap().get(&context.cache_key) {
+            self.record_cache_hit(AnalysisCacheTraceKind::SemanticArtifact);
             return Ok(AnalysisReport {
                 session: artifact.session.clone(),
                 succeeded: artifact.succeeded,
             });
         }
+        self.record_cache_miss(AnalysisCacheTraceKind::SemanticArtifact);
 
         let structure =
             if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
+                self.record_cache_hit(AnalysisCacheTraceKind::StructureArtifact);
                 Some(Arc::clone(structure))
             } else {
+                self.record_cache_miss(AnalysisCacheTraceKind::StructureArtifact);
                 context
                     .driver
                     .analyze_structure_cancelable(
@@ -767,6 +944,7 @@ impl AnalysisEngine {
                 .lock()
                 .unwrap()
                 .insert(context.cache_key.clone(), Arc::clone(structure));
+            self.record_cache_store(AnalysisCacheTraceKind::StructureArtifact);
         }
 
         if let Some(structure) = structure {
@@ -901,14 +1079,18 @@ impl AnalysisEngine {
     ) -> Result<Arc<AnalysisArtifact>, String> {
         context.check_canceled()?;
         if let Some(artifact) = self.artifact_cache.lock().unwrap().get(&context.cache_key) {
+            self.record_cache_hit(AnalysisCacheTraceKind::SemanticArtifact);
             return Ok(Arc::clone(artifact));
         }
+        self.record_cache_miss(AnalysisCacheTraceKind::SemanticArtifact);
 
         context.check_canceled()?;
         let structure =
             if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
+                self.record_cache_hit(AnalysisCacheTraceKind::StructureArtifact);
                 Some(Arc::clone(structure))
             } else {
+                self.record_cache_miss(AnalysisCacheTraceKind::StructureArtifact);
                 context
                     .driver
                     .analyze_structure_cancelable(
@@ -925,6 +1107,7 @@ impl AnalysisEngine {
                 .lock()
                 .unwrap()
                 .insert(context.cache_key.clone(), Arc::clone(structure));
+            self.record_cache_store(AnalysisCacheTraceKind::StructureArtifact);
         }
 
         context.check_canceled()?;
@@ -947,6 +1130,7 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .insert(context.cache_key.clone(), Arc::clone(&artifact));
+        self.record_cache_store(AnalysisCacheTraceKind::SemanticArtifact);
         Ok(artifact)
     }
 
@@ -961,14 +1145,18 @@ impl AnalysisEngine {
             .unwrap()
             .get(&context.cache_key)
         {
+            self.record_cache_hit(AnalysisCacheTraceKind::NavigationArtifact);
             return Ok(Arc::clone(artifact));
         }
+        self.record_cache_miss(AnalysisCacheTraceKind::NavigationArtifact);
 
         context.check_canceled()?;
         let structure =
             if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
+                self.record_cache_hit(AnalysisCacheTraceKind::StructureArtifact);
                 Some(Arc::clone(structure))
             } else {
+                self.record_cache_miss(AnalysisCacheTraceKind::StructureArtifact);
                 context
                     .driver
                     .analyze_structure_cancelable(
@@ -985,6 +1173,7 @@ impl AnalysisEngine {
                 .lock()
                 .unwrap()
                 .insert(context.cache_key.clone(), Arc::clone(structure));
+            self.record_cache_store(AnalysisCacheTraceKind::StructureArtifact);
         }
 
         context.check_canceled()?;
@@ -1007,6 +1196,7 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .insert(context.cache_key.clone(), Arc::clone(&artifact));
+        self.record_cache_store(AnalysisCacheTraceKind::NavigationArtifact);
         Ok(artifact)
     }
 
@@ -1016,8 +1206,10 @@ impl AnalysisEngine {
     ) -> Result<Option<Arc<AnalysisSurfaceArtifact>>, String> {
         context.check_canceled()?;
         if let Some(surface) = self.surface_cache.lock().unwrap().get(&context.cache_key) {
+            self.record_cache_hit(AnalysisCacheTraceKind::SurfaceArtifact);
             return Ok(Some(Arc::clone(surface)));
         }
+        self.record_cache_miss(AnalysisCacheTraceKind::SurfaceArtifact);
 
         context.check_canceled()?;
         let surface = match context
@@ -1037,6 +1229,7 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .insert(context.cache_key.clone(), Arc::clone(&surface));
+        self.record_cache_store(AnalysisCacheTraceKind::SurfaceArtifact);
         Ok(Some(surface))
     }
 
@@ -1047,8 +1240,10 @@ impl AnalysisEngine {
         context.check_canceled()?;
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
         if let Some(artifact) = self.artifact_cache.lock().unwrap().get(&clean_key) {
+            self.record_cache_hit(AnalysisCacheTraceKind::SemanticArtifact);
             return Ok(Arc::clone(artifact));
         }
+        self.record_cache_miss(AnalysisCacheTraceKind::SemanticArtifact);
 
         context.check_canceled()?;
         let artifact = Arc::new(
@@ -1065,6 +1260,7 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .insert(clean_key, Arc::clone(&artifact));
+        self.record_cache_store(AnalysisCacheTraceKind::SemanticArtifact);
         Ok(artifact)
     }
 
@@ -1075,8 +1271,10 @@ impl AnalysisEngine {
         context.check_canceled()?;
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
         if let Some(artifact) = self.navigation_cache.lock().unwrap().get(&clean_key) {
+            self.record_cache_hit(AnalysisCacheTraceKind::NavigationArtifact);
             return Ok(Arc::clone(artifact));
         }
+        self.record_cache_miss(AnalysisCacheTraceKind::NavigationArtifact);
 
         context.check_canceled()?;
         let artifact = Arc::new(
@@ -1093,6 +1291,7 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .insert(clean_key, Arc::clone(&artifact));
+        self.record_cache_store(AnalysisCacheTraceKind::NavigationArtifact);
         Ok(artifact)
     }
 
@@ -1103,8 +1302,10 @@ impl AnalysisEngine {
         context.check_canceled()?;
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
         if let Some(surface) = self.surface_cache.lock().unwrap().get(&clean_key) {
+            self.record_cache_hit(AnalysisCacheTraceKind::SurfaceArtifact);
             return Ok(Some(Arc::clone(surface)));
         }
+        self.record_cache_miss(AnalysisCacheTraceKind::SurfaceArtifact);
 
         context.check_canceled()?;
         let surface = match context
@@ -1123,6 +1324,7 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .insert(clean_key, Arc::clone(&surface));
+        self.record_cache_store(AnalysisCacheTraceKind::SurfaceArtifact);
         Ok(Some(surface))
     }
 
@@ -1132,8 +1334,10 @@ impl AnalysisEngine {
     ) -> Result<Arc<ParsedModuleArtifact>, String> {
         context.check_canceled()?;
         if let Some(parsed) = self.parse_cache.lock().unwrap().get(&context.cache_key) {
+            self.record_cache_hit(AnalysisCacheTraceKind::ParseArtifact);
             return Ok(Arc::clone(parsed));
         }
+        self.record_cache_miss(AnalysisCacheTraceKind::ParseArtifact);
 
         context.check_canceled()?;
         let parsed = context
@@ -1152,6 +1356,7 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .insert(context.cache_key.clone(), Arc::clone(&parsed));
+        self.record_cache_store(AnalysisCacheTraceKind::ParseArtifact);
         Ok(parsed)
     }
 
@@ -1225,14 +1430,17 @@ impl AnalysisEngine {
     fn driver_for_resolved(&self, resolved: &ResolvedAnalysis) -> Arc<CompilerDriver> {
         let family = IncrementalDriverKey::from_options(&resolved.compile_options);
         if let Some(driver) = self.driver_cache.lock().unwrap().get(&family) {
+            self.record_cache_hit(AnalysisCacheTraceKind::Driver);
             return Arc::clone(driver);
         }
+        self.record_cache_miss(AnalysisCacheTraceKind::Driver);
 
         let driver = Arc::new(CompilerDriver::new(resolved.compile_options.clone()));
         self.driver_cache
             .lock()
             .unwrap()
             .insert(family, Arc::clone(&driver));
+        self.record_cache_store(AnalysisCacheTraceKind::Driver);
         driver
     }
 
@@ -1308,8 +1516,10 @@ impl AnalysisEngine {
         };
 
         if let Some(project) = self.project_cache.lock().unwrap().get(&manifest_path) {
+            self.record_cache_hit(AnalysisCacheTraceKind::ProjectResolution);
             return Ok(project.clone());
         }
+        self.record_cache_miss(AnalysisCacheTraceKind::ProjectResolution);
 
         let project = AnalysisProject::load_from_manifest(&manifest_path)
             .map(Some)
@@ -1323,6 +1533,7 @@ impl AnalysisEngine {
             .lock()
             .unwrap()
             .insert(manifest_path, project.clone());
+        self.record_cache_store(AnalysisCacheTraceKind::ProjectResolution);
         Ok(project)
     }
 
@@ -1426,14 +1637,17 @@ impl AnalysisEngine {
             text_hash: document.text_hash,
         };
         if let Some(index) = self.lexical_cache.lock().unwrap().get(&key) {
+            self.record_cache_hit(AnalysisCacheTraceKind::LexicalIndex);
             return Arc::clone(index);
         }
+        self.record_cache_miss(AnalysisCacheTraceKind::LexicalIndex);
 
         let index = Arc::new(LexicalIndex::new(&document.text));
         self.lexical_cache
             .lock()
             .unwrap()
             .insert(key, Arc::clone(&index));
+        self.record_cache_store(AnalysisCacheTraceKind::LexicalIndex);
         index
     }
 

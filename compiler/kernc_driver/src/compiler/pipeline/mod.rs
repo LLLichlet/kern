@@ -32,7 +32,7 @@ use kernc_utils::config::{AsmDialect, CompileOptions, DriverMode, LtoMode};
 use crate::frontend::FrontendDatabase;
 use crate::metadata;
 
-struct LoweredModuleReport {
+pub(in crate::compiler) struct LoweredModuleReport {
     module: kernc_mast::MastModule,
     phase_timings: Vec<PhaseTiming>,
     cache_stats: kernc_lower::LowerCacheStats,
@@ -193,14 +193,31 @@ impl CompilerDriver {
         flow_lowering_hints: &FlowLoweringHints,
         reachable_items: &std::collections::HashSet<DefId>,
     ) -> Option<LoweredModuleReport> {
+        self.lower_module_with_flow_report_cancelable(
+            ctx,
+            flow_lowering_hints,
+            reachable_items,
+            &CancellationToken::new(),
+        )
+        .expect("fresh cancellation token cannot be canceled")
+    }
+
+    pub(in crate::compiler) fn lower_module_with_flow_report_cancelable<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+        flow_lowering_hints: &FlowLoweringHints,
+        reachable_items: &std::collections::HashSet<DefId>,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<LoweredModuleReport>, Canceled> {
         let mut lowerer = Lowerer::new(ctx);
+        lowerer.set_cancellation_token(cancellation.clone());
         lowerer.set_reachable_module_items(reachable_items.clone());
         lowerer.set_flow_lowering_hints(flow_lowering_hints.clone());
-        let report = lowerer.lower_all_with_report();
+        let report = lowerer.lower_all_with_report_cancelable()?;
         if !Self::report_diagnostics_if_errors(lowerer.context()) {
-            return None;
+            return Ok(None);
         }
-        Some(LoweredModuleReport {
+        Ok(Some(LoweredModuleReport {
             module: report.module,
             phase_timings: report
                 .phase_timings
@@ -211,7 +228,7 @@ impl CompilerDriver {
                 })
                 .collect(),
             cache_stats: report.cache_stats,
-        })
+        }))
     }
 
     pub(super) fn module_name_for_codegen(&self, input_file: &str) -> String {

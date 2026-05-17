@@ -6,30 +6,54 @@ use kernc_utils::FastHashMap;
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     /// Run the full type-resolution pass in two stages.
     pub fn resolve_all(&mut self) {
+        self.resolve_all_cancelable(&CancellationToken::new())
+            .expect("fresh cancellation token cannot be canceled");
+    }
+
+    pub fn resolve_all_cancelable(
+        &mut self,
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
+        cancellation.check()?;
         let module_ids = self.collect_module_ids();
         self.measure_phase(
             |timings, duration| timings.resolve_alias_items += duration,
-            |this| this.resolve_module_pass(&module_ids, true),
-        );
+            |this| this.resolve_module_pass_cancelable(&module_ids, true, cancellation),
+        )?;
+        cancellation.check()?;
         self.measure_phase(
             |timings, duration| timings.resolve_non_alias_items += duration,
-            |this| {
-                this.resolve_module_pass(&module_ids, false);
-                this.rebuild_trait_impl_index_by_trait();
+            |this| -> Result<(), Canceled> {
+                this.resolve_module_pass_cancelable(&module_ids, false, cancellation)?;
+                cancellation.check()?;
+                this.rebuild_trait_impl_index_by_trait_cancelable(cancellation)
             },
-        );
+        )?;
+        cancellation.check()?;
         self.measure_phase(
             |timings, duration| timings.validate_supertrait_graph += duration,
-            |this| this.validate_supertrait_graph(),
-        );
+            |this| {
+                this.validate_supertrait_graph();
+                Ok(())
+            },
+        )?;
+        cancellation.check()?;
         self.measure_phase(
             |timings, duration| timings.validate_trait_impl_coherence += duration,
-            |this| this.validate_trait_impl_coherence(),
-        );
+            |this| {
+                this.validate_trait_impl_coherence();
+                Ok(())
+            },
+        )?;
+        cancellation.check()?;
         self.measure_phase(
             |timings, duration| timings.validate_impl_associated_type_targets += duration,
-            |this| this.validate_impl_associated_type_targets(),
-        );
+            |this| {
+                this.validate_impl_associated_type_targets();
+                Ok(())
+            },
+        )?;
+        Ok(())
     }
 
     fn collect_module_ids(&self) -> Vec<DefId> {
@@ -46,10 +70,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             .collect()
     }
 
-    fn rebuild_trait_impl_index_by_trait(&mut self) {
+    fn rebuild_trait_impl_index_by_trait_cancelable(
+        &mut self,
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
         let mut grouped = FastHashMap::default();
 
         for entry in self.ctx.trait_impl_entries() {
+            cancellation.check()?;
             let impl_id = entry.id;
             let impl_def = entry.def;
             self.ensure_impl_signature_types_resolved(impl_id);
@@ -76,21 +104,30 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
 
         self.ctx.set_trait_impl_groups(grouped);
+        Ok(())
     }
 
-    fn resolve_module_pass(&mut self, module_ids: &[DefId], aliases_only: bool) {
+    fn resolve_module_pass_cancelable(
+        &mut self,
+        module_ids: &[DefId],
+        aliases_only: bool,
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
         for &mod_id in module_ids {
+            cancellation.check()?;
             let Some((mod_scope, items)) = self.module_scope_and_items(mod_id) else {
                 continue;
             };
 
             for item_id in items {
+                cancellation.check()?;
                 let is_alias = matches!(self.ctx.defs[item_id.0 as usize], Def::TypeAlias(_));
                 if aliases_only == is_alias {
                     self.resolve_item(item_id, mod_scope);
                 }
             }
         }
+        Ok(())
     }
 
     fn module_scope_and_items(&mut self, mod_id: DefId) -> Option<(ScopeId, Vec<DefId>)> {

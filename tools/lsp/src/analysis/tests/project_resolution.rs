@@ -179,7 +179,9 @@ root = \"src/lib.kn\"
 
     assert_eq!(analysis.cached_workspace_symbol_index_count(), 0);
 
-    let refresh = analysis.refresh_workspace_index(Some(root.clone()));
+    let refresh = analysis
+        .refresh_workspace_index_cancelable(Some(root.clone()), CancellationToken::new())
+        .expect("fresh cancellation token cannot be canceled");
 
     assert_eq!(refresh.targets.len(), 1);
     assert_eq!(refresh.indexed_targets, 1);
@@ -225,9 +227,59 @@ root = \"src/lib.kn\"
     assert_eq!(symbols[0].name, "WarmedNeedle");
     assert_eq!(analysis.cached_workspace_symbol_index_count(), 1);
 
-    let next_refresh = analysis.refresh_workspace_index(Some(root));
+    let next_refresh = analysis
+        .refresh_workspace_index_cancelable(Some(root), CancellationToken::new())
+        .expect("fresh cancellation token cannot be canceled");
     assert!(next_refresh.generation > refresh.generation);
     assert_eq!(analysis.cached_workspace_index_target_count(), 1);
+}
+
+#[test]
+fn workspace_symbol_index_warmup_observes_cancellation() {
+    let root = unique_temp_dir("analysis_source_refresh_cancel");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.kn"),
+        "struct WarmedNeedle { value: i32 }\nfn helper() void {}\n",
+    )
+    .unwrap();
+
+    let uri = file_path_to_uri(&root.join("src/lib.kn")).unwrap();
+    let source = fs::read_to_string(root.join("src/lib.kn")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri,
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+    let cancellation = CancellationToken::with_check_budget_for_testing(1);
+
+    let result = analysis.warm_workspace_symbol_indexes_with_cancellation_for_testing(
+        Some(root),
+        cancellation.clone(),
+    );
+
+    assert_eq!(result.unwrap_err(), "request was canceled");
+    assert!(cancellation.is_canceled());
+    assert_eq!(analysis.cached_workspace_symbol_index_count(), 0);
 }
 
 #[test]
@@ -296,7 +348,9 @@ pub fn build(b: &mut builder.Builder) void {
         },
     });
 
-    let refresh = analysis.refresh_workspace_index(Some(root.clone()));
+    let refresh = analysis
+        .refresh_workspace_index_cancelable(Some(root.clone()), CancellationToken::new())
+        .expect("fresh cancellation token cannot be canceled");
 
     assert_eq!(refresh.indexed_targets, 1);
     assert_eq!(refresh.failed_targets, 0);

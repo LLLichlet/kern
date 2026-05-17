@@ -706,6 +706,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 3. Check the type of every element.
         for e in elems {
+            if self.is_canceled() {
+                return TypeId::ERROR;
+            }
             let act_ty = self.check_expr(e, Some(exp_elem_ty));
             self.check_coercion(e, exp_elem_ty, act_ty);
         }
@@ -964,6 +967,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 2. Check the types of user-provided field initializers.
         for init_f in init_fields {
+            if self.is_canceled() {
+                return TypeId::ERROR;
+            }
             if let Some(def_f) = def_fields.iter().find(|f| f.name == init_f.name) {
                 if let Some(definition_span) = def_f.definition_span {
                     self.ctx
@@ -1051,6 +1057,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         } else {
             // Structs do not get implicit zero initialization.
             for def_f in &def_fields {
+                if self.is_canceled() {
+                    return TypeId::ERROR;
+                }
                 if !initialized.contains(&def_f.name) && !def_f.has_default {
                     let name_str = self.ctx.resolve(def_f.name).to_string();
                     self.ctx.struct_error(span, format!("field `{}` is missing and has no default value", name_str))

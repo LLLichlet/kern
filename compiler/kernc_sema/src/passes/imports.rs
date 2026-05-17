@@ -3,7 +3,7 @@ use crate::def::*;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
 use kernc_ast::Visibility;
 use kernc_ast::{UsePathKind, UseTarget, UseTree};
-use kernc_utils::{Span, SymbolId};
+use kernc_utils::{Canceled, CancellationToken, Span, SymbolId};
 
 pub struct ImportResolver<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
@@ -32,6 +32,15 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
 
     /// Resolve all imports, repeating until the graph reaches a fixed point.
     pub fn resolve_all(&mut self) {
+        self.resolve_all_cancelable(&CancellationToken::new())
+            .expect("fresh cancellation token cannot be canceled");
+    }
+
+    pub fn resolve_all_cancelable(
+        &mut self,
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
+        cancellation.check()?;
         let module_ids: Vec<DefId> = self
             .ctx
             .defs
@@ -47,8 +56,10 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
 
         let mut pending_imports: Vec<(DefId, ImportDef)> = Vec::new();
         for mod_id in module_ids {
+            cancellation.check()?;
             if let Def::Module(m) = &self.ctx.defs[mod_id.0 as usize] {
                 for imp in &m.imports {
+                    cancellation.check()?;
                     pending_imports.push((mod_id, imp.clone()));
                 }
             }
@@ -57,10 +68,12 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         // Fixed-point iteration handles imports whose dependencies resolve later.
         let mut progress = true;
         while progress && !pending_imports.is_empty() {
+            cancellation.check()?;
             progress = false;
             let mut unresolved = Vec::new();
 
             for (mod_id, import) in pending_imports {
+                cancellation.check()?;
                 // Stay quiet during speculative iterations.
                 if self.resolve_single_import(mod_id, &import, false) {
                     progress = true;
@@ -73,8 +86,10 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
 
         // Run one final pass with diagnostics enabled for anything still unresolved.
         for (mod_id, failed_import) in pending_imports {
+            cancellation.check()?;
             self.resolve_single_import(mod_id, &failed_import, true);
         }
+        Ok(())
     }
 
     pub fn binding_names(import: &ImportDef) -> Vec<SymbolId> {

@@ -9,7 +9,7 @@ use crate::ty::{
     GenericArg, LayoutEngine, PrimitiveType, Substituter, TypeId, TypeKind,
 };
 use kernc_ast::{self as ast, BinaryOperator, UnaryOperator, Visibility};
-use kernc_utils::{Span, SymbolId};
+use kernc_utils::{Canceled, CancellationToken, Span, SymbolId};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 

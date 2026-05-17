@@ -1412,6 +1412,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         if norm_target == TypeId::ERROR {
             for arm in arms {
+                if self.is_canceled() {
+                    return TypeId::ERROR;
+                }
                 self.check_expr(&arm.body, None);
             }
             return TypeId::ERROR;
@@ -1426,6 +1429,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let mut match_closed = false;
 
         for arm in arms {
+            if self.is_canceled() {
+                return TypeId::ERROR;
+            }
             let mut arm_state = MatchArmCheckState {
                 norm_target,
                 has_constructor_coverage,
@@ -1503,6 +1509,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let pattern_started = self.timing_start();
         let mut arm_bind_shape = None;
         for pat in &arm.patterns {
+            if self.is_canceled() {
+                self.ctx.scopes.exit_scope();
+                return TypeId::ERROR;
+            }
             match &pat.kind {
                 ast::MatchPatternKind::Value(v) => {
                     if self.check_match_range_value_pattern(v, state.norm_target) {
@@ -1613,6 +1623,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
         if let Some(bind_shape) = &arm_bind_shape {
             for field in &bind_shape.fields {
+                if self.is_canceled() {
+                    self.ctx.scopes.exit_scope();
+                    return TypeId::ERROR;
+                }
                 let binding = ast::BindingPattern {
                     name: field.name,
                     name_span: field.name_span,
@@ -1727,6 +1741,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let mut entered_scope = false;
         let mut saw_diverging_stmt = false;
         for stmt in stmts {
+            if self.is_canceled() {
+                if entered_scope {
+                    if let Some(scope_id) = outer_scope {
+                        self.ctx.scopes.set_current_scope(scope_id);
+                    } else {
+                        self.ctx.scopes.exit_scope();
+                    }
+                }
+                return TypeId::ERROR;
+            }
             match &stmt.kind {
                 StmtKind::Use(use_stmt) => {
                     let import = ImportDef {

@@ -3,7 +3,7 @@ use crate::def::*;
 use crate::scope::{SymbolInfo, SymbolKind};
 use crate::ty::TypeId;
 use kernc_ast::{self as ast, Decl, DeclKind};
-use kernc_utils::{NodeId, Span, SymbolId};
+use kernc_utils::{Canceled, CancellationToken, NodeId, Span, SymbolId};
 
 struct FunctionCollectSpec<'a> {
     vis: Visibility,
@@ -128,6 +128,17 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
     /// Collect all top-level members from a module AST into semantic definitions.
     pub fn collect_ast(&mut self, mod_id: DefId, module: &ast::Module) {
+        self.collect_ast_cancelable(mod_id, module, &CancellationToken::new())
+            .expect("fresh cancellation token cannot be canceled");
+    }
+
+    pub fn collect_ast_cancelable(
+        &mut self,
+        mod_id: DefId,
+        module: &ast::Module,
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
+        cancellation.check()?;
         let (scope_id, submodules) =
             if let Some(Def::Module(m)) = self.ctx.defs.get(mod_id.0 as usize) {
                 (m.scope_id, m.submodules.clone())
@@ -139,7 +150,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         mod_id.0
                     ),
                 );
-                return;
+                return Ok(());
             };
 
         let parent_module = self.current_module;
@@ -161,6 +172,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
         // Collect imports, submodule declarations, and regular items in one pass.
         for decl in &module.decls {
+            cancellation.check()?;
             match &decl.kind {
                 DeclKind::Use { kind, path, target } => {
                     imports.push(ImportDef {
@@ -187,6 +199,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 }
                 DeclKind::ExternBlock { decls, .. } => {
                     for ext_decl in decls {
+                        cancellation.check()?;
                         if let Some(def_id) = self.collect_decl(ext_decl, None, true, &[]) {
                             item_ids.push(def_id);
                         }
@@ -211,9 +224,21 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         }
         self.current_module = parent_module;
         self.current_module_imported = parent_module_imported;
+        Ok(())
     }
 
     pub fn collect_ast_owned(&mut self, mod_id: DefId, module: ast::Module) {
+        self.collect_ast_owned_cancelable(mod_id, module, &CancellationToken::new())
+            .expect("fresh cancellation token cannot be canceled");
+    }
+
+    pub fn collect_ast_owned_cancelable(
+        &mut self,
+        mod_id: DefId,
+        module: ast::Module,
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
+        cancellation.check()?;
         let (scope_id, submodules) =
             if let Some(Def::Module(m)) = self.ctx.defs.get(mod_id.0 as usize) {
                 (m.scope_id, m.submodules.clone())
@@ -225,7 +250,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         mod_id.0
                     ),
                 );
-                return;
+                return Ok(());
             };
 
         let parent_module = self.current_module;
@@ -247,6 +272,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         let mut imports = Vec::new();
 
         for decl in decls {
+            cancellation.check()?;
             match decl {
                 Decl {
                     kind: DeclKind::Use { kind, path, target },
@@ -288,6 +314,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     ..
                 } => {
                     for ext_decl in decls {
+                        cancellation.check()?;
                         if let Some(def_id) = self.collect_decl_owned(ext_decl, None, true, &[]) {
                             item_ids.push(def_id);
                         }
@@ -312,6 +339,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         }
         self.current_module = parent_module;
         self.current_module_imported = parent_module_imported;
+        Ok(())
     }
 
     /// Collect a single declaration.

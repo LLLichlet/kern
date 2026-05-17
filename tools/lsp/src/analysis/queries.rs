@@ -3,15 +3,20 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 impl AnalysisEngine {
-    pub fn warm_workspace_symbol_indexes(&self, workspace_root: Option<PathBuf>) -> (usize, usize) {
-        let snapshot = self.snapshot(workspace_root, CancellationToken::new());
-        match self.warm_workspace_symbol_indexes_in_snapshot(&snapshot) {
-            Ok(indexed_targets) => (indexed_targets, 0),
-            Err(_) => (0, 1),
+    pub(crate) fn warm_workspace_symbol_indexes_cancelable(
+        &self,
+        workspace_root: Option<PathBuf>,
+        cancellation: CancellationToken,
+    ) -> Result<(usize, usize), String> {
+        let snapshot = self.snapshot(workspace_root, cancellation);
+        match self.warm_workspace_symbol_indexes_in_snapshot_cancelable(&snapshot) {
+            Ok(indexed_targets) => Ok((indexed_targets, 0)),
+            Err(err) if snapshot.cancellation.is_canceled() => Err(err),
+            Err(_) => Ok((0, 1)),
         }
     }
 
-    fn warm_workspace_symbol_indexes_in_snapshot(
+    fn warm_workspace_symbol_indexes_in_snapshot_cancelable(
         &self,
         snapshot: &AnalysisSnapshot,
     ) -> Result<usize, String> {
@@ -63,6 +68,15 @@ impl AnalysisEngine {
     }
 
     #[cfg(test)]
+    pub(crate) fn warm_workspace_symbol_indexes_with_cancellation_for_testing(
+        &self,
+        workspace_root: Option<PathBuf>,
+        cancellation: CancellationToken,
+    ) -> Result<(usize, usize), String> {
+        self.warm_workspace_symbol_indexes_cancelable(workspace_root, cancellation)
+    }
+
+    #[cfg(test)]
     pub fn workspace_symbols(&self, query: &str) -> Result<Vec<IdeWorkspaceSymbol>, String> {
         let snapshot = self.snapshot(None, CancellationToken::new());
         self.workspace_symbols_in_snapshot(&snapshot, query)
@@ -98,13 +112,12 @@ impl AnalysisEngine {
                         &context,
                         snapshot.uri_by_normalized_path(),
                     )?;
-                    symbols.extend(
-                        index
-                            .workspace_symbols
-                            .iter()
-                            .filter(|symbol| workspace_symbol_matches_query(symbol, &needle))
-                            .cloned(),
-                    );
+                    for symbol in index.workspace_symbols.iter() {
+                        snapshot.check_canceled()?;
+                        if workspace_symbol_matches_query(symbol, &needle) {
+                            symbols.push(symbol.clone());
+                        }
+                    }
                 }
                 symbols.sort_by(workspace_symbol_order);
                 symbols.dedup_by(workspace_symbol_same_location);
@@ -123,13 +136,12 @@ impl AnalysisEngine {
             )?;
             let index =
                 self.surface_symbol_index_for_context(&context, snapshot.uri_by_normalized_path())?;
-            symbols.extend(
-                index
-                    .workspace_symbols
-                    .iter()
-                    .filter(|symbol| workspace_symbol_matches_query(symbol, &needle))
-                    .cloned(),
-            );
+            for symbol in index.workspace_symbols.iter() {
+                snapshot.check_canceled()?;
+                if workspace_symbol_matches_query(symbol, &needle) {
+                    symbols.push(symbol.clone());
+                }
+            }
         }
 
         symbols.sort_by(workspace_symbol_order);
@@ -151,6 +163,7 @@ impl AnalysisEngine {
                 .get(&context.cache_key)
                 .cloned()
             {
+                self.record_cache_hit(AnalysisCacheTraceKind::WorkspaceSymbolIndex);
                 workspace_index
                     .targets
                     .entry(context.cache_key.clone())
@@ -158,6 +171,7 @@ impl AnalysisEngine {
                 return Ok(index);
             }
         }
+        self.record_cache_miss(AnalysisCacheTraceKind::WorkspaceSymbolIndex);
 
         let Some(surface) = self.analyze_surface_artifact_for_context(context)? else {
             let index = Arc::new(SurfaceSymbolIndex {
@@ -173,9 +187,14 @@ impl AnalysisEngine {
                 context.cache_key.clone(),
                 WorkspaceIndexTarget::from_resolved(&context.resolved),
             );
+            self.record_cache_store(AnalysisCacheTraceKind::WorkspaceSymbolIndex);
             return Ok(index);
         };
-        let index = Arc::new(surface_symbol_index_from_artifact(&surface, uri_by_path));
+        let index = Arc::new(surface_symbol_index_from_artifact_cancelable(
+            &surface,
+            uri_by_path,
+            &context.cancellation,
+        )?);
         self.prune_cache_family_for_insert(&context.cache_key);
         let mut workspace_index = self.workspace_index.lock().unwrap();
         workspace_index
@@ -185,6 +204,7 @@ impl AnalysisEngine {
             context.cache_key.clone(),
             WorkspaceIndexTarget::from_resolved(&context.resolved),
         );
+        self.record_cache_store(AnalysisCacheTraceKind::WorkspaceSymbolIndex);
         Ok(index)
     }
 
@@ -262,10 +282,11 @@ impl AnalysisEngine {
                 index
             } else {
                 drop(workspace_index);
-                let index = Arc::new(surface_symbol_index_from_artifact(
+                let index = Arc::new(surface_symbol_index_from_artifact_cancelable(
                     &surface,
                     snapshot.uri_by_normalized_path(),
-                ));
+                    &snapshot.cancellation,
+                )?);
                 self.prune_cache_family_for_insert(&symbol_analysis_key);
                 let mut workspace_index = self.workspace_index.lock().unwrap();
                 workspace_index
@@ -489,16 +510,19 @@ impl AnalysisEngine {
         };
 
         let Some(definition_key) = span_identity_key(&artifact.session, definition_span) else {
-            return Ok(find_reference_locations(ReferenceLocationQuery {
-                session: &artifact.session,
-                hovers: &artifact.hovers,
-                definition_links: &artifact.definition_links,
-                semantic_entries: &artifact.semantic_entries,
-                target_path: &target_path,
-                position: &position,
-                include_declaration,
-                uri_by_path: snapshot.uri_by_normalized_path(),
-            }));
+            return find_reference_locations_cancelable(
+                ReferenceLocationQuery {
+                    session: &artifact.session,
+                    hovers: &artifact.hovers,
+                    definition_links: &artifact.definition_links,
+                    semantic_entries: &artifact.semantic_entries,
+                    target_path: &target_path,
+                    position: &position,
+                    include_declaration,
+                    uri_by_path: snapshot.uri_by_normalized_path(),
+                },
+                &snapshot.cancellation,
+            );
         };
 
         if let Some(workspace_locations) = self.workspace_reference_locations(
@@ -510,7 +534,7 @@ impl AnalysisEngine {
             return Ok(workspace_locations);
         }
 
-        Ok(find_reference_locations_for_definition(
+        find_reference_locations_for_definition_cancelable(
             KnownReferenceLocationQuery {
                 session: &artifact.session,
                 definition_links: &artifact.definition_links,
@@ -519,7 +543,8 @@ impl AnalysisEngine {
                 include_declaration,
                 uri_by_path: snapshot.uri_by_normalized_path(),
             },
-        ))
+            &snapshot.cancellation,
+        )
     }
 
     fn workspace_reference_locations(
@@ -559,14 +584,16 @@ impl AnalysisEngine {
             let artifact = self
                 .analyze_interactive_navigation_artifact_for_context(&context)
                 .map_err(|message| format!("workspace references analysis failed: {message}"))?;
-            let Some(definition_span) = find_definition_span_by_identity_key(
+            let Some(definition_span) = find_definition_span_by_identity_key_cancelable(
                 &artifact.session,
                 &artifact.semantic_entries,
                 definition_key,
-            ) else {
+                &snapshot.cancellation,
+            )?
+            else {
                 continue;
             };
-            locations.extend(find_reference_locations_for_definition(
+            let target_locations = find_reference_locations_for_definition_cancelable(
                 KnownReferenceLocationQuery {
                     session: &artifact.session,
                     definition_links: &artifact.definition_links,
@@ -575,7 +602,9 @@ impl AnalysisEngine {
                     include_declaration,
                     uri_by_path: snapshot.uri_by_normalized_path(),
                 },
-            ));
+                &snapshot.cancellation,
+            )?;
+            locations.extend(target_locations);
         }
 
         locations.sort_by(workspace_location_order);
@@ -1088,16 +1117,23 @@ impl AnalysisEngine {
             document_version: target_doc.version,
         };
         if let Some(tokens) = self.semantic_tokens_cache.lock().unwrap().get(&token_key) {
+            self.record_cache_hit(AnalysisCacheTraceKind::SemanticTokens);
+            self.record_analysis_tier(if context.dirty_documents.is_clean() {
+                AnalysisTier::CleanSemantic
+            } else {
+                AnalysisTier::Lexical
+            });
             return Ok(tokens.clone());
         }
+        self.record_cache_miss(AnalysisCacheTraceKind::SemanticTokens);
 
         let tokens = if !context.dirty_documents.is_clean() {
             self.record_analysis_tier(AnalysisTier::Lexical);
-            semantic::lexical_semantic_tokens(&file)
+            semantic::lexical_semantic_tokens_cancelable(&file, &snapshot.cancellation)?
         } else {
             self.record_analysis_tier(AnalysisTier::CleanSemantic);
             let artifact = self.analyze_navigation_artifact_for_context(&context)?;
-            semantic::semantic_tokens(
+            semantic::semantic_tokens_cancelable(
                 semantic::SemanticArtifactView {
                     session: &artifact.session,
                     symbols: &artifact.symbols,
@@ -1107,12 +1143,14 @@ impl AnalysisEngine {
                 },
                 &file,
                 &target_path,
-            )
+                &snapshot.cancellation,
+            )?
         };
         self.semantic_tokens_cache
             .lock()
             .unwrap()
             .insert(token_key, tokens.clone());
+        self.record_cache_store(AnalysisCacheTraceKind::SemanticTokens);
         Ok(tokens)
     }
 
@@ -1124,7 +1162,11 @@ impl AnalysisEngine {
     ) -> Result<IdeSemanticTokens, String> {
         snapshot.check_canceled()?;
         let tokens = self.semantic_tokens_in_snapshot(snapshot, uri)?;
-        Ok(semantic::filter_semantic_tokens_to_range(&tokens, &range))
+        semantic::filter_semantic_tokens_to_range_cancelable(
+            &tokens,
+            &range,
+            &snapshot.cancellation,
+        )
     }
 
     #[cfg(test)]
@@ -1372,14 +1414,18 @@ fn workspace_symbol_matches_query(symbol: &IdeWorkspaceSymbol, query: &str) -> b
     query.is_empty() || symbol.name.to_ascii_lowercase().contains(query)
 }
 
-fn surface_symbol_index_from_artifact(
+fn surface_symbol_index_from_artifact_cancelable(
     surface: &AnalysisSurfaceArtifact,
     uri_by_path: &BTreeMap<PathBuf, String>,
-) -> SurfaceSymbolIndex {
+    cancellation: &CancellationToken,
+) -> Result<SurfaceSymbolIndex, String> {
     let mut document_symbols_by_path = BTreeMap::<PathBuf, Vec<IdeDocumentSymbol>>::new();
     let mut workspace_symbols = Vec::new();
 
     for module_symbol in &surface.symbols {
+        cancellation
+            .check()
+            .map_err(|_| "request was canceled".to_string())?;
         if let Some(path) = surface
             .session
             .source_manager
@@ -1393,25 +1439,29 @@ fn surface_symbol_index_from_artifact(
                     .map(|symbol| analysis_symbol_to_document_symbol(&surface.session, symbol)),
             );
         }
-        analysis_symbol_to_workspace_symbols(
+        analysis_symbol_to_workspace_symbols_cancelable(
             &surface.session,
             module_symbol,
             None,
             uri_by_path,
             &mut workspace_symbols,
-        );
+            cancellation,
+        )?;
     }
 
+    cancellation
+        .check()
+        .map_err(|_| "request was canceled".to_string())?;
     workspace_symbols.sort_by(workspace_symbol_order);
     workspace_symbols.dedup_by(workspace_symbol_same_location);
 
-    SurfaceSymbolIndex {
+    Ok(SurfaceSymbolIndex {
         document_symbols_by_path: document_symbols_by_path
             .into_iter()
             .map(|(path, symbols)| (path, Arc::new(symbols)))
             .collect(),
         workspace_symbols: Arc::new(workspace_symbols),
-    }
+    })
 }
 
 fn workspace_symbol_same_location(
@@ -1442,19 +1492,23 @@ fn span_identity_key(session: &Session, span: Span) -> Option<SpanIdentityKey> {
     })
 }
 
-fn find_definition_span_by_identity_key(
+fn find_definition_span_by_identity_key_cancelable(
     session: &Session,
     semantic_entries: &[kernc_driver::AnalysisSemanticEntry],
     key: &SpanIdentityKey,
-) -> Option<Span> {
-    semantic_entries
-        .iter()
-        .filter_map(|entry| {
-            span_identity_key(session, entry.definition_span)
-                .filter(|candidate| candidate == key)
-                .map(|_| entry.definition_span)
-        })
-        .next()
+    cancellation: &CancellationToken,
+) -> Result<Option<Span>, String> {
+    semantic_entries.iter().try_fold(None, |found, entry| {
+        if found.is_some() {
+            return Ok(found);
+        }
+        cancellation
+            .check()
+            .map_err(|_| "request was canceled".to_string())?;
+        Ok(span_identity_key(session, entry.definition_span)
+            .filter(|candidate| candidate == key)
+            .map(|_| entry.definition_span))
+    })
 }
 
 fn workspace_location_order(lhs: &IdeLocation, rhs: &IdeLocation) -> std::cmp::Ordering {

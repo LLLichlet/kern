@@ -174,6 +174,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_expression(&mut self, precedence: Precedence) -> ParseResult<Expr> {
+        self.check_canceled()?;
         let current = self.peek();
         if Self::token_can_end_missing_expr(current.tag) {
             return Ok(self.error_expr(current.span, "Expected expression"));
@@ -183,6 +184,7 @@ impl<'a> Parser<'a> {
         let mut left = self.parse_prefix(prefix_token)?;
 
         while precedence < Precedence::from_token(self.peek().tag) {
+            self.check_canceled()?;
             let next_tag = self.peek().tag;
 
             if next_tag == TokenType::DotLBrace && !expr_can_prefix_data_init_type(&left) {
@@ -569,6 +571,7 @@ impl<'a> Parser<'a> {
         let mut args = Vec::new();
         if !self.check(TokenType::RParen) {
             loop {
+                self.check_canceled()?;
                 if token_ends_unclosed_call_argument_list(self.peek().tag) {
                     break;
                 }

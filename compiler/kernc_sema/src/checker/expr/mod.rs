@@ -7,7 +7,7 @@ use crate::ty::{
     GenericArg, TypeId, TypeKind,
 };
 use kernc_ast::{self as ast, AssignmentOperator, Expr, ExprKind, UnaryOperator};
-use kernc_utils::{FastHashMap, FastHashSet, NodeId, Span, SymbolId};
+use kernc_utils::{CancellationToken, FastHashMap, FastHashSet, NodeId, Span, SymbolId};
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::time::{Duration, Instant};
@@ -58,9 +58,43 @@ pub(crate) struct ExprChecker<'a, 'ctx> {
         FastHashMap<(ScopeId, SymbolId), FastHashSet<PointerOrigin>>,
     pub(crate) pointer_origin_exprs: FastHashMap<NodeId, FastHashSet<PointerOrigin>>,
     pub(crate) stored_parameters: FastHashSet<usize>,
+    pub(crate) cancellation: CancellationToken,
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    pub(crate) fn new(ctx: &'a mut SemaContext<'ctx>, current_return_type: Option<TypeId>) -> Self {
+        Self::with_cancellation(ctx, current_return_type, CancellationToken::new())
+    }
+
+    pub(crate) fn with_cancellation(
+        ctx: &'a mut SemaContext<'ctx>,
+        current_return_type: Option<TypeId>,
+        cancellation: CancellationToken,
+    ) -> Self {
+        Self {
+            ctx,
+            current_return_type,
+            has_returned: false,
+            type_vars: Vec::new(),
+            numeric_type_vars: Vec::new(),
+            trait_obligation_stack: Vec::new(),
+            projection_normalization_stack: Vec::new(),
+            current_module_cache: None,
+            allow_uninstantiated_generic_function_items: false,
+            touched_expr_nodes: Vec::new(),
+            numeric_literal_exprs: Vec::new(),
+            touched_bindings: Vec::new(),
+            pointer_origin_bindings: FastHashMap::default(),
+            pointer_origin_exprs: FastHashMap::default(),
+            stored_parameters: FastHashSet::default(),
+            cancellation,
+        }
+    }
+
+    pub(crate) fn is_canceled(&self) -> bool {
+        self.cancellation.check().is_err()
+    }
+
     fn string_literal_type(&mut self, value: &str) -> TypeId {
         self.ctx.type_registry.intern(TypeKind::Array {
             elem: TypeId::U8,
@@ -149,26 +183,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     const NUMERIC_CAND_ALL_FLOATS: u16 = Self::NUMERIC_CAND_F32 | Self::NUMERIC_CAND_F64;
     const NUMERIC_CAND_ALL: u16 = Self::NUMERIC_CAND_ALL_INTS | Self::NUMERIC_CAND_ALL_FLOATS;
     const NUMERIC_CAND_POINTER_OFFSETS: u16 = Self::NUMERIC_CAND_ISIZE | Self::NUMERIC_CAND_USIZE;
-
-    pub(crate) fn new(ctx: &'a mut SemaContext<'ctx>, current_return_type: Option<TypeId>) -> Self {
-        Self {
-            ctx,
-            current_return_type,
-            has_returned: false,
-            type_vars: Vec::new(),
-            numeric_type_vars: Vec::new(),
-            trait_obligation_stack: Vec::new(),
-            projection_normalization_stack: Vec::new(),
-            current_module_cache: None,
-            allow_uninstantiated_generic_function_items: false,
-            touched_expr_nodes: Vec::new(),
-            numeric_literal_exprs: Vec::new(),
-            touched_bindings: Vec::new(),
-            pointer_origin_bindings: FastHashMap::default(),
-            pointer_origin_exprs: FastHashMap::default(),
-            stored_parameters: FastHashSet::default(),
-        }
-    }
 
     pub(crate) fn numeric_state_for_kind(kind: NumericInferenceKind) -> NumericInferenceState {
         let candidates = match kind {
@@ -1599,6 +1613,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     /// Main entry point for expression type checking.
     pub(crate) fn check_expr(&mut self, expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
+        if self.is_canceled() {
+            return TypeId::ERROR;
+        }
         let ty = match &expr.kind {
             ExprKind::Error => TypeId::ERROR,
 
@@ -1777,6 +1794,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::GenericInstantiation { target, args } => {
                 let started = self.timing_start();
                 for arg in args {
+                    if self.is_canceled() {
+                        return TypeId::ERROR;
+                    }
                     match arg {
                         ast::GenericArg::Type(ty_node)
                         | ast::GenericArg::AssocBinding { value: ty_node, .. } => {

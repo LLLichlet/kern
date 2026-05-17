@@ -15,6 +15,9 @@ impl<'a> Parser<'a> {
 
     fn recover_data_init_until(&mut self, tags: &[TokenType]) {
         while !self.check(TokenType::Eof) {
+            if self.check_canceled().is_err() {
+                return;
+            }
             let current = self.peek().tag;
             if tags.contains(&current) {
                 return;
@@ -150,6 +153,7 @@ impl<'a> Parser<'a> {
         let mut captures = Vec::new();
         if !self.check(TokenType::RBracket) {
             loop {
+                self.check_canceled()?;
                 let name_tok = self.expect(TokenType::Identifier)?;
                 let name = self.intern_token(name_tok);
 
@@ -250,6 +254,7 @@ impl<'a> Parser<'a> {
         let mut args = Vec::new();
         if !self.check(TokenType::RBracket) {
             loop {
+                self.check_canceled()?;
                 args.push(self.parse_generic_arg(false)?);
                 if !self.continue_after_comma(&[TokenType::RBracket]) {
                     break;
@@ -316,6 +321,7 @@ impl<'a> Parser<'a> {
         } else if self.match_token(&[TokenType::Comma]) {
             let mut elems = vec![first];
             while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+                self.check_canceled()?;
                 let elem = match self.parse_expression(Precedence::Lowest) {
                     Ok(expr) => expr,
                     Err(ParseError) => {
@@ -363,6 +369,7 @@ impl<'a> Parser<'a> {
     ) -> ParseResult<Expr> {
         let mut fields = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let name = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name);
 
@@ -415,6 +422,9 @@ impl<'a> Parser<'a> {
         let mut index = 0;
 
         loop {
+            if self.check_canceled().is_err() {
+                return false;
+            }
             if self.stream.peek_tag_nth(index) != TokenType::Identifier {
                 return false;
             }

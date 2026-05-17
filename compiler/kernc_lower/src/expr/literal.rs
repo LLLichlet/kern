@@ -475,6 +475,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut ast_ordered_exprs = Vec::new();
         for f_def in &s.fields {
+            if self.check_canceled().is_err() {
+                break;
+            }
             let raw_f_ty = self
                 .ctx
                 .node_type(f_def.type_node.id)
@@ -508,6 +511,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut physical_ordered_exprs = Vec::with_capacity(s.fields.len());
         for &ast_idx in &physical_to_ast {
+            if self.check_canceled().is_err() {
+                break;
+            }
             physical_ordered_exprs.push(ast_ordered_exprs[ast_idx].clone());
         }
 
@@ -583,6 +589,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let struct_id = self.instantiate_anon_struct(norm_ty);
         let mut ast_ordered_exprs = Vec::new();
         for field_def in &anon_fields {
+            if self.check_canceled().is_err() {
+                break;
+            }
             let Some(init_f) = fields.iter().find(|field| field.name == field_def.name) else {
                 return self.lower_literal_error(
                     Span::default(),
@@ -600,6 +609,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut physical_ordered_exprs = Vec::with_capacity(anon_fields.len());
         for &ast_idx in &physical_to_ast {
+            if self.check_canceled().is_err() {
+                break;
+            }
             physical_ordered_exprs.push(ast_ordered_exprs[ast_idx].clone());
         }
 

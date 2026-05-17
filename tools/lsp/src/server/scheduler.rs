@@ -1,9 +1,10 @@
 use super::state::RequestBudgetKind;
 use super::{
     AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, DiagnosticsTaskResult,
-    DocumentRequestResponse, DocumentRequestTaskResult, INVALID_REQUEST, LspWorkerTask,
-    REQUEST_CANCELLED, RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerError,
-    ServerState, WorkspaceRefreshKind, WorkspaceRefreshTaskResult, lifecycle::emit_trace,
+    DocumentRequestResponse, DocumentRequestTaskResult, INVALID_REQUEST, LspErrorClass,
+    LspWorkerTask, REQUEST_CANCELLED, RequestContext, ScheduledDocumentRequestTask, SchedulerLane,
+    ServerError, ServerState, TraceContext, WorkspaceRefreshKind, WorkspaceRefreshTaskResult,
+    lifecycle::emit_trace,
 };
 use crate::analysis::{
     AnalysisOutcome, AnalysisSnapshot, CancellationToken, DocumentSyncAction, cleared_uris,
@@ -121,19 +122,28 @@ fn submit_workspace_refresh_task(
     let progress_token = emit_workspace_refresh_progress_begin(state, writer, &reason)?;
     state.queue_workspace_refresh_worker_task();
     let task = LspWorkerTask::WorkspaceRefresh(Box::new(move || {
+        analysis.clear_last_analysis_trace();
         let started_at = Instant::now();
         let refresh = catch_unwind(AssertUnwindSafe(|| match kind {
-            WorkspaceRefreshKind::Sources => analysis.refresh_workspace_index(workspace_root),
-            WorkspaceRefreshKind::ProjectMetadata => {
-                analysis.reload_project_metadata_index(workspace_root)
-            }
+            WorkspaceRefreshKind::Sources => analysis
+                .refresh_workspace_index_cancelable(workspace_root, CancellationToken::new()),
+            WorkspaceRefreshKind::ProjectMetadata => analysis
+                .reload_project_metadata_index_cancelable(workspace_root, CancellationToken::new()),
         }))
-        .map_err(|payload| panic_message(payload.as_ref()));
+        .map_err(|payload| panic_message(payload.as_ref()))
+        .and_then(|result| result);
+        let error_class = refresh
+            .as_ref()
+            .err()
+            .map(|message| classify_lsp_error(message));
         WorkspaceRefreshTaskResult {
             reason,
             progress_token,
+            trace: TraceContext::default(),
             queue_wait_ms: started_at.duration_since(queued_at).as_millis(),
             elapsed_ms: started_at.elapsed().as_millis(),
+            analysis_trace: analysis.last_analysis_trace(),
+            error_class,
             refresh,
         }
     }));
@@ -168,27 +178,38 @@ fn run_diagnostics_task(
     queued_at: Instant,
 ) -> DiagnosticsTaskResult {
     analysis.clear_last_analysis_tier();
+    analysis.clear_last_analysis_trace();
+    analysis.start_analysis_trace();
     let started_at = Instant::now();
     let outcome = match catch_unwind(AssertUnwindSafe(|| match mode {
         DiagnosticsAnalysisMode::Structure => analysis.analyze_document_structure_uri(&target_uri),
         DiagnosticsAnalysisMode::Full => analysis.analyze_document_uri(&target_uri),
     })) {
         Ok(outcome) => outcome,
-        Err(payload) => crate::analysis::single_server_diagnostic(
-            target_uri.clone(),
-            format!(
+        Err(payload) => {
+            let message = format!(
                 "kern-lsp analysis panicked: {}",
                 panic_message(payload.as_ref())
-            ),
-        ),
+            );
+            crate::analysis::single_server_diagnostic(target_uri.clone(), message)
+        }
     };
+    let error_class = diagnostic_outcome_error_class(&outcome);
+    let document_version = analysis.document_version(&target_uri);
     DiagnosticsTaskResult {
         target_uri,
         generation,
         mode,
+        trace: TraceContext {
+            request_id: None,
+            document_generation: Some(generation),
+            document_version,
+        },
         queue_wait_ms: started_at.duration_since(queued_at).as_millis(),
         elapsed_ms: started_at.elapsed().as_millis(),
         analysis_tier: analysis.last_analysis_tier(),
+        analysis_trace: analysis.last_analysis_trace(),
+        error_class,
         outcome,
     }
 }
@@ -240,6 +261,9 @@ fn submit_workspace_refresh_result(
                 generation,
                 result.queue_wait_ms,
                 result.elapsed_ms,
+                &result.trace,
+                &result.analysis_trace,
+                result.error_class,
             )
         }
         Err(message) => {
@@ -267,6 +291,9 @@ fn submit_workspace_refresh_result(
                 0,
                 result.queue_wait_ms,
                 result.elapsed_ms,
+                &result.trace,
+                &result.analysis_trace,
+                result.error_class,
             )
         }
     }
@@ -309,6 +336,9 @@ fn submit_diagnostics_result(
         result.queue_wait_ms,
         result.elapsed_ms,
         result.analysis_tier,
+        &result.trace,
+        &result.analysis_trace,
+        result.error_class,
     )?;
     state.queue_diagnostics_publish(result.target_uri, result.generation, result.outcome);
     Ok(())
@@ -557,6 +587,7 @@ fn submit_document_request_task<F>(
         + 'static,
 {
     state.analysis.clear_last_analysis_tier();
+    state.analysis.clear_last_analysis_trace();
     let analysis = state.analysis.clone();
     let cancellation = task_info
         .request
@@ -565,9 +596,18 @@ fn submit_document_request_task<F>(
         .map(|token| token.analysis_token())
         .unwrap_or_else(CancellationToken::new);
     let snapshot = analysis.snapshot(workspace_root, cancellation);
+    let trace = TraceContext {
+        request_id: Some(task_info.request.id.clone()),
+        document_generation: task_info.request.generation,
+        document_version: task_info
+            .request
+            .target_uri
+            .as_deref()
+            .and_then(|uri| snapshot.document_version(uri)),
+    };
     state.queue_document_request_task();
     let task = LspWorkerTask::DocumentRequest(Box::new(move || {
-        let result = run_document_request_task(analysis, snapshot, task_info, task);
+        let result = run_document_request_task(analysis, snapshot, trace, task_info, task);
         result
     }));
     if state.worker_task_tx.send(task).is_err() {
@@ -578,6 +618,7 @@ fn submit_document_request_task<F>(
 fn run_document_request_task<F>(
     analysis: AnalysisEngine,
     snapshot: AnalysisSnapshot,
+    trace: TraceContext,
     task_info: ScheduledDocumentRequestTask,
     task: F,
 ) -> DocumentRequestTaskResult
@@ -593,29 +634,41 @@ where
     };
     let elapsed_ms = started_at.elapsed().as_millis();
     let analysis_tier = analysis.last_analysis_tier();
-    let response = match result {
-        Ok(Ok(response)) => response,
-        Ok(Err(message)) => DocumentRequestResponse::Error {
-            code: INVALID_REQUEST,
-            message,
-        },
-        Err(payload) => DocumentRequestResponse::Error {
-            code: INVALID_REQUEST,
-            message: format!(
-                "kern-lsp analysis panicked: {}",
-                panic_message(payload.as_ref())
-            ),
-        },
+    let (response, error_class) = match result {
+        Ok(Ok(response)) => (response, None),
+        Ok(Err(message)) => {
+            let error_class = classify_lsp_error(&message);
+            (
+                DocumentRequestResponse::Error {
+                    code: INVALID_REQUEST,
+                    message,
+                },
+                Some(error_class),
+            )
+        }
+        Err(payload) => (
+            DocumentRequestResponse::Error {
+                code: INVALID_REQUEST,
+                message: format!(
+                    "kern-lsp analysis panicked: {}",
+                    panic_message(payload.as_ref())
+                ),
+            },
+            Some(LspErrorClass::InternalBug),
+        ),
     };
     DocumentRequestTaskResult {
         request: task_info.request,
         target_uri: task_info.target_uri,
         lane: task_info.lane,
         method: task_info.method,
+        trace,
         queue_wait_ms: started_at.duration_since(task_info.queued_at).as_millis(),
         elapsed_ms,
         analysis_tier,
+        analysis_trace: analysis.last_analysis_trace(),
         canceled,
+        error_class,
         response,
     }
 }
@@ -628,6 +681,41 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
         return message.clone();
     }
     "unknown panic payload".to_string()
+}
+
+fn classify_lsp_error(message: &str) -> LspErrorClass {
+    if message.contains("request was canceled") {
+        return LspErrorClass::RequestCanceled;
+    }
+    if message.contains("kern-lsp analysis panicked") {
+        return LspErrorClass::InternalBug;
+    }
+    if message.contains("failed to parse `") || message.contains("invalid Craft") {
+        return LspErrorClass::ProjectInvalid;
+    }
+    if message.contains("failed to resolve Craft project")
+        || message.contains("no Craft project")
+        || message.contains("project unavailable")
+    {
+        return LspErrorClass::ProjectUnavailable;
+    }
+    if message.contains("failed to encode response") {
+        return LspErrorClass::ProtocolError;
+    }
+    LspErrorClass::AnalysisFailed
+}
+
+fn diagnostic_outcome_error_class(outcome: &AnalysisOutcome) -> Option<LspErrorClass> {
+    outcome
+        .bundles
+        .iter()
+        .flat_map(|bundle| bundle.diagnostics.iter())
+        .find_map(|diagnostic| {
+            diagnostic
+                .message
+                .starts_with("kern-lsp analysis panicked:")
+                .then_some(LspErrorClass::InternalBug)
+        })
 }
 
 pub(super) fn execute_optional_document_request<T, F>(
@@ -739,6 +827,9 @@ pub(super) fn submit_document_request_result(
         result.queue_wait_ms,
         result.elapsed_ms,
         result.analysis_tier,
+        &result.trace,
+        &result.analysis_trace,
+        result.error_class,
     )
 }
 
@@ -764,13 +855,21 @@ fn emit_request_canceled_trace(
     writer: &mut MessageWriter<impl io::Write>,
     result: &DocumentRequestTaskResult,
 ) -> Result<(), ServerError> {
+    let trace_fields = format_trace_context(&result.trace, &result.analysis_trace);
     emit_trace(
         state,
         writer,
         "request canceled",
         Some(format!(
-            "queue_wait_ms={} elapsed_ms={} status=canceled lane={:?} method={} target={}",
-            result.queue_wait_ms, result.elapsed_ms, result.lane, result.method, result.target_uri
+            "{} queue_wait_ms={} elapsed_ms={} status=canceled lane={:?} method={} target={} cache={} error_class={}",
+            trace_fields,
+            result.queue_wait_ms,
+            result.elapsed_ms,
+            result.lane,
+            result.method,
+            result.target_uri,
+            result.analysis_trace.cache_summary(),
+            LspErrorClass::RequestCanceled.as_str()
         )),
         true,
     )
@@ -785,27 +884,36 @@ fn emit_analysis_tier_trace(
     queue_wait_ms: u128,
     elapsed_ms: u128,
     analysis_tier: Option<crate::analysis::AnalysisTier>,
+    trace: &TraceContext,
+    analysis_trace: &crate::analysis::AnalysisTrace,
+    error_class: Option<LspErrorClass>,
 ) -> Result<(), ServerError> {
-    let Some(tier) = analysis_tier else {
+    if analysis_tier.is_none() && error_class.is_none() {
         return Ok(());
-    };
+    }
+    let tier = analysis_tier.map(|tier| tier.as_str()).unwrap_or("none");
     let budget_status = state
         .request_budget_policy
         .status(RequestBudgetKind::Interactive, elapsed_ms)
         .as_str();
+    let error_class = error_class.map(LspErrorClass::as_str).unwrap_or("None");
+    let trace_fields = format_trace_context(trace, analysis_trace);
     emit_trace(
         state,
         writer,
         "analysis tier selected",
         Some(format!(
-            "tier={} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?} method={} target={}",
-            tier.as_str(),
+            "{} tier={} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?} method={} target={} cache={} error_class={}",
+            trace_fields,
+            tier,
             queue_wait_ms,
             elapsed_ms,
             budget_status,
             lane,
             method,
-            target_uri
+            target_uri,
+            analysis_trace.cache_summary(),
+            error_class
         )),
         true,
     )
@@ -819,10 +927,16 @@ fn emit_diagnostics_analysis_trace(
     queue_wait_ms: u128,
     elapsed_ms: u128,
     analysis_tier: Option<crate::analysis::AnalysisTier>,
+    trace: &TraceContext,
+    analysis_trace: &crate::analysis::AnalysisTrace,
+    error_class: Option<LspErrorClass>,
 ) -> Result<(), ServerError> {
     let tier = analysis_tier.map(|tier| tier.as_str());
+    let error_class = error_class.map(LspErrorClass::as_str).unwrap_or("None");
+    let trace_fields = format_trace_context(trace, analysis_trace);
     let mut verbose = format!(
-        "mode={:?} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?} target={}",
+        "{} mode={:?} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?} target={} cache={} error_class={}",
+        trace_fields,
         mode,
         queue_wait_ms,
         elapsed_ms,
@@ -831,7 +945,9 @@ fn emit_diagnostics_analysis_trace(
             .status(RequestBudgetKind::Diagnostics, elapsed_ms)
             .as_str(),
         SchedulerLane::Diagnostics,
-        target_uri
+        target_uri,
+        analysis_trace.cache_summary(),
+        error_class
     );
     if let Some(tier) = tier {
         verbose.insert_str(0, &format!("tier={} ", tier));
@@ -856,6 +972,9 @@ fn emit_workspace_refresh_queued_trace(
     generation: u64,
     queue_wait_ms: u128,
     elapsed_ms: u128,
+    trace: &TraceContext,
+    analysis_trace: &crate::analysis::AnalysisTrace,
+    error_class: Option<LspErrorClass>,
 ) -> Result<(), ServerError> {
     emit_workspace_refresh_progress_end(
         state,
@@ -866,12 +985,15 @@ fn emit_workspace_refresh_queued_trace(
         failed_targets,
         elapsed_ms,
     )?;
+    let error_class = error_class.map(LspErrorClass::as_str).unwrap_or("None");
+    let trace_fields = format_trace_context(trace, analysis_trace);
     emit_trace(
         state,
         writer,
         "workspace refresh queued",
         Some(format!(
-            "reason={} targets={} indexed_targets={} failed_targets={} index_generation={} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?}",
+            "{} reason={} targets={} indexed_targets={} failed_targets={} index_generation={} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?} cache={} error_class={}",
+            trace_fields,
             reason,
             target_count,
             indexed_targets,
@@ -883,9 +1005,38 @@ fn emit_workspace_refresh_queued_trace(
                 .request_budget_policy
                 .status(RequestBudgetKind::WorkspaceRefresh, elapsed_ms)
                 .as_str(),
-            SchedulerLane::Diagnostics
+            SchedulerLane::Diagnostics,
+            analysis_trace.cache_summary(),
+            error_class
         )),
         true,
+    )
+}
+
+fn format_trace_context(
+    trace: &TraceContext,
+    analysis_trace: &crate::analysis::AnalysisTrace,
+) -> String {
+    let request_id = trace
+        .request_id
+        .as_ref()
+        .map(Value::to_string)
+        .unwrap_or_else(|| "None".to_string());
+    let document_generation = trace
+        .document_generation
+        .map(|generation| generation.0.to_string())
+        .unwrap_or_else(|| "None".to_string());
+    let document_version = trace
+        .document_version
+        .map(|version| version.to_string())
+        .unwrap_or_else(|| "None".to_string());
+    let snapshot_generation = analysis_trace
+        .snapshot_generation
+        .map(|generation| generation.to_string())
+        .unwrap_or_else(|| "None".to_string());
+    format!(
+        "request_id={} document_generation={} document_version={} snapshot_generation={}",
+        request_id, document_generation, document_version, snapshot_generation
     )
 }
 
@@ -946,6 +1097,7 @@ pub(super) fn write_success_response(
     result: Value,
 ) -> Result<(), ServerError> {
     if state.should_drop_response(request) {
+        emit_stale_response_trace(state, writer, request)?;
         return Ok(());
     }
     writer.write_json(&success_response(request.id.clone(), result))?;
@@ -958,6 +1110,7 @@ pub(super) fn write_null_response(
     request: &RequestContext,
 ) -> Result<(), ServerError> {
     if state.should_drop_response(request) {
+        emit_stale_response_trace(state, writer, request)?;
         return Ok(());
     }
     writer.write_json(&null_response(request.id.clone()))?;
@@ -972,10 +1125,40 @@ pub(super) fn write_error_response(
     message: impl Into<String>,
 ) -> Result<(), ServerError> {
     if state.should_drop_response(request) {
+        emit_stale_response_trace(state, writer, request)?;
         return Ok(());
     }
     writer.write_json(&error_response(request.id.clone(), code, message))?;
     Ok(())
+}
+
+fn emit_stale_response_trace(
+    state: &ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    request: &RequestContext,
+) -> Result<(), ServerError> {
+    let trace = TraceContext {
+        request_id: Some(request.id.clone()),
+        document_generation: request.generation,
+        document_version: request
+            .target_uri
+            .as_deref()
+            .and_then(|uri| state.analysis.document_version(uri)),
+    };
+    let analysis_trace = crate::analysis::AnalysisTrace::default();
+    let target = request.target_uri.as_deref().unwrap_or("None");
+    emit_trace(
+        state,
+        writer,
+        "stale response dropped",
+        Some(format!(
+            "{} status=stale target={} cache={}",
+            format_trace_context(&trace, &analysis_trace),
+            target,
+            analysis_trace.cache_summary()
+        )),
+        true,
+    )
 }
 
 pub(super) fn schedule_workspace_refresh(

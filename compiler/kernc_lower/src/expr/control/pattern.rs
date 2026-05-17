@@ -613,6 +613,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             "        lower_let_binding_forward_value_init",
                             |this| this.lower_expr(init, subst_map, Some(target_ty)),
                         );
+                        if !self.types_match_for_forwarding(init.ty, target_ty) {
+                            return self.measure_phase("        lower_let_binding_emit", |_| {
+                                vec![MastStmt::Let {
+                                    name: binding.name,
+                                    ty: target_ty,
+                                    is_mut: binding.is_mut,
+                                    init,
+                                }]
+                            });
+                        }
                         self.measure_phase(
                             "        lower_let_binding_forward_value_record",
                             |this| {

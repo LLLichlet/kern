@@ -175,6 +175,7 @@ impl MirFunctionBuilder {
                 };
                 Ok(Some(MirRvalue::Cast {
                     kind: lower_cast_kind(*kind),
+                    target_ty: expr.ty,
                     operand,
                 }))
             }

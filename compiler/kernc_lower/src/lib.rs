@@ -334,6 +334,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         Some(self.cached_forwarding_symbol(&name))
     }
 
+    pub(crate) fn types_match_for_forwarding(&self, lhs: TypeId, rhs: TypeId) -> bool {
+        self.ctx.type_registry.normalize(lhs) == self.ctx.type_registry.normalize(rhs)
+    }
+
     pub(crate) fn is_forwardable_value_binding(&self, expr_id: NodeId) -> bool {
         self.current_owner_flow_hints().is_some_and(|hints| {
             hints
@@ -355,6 +359,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         forwarded_to: SymbolId,
         context: &str,
     ) -> bool {
+        let Some((name_ty, _)) = self.local_binding(name) else {
+            return false;
+        };
+        let Some((forwarded_ty, _)) = self.local_binding(forwarded_to) else {
+            return false;
+        };
+        if !self.types_match_for_forwarding(name_ty, forwarded_ty) {
+            return false;
+        }
+
         if let Some(scope) = self.local_forwardings.last_mut() {
             scope.insert(name, forwarded_to);
             true

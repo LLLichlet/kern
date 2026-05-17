@@ -318,6 +318,7 @@ pub enum MirRvalue {
     },
     Cast {
         kind: MirCastKind,
+        target_ty: TypeId,
         operand: MirOperand,
     },
     BitIntrinsic {

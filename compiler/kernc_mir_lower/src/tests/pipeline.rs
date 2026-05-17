@@ -73,6 +73,129 @@ fn mir_pass_pipeline_forwards_trivial_local_copy_chains() {
 }
 
 #[test]
+fn mir_pass_pipeline_preserves_casted_pointer_integer_copies() {
+    let ptr = SymbolId(123);
+    let casted = SymbolId(124);
+    let copied = SymbolId(125);
+    let ptr_ty = TypeId(501);
+    let function = MastFunction {
+        id: MonoId(18),
+        name: "ptr_int_copy".to_string(),
+        span: Span::default(),
+        linkage: MastLinkage::External,
+        params: vec![MastParam {
+            name: ptr,
+            ty: ptr_ty,
+            is_mut: false,
+        }],
+        ret_ty: TypeId::USIZE,
+        body: Some(MastBlock {
+            stmts: vec![
+                MastStmt::Let {
+                    name: casted,
+                    ty: TypeId::USIZE,
+                    is_mut: false,
+                    init: MastExpr::new(
+                        TypeId::USIZE,
+                        MastExprKind::Cast {
+                            kind: MastCastKind::PtrToInt,
+                            operand: Box::new(MastExpr::new(
+                                ptr_ty,
+                                MastExprKind::Var(ptr),
+                                Span::default(),
+                            )),
+                        },
+                        Span::default(),
+                    ),
+                },
+                MastStmt::Let {
+                    name: copied,
+                    ty: TypeId::USIZE,
+                    is_mut: false,
+                    init: MastExpr::new(TypeId::USIZE, MastExprKind::Var(casted), Span::default()),
+                },
+            ],
+            result: Some(Box::new(MastExpr::new(
+                TypeId::USIZE,
+                MastExprKind::Binary {
+                    op: BinaryOperator::BitwiseAnd,
+                    lhs: Box::new(MastExpr::new(
+                        TypeId::USIZE,
+                        MastExprKind::Var(copied),
+                        Span::default(),
+                    )),
+                    rhs: Box::new(MastExpr::new(
+                        TypeId::USIZE,
+                        MastExprKind::Integer(7),
+                        Span::default(),
+                    )),
+                },
+                Span::default(),
+            ))),
+            defers: vec![],
+        }),
+        is_extern: false,
+        is_variadic: false,
+        inline_hint: MastInlineHint::None,
+        attributes: vec![],
+    };
+
+    let report = build_from_mast(&module_with_function(function));
+    let body = report.module.functions[0].body.as_ref().unwrap();
+    let cast_local = body
+        .locals
+        .iter()
+        .find(|local| local.name == casted)
+        .map(|local| local.id)
+        .expect("missing cast local");
+    let param_local = body.locals[0].id;
+
+    assert!(body.blocks.iter().any(
+        |block| block.instructions.iter().any(|instruction| matches!(
+            &instruction.kind,
+            MirInstruction::Let {
+                init: MirRvalue::Cast {
+                    kind: MirCastKind::PtrToInt,
+                    target_ty: TypeId::USIZE,
+                    operand: MirOperand::Local(local),
+                },
+                ..
+            } if local == &param_local
+        ))
+    ));
+    let mut saw_bitwise_cast_local = false;
+    let mut saw_bitwise_pointer_param = false;
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            if let MirInstruction::Let { init, .. }
+            | MirInstruction::Assign { value: init, .. }
+            | MirInstruction::Eval(init)
+            | MirInstruction::Defer(init) = &instruction.kind
+                && let MirRvalue::Binary {
+                    op: BinaryOperator::BitwiseAnd,
+                    lhs: MirOperand::Local(lhs),
+                    ..
+                } = init
+            {
+                saw_bitwise_cast_local |= lhs == &cast_local;
+                saw_bitwise_pointer_param |= lhs == &param_local;
+            }
+        }
+        if let MirTerminator::Return(Some(MirRvalue::Binary {
+            op: BinaryOperator::BitwiseAnd,
+            lhs: MirOperand::Local(lhs),
+            ..
+        })) = &block.terminator.kind
+        {
+            saw_bitwise_cast_local |= lhs == &cast_local;
+            saw_bitwise_pointer_param |= lhs == &param_local;
+        }
+    }
+    assert!(saw_bitwise_cast_local);
+    assert!(!saw_bitwise_pointer_param);
+}
+
+#[test]
 fn mir_pass_pipeline_folds_const_branch_after_copy_propagation() {
     let cond = SymbolId(130);
     let report = build_from_mast(&module_with_function(MastFunction {

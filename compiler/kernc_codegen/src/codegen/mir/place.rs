@@ -179,10 +179,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             MirRvalue::Call { callee, .. } => self.mir_call_return_ty(body, callee, hint),
             MirRvalue::Aggregate { ty, .. } => Some(*ty),
             MirRvalue::Projection { .. }
-            | MirRvalue::Cast { .. }
             | MirRvalue::AtomicCas { .. }
             | MirRvalue::AddressOf(_)
             | MirRvalue::Load(_) => hint,
+            MirRvalue::Cast { target_ty, .. } => Some(*target_ty),
             MirRvalue::Unary { operand, .. } => self.mir_operand_ty(body, operand),
             MirRvalue::BitIntrinsic { operand, .. } => self.mir_operand_ty(body, operand),
             MirRvalue::Binary { op, lhs, .. } => match op {

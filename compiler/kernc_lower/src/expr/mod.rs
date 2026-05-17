@@ -119,7 +119,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         _ => {
                             let lowered_ident =
                                 this.measure_phase("          lower_ident_value", |this| {
-                                    this.lower_identifier_with_locality(expr.id, *name, subst_map)
+                                    this.lower_identifier_with_locality(
+                                        expr.id,
+                                        *name,
+                                        subst_map,
+                                        concrete_ty,
+                                    )
                                 });
                             let kind = lowered_ident.kind;
 

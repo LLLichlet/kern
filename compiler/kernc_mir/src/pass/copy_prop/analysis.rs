@@ -1,5 +1,5 @@
 use super::uses::collect_rooted_place_uses_in_rvalue;
-use crate::{MirBody, MirInstruction, MirOperand, MirPlace, MirRvalue};
+use crate::{MirBody, MirInstruction, MirLocalId, MirOperand, MirPlace, MirRvalue};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
@@ -7,7 +7,7 @@ pub(super) struct CopyCandidate {
     pub(super) replacement: MirOperand,
 }
 
-pub(super) fn collect_copy_candidates(body: &MirBody) -> HashMap<crate::MirLocalId, CopyCandidate> {
+pub(super) fn collect_copy_candidates(body: &MirBody) -> HashMap<MirLocalId, CopyCandidate> {
     let mut init_uses = HashMap::new();
     for local in &body.locals {
         if local.is_mut {
@@ -81,6 +81,9 @@ pub(super) fn collect_copy_candidates(body: &MirBody) -> HashMap<crate::MirLocal
             if assigned.contains(local) || rooted_place_uses.contains(local) {
                 return false;
             }
+            if !operand_has_local_type(body, replacement, *local) {
+                return false;
+            }
             match replacement {
                 MirOperand::Local(src) => {
                     !assigned.contains(src) && !rooted_place_uses.contains(src)
@@ -93,13 +96,15 @@ pub(super) fn collect_copy_candidates(body: &MirBody) -> HashMap<crate::MirLocal
 }
 
 pub(super) fn resolve_replacements(
-    candidates: &HashMap<crate::MirLocalId, CopyCandidate>,
-) -> HashMap<crate::MirLocalId, MirOperand> {
+    body: &MirBody,
+    candidates: &HashMap<MirLocalId, CopyCandidate>,
+) -> HashMap<MirLocalId, MirOperand> {
     let mut resolved = HashMap::new();
     for &local in candidates.keys() {
         let mut visiting = HashSet::new();
         if let Some(replacement) =
-            resolve_replacement(local, candidates, &mut resolved, &mut visiting)
+            resolve_replacement(body, local, candidates, &mut resolved, &mut visiting)
+            && operand_has_local_type(body, &replacement, local)
         {
             resolved.insert(local, replacement);
         }
@@ -108,10 +113,11 @@ pub(super) fn resolve_replacements(
 }
 
 fn resolve_replacement(
-    local: crate::MirLocalId,
-    candidates: &HashMap<crate::MirLocalId, CopyCandidate>,
-    resolved: &mut HashMap<crate::MirLocalId, MirOperand>,
-    visiting: &mut HashSet<crate::MirLocalId>,
+    body: &MirBody,
+    local: MirLocalId,
+    candidates: &HashMap<MirLocalId, CopyCandidate>,
+    resolved: &mut HashMap<MirLocalId, MirOperand>,
+    visiting: &mut HashSet<MirLocalId>,
 ) -> Option<MirOperand> {
     if let Some(replacement) = resolved.get(&local) {
         return Some(replacement.clone());
@@ -124,7 +130,7 @@ fn resolve_replacement(
         MirOperand::Const(value) => Some(MirOperand::Const(value.clone())),
         MirOperand::Local(src) => {
             if candidates.contains_key(src) {
-                resolve_replacement(*src, candidates, resolved, visiting)
+                resolve_replacement(body, *src, candidates, resolved, visiting)
             } else {
                 Some(MirOperand::Local(*src))
             }
@@ -132,8 +138,25 @@ fn resolve_replacement(
     };
 
     visiting.remove(&local);
-    if let Some(replacement) = &replacement {
+    if let Some(replacement) = &replacement
+        && operand_has_local_type(body, replacement, local)
+    {
         resolved.insert(local, replacement.clone());
+    } else {
+        return None;
     }
     replacement
+}
+
+fn operand_has_local_type(body: &MirBody, operand: &MirOperand, local: MirLocalId) -> bool {
+    let Some(local_ty) = body.locals.get(local.0 as usize).map(|local| local.ty) else {
+        return false;
+    };
+    match operand {
+        MirOperand::Local(src) => body
+            .locals
+            .get(src.0 as usize)
+            .is_some_and(|src| src.ty == local_ty),
+        MirOperand::Const(value) => value.ty() == local_ty,
+    }
 }

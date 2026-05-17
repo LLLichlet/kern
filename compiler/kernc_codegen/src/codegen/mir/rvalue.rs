@@ -430,14 +430,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     self.zero_i8_value()
                 }
             }
-            MirRvalue::Cast { kind, operand } => {
-                let Some(target_ty) = expected_ty else {
-                    self.sess.emit_ice(
-                        Span::default(),
-                        "Kern ICE (Codegen): MIR cast requires an expected target type.",
-                    );
-                    return self.zero_i8_value();
-                };
+            MirRvalue::Cast {
+                kind,
+                target_ty,
+                operand,
+            } => {
+                let target_ty = expected_ty.unwrap_or(*target_ty);
                 self.compile_mir_cast(body, *kind, operand, target_ty)
             }
             MirRvalue::BitIntrinsic { kind, operand } => {

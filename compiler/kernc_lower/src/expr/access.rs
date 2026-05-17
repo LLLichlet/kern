@@ -107,9 +107,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         expr_id: kernc_utils::NodeId,
         name: SymbolId,
         subst_map: &HashMap<SymbolId, GenericArg>,
+        concrete_ty: TypeId,
     ) -> LoweredIdentifier {
         let name = self.measure_phase("          lower_ident_copy_source", |this| {
-            this.identifier_copy_source(expr_id).unwrap_or(name)
+            let Some(source_name) = this.identifier_copy_source(expr_id) else {
+                return name;
+            };
+            let Some((source_ty, _)) = this.local_binding(source_name) else {
+                return name;
+            };
+            if this.types_match_for_forwarding(source_ty, concrete_ty) {
+                source_name
+            } else {
+                name
+            }
         });
         let name = self.measure_phase("          lower_ident_forward_local", |this| {
             this.resolve_forwarded_local(name)
@@ -120,10 +131,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             })
         {
             return match local_value {
-                LocalResolvedValue::Value(value) => LoweredIdentifier {
-                    kind: value.kind,
-                    is_local_binding: false,
-                },
+                LocalResolvedValue::Value(value) => {
+                    if self.types_match_for_forwarding(value.ty, concrete_ty) {
+                        LoweredIdentifier {
+                            kind: value.kind,
+                            is_local_binding: false,
+                        }
+                    } else {
+                        LoweredIdentifier {
+                            kind: MastExprKind::Var(name),
+                            is_local_binding: true,
+                        }
+                    }
+                }
                 LocalResolvedValue::Binding => LoweredIdentifier {
                     kind: MastExprKind::Var(name),
                     is_local_binding: true,
@@ -213,7 +233,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         name: SymbolId,
         subst_map: &HashMap<SymbolId, GenericArg>,
     ) -> MastExprKind {
-        self.lower_identifier_with_locality(expr_id, name, subst_map)
+        self.lower_identifier_with_locality(expr_id, name, subst_map, TypeId::ERROR)
             .kind
     }
 

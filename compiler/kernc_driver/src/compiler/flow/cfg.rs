@@ -144,18 +144,18 @@ impl<'a> FlowCfgBuilder<'a> {
             .flatten();
     }
 
-    fn local_binding_use(&self, expr: &ast::Expr) -> Option<AnalysisFlowBindingId> {
+    fn local_binding_copy_source(&self, expr: &ast::Expr) -> Option<AnalysisFlowBindingId> {
         match &expr.kind {
             ast::ExprKind::Identifier(_) => self.reference_to_binding.get(&expr.span).copied(),
-            ast::ExprKind::Grouped { expr }
-            | ast::ExprKind::As { lhs: expr, .. }
-            | ast::ExprKind::GenericInstantiation { target: expr, .. } => {
-                self.local_binding_use(expr)
-            }
-            ast::ExprKind::Unary {
-                op: ast::UnaryOperator::AddressOf | ast::UnaryOperator::MutAddressOf,
-                operand,
-            } => self.local_binding_use(operand),
+            ast::ExprKind::Grouped { expr } => self.local_binding_copy_source(expr),
+            _ => None,
+        }
+    }
+
+    fn local_binding_place(&self, expr: &ast::Expr) -> Option<AnalysisFlowBindingId> {
+        match &expr.kind {
+            ast::ExprKind::Identifier(_) => self.reference_to_binding.get(&expr.span).copied(),
+            ast::ExprKind::Grouped { expr } => self.local_binding_place(expr),
             _ => None,
         }
     }
@@ -250,7 +250,7 @@ impl<'a> FlowCfgBuilder<'a> {
                         node,
                         vec![binding_id],
                         AnalysisFlowDefinitionKind::Initializer,
-                        self.local_binding_use(init),
+                        self.local_binding_copy_source(init),
                         self.local_binding_uses_in_expr(init),
                     );
                 }
@@ -484,20 +484,20 @@ impl<'a> FlowCfgBuilder<'a> {
                 Vec::new()
             }
             ast::ExprKind::Assign { lhs, op, rhs } => {
-                let current = if self.local_binding_use(lhs).is_some() {
+                let current = if self.local_binding_place(lhs).is_some() {
                     incoming
                 } else {
                     self.lower_expr(lhs, incoming, loop_ctx)
                 };
                 let rhs_out = self.lower_expr(rhs, current, loop_ctx);
                 let node = self.lower_eval(expr, rhs_out);
-                if let Some(binding_id) = self.local_binding_use(lhs) {
+                if let Some(binding_id) = self.local_binding_place(lhs) {
                     self.record_defs(
                         node,
                         vec![binding_id],
                         AnalysisFlowDefinitionKind::Assignment,
                         (*op == ast::AssignmentOperator::Assign)
-                            .then_some(self.local_binding_use(rhs))
+                            .then_some(self.local_binding_copy_source(rhs))
                             .flatten(),
                         {
                             let mut uses = self.local_binding_uses_in_expr(rhs);
@@ -553,7 +553,7 @@ impl<'a> FlowCfgBuilder<'a> {
             | ast::ExprKind::Undef
             | ast::ExprKind::Infer => {
                 let node = self.lower_eval(expr, incoming);
-                if let Some(binding_id) = self.local_binding_use(expr) {
+                if let Some(binding_id) = self.local_binding_place(expr) {
                     self.record_use(node, binding_id);
                 }
                 self.fallthrough(node)
@@ -583,7 +583,7 @@ impl<'a> FlowCfgBuilder<'a> {
         }
 
         match &pattern.pattern.kind {
-            ast::PatternKind::Binding(_) => self.local_binding_use(init),
+            ast::PatternKind::Binding(_) => self.local_binding_copy_source(init),
             _ => None,
         }
     }

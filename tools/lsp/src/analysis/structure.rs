@@ -121,12 +121,13 @@ impl AnalysisEngine {
                 Arc::clone(structure)
             } else {
                 let Some(structure) = context
-                    .driver
-                    .analyze_structure_cancelable(
-                        &context.resolved.input_file.to_string_lossy(),
-                        &context.dirty_documents.overrides,
-                        &snapshot.cancellation,
-                    )
+                    .with_driver(|driver| {
+                        driver.analyze_structure_cancelable(
+                            &context.resolved.input_file.to_string_lossy(),
+                            &context.dirty_documents.overrides,
+                            &snapshot.cancellation,
+                        )
+                    })
                     .map_err(|_| "request was canceled".to_string())?
                 else {
                     return Ok(Vec::new());

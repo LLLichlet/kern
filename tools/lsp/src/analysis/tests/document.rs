@@ -127,6 +127,48 @@ fn analysis_reuses_driver_for_repeated_requests_on_same_document() {
 }
 
 #[test]
+fn analysis_serializes_shared_driver_queries_across_threads() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn main() i32 { return helper(); }\nfn helper() i32 { return 1; }\n";
+    let uri = temp_file_uri("driver_concurrent_queries", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let analysis = Arc::new(analysis);
+    let mut workers = Vec::new();
+    for _ in 0..8 {
+        let analysis = Arc::clone(&analysis);
+        let uri = uri.clone();
+        workers.push(std::thread::spawn(move || {
+            analysis.analyze_document_uri(&uri)
+        }));
+    }
+
+    for worker in workers {
+        let outcome = worker.join().unwrap();
+        let messages = outcome
+            .bundles
+            .iter()
+            .flat_map(|bundle| bundle.diagnostics.iter())
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            !messages
+                .iter()
+                .any(|message| message.contains("query cycle")),
+            "unexpected query-cycle diagnostic: {messages:?}"
+        );
+    }
+}
+
+#[test]
 fn open_path_index_reuses_on_text_changes_and_invalidates_on_open_close() {
     let mut analysis = AnalysisEngine::default();
     let uri = temp_file_uri("open_path_index", "fn main() void {}\n");

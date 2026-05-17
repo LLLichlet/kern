@@ -565,7 +565,7 @@ struct AnalysisRequestContext {
     resolved: ResolvedAnalysis,
     dirty_documents: DirtyDocumentsSnapshot,
     cache_key: AnalysisCacheKey,
-    driver: Arc<CompilerDriver>,
+    driver: AnalysisDriver,
     cancellation: CancellationToken,
 }
 
@@ -576,13 +576,37 @@ impl AnalysisRequestContext {
         }
         Ok(())
     }
+
+    fn with_driver<T>(&self, f: impl FnOnce(&CompilerDriver) -> T) -> T {
+        self.driver.with(f)
+    }
+}
+
+#[derive(Clone)]
+struct AnalysisDriver {
+    driver: Arc<CompilerDriver>,
+    query_lock: Arc<Mutex<()>>,
+}
+
+impl AnalysisDriver {
+    fn new(options: CompileOptions) -> Self {
+        Self {
+            driver: Arc::new(CompilerDriver::new(options)),
+            query_lock: Arc::new(Mutex::new(())),
+        }
+    }
+
+    fn with<T>(&self, f: impl FnOnce(&CompilerDriver) -> T) -> T {
+        let _query_lock = self.query_lock.lock().unwrap();
+        f(&self.driver)
+    }
 }
 
 pub struct AnalysisEngine {
     documents: BTreeMap<String, OpenDocument>,
     settings: AnalysisSettings,
     project_cache: Arc<Mutex<BTreeMap<PathBuf, Option<AnalysisProject>>>>,
-    driver_cache: Arc<Mutex<BTreeMap<IncrementalDriverKey, Arc<CompilerDriver>>>>,
+    driver_cache: Arc<Mutex<BTreeMap<IncrementalDriverKey, AnalysisDriver>>>,
     parse_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<ParsedModuleArtifact>>>>,
     surface_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisSurfaceArtifact>>>>,
     structure_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<StructureArtifact>>>>,
@@ -906,13 +930,14 @@ impl AnalysisEngine {
 
         let parsed = self.parse_modules_for_context(&context)?;
         let Some(report) = context
-            .driver
-            .analyze_report_with_function_body_reuse(
-                &clean_artifact,
-                &clean_structure,
-                &parsed,
-                &context.cancellation,
-            )
+            .with_driver(|driver| {
+                driver.analyze_report_with_function_body_reuse(
+                    &clean_artifact,
+                    &clean_structure,
+                    &parsed,
+                    &context.cancellation,
+                )
+            })
             .map_err(|_| "request was canceled".to_string())?
         else {
             self.record_dirty_fallback("targeted-body-reuse-unavailable");
@@ -991,12 +1016,13 @@ impl AnalysisEngine {
 
         let parsed = self.parse_modules_for_context(&context)?;
         let report = context
-            .driver
-            .analyze_report_from_structure_and_parsed(
-                &clean_structure,
-                &parsed,
-                &context.cancellation,
-            )
+            .with_driver(|driver| {
+                driver.analyze_report_from_structure_and_parsed(
+                    &clean_structure,
+                    &parsed,
+                    &context.cancellation,
+                )
+            })
             .map_err(|_| "request was canceled".to_string())?
             .filter(|_| !context.dirty_documents.is_clean());
         if report.is_some() {
@@ -1082,12 +1108,13 @@ impl AnalysisEngine {
             } else {
                 self.record_cache_miss(AnalysisCacheTraceKind::StructureArtifact);
                 context
-                    .driver
-                    .analyze_structure_cancelable(
-                        &context.resolved.input_file.to_string_lossy(),
-                        &context.dirty_documents.overrides,
-                        &context.cancellation,
-                    )
+                    .with_driver(|driver| {
+                        driver.analyze_structure_cancelable(
+                            &context.resolved.input_file.to_string_lossy(),
+                            &context.dirty_documents.overrides,
+                            &context.cancellation,
+                        )
+                    })
                     .map_err(|_| "request was canceled".to_string())?
                     .map(Arc::new)
             };
@@ -1102,17 +1129,19 @@ impl AnalysisEngine {
 
         if let Some(structure) = structure {
             context
-                .driver
-                .analyze_report_from_structure(&structure, &context.cancellation)
+                .with_driver(|driver| {
+                    driver.analyze_report_from_structure(&structure, &context.cancellation)
+                })
                 .map_err(|_| "request was canceled".to_string())
         } else {
             context
-                .driver
-                .analyze_report(
-                    &context.resolved.input_file.to_string_lossy(),
-                    &context.dirty_documents.overrides,
-                    &context.cancellation,
-                )
+                .with_driver(|driver| {
+                    driver.analyze_report(
+                        &context.resolved.input_file.to_string_lossy(),
+                        &context.dirty_documents.overrides,
+                        &context.cancellation,
+                    )
+                })
                 .map_err(|_| "request was canceled".to_string())
         }
     }
@@ -1210,12 +1239,13 @@ impl AnalysisEngine {
     fn dirty_navigation_can_use_clean_artifact(&self, context: &AnalysisRequestContext) -> bool {
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
         let Some(parsed) = context
-            .driver
-            .parse_modules(
-                &context.resolved.input_file.to_string_lossy(),
-                &context.dirty_documents.overrides,
-                &context.cancellation,
-            )
+            .with_driver(|driver| {
+                driver.parse_modules(
+                    &context.resolved.input_file.to_string_lossy(),
+                    &context.dirty_documents.overrides,
+                    &context.cancellation,
+                )
+            })
             .ok()
             .flatten()
         else {
@@ -1229,26 +1259,26 @@ impl AnalysisEngine {
             .get(&clean_key)
             .cloned()
         {
-            return context
-                .driver
-                .parsed_modules_match_structure_body_only(&clean_structure, &parsed);
+            return context.with_driver(|driver| {
+                driver.parsed_modules_match_structure_body_only(&clean_structure, &parsed)
+            });
         }
 
         let Some(clean_parsed) = self
             .driver_for_resolved(&context.resolved)
-            .parse_modules(
-                &context.resolved.input_file.to_string_lossy(),
-                &SourceOverrides::new(),
-                &context.cancellation,
-            )
+            .with(|driver| {
+                driver.parse_modules(
+                    &context.resolved.input_file.to_string_lossy(),
+                    &SourceOverrides::new(),
+                    &context.cancellation,
+                )
+            })
             .ok()
             .flatten()
         else {
             return true;
         };
-        context
-            .driver
-            .parsed_modules_match_body_only(&clean_parsed, &parsed)
+        context.with_driver(|driver| driver.parsed_modules_match_body_only(&clean_parsed, &parsed))
     }
 
     fn analyze_artifact_for_context(
@@ -1270,12 +1300,13 @@ impl AnalysisEngine {
             } else {
                 self.record_cache_miss(AnalysisCacheTraceKind::StructureArtifact);
                 context
-                    .driver
-                    .analyze_structure_cancelable(
-                        &context.resolved.input_file.to_string_lossy(),
-                        &context.dirty_documents.overrides,
-                        &context.cancellation,
-                    )
+                    .with_driver(|driver| {
+                        driver.analyze_structure_cancelable(
+                            &context.resolved.input_file.to_string_lossy(),
+                            &context.dirty_documents.overrides,
+                            &context.cancellation,
+                        )
+                    })
                     .map_err(|_| "request was canceled".to_string())?
                     .map(Arc::new)
             };
@@ -1291,17 +1322,19 @@ impl AnalysisEngine {
         context.check_canceled()?;
         let artifact = Arc::new(if let Some(structure) = structure {
             context
-                .driver
-                .analyze_artifact_from_structure(&structure, &context.cancellation)
+                .with_driver(|driver| {
+                    driver.analyze_artifact_from_structure(&structure, &context.cancellation)
+                })
                 .map_err(|_| "request was canceled".to_string())?
         } else {
             context
-                .driver
-                .analyze_artifact(
-                    &context.resolved.input_file.to_string_lossy(),
-                    &context.dirty_documents.overrides,
-                    &context.cancellation,
-                )
+                .with_driver(|driver| {
+                    driver.analyze_artifact(
+                        &context.resolved.input_file.to_string_lossy(),
+                        &context.dirty_documents.overrides,
+                        &context.cancellation,
+                    )
+                })
                 .map_err(|_| "request was canceled".to_string())?
         });
         self.artifact_cache
@@ -1324,12 +1357,13 @@ impl AnalysisEngine {
             } else {
                 self.record_cache_miss(AnalysisCacheTraceKind::StructureArtifact);
                 context
-                    .driver
-                    .analyze_structure_cancelable(
-                        &context.resolved.input_file.to_string_lossy(),
-                        &context.dirty_documents.overrides,
-                        &context.cancellation,
-                    )
+                    .with_driver(|driver| {
+                        driver.analyze_structure_cancelable(
+                            &context.resolved.input_file.to_string_lossy(),
+                            &context.dirty_documents.overrides,
+                            &context.cancellation,
+                        )
+                    })
                     .map_err(|_| "request was canceled".to_string())?
                     .map(Arc::new)
             };
@@ -1368,12 +1402,13 @@ impl AnalysisEngine {
             } else {
                 self.record_cache_miss(AnalysisCacheTraceKind::StructureArtifact);
                 context
-                    .driver
-                    .analyze_structure_cancelable(
-                        &context.resolved.input_file.to_string_lossy(),
-                        &context.dirty_documents.overrides,
-                        &context.cancellation,
-                    )
+                    .with_driver(|driver| {
+                        driver.analyze_structure_cancelable(
+                            &context.resolved.input_file.to_string_lossy(),
+                            &context.dirty_documents.overrides,
+                            &context.cancellation,
+                        )
+                    })
                     .map_err(|_| "request was canceled".to_string())?
                     .map(Arc::new)
             };
@@ -1389,17 +1424,22 @@ impl AnalysisEngine {
         context.check_canceled()?;
         let artifact = Arc::new(if let Some(structure) = structure {
             context
-                .driver
-                .analyze_navigation_artifact_from_structure(&structure, &context.cancellation)
+                .with_driver(|driver| {
+                    driver.analyze_navigation_artifact_from_structure(
+                        &structure,
+                        &context.cancellation,
+                    )
+                })
                 .map_err(|_| "request was canceled".to_string())?
         } else {
             context
-                .driver
-                .analyze_navigation_artifact(
-                    &context.resolved.input_file.to_string_lossy(),
-                    &context.dirty_documents.overrides,
-                    &context.cancellation,
-                )
+                .with_driver(|driver| {
+                    driver.analyze_navigation_artifact(
+                        &context.resolved.input_file.to_string_lossy(),
+                        &context.dirty_documents.overrides,
+                        &context.cancellation,
+                    )
+                })
                 .map_err(|_| "request was canceled".to_string())?
         });
         self.navigation_cache
@@ -1434,12 +1474,13 @@ impl AnalysisEngine {
             } else {
                 self.record_cache_miss(AnalysisCacheTraceKind::StructureArtifact);
                 context
-                    .driver
-                    .analyze_structure_cancelable(
-                        &context.resolved.input_file.to_string_lossy(),
-                        &context.dirty_documents.overrides,
-                        &context.cancellation,
-                    )
+                    .with_driver(|driver| {
+                        driver.analyze_structure_cancelable(
+                            &context.resolved.input_file.to_string_lossy(),
+                            &context.dirty_documents.overrides,
+                            &context.cancellation,
+                        )
+                    })
                     .map_err(|_| "request was canceled".to_string())?
                     .map(Arc::new)
             };
@@ -1455,17 +1496,20 @@ impl AnalysisEngine {
         context.check_canceled()?;
         let artifact = Arc::new(if let Some(structure) = structure {
             context
-                .driver
-                .analyze_semantic_artifact_from_structure(&structure, &context.cancellation)
+                .with_driver(|driver| {
+                    driver
+                        .analyze_semantic_artifact_from_structure(&structure, &context.cancellation)
+                })
                 .map_err(|_| "request was canceled".to_string())?
         } else {
             context
-                .driver
-                .analyze_semantic_artifact(
-                    &context.resolved.input_file.to_string_lossy(),
-                    &context.dirty_documents.overrides,
-                    &context.cancellation,
-                )
+                .with_driver(|driver| {
+                    driver.analyze_semantic_artifact(
+                        &context.resolved.input_file.to_string_lossy(),
+                        &context.dirty_documents.overrides,
+                        &context.cancellation,
+                    )
+                })
                 .map_err(|_| "request was canceled".to_string())?
         });
         self.semantic_classification_cache
@@ -1489,12 +1533,13 @@ impl AnalysisEngine {
 
         context.check_canceled()?;
         let surface = match context
-            .driver
-            .analyze_surface(
-                &context.resolved.input_file.to_string_lossy(),
-                &context.dirty_documents.overrides,
-                &context.cancellation,
-            )
+            .with_driver(|driver| {
+                driver.analyze_surface(
+                    &context.resolved.input_file.to_string_lossy(),
+                    &context.dirty_documents.overrides,
+                    &context.cancellation,
+                )
+            })
             .map_err(|_| "request was canceled".to_string())?
         {
             Some(surface) => Arc::new(surface),
@@ -1515,12 +1560,13 @@ impl AnalysisEngine {
     ) -> Result<Option<Arc<ImportedStructureArtifact>>, String> {
         context.check_canceled()?;
         let imported = context
-            .driver
-            .analyze_imported_structure(
-                &context.resolved.input_file.to_string_lossy(),
-                &context.dirty_documents.overrides,
-                &context.cancellation,
-            )
+            .with_driver(|driver| {
+                driver.analyze_imported_structure(
+                    &context.resolved.input_file.to_string_lossy(),
+                    &context.dirty_documents.overrides,
+                    &context.cancellation,
+                )
+            })
             .map_err(|_| "request was canceled".to_string())?;
         Ok(imported.map(Arc::new))
     }
@@ -1540,12 +1586,13 @@ impl AnalysisEngine {
         context.check_canceled()?;
         let artifact = Arc::new(
             context
-                .driver
-                .analyze_artifact(
-                    &context.resolved.input_file.to_string_lossy(),
-                    &SourceOverrides::new(),
-                    &context.cancellation,
-                )
+                .with_driver(|driver| {
+                    driver.analyze_artifact(
+                        &context.resolved.input_file.to_string_lossy(),
+                        &SourceOverrides::new(),
+                        &context.cancellation,
+                    )
+                })
                 .map_err(|_| "request was canceled".to_string())?,
         );
         self.artifact_cache
@@ -1571,12 +1618,13 @@ impl AnalysisEngine {
         context.check_canceled()?;
         let artifact = Arc::new(
             context
-                .driver
-                .analyze_navigation_artifact(
-                    &context.resolved.input_file.to_string_lossy(),
-                    &SourceOverrides::new(),
-                    &context.cancellation,
-                )
+                .with_driver(|driver| {
+                    driver.analyze_navigation_artifact(
+                        &context.resolved.input_file.to_string_lossy(),
+                        &SourceOverrides::new(),
+                        &context.cancellation,
+                    )
+                })
                 .map_err(|_| "request was canceled".to_string())?,
         );
         self.navigation_cache
@@ -1607,12 +1655,13 @@ impl AnalysisEngine {
         context.check_canceled()?;
         let artifact = Arc::new(
             context
-                .driver
-                .analyze_semantic_artifact(
-                    &context.resolved.input_file.to_string_lossy(),
-                    &SourceOverrides::new(),
-                    &context.cancellation,
-                )
+                .with_driver(|driver| {
+                    driver.analyze_semantic_artifact(
+                        &context.resolved.input_file.to_string_lossy(),
+                        &SourceOverrides::new(),
+                        &context.cancellation,
+                    )
+                })
                 .map_err(|_| "request was canceled".to_string())?,
         );
         self.semantic_classification_cache
@@ -1637,12 +1686,13 @@ impl AnalysisEngine {
 
         context.check_canceled()?;
         let surface = match context
-            .driver
-            .analyze_surface(
-                &context.resolved.input_file.to_string_lossy(),
-                &SourceOverrides::new(),
-                &context.cancellation,
-            )
+            .with_driver(|driver| {
+                driver.analyze_surface(
+                    &context.resolved.input_file.to_string_lossy(),
+                    &SourceOverrides::new(),
+                    &context.cancellation,
+                )
+            })
             .map_err(|_| "request was canceled".to_string())?
         {
             Some(surface) => Arc::new(surface),
@@ -1669,12 +1719,13 @@ impl AnalysisEngine {
 
         context.check_canceled()?;
         let parsed = context
-            .driver
-            .parse_modules(
-                &context.resolved.input_file.to_string_lossy(),
-                &context.dirty_documents.overrides,
-                &context.cancellation,
-            )
+            .with_driver(|driver| {
+                driver.parse_modules(
+                    &context.resolved.input_file.to_string_lossy(),
+                    &context.dirty_documents.overrides,
+                    &context.cancellation,
+                )
+            })
             .map_err(|_| "request was canceled".to_string())?;
         let Some(parsed) = parsed.map(Arc::new) else {
             return Err("parse analysis failed".to_string());
@@ -1755,19 +1806,19 @@ impl AnalysisEngine {
         })
     }
 
-    fn driver_for_resolved(&self, resolved: &ResolvedAnalysis) -> Arc<CompilerDriver> {
+    fn driver_for_resolved(&self, resolved: &ResolvedAnalysis) -> AnalysisDriver {
         let family = IncrementalDriverKey::from_options(&resolved.compile_options);
         if let Some(driver) = self.driver_cache.lock().unwrap().get(&family) {
             self.record_cache_hit(AnalysisCacheTraceKind::Driver);
-            return Arc::clone(driver);
+            return driver.clone();
         }
         self.record_cache_miss(AnalysisCacheTraceKind::Driver);
 
-        let driver = Arc::new(CompilerDriver::new(resolved.compile_options.clone()));
+        let driver = AnalysisDriver::new(resolved.compile_options.clone());
         self.driver_cache
             .lock()
             .unwrap()
-            .insert(family, Arc::clone(&driver));
+            .insert(family, driver.clone());
         self.record_cache_store(AnalysisCacheTraceKind::Driver);
         driver
     }

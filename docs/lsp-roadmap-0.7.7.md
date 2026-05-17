@@ -956,6 +956,10 @@ Tasks:
   workspace refresh, workspace symbol cache reuse, stale response dropping,
   project metadata invalidation, semantic token cache reuse, cancellation, and
   worker panic paths.
+- Done: `KERN_LSP_LOG` is now a real optional JSONL trace sink. When set, trace
+  records are appended independently of the client's `$/setTrace` setting, so
+  editor clients that suppress `$/logTrace` output can still produce complete
+  server-side trace evidence without making default output noisy.
 - Add structured request trace fields for request ID, method, target URI,
   document generation, snapshot generation, queue wait, execution time,
   analysis tier, cancellation status, and error class.
@@ -966,16 +970,10 @@ Tasks:
   `ProjectUnavailable`, `ProjectInvalid`, `AnalysisFailed`, `RequestCanceled`,
   `InternalBug`, and `ProtocolError`.
 - Keep default output quiet; expose complete details under verbose LSP trace and
-  decide whether a `KERN_LSP_LOG` environment variable is still useful.
+  the optional `KERN_LSP_LOG` JSONL sink.
 - Add server tests asserting the complete verbose trace shape for success,
   cancellation, stale response dropping, project invalidation, cache hit, cache
   miss, and worker panic paths.
-
-Remaining:
-
-- Decide after dogfooding whether verbose LSP tracing is sufficient or whether a
-  separate `KERN_LSP_LOG` sink is still needed for editor clients that suppress
-  `$/logTrace` output.
 
 Exit criteria:
 
@@ -985,6 +983,8 @@ Exit criteria:
   refresh, workspace symbols/references, cancellation, stale results, and panic
   recovery.
 
+Status: complete. Phase 11 has started from the IDE/protocol boundary cleanup.
+
 ### Phase 11: IDE Boundary Cleanup
 
 Purpose: remove the remaining protocol leakage from analysis code and make the
@@ -992,19 +992,40 @@ IDE layer a stable Kern-owned API.
 
 Tasks:
 
-- Introduce Kern-owned text coordinate and range types for analysis. Convert
-  `Position`/`Range` only at protocol boundaries.
-- Replace document synchronization protocol params in `AnalysisEngine` public
-  mutation APIs with Kern-owned open/change/close/save structs.
-- Replace diagnostic related-information `Location` usage with an IDE location
-  type.
-- Move remaining `into_lsp` conversions into the explicit server/protocol
-  boundary and keep `tools/lsp/src/analysis/ide.rs` as the only allowed adapter
-  until a separate `kern_ide` crate is justified.
-- Add a guard test that scans `tools/lsp/src/analysis/*` and fails on direct
-  protocol payload imports outside the documented adapter and test modules.
-- Document the final IDE API boundary so future feature providers do not add
-  direct compiler calls inside request dispatch.
+- Done: introduced Kern-owned text coordinate and range types for
+  document synchronization, incremental text edits, and production analysis
+  query inputs. Server dispatch now converts protocol `Position`/`Range` into
+  `IdePosition`/`IdeRange` before calling analysis. Internal text, formatting,
+  structure, semantic-token, navigation, code-action, and diagnostics helpers
+  now also use the Kern-owned coordinate primitives instead of protocol
+  coordinates.
+- Done: migrated IDE result fields for edits, locations, diagnostics,
+  diagnostic related information, document symbols, document highlights,
+  selection ranges, document links, code lenses, call hierarchy, prepare rename,
+  hover ranges, and inlay hints to Kern-owned `IdeRange`/`IdePosition`/
+  `IdeLocation` storage. LSP response payloads are now produced only by
+  explicit `into_lsp` conversion.
+- Done: replaced document synchronization protocol params in production
+  `AnalysisEngine` open/change/close mutation APIs with Kern-owned
+  `IdeOpenDocument`, `IdeChangeDocument`, and `IdeCloseDocument` structs.
+  Protocol params are converted at server dispatch and only accepted directly by
+  analysis test helpers through test-only adapters.
+- Done: replaced diagnostic related-information `Location` usage with
+  `IdeLocation`.
+- Done: kept remaining `into_lsp` conversions in the explicit
+  server/protocol boundary. `tools/lsp/src/analysis/ide.rs` is the only
+  analysis module that owns LSP response conversion until a separate
+  `kern_ide` crate is justified.
+- Done: added a guard test that scans `tools/lsp/src/analysis.rs` and
+  `tools/lsp/src/analysis/*` and fails on document-sync protocol payload usage
+  outside analysis tests. The same guard also rejects public production analysis
+  query APIs that directly expose protocol `Position`/`Range` inputs, protocol
+  field regressions on IDE result types, and unexpected protocol imports outside
+  the documented adapter/conversion exceptions.
+- Done: documented the final IDE API boundary in this phase: non-test analysis
+  modules may use protocol resolve-data at the boundary, URI conversion helpers,
+  and `analysis.rs` coordinate conversion impls; ordinary feature providers must
+  consume and return Kern-owned IDE types.
 
 Exit criteria:
 
@@ -1014,6 +1035,9 @@ Exit criteria:
   hints, formatting, code actions, document links, code lenses, and call
   hierarchy all return Kern-owned IDE result types before LSP conversion.
 
+Status: complete. Phase 12 has started from the remaining unadvertised or
+explicitly scheduled capability gaps rather than boundary cleanup debt.
+
 ### Phase 12: Remaining Capability Gaps
 
 Purpose: finish or formally schedule the known capability gaps without treating
@@ -1021,6 +1045,9 @@ non-support as completion.
 
 Tasks:
 
+- In progress: phase has started after the IDE boundary cleanup. The first
+  implementation target should be semantic token delta support because it has a
+  narrow protocol surface and directly benefits large-file editor refreshes.
 - Semantic token delta support: implement result-id lifecycle, edit-aware token
   cache invalidation, client capability negotiation, stale result handling, and
   server tests before advertising delta.

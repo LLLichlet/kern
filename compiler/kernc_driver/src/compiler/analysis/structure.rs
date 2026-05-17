@@ -322,6 +322,24 @@ impl CompilerDriver {
             .ok_or_else(|| Box::new(session)))
     }
 
+    pub(in crate::compiler) fn analyze_diagnostic_structure_cancelable(
+        &self,
+        mut session: Session,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+        cancellation: &CancellationToken,
+    ) -> Result<Result<StructureArtifact, Box<Session>>, Canceled> {
+        cancellation.check()?;
+        self.sync_source_overrides(source_overrides);
+        Ok(self
+            .compute_diagnostic_structure_artifact_into_session_cancelable(
+                &mut session,
+                input_file,
+                cancellation,
+            )?
+            .ok_or_else(|| Box::new(session)))
+    }
+
     #[cfg(test)]
     pub(in crate::compiler) fn analyze_compile_structure(
         &self,
@@ -768,6 +786,8 @@ impl CompilerDriver {
         cancellation.check()?;
         let completion_model = self.collect_structure_completion_model(&ctx, &asts);
         cancellation.check()?;
+        let trait_impl_stubs = self.collect_trait_impl_stubs(&ctx);
+        cancellation.check()?;
         let snapshot = ctx.structure_snapshot();
         drop(ctx);
 
@@ -778,6 +798,7 @@ impl CompilerDriver {
             symbols,
             snapshot,
             completion_model,
+            trait_impl_stubs,
         }))
     }
 
@@ -1023,6 +1044,7 @@ impl CompilerDriver {
         }
 
         let completion_model = self.collect_structure_completion_model(&ctx, &asts);
+        let trait_impl_stubs = self.collect_trait_impl_stubs(&ctx);
         let snapshot = ctx.into_structure_snapshot();
         let session = std::mem::take(session);
 
@@ -1032,6 +1054,7 @@ impl CompilerDriver {
             symbols,
             snapshot,
             completion_model,
+            trait_impl_stubs,
         })
     }
 
@@ -1070,6 +1093,7 @@ impl CompilerDriver {
         cancellation.check()?;
 
         let completion_model = self.collect_structure_completion_model(&ctx, &asts);
+        let trait_impl_stubs = self.collect_trait_impl_stubs(&ctx);
         let snapshot = ctx.into_structure_snapshot();
         let session = std::mem::take(session);
 
@@ -1079,6 +1103,54 @@ impl CompilerDriver {
             symbols,
             snapshot,
             completion_model,
+            trait_impl_stubs,
+        }))
+    }
+
+    fn compute_diagnostic_structure_artifact_into_session_cancelable(
+        &self,
+        session: &mut Session,
+        input_file: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<StructureArtifact>, Canceled> {
+        cancellation.check()?;
+        let mut ctx = self.build_sema_context(session);
+        let loaded = self.load_asts_cancelable(&mut ctx, input_file, true, cancellation)?;
+        let Some(loaded) = loaded else {
+            return Ok(None);
+        };
+        let asts = loaded.asts;
+        cancellation.check()?;
+        if !self.run_collect_phase_cancelable(&mut ctx, &asts, cancellation)? {
+            return Ok(None);
+        }
+        cancellation.check()?;
+        let symbols = self.collect_analysis_symbols(&ctx, &asts);
+        cancellation.check()?;
+        if !self.run_import_phase_cancelable(&mut ctx, cancellation)? {
+            return Ok(None);
+        }
+        cancellation.check()?;
+        let _ = self.run_type_resolution_phase_with_timings_cancelable(
+            &mut ctx,
+            true,
+            None,
+            cancellation,
+        );
+        cancellation.check()?;
+
+        let completion_model = self.collect_structure_completion_model(&ctx, &asts);
+        let trait_impl_stubs = self.collect_trait_impl_stubs(&ctx);
+        let snapshot = ctx.into_structure_snapshot();
+        let session = std::mem::take(session);
+
+        Ok(Some(StructureArtifact {
+            session,
+            asts,
+            symbols,
+            snapshot,
+            completion_model,
+            trait_impl_stubs,
         }))
     }
 
@@ -1311,6 +1383,8 @@ impl CompilerDriver {
         let asts = imported.asts.clone();
         let completion_model = self.collect_structure_completion_model(&ctx, &asts);
         cancellation.check()?;
+        let trait_impl_stubs = self.collect_trait_impl_stubs(&ctx);
+        cancellation.check()?;
         let snapshot = ctx.structure_snapshot();
         drop(ctx);
 
@@ -1320,6 +1394,7 @@ impl CompilerDriver {
             symbols: imported.symbols.clone(),
             snapshot,
             completion_model,
+            trait_impl_stubs,
         }))
     }
 
@@ -1443,11 +1518,10 @@ impl CompilerDriver {
         let mut type_resolver = TypeResolver::new(ctx);
         type_resolver.resolve_all_cancelable(cancellation)?;
         let type_resolution_timings = type_resolver.phase_timings();
-        if !Self::report_diagnostics_if_errors(type_resolver.context()) {
+        let ctx = type_resolver.into_context();
+        if !Self::report_diagnostics_if_errors(ctx) {
             return Ok(false);
         }
-
-        let ctx = type_resolver.into_context();
         cancellation.check()?;
         if let Some(phase_timings) = phase_timings {
             phase_timings.extend(

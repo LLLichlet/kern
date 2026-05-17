@@ -2,6 +2,128 @@ use super::*;
 use crate::AnalysisArtifact;
 
 #[test]
+fn analysis_artifact_reports_missing_trait_impl_method_with_structured_code() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_missing_trait_impl_method",
+        concat!(
+            "trait Render { fn render() i32; }\n",
+            "struct Widget {}\n",
+            "impl Widget: Render {}\n",
+            "fn main() i32 { return 0; }\n",
+        ),
+    );
+    let diagnostic = artifact
+        .session
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic.code == Some(kernc_utils::DiagnosticCode::MissingTraitImplMethod)
+        })
+        .expect("expected missing trait impl method diagnostic");
+    assert!(
+        diagnostic
+            .message
+            .contains("missing required method `render`"),
+        "{diagnostic:?}"
+    );
+}
+
+#[test]
+fn diagnostic_structure_reports_missing_trait_impl_method_stub() {
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let root = std::env::temp_dir().join(format!(
+        "kern_trait_stub_structure_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    fs::write(
+        &main,
+        concat!(
+            "trait Render { fn render() i32; }\n",
+            "struct Widget {}\n",
+            "impl Widget: Render {}\n",
+            "fn main() i32 { return 0; }\n",
+        ),
+    )
+    .unwrap();
+
+    let mut session = kernc_utils::Session::new();
+    session.apply_options(&CompileOptions::default());
+    let structure = driver
+        .analyze_diagnostic_structure_cancelable(
+            session,
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+    let structure = match structure {
+        Ok(structure) => structure,
+        Err(_) => panic!("expected diagnostic structure artifact"),
+    };
+
+    assert_eq!(structure.trait_impl_stubs().len(), 1);
+    assert_eq!(structure.trait_impl_stubs()[0].method_name, "render");
+    assert_eq!(
+        structure.trait_impl_stubs()[0].insert_text,
+        "\n    fn render() i32 {\n        @unreachable();\n    }\n"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analysis_artifact_exposes_trait_impl_method_stub_with_params() {
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let root = std::env::temp_dir().join(format!(
+        "kern_trait_stub_params_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    fs::write(
+        &main,
+        concat!(
+            "trait Render { fn render(value: i32) i32; }\n",
+            "struct Widget {}\n",
+            "impl Widget: Render {}\n",
+            "fn main() i32 { return 0; }\n",
+        ),
+    )
+    .unwrap();
+
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    assert_eq!(
+        artifact.trait_impl_stubs().len(),
+        1,
+        "diagnostics={:#?}",
+        artifact.session.diagnostics
+    );
+    assert_eq!(
+        artifact.trait_impl_stubs()[0].insert_text,
+        "\n    fn render(value: i32) i32 {\n        @unreachable();\n    }\n"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn analysis_artifact_exposes_unused_private_items() {
     let root = std::env::temp_dir().join(format!(
         "kern_unused_items_{}_{}",

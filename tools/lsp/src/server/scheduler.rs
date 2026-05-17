@@ -2,8 +2,8 @@ use super::state::RequestBudgetKind;
 use super::{
     AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, DiagnosticsTaskResult,
     DocumentRequestResponse, DocumentRequestTaskResult, INVALID_REQUEST, LspErrorClass,
-    LspWorkerTask, REQUEST_CANCELLED, RequestContext, ScheduledDocumentRequestTask, SchedulerLane,
-    ServerError, ServerState, TraceContext, WorkspaceRefreshKind, WorkspaceRefreshTaskResult,
+    REQUEST_CANCELLED, RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerError,
+    ServerState, TraceContext, WorkspaceRefreshKind, WorkspaceRefreshTaskResult,
     lifecycle::emit_trace,
 };
 use crate::analysis::{
@@ -122,7 +122,7 @@ fn submit_workspace_refresh_task(
     let queued_at = Instant::now();
     let progress_token = emit_workspace_refresh_progress_begin(state, writer, &reason)?;
     state.queue_workspace_refresh_worker_task();
-    let task = LspWorkerTask::WorkspaceRefresh(Box::new(move || {
+    let task = super::state::BackgroundWorkerTask::WorkspaceRefresh(Box::new(move || {
         analysis.clear_last_analysis_trace();
         let started_at = Instant::now();
         let refresh = catch_unwind(AssertUnwindSafe(|| match kind {
@@ -151,7 +151,7 @@ fn submit_workspace_refresh_task(
             refresh,
         }
     }));
-    if state.worker_task_tx.send(task).is_err() {
+    if state.background_worker_task_tx.send(task).is_err() {
         state.complete_workspace_refresh_worker_task();
     }
     Ok(())
@@ -166,10 +166,10 @@ fn submit_diagnostics_task(
     let analysis = state.analysis.clone();
     let queued_at = Instant::now();
     state.queue_diagnostics_worker_task();
-    let task = LspWorkerTask::Diagnostics(Box::new(move || {
+    let task = super::state::BackgroundWorkerTask::Diagnostics(Box::new(move || {
         run_diagnostics_task(analysis, target_uri, generation, mode, queued_at)
     }));
-    if state.worker_task_tx.send(task).is_err() {
+    if state.background_worker_task_tx.send(task).is_err() {
         state.complete_diagnostics_worker_task();
     }
 }
@@ -651,11 +651,11 @@ fn submit_document_request_task<F>(
             .and_then(|uri| snapshot.document_version(uri)),
     };
     state.queue_document_request_task();
-    let task = LspWorkerTask::DocumentRequest(Box::new(move || {
+    let task = super::state::InteractiveWorkerTask::DocumentRequest(Box::new(move || {
         let result = run_document_request_task(analysis, snapshot, trace, task_info, task);
         result
     }));
-    if state.worker_task_tx.send(task).is_err() {
+    if state.interactive_worker_task_tx.send(task).is_err() {
         state.complete_document_request_task();
     }
 }

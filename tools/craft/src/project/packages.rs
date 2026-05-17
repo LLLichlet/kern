@@ -13,7 +13,7 @@ pub(super) struct AnalysisPackage {
     pub(super) manifest_path: PathBuf,
     pub(super) package_root: PathBuf,
     pub(super) lib_root: Option<PathBuf>,
-    pub(super) target_roots: Vec<PathBuf>,
+    pub(super) target_roots: Vec<AnalysisTargetRoot>,
     pub(super) module_aliases: BTreeMap<String, PathBuf>,
     pub(super) script_roots: Vec<AnalysisScriptRoot>,
 }
@@ -39,13 +39,20 @@ pub(super) struct PackageEntry {
     pub(super) manifest_path: PathBuf,
     pub(super) package_root: PathBuf,
     pub(super) lib_root: Option<PathBuf>,
-    pub(super) target_roots: Vec<PathBuf>,
+    pub(super) target_roots: Vec<AnalysisTargetRoot>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct AnalysisTargetRoot {
+    pub(super) root: PathBuf,
+    pub(super) kind: TargetKind,
+    pub(super) name: Option<String>,
 }
 
 impl AnalysisPackage {
     pub(super) fn analysis_root_for(&self, file: &Path) -> PathBuf {
-        if let Some(root) = self.best_matching_target_root(file) {
-            return root.clone();
+        if let Some(target_root) = self.best_matching_target_root(file) {
+            return target_root.root.clone();
         }
 
         if let Some(root) = &self.lib_root
@@ -57,12 +64,18 @@ impl AnalysisPackage {
         file.to_path_buf()
     }
 
-    fn best_matching_target_root(&self, file: &Path) -> Option<&PathBuf> {
+    pub(super) fn target_root_for(&self, file: &Path) -> Option<&AnalysisTargetRoot> {
+        self.best_matching_target_root(file)
+    }
+
+    fn best_matching_target_root(&self, file: &Path) -> Option<&AnalysisTargetRoot> {
         self.target_roots
             .iter()
-            .filter_map(|root| target_match_score(root, file).map(|score| (score, root)))
-            .max_by_key(|(score, root)| (*score, root.components().count()))
-            .map(|(_, root)| root)
+            .filter_map(|target_root| {
+                target_match_score(&target_root.root, file).map(|score| (score, target_root))
+            })
+            .max_by_key(|(score, target_root)| (*score, target_root.root.components().count()))
+            .map(|(_, target_root)| target_root)
     }
 }
 
@@ -253,7 +266,11 @@ fn package_entry(
     let target_roots = package_plan
         .targets
         .iter()
-        .map(|target| package_root.join(&target.root))
+        .map(|target| AnalysisTargetRoot {
+            root: package_root.join(&target.root),
+            kind: target.kind,
+            name: target.name.clone(),
+        })
         .collect();
 
     Ok(PackageEntry {

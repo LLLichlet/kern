@@ -839,6 +839,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let name_str = self.ctx.resolve(name).to_string();
             self.ctx
                 .struct_error(span, format!("use of undeclared identifier `{}`", name_str))
+                .with_code(DiagnosticCode::UnresolvedIdentifier)
                 .with_hint("make sure the variable or function is defined before using it")
                 .emit();
             TypeId::ERROR

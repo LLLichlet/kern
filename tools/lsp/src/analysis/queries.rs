@@ -858,8 +858,11 @@ impl AnalysisEngine {
         {
             return Ok(None);
         }
+        let context = self
+            .resolve_analysis_context_for_snapshot(snapshot, uri)
+            .map_err(|message| format!("hover analysis failed: {message}"))?;
         let artifact = self
-            .analyze_interactive_navigation_artifact_for_snapshot(snapshot, uri)
+            .analyze_interactive_semantic_classification_artifact_for_context(&context)
             .map_err(|message| format!("hover analysis failed: {message}"))?;
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested hover for a document that is not open".to_string());
@@ -1192,7 +1195,11 @@ impl AnalysisEngine {
             semantic::lexical_semantic_tokens_cancelable(&file, &snapshot.cancellation)?
         } else {
             self.record_analysis_tier(AnalysisTier::CleanSemantic);
-            let artifact = self.analyze_navigation_artifact_for_context(&context)?;
+            let artifact = if context.dirty_documents.is_clean() {
+                self.analyze_semantic_classification_artifact_for_context(&context)?
+            } else {
+                self.analyze_clean_semantic_classification_artifact_for_context(&context)?
+            };
             semantic::semantic_tokens_cancelable(
                 semantic::SemanticArtifactView {
                     session: &artifact.session,
@@ -1309,17 +1316,31 @@ impl AnalysisEngine {
             return Err("requested code actions for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
-        let (diagnostics_session, artifact) = if analysis_context.dirty_documents.is_clean() {
-            self.record_analysis_tier(AnalysisTier::CleanSemantic);
-            let artifact = self.analyze_artifact_for_context(&analysis_context)?;
-            (artifact.session.clone(), Some(artifact))
-        } else {
-            self.record_analysis_tier(AnalysisTier::ParseOnly);
-            (
-                self.parse_open_document_session_for_snapshot(snapshot, uri)?,
-                None,
-            )
-        };
+        let (diagnostics_session, artifact, structure, imported_structure) =
+            if analysis_context.dirty_documents.is_clean() {
+                self.record_analysis_tier(AnalysisTier::CleanSemantic);
+                let structure = self.analyze_structure_artifact_for_context(&analysis_context)?;
+                let artifact = self.analyze_interactive_artifact_for_context(&analysis_context)?;
+                let imported_structure = if structure.is_some() {
+                    None
+                } else {
+                    self.analyze_imported_structure_for_context(&analysis_context)?
+                };
+                (
+                    artifact.session.clone(),
+                    Some(artifact),
+                    structure,
+                    imported_structure,
+                )
+            } else {
+                self.record_analysis_tier(AnalysisTier::ParseOnly);
+                (
+                    self.parse_open_document_session_for_snapshot(snapshot, uri)?,
+                    None,
+                    None,
+                    None,
+                )
+            };
 
         let mut actions = Vec::new();
         let mut seen = BTreeSet::new();
@@ -1345,28 +1366,79 @@ impl AnalysisEngine {
             } else {
                 lightweight_quick_fix_for_diagnostic(uri, diagnostic, ide_diagnostic.clone())
             };
-            let Some(action) = action else {
-                continue;
-            };
-            let action = if defer_heavy_actions {
-                code_action_with_resolve_data(action, uri, target_doc.version, &range)
-            } else {
-                action
-            };
+            let mut diagnostic_actions = Vec::new();
+            if let Some(action) = action {
+                diagnostic_actions.push(action);
+            }
+            if diagnostic.code == Some(DiagnosticCode::MissingTraitImplMethod)
+                && diagnostic_actions.is_empty()
+                && let Some(artifact) = &artifact
+                && let Some(action) =
+                    fallback_trait_impl_stub_code_action(uri, artifact, ide_diagnostic.clone())
+            {
+                diagnostic_actions.push(action);
+            }
+            if let Some(structure) = &structure {
+                diagnostic_actions.extend(import_insertion_code_actions(
+                    uri,
+                    structure,
+                    &target_path,
+                    diagnostic,
+                    ide_diagnostic.clone(),
+                ));
+            } else if let Some(imported_structure) = &imported_structure {
+                diagnostic_actions.extend(import_insertion_code_actions_for_imported_structure(
+                    uri,
+                    imported_structure,
+                    &target_path,
+                    diagnostic,
+                    ide_diagnostic.clone(),
+                ));
+            }
 
-            let edit_key = action
-                .edit
-                .as_ref()
-                .map(workspace_edit_key)
-                .unwrap_or_else(|| {
+            for action in diagnostic_actions {
+                let action = if defer_heavy_actions {
+                    code_action_with_resolve_data(action, uri, target_doc.version, &range)
+                } else {
                     action
-                        .resolve_data
-                        .as_ref()
-                        .map(code_action_resolve_key)
-                        .unwrap_or_default()
-                });
-            let dedup_key = (action.title.clone(), action.fix_id, edit_key);
-            if seen.insert(dedup_key) {
+                };
+
+                let edit_key = action
+                    .edit
+                    .as_ref()
+                    .map(workspace_edit_key)
+                    .unwrap_or_else(|| {
+                        action
+                            .resolve_data
+                            .as_ref()
+                            .map(code_action_resolve_key)
+                            .unwrap_or_default()
+                    });
+                let dedup_key = (action.title.clone(), action.fix_id, edit_key);
+                if seen.insert(dedup_key) {
+                    actions.push(action);
+                }
+            }
+        }
+
+        if actions.is_empty()
+            && let Some(artifact) = &artifact
+            && let Some(diagnostic) =
+                artifact.session.diagnostics.iter().find(|diagnostic| {
+                    diagnostic.code == Some(DiagnosticCode::MissingTraitImplMethod)
+                })
+            && let Some(target_doc) = snapshot.document(uri)
+        {
+            let ide_diagnostic =
+                convert_diagnostic_for_document(&artifact.session, diagnostic, target_doc);
+            if let Some(action) =
+                fallback_trait_impl_stub_code_action(uri, artifact, ide_diagnostic)
+            {
+                let action = if defer_heavy_actions {
+                    code_action_with_resolve_data(action, uri, target_doc.version, &range)
+                } else {
+                    action
+                };
                 actions.push(action);
             }
         }
@@ -1436,6 +1508,8 @@ fn defer_code_action_fix(fix_id: &str) -> bool {
             | "make-private-item-public"
             | "add-match-catch-all"
             | "remove-irrefutable-let-else"
+            | "add-trait-impl-method-stub"
+            | "insert-import"
     )
 }
 

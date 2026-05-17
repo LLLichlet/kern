@@ -2041,6 +2041,7 @@ mod tests {
                 default_value: None,
                 span: Span::default(),
             },
+            params: Vec::new(),
             default_impl: None,
         });
         trait_def.resolved_methods.push((method_name, method_ty));

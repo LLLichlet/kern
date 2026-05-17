@@ -132,7 +132,12 @@ impl AnalysisProject {
             input_file = matched.input_file.clone();
             matched_values = Some(matched.compile_time_values);
             source_path_aliases = matched.source_path_aliases;
-            target_roots = matched.package.target_roots.clone();
+            target_roots = matched
+                .package
+                .target_roots
+                .iter()
+                .map(|target_root| target_root.root.clone())
+                .collect();
             resolved_package = Some(matched.package);
             resolved_target_kind = Some(matched.target_kind);
             resolved_target_name = matched.target_name;
@@ -149,17 +154,26 @@ impl AnalysisProject {
             compile_options.metadata_package_name = Some(matched.package.id.name.clone());
         } else if let Some(package) = self.package_for_file(file) {
             resolved_package = Some(package);
-            target_roots = package.target_roots.clone();
+            target_roots = package
+                .target_roots
+                .iter()
+                .map(|target_root| target_root.root.clone())
+                .collect();
             input_file = package.analysis_root_for(file);
+            if let Some(target_root) = package.target_root_for(file) {
+                resolved_target_kind = Some(target_root.kind);
+                resolved_target_name = target_root.name.clone();
+            } else if package.lib_root.as_ref() == Some(&input_file) {
+                resolved_target_kind = Some(TargetKind::Lib);
+            }
             for (name, path) in &package.module_aliases {
                 compile_options
                     .module_aliases
                     .entry(name.clone())
                     .or_insert_with(|| path.to_string_lossy().to_string());
             }
-            if package.lib_root.as_ref() == Some(&input_file) {
+            if resolved_target_kind == Some(TargetKind::Lib) {
                 compile_options.root_module_name = Some(package.id.name.clone());
-                resolved_target_kind = Some(TargetKind::Lib);
             }
             insert_self_library_alias(
                 &mut compile_options,
@@ -254,7 +268,11 @@ impl AnalysisProject {
                     input_file: input_file.clone(),
                     compile_options,
                     source_path_aliases: build_unit_source_aliases(&self.workspace_root, unit),
-                    target_roots: package.target_roots.clone(),
+                    target_roots: package
+                        .target_roots
+                        .iter()
+                        .map(|target_root| target_root.root.clone())
+                        .collect(),
                     target: Some(self.resolved_analysis_target(
                         package,
                         Some(unit.target_kind),

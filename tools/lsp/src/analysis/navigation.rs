@@ -277,7 +277,9 @@ pub(super) fn find_call_hierarchy_incoming_calls(
                     .dynamic_dispatch_targets
                     .contains(&target_entry.definition_span)
         }
-        AnalysisCallKind::Indirect => false,
+        AnalysisCallKind::Indirect => call
+            .indirect_targets
+            .contains(&target_entry.definition_span),
     }) {
         let Some(from) = call_hierarchy_item_for_definition(
             session,
@@ -351,7 +353,18 @@ pub(super) fn find_call_hierarchy_outgoing_calls(
                     );
                 }
             }
-            AnalysisCallKind::Indirect => {}
+            AnalysisCallKind::Indirect => {
+                for target in &call.indirect_targets {
+                    add_outgoing_call_target(
+                        session,
+                        semantic_entries,
+                        uri_by_path,
+                        &mut grouped,
+                        *target,
+                        call.callee_span,
+                    );
+                }
+            }
         }
     }
 

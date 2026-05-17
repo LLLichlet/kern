@@ -163,6 +163,59 @@ fn analysis_artifact_classifies_function_value_calls_as_indirect() {
     assert_eq!(span_text(source, indirect_calls[0].callee_span), "cb");
     assert!(indirect_calls[0].callee_definition_span.is_none());
     assert!(indirect_calls[0].dynamic_dispatch_targets.is_empty());
+    assert!(indirect_calls[0].indirect_targets.is_empty());
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analysis_artifact_resolves_local_function_value_call_targets() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analysis_local_indirect_calls_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let source = concat!(
+        "fn leaf() i32 { return 1; }\n",
+        "fn main() i32 {\n",
+        "    let cb = leaf;\n",
+        "    return cb();\n",
+        "}\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    let indirect_calls = artifact
+        .calls
+        .iter()
+        .filter(|call| call.kind == AnalysisCallKind::Indirect)
+        .collect::<Vec<_>>();
+    assert_eq!(indirect_calls.len(), 1, "{:#?}", artifact.calls);
+    assert_eq!(
+        span_text(source, indirect_calls[0].caller_definition_span),
+        "main"
+    );
+    assert_eq!(span_text(source, indirect_calls[0].callee_span), "cb");
+    assert!(indirect_calls[0].callee_definition_span.is_none());
+    assert!(indirect_calls[0].dynamic_dispatch_targets.is_empty());
+    assert_eq!(indirect_calls[0].indirect_targets.len(), 1);
+    assert_eq!(
+        span_text(source, indirect_calls[0].indirect_targets[0]),
+        "leaf"
+    );
 
     let _ = fs::remove_dir_all(&root);
 }

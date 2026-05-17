@@ -232,6 +232,7 @@ pub struct EnumDef {
 #[derive(Debug, Clone)]
 pub struct TraitMethodDef {
     pub signature: ast::StructFieldDef,
+    pub params: Vec<ast::FuncParam>,
     pub default_impl: Option<DefId>,
 }
 

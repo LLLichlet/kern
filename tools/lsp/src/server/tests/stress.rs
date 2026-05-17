@@ -280,7 +280,7 @@ fn protocol_stress_cancel_references_then_edit_and_hover() {
         .find(|message| message["id"] == json!(9200))
         .expect("expected hover response after edit");
     let contents = hover["result"]["contents"]["value"].as_str().unwrap();
-    assert!(contents.contains("fn next: &fn() i32"), "{contents}");
+    assert!(contents.contains("fn next() i32"), "{contents}");
     assert!(state.pending_diagnostics_targets.is_empty());
     assert!(state.pending_diagnostics.is_empty());
     assert!(!state.has_pending_worker_work());

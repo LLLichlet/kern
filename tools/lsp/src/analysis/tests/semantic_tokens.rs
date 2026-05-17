@@ -339,21 +339,37 @@ fn semantic_tokens_cache_reuses_rendered_tokens_for_stable_document() {
 
     let first = analysis.semantic_tokens(&uri).unwrap();
     assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
-    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        1
+    );
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 
+    analysis
+        .semantic_classification_cache
+        .lock()
+        .unwrap()
+        .clear();
     analysis.navigation_cache.lock().unwrap().clear();
     analysis.artifact_cache.lock().unwrap().clear();
     let second = analysis.semantic_tokens(&uri).unwrap();
 
     assert_eq!(first.data, second.data);
+    assert!(
+        analysis
+            .semantic_classification_cache
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
     assert!(analysis.navigation_cache.lock().unwrap().is_empty());
     assert!(analysis.artifact_cache.lock().unwrap().is_empty());
     assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
 }
 
 #[test]
-fn semantic_tokens_use_navigation_artifact_without_full_analysis() {
+fn semantic_tokens_use_classification_artifact_without_navigation_or_full_analysis() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
         "struct Point { x: i32 }\n",
@@ -375,6 +391,11 @@ fn semantic_tokens_use_navigation_artifact_without_full_analysis() {
     analysis.surface_cache.lock().unwrap().clear();
     analysis.structure_cache.lock().unwrap().clear();
     analysis.navigation_cache.lock().unwrap().clear();
+    analysis
+        .semantic_classification_cache
+        .lock()
+        .unwrap()
+        .clear();
     analysis.artifact_cache.lock().unwrap().clear();
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
@@ -384,7 +405,11 @@ fn semantic_tokens_use_navigation_artifact_without_full_analysis() {
         analysis.last_analysis_tier(),
         Some(AnalysisTier::CleanSemantic)
     );
-    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        1
+    );
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 }
 

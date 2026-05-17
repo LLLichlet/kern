@@ -149,7 +149,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                             .emit();
                     } else if index == 0 {
                         self.ctx
-                            .emit_error(span, format!("Cannot find type `{}` in this scope", name));
+                            .struct_error(
+                                segment.name_span,
+                                format!("Cannot find type `{}` in this scope", name),
+                            )
+                            .with_code(kernc_utils::DiagnosticCode::UnresolvedType)
+                            .emit();
                     } else {
                         self.ctx.emit_error(
                             span,

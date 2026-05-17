@@ -231,6 +231,154 @@ fn code_action_resolve_materializes_deferred_edit() {
 }
 
 #[test]
+fn code_action_resolve_materializes_import_insertion() {
+    let mut state = initialized_state();
+    let root = unique_temp_dir("server_code_action_import_resolve");
+    fs::write(
+        root.join("mod.kn"),
+        "mod helper;\nfn main() i32 { return answer(); }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("helper.kn"),
+        "pub fn answer() i32 { return 1; }\n",
+    )
+    .unwrap();
+    let uri = file_path_to_uri_for_test(&root.join("mod.kn"));
+    let source = fs::read_to_string(root.join("mod.kn")).unwrap();
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, &source, 1));
+    let code_action_response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(232)),
+            method: Some("textDocument/codeAction".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 1, "character": 25 },
+                    "end": { "line": 1, "character": 31 }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["quickfix"]
+                }
+            })),
+        },
+    );
+    let code_action = code_action_response["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == json!("Import `/helper.answer`"))
+        .unwrap()
+        .clone();
+    assert!(code_action.get("edit").is_none());
+    assert_eq!(code_action["data"]["uri"], json!(uri));
+    assert_eq!(code_action["data"]["version"], json!(1));
+    assert_eq!(code_action["data"]["fixId"], json!("insert-import"));
+    assert_eq!(
+        code_action["data"]["diagnosticCode"],
+        json!("unresolved-identifier")
+    );
+
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(233)),
+            method: Some("codeAction/resolve".to_string()),
+            params: Some(code_action),
+        },
+    );
+
+    assert_eq!(response["id"], json!(233));
+    assert_eq!(response["result"]["title"], "Import `/helper.answer`");
+    assert_eq!(
+        response["result"]["edit"]["changes"][&uri][0]["range"]["start"],
+        json!({ "line": 0, "character": 0 })
+    );
+    assert_eq!(
+        response["result"]["edit"]["changes"][&uri][0]["newText"],
+        "use /helper.answer;\n"
+    );
+    assert!(response["result"].get("data").is_none());
+}
+
+#[test]
+fn code_action_resolve_materializes_type_import_insertion() {
+    let mut state = initialized_state();
+    let root = unique_temp_dir("server_code_action_type_import_resolve");
+    fs::write(
+        root.join("mod.kn"),
+        "mod model;\nfn make() Widget { return 0; }\n",
+    )
+    .unwrap();
+    fs::write(root.join("model.kn"), "pub type Widget = i32;\n").unwrap();
+    let uri = file_path_to_uri_for_test(&root.join("mod.kn"));
+    let source = fs::read_to_string(root.join("mod.kn")).unwrap();
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, &source, 1));
+    let code_action_response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(234)),
+            method: Some("textDocument/codeAction".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 1, "character": 10 },
+                    "end": { "line": 1, "character": 16 }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["quickfix"]
+                }
+            })),
+        },
+    );
+    let code_action = code_action_response["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == json!("Import `/model.Widget`"))
+        .unwrap()
+        .clone();
+    assert!(code_action.get("edit").is_none());
+    assert_eq!(code_action["data"]["uri"], json!(uri));
+    assert_eq!(code_action["data"]["version"], json!(1));
+    assert_eq!(code_action["data"]["fixId"], json!("insert-import"));
+    assert_eq!(
+        code_action["data"]["diagnosticCode"],
+        json!("unresolved-type")
+    );
+
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(235)),
+            method: Some("codeAction/resolve".to_string()),
+            params: Some(code_action),
+        },
+    );
+
+    assert_eq!(response["id"], json!(235));
+    assert_eq!(response["result"]["title"], "Import `/model.Widget`");
+    assert_eq!(
+        response["result"]["edit"]["changes"][&uri][0]["range"]["start"],
+        json!({ "line": 0, "character": 0 })
+    );
+    assert_eq!(
+        response["result"]["edit"]["changes"][&uri][0]["newText"],
+        "use /model.Widget;\n"
+    );
+    assert!(response["result"].get("data").is_none());
+}
+
+#[test]
 fn code_action_resolve_materializes_let_mut_fix() {
     let mut state = initialized_state();
     let source = "fn main() void {\n    let value = 1;\n    value = 2;\n}\n";
@@ -289,6 +437,76 @@ fn code_action_resolve_materializes_let_mut_fix() {
     assert_eq!(
         response["result"]["edit"]["changes"][&uri][0]["newText"],
         "mut "
+    );
+    assert!(response["result"].get("data").is_none());
+}
+
+#[test]
+fn code_action_resolve_materializes_trait_impl_method_stub() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "trait Render { fn render(value: i32) i32; }\n",
+        "struct Widget {}\n",
+        "impl Widget: Render {}\n",
+    );
+    let uri = temp_file_uri("server_code_action_trait_impl_method_stub", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let code_action_response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(239)),
+            method: Some("textDocument/codeAction".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 2, "character": 0 },
+                    "end": { "line": 2, "character": 21 }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["quickfix"]
+                }
+            })),
+        },
+    );
+    let code_action = code_action_response["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == json!("Add `render` method stub"))
+        .unwrap()
+        .clone();
+    assert!(code_action.get("edit").is_none());
+    assert_eq!(
+        code_action["data"]["fixId"],
+        json!("add-trait-impl-method-stub")
+    );
+    assert_eq!(
+        code_action["data"]["diagnosticCode"],
+        json!("missing-trait-impl-method")
+    );
+
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(240)),
+            method: Some("codeAction/resolve".to_string()),
+            params: Some(code_action),
+        },
+    );
+
+    assert_eq!(response["id"], json!(240));
+    assert_eq!(response["result"]["title"], "Add `render` method stub");
+    assert_eq!(
+        response["result"]["edit"]["changes"][&uri][0]["range"]["start"],
+        json!({ "line": 2, "character": 21 })
+    );
+    assert_eq!(
+        response["result"]["edit"]["changes"][&uri][0]["newText"],
+        "\n    fn render(value: i32) i32 {\n        @unreachable();\n    }\n"
     );
     assert!(response["result"].get("data").is_none());
 }
@@ -1412,6 +1630,108 @@ fn call_hierarchy_excludes_unresolved_indirect_calls() {
 }
 
 #[test]
+fn call_hierarchy_expands_local_function_value_targets() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "fn leaf() i32 { return 1; }\n",
+        "fn main() i32 {\n",
+        "    let cb = leaf;\n",
+        "    return cb();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("server_call_hierarchy_local_indirect_call", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let prepare_main = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25079)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare_main["id"], json!(25079));
+    let main_items = prepare_main["result"].as_array().unwrap();
+    assert_eq!(main_items.len(), 1);
+    assert_eq!(main_items[0]["name"], "main");
+
+    let outgoing = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25080)),
+            method: Some("callHierarchy/outgoingCalls".to_string()),
+            params: Some(json!({
+                "item": main_items[0]
+            })),
+        },
+    );
+
+    assert_eq!(outgoing["id"], json!(25080));
+    let outgoing_calls = outgoing["result"].as_array().unwrap();
+    assert_eq!(outgoing_calls.len(), 1);
+    assert_eq!(outgoing_calls[0]["to"]["name"], "leaf");
+    assert_eq!(
+        outgoing_calls[0]["fromRanges"],
+        json!([
+            {
+                "start": { "line": 3, "character": 11 },
+                "end": { "line": 3, "character": 13 }
+            }
+        ])
+    );
+
+    let prepare_leaf = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25081)),
+            method: Some("textDocument/prepareCallHierarchy".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 3 }
+            })),
+        },
+    );
+
+    assert_eq!(prepare_leaf["id"], json!(25081));
+    let leaf_items = prepare_leaf["result"].as_array().unwrap();
+    assert_eq!(leaf_items.len(), 1);
+    assert_eq!(leaf_items[0]["name"], "leaf");
+
+    let incoming = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(25082)),
+            method: Some("callHierarchy/incomingCalls".to_string()),
+            params: Some(json!({
+                "item": leaf_items[0]
+            })),
+        },
+    );
+
+    assert_eq!(incoming["id"], json!(25082));
+    let incoming_calls = incoming["result"].as_array().unwrap();
+    assert_eq!(incoming_calls.len(), 1);
+    assert_eq!(incoming_calls[0]["from"]["name"], "main");
+    assert_eq!(
+        incoming_calls[0]["fromRanges"],
+        json!([
+            {
+                "start": { "line": 3, "character": 11 },
+                "end": { "line": 3, "character": 13 }
+            }
+        ])
+    );
+}
+
+#[test]
 fn call_hierarchy_request_reports_analysis_errors() {
     let mut state = initialized_state();
     let source = "fn leaf() i32 { return 1; }\nfn main() i32 { return leaf(); }\n";
@@ -1905,7 +2225,7 @@ fn hover_request_returns_signature_markup() {
     assert_eq!(response["id"], json!(27));
     assert_eq!(response["result"]["contents"]["kind"], "markdown");
     let contents = response["result"]["contents"]["value"].as_str().unwrap();
-    assert!(contents.contains("fn helper: &fn(i32) i32"));
+    assert!(contents.contains("fn helper(x: i32) i32"));
 }
 
 #[test]

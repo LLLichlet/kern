@@ -13,8 +13,8 @@ use self::dispatch::{
 pub use self::state::ServerOptions;
 use self::state::{
     AnalysisGeneration, DiagnosticsTaskResult, DocumentRequestResponse, DocumentRequestTaskResult,
-    LspErrorClass, LspWorkerTask, RequestContext, ScheduledDocumentRequestTask, SchedulerLane,
-    ServerState, TraceContext, WorkspaceRefreshTaskResult,
+    LspErrorClass, RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerState,
+    TraceContext, WorkspaceRefreshTaskResult,
 };
 pub(crate) use self::state::{DiagnosticsAnalysisMode, WorkspaceRefreshKind};
 use crate::analysis::AnalysisEngine;

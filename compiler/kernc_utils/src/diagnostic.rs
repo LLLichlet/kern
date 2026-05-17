@@ -50,6 +50,9 @@ pub enum DiagnosticCode {
     UnusedPrivateItem,
     UnusedBinding,
     DeadStore,
+    UnresolvedIdentifier,
+    UnresolvedType,
+    MissingTraitImplMethod,
 }
 
 impl DiagnosticCode {
@@ -67,6 +70,9 @@ impl DiagnosticCode {
             DiagnosticCode::UnusedPrivateItem => "unused-private-item",
             DiagnosticCode::UnusedBinding => "unused-binding",
             DiagnosticCode::DeadStore => "dead-store",
+            DiagnosticCode::UnresolvedIdentifier => "unresolved-identifier",
+            DiagnosticCode::UnresolvedType => "unresolved-type",
+            DiagnosticCode::MissingTraitImplMethod => "missing-trait-impl-method",
         }
     }
 }

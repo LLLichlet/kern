@@ -40,7 +40,6 @@ fn code_actions_offer_missing_semicolon_fix() {
             text: source.to_string(),
         },
     });
-
     let actions = analysis
         .code_actions(
             &uri,
@@ -56,7 +55,6 @@ fn code_actions_offer_missing_semicolon_fix() {
             },
         )
         .unwrap();
-
     let action = actions
         .iter()
         .find(|action| action.title == "Insert `;`")
@@ -90,7 +88,6 @@ fn code_actions_offer_missing_closing_delimiter_fix() {
             text: source.to_string(),
         },
     });
-
     let actions = analysis
         .code_actions(
             &uri,
@@ -106,7 +103,6 @@ fn code_actions_offer_missing_closing_delimiter_fix() {
             },
         )
         .unwrap();
-
     let action = actions
         .iter()
         .find(|action| action.title == "Insert `)`")
@@ -225,6 +221,167 @@ fn code_actions_offer_let_mut_fix() {
 }
 
 #[test]
+fn code_actions_offer_deferred_import_for_unresolved_function() {
+    let mut analysis = AnalysisEngine::default();
+    let root = unique_temp_dir("code_action_import_function");
+    fs::write(
+        root.join("mod.kn"),
+        "mod helper;\nfn main() i32 { return answer(); }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("helper.kn"),
+        "pub fn answer() i32 { return 1; }\n",
+    )
+    .unwrap();
+    let uri = file_path_to_uri(&root.join("mod.kn")).unwrap();
+    let source = fs::read_to_string(root.join("mod.kn")).unwrap();
+
+    let _ = analysis.open_document_state(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 1,
+                    character: 25,
+                },
+                end: Position {
+                    line: 1,
+                    character: 31,
+                },
+            },
+        )
+        .unwrap();
+    let action = actions
+        .iter()
+        .find(|action| action.title == "Import `/helper.answer`")
+        .expect("expected import insertion action");
+    assert_deferred_action(action, &uri, "insert-import", "unresolved-identifier");
+
+    let resolved = resolve_deferred_action(&analysis, action.clone());
+    let edit = resolved.edit.as_ref().unwrap();
+    let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
+    assert_eq!(
+        text_edit.range.start,
+        Position {
+            line: 0,
+            character: 0
+        }
+    );
+    assert_eq!(text_edit.new_text, "use /helper.answer;\n");
+}
+
+#[test]
+fn code_actions_offer_deferred_import_for_unresolved_type() {
+    let mut analysis = AnalysisEngine::default();
+    let root = unique_temp_dir("code_action_import_type");
+    fs::write(
+        root.join("mod.kn"),
+        "mod model;\nfn make() Widget { return 0; }\n",
+    )
+    .unwrap();
+    fs::write(root.join("model.kn"), "pub type Widget = i32;\n").unwrap();
+    let uri = file_path_to_uri(&root.join("mod.kn")).unwrap();
+    let source = fs::read_to_string(root.join("mod.kn")).unwrap();
+
+    let _ = analysis.open_document_state(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 1,
+                    character: 10,
+                },
+                end: Position {
+                    line: 1,
+                    character: 16,
+                },
+            },
+        )
+        .unwrap();
+    let action = actions
+        .iter()
+        .find(|action| action.title == "Import `/model.Widget`")
+        .unwrap_or_else(|| panic!("expected type import insertion action, got {actions:#?}"));
+    assert_deferred_action(action, &uri, "insert-import", "unresolved-type");
+
+    let resolved = resolve_deferred_action(&analysis, action.clone());
+    let edit = resolved.edit.as_ref().unwrap();
+    let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
+    assert_eq!(
+        text_edit.range.start,
+        Position {
+            line: 0,
+            character: 0
+        }
+    );
+    assert_eq!(text_edit.new_text, "use /model.Widget;\n");
+}
+
+#[test]
+fn code_actions_insert_import_inside_inline_module() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "mod helper { pub fn answer() i32 { return 1; } }\nmod user {\n    fn run() i32 { return answer(); }\n}\n";
+    let uri = temp_file_uri("code_action_import_inline_module", source);
+
+    let _ = analysis.open_document_state(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 2,
+                    character: 27,
+                },
+                end: Position {
+                    line: 2,
+                    character: 33,
+                },
+            },
+        )
+        .unwrap();
+    let action = actions
+        .iter()
+        .find(|action| action.title == "Import `/helper.answer`")
+        .expect("expected import insertion action");
+
+    let resolved = resolve_deferred_action(&analysis, action.clone());
+    let edit = resolved.edit.as_ref().unwrap();
+    let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
+    assert_eq!(
+        text_edit.range.start,
+        Position {
+            line: 2,
+            character: 4
+        }
+    );
+    assert_eq!(text_edit.new_text, "use /helper.answer;\n");
+}
+
+#[test]
 fn code_actions_keep_untitled_uri_for_same_file_fix() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn main() i32 {\n    let value = 1\n    return value;\n}\n";
@@ -238,7 +395,6 @@ fn code_actions_keep_untitled_uri_for_same_file_fix() {
             text: source.to_string(),
         },
     });
-
     let actions = analysis
         .code_actions(
             &uri,
@@ -700,4 +856,68 @@ fn code_actions_remove_irrefutable_let_else_branch() {
         }
     );
     assert_eq!(text_edit.new_text, "");
+}
+
+#[test]
+fn code_actions_offer_trait_impl_method_stub() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "trait Render { fn render(value: i32) i32; }\n",
+        "struct Widget {}\n",
+        "impl Widget: Render {}\n",
+        "fn main() i32 { return 0; }\n",
+    );
+    let uri = temp_file_uri("code_action_trait_impl_method_stub", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 999,
+                    character: 0,
+                },
+            },
+        )
+        .unwrap();
+    let action = actions
+        .iter()
+        .find(|action| action.title == "Add `render` method stub")
+        .unwrap_or_else(|| panic!("expected trait impl method stub action, got {actions:#?}"));
+    assert_deferred_action(
+        action,
+        &uri,
+        "add-trait-impl-method-stub",
+        "missing-trait-impl-method",
+    );
+    let resolved = resolve_deferred_action(&analysis, action.clone());
+    let edit = resolved.edit.as_ref().unwrap();
+    let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
+
+    assert_eq!(
+        text_edit.range.start,
+        Position {
+            line: 2,
+            character: 21,
+        }
+    );
+    assert_eq!(
+        text_edit.new_text,
+        "\n    fn render(value: i32) i32 {\n        @unreachable();\n    }\n"
+    );
+    assert_eq!(action.kind, Some("quickfix"));
+    assert_eq!(action.is_preferred, Some(false));
 }

@@ -1117,12 +1117,23 @@ facts and must not be approximated with name matching.
 
 Tasks:
 
-- Indirect call hierarchy expansion: expose enough compiler/data-flow facts to
-  recover function-value and closure-object call targets, then expand incoming
-  and outgoing call hierarchy results from those facts.
-- Larger refactoring/code-action providers: implement import insertion, trait
-  impl stubs, and wider multi-edit fixes through deferred resolve payloads
-  backed by compiler facts.
+- Indirect call hierarchy expansion: compiler analysis now records resolved
+  indirect targets for single-source immutable local function-value bindings,
+  and LSP incoming/outgoing call hierarchy expands those targets from the
+  recorded facts. Interprocedural propagation through parameters, mutable or
+  multi-source values, and closure-object target recovery remain pending until
+  the compiler exposes explicit data-flow facts for those cases.
+- Import insertion: unresolved value/function identifiers now carry a structured
+  compiler diagnostic code, `kernc_driver` derives visible import candidates
+  from the resolved module graph and scope table, and `kern-lsp` returns
+  deferred quick fixes whose `codeAction/resolve` materializes the `use`
+  insertion. Analysis and server tests cover the full request/resolve/edit
+  path. Type-position import insertion now uses structured `unresolved-type`
+  diagnostics, precise type-name spans, and imported-structure facts so the
+  quick fix still works when full typed structure construction is blocked by
+  the unresolved type.
+- Larger refactoring/code-action providers: implement trait impl stubs and wider
+  multi-edit fixes through deferred resolve payloads backed by compiler facts.
 - Add stress and correctness tests for the new facts before advertising any new
   provider behavior.
 

@@ -47,6 +47,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         )?;
         cancellation.check()?;
         self.measure_phase(
+            |timings, duration| timings.validate_trait_impl_method_contracts += duration,
+            |this| {
+                this.validate_trait_impl_method_contracts();
+                Ok(())
+            },
+        )?;
+        cancellation.check()?;
+        self.measure_phase(
             |timings, duration| timings.validate_impl_associated_type_targets += duration,
             |this| {
                 this.validate_impl_associated_type_targets();

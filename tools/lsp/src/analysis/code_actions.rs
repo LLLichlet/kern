@@ -1,6 +1,8 @@
 use super::ide::{IdeCodeAction, IdeDiagnostic, IdeTextEdit, IdeWorkspaceEdit};
 use super::{IdePosition, IdeRange};
-use kernc_driver::{AnalysisArtifact, AnalysisDeadStoreKind};
+use kernc_driver::{
+    AnalysisArtifact, AnalysisDeadStoreKind, ImportedStructureArtifact, StructureArtifact,
+};
 use kernc_lexer::{TokenType, Tokenizer};
 use kernc_utils::{DiagnosticCode, FileId};
 use std::collections::BTreeMap;
@@ -49,6 +51,33 @@ pub(super) fn lightweight_quick_fix_for_diagnostic(
     fallback_insert_text_quick_fix(uri, diagnostic, ide_diagnostic)
 }
 
+pub(super) fn fallback_trait_impl_stub_code_action(
+    uri: &str,
+    artifact: &AnalysisArtifact,
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
+    let stubs = artifact.trait_impl_stubs();
+    let stub = (stubs.len() == 1)
+        .then(|| stubs.into_iter().next())
+        .flatten()?;
+    let file = artifact
+        .session
+        .source_manager
+        .get_file(stub.impl_span.file)?;
+
+    Some(single_edit_code_action(
+        uri,
+        &format!("Add `{}` method stub", stub.method_name),
+        "add-trait-impl-method-stub",
+        IdeTextEdit {
+            range: empty_range_at(file, stub.insertion_offset),
+            new_text: stub.insert_text,
+        },
+        ide_diagnostic,
+        false,
+    ))
+}
+
 fn structured_quick_fix(
     uri: &str,
     artifact: &AnalysisArtifact,
@@ -72,8 +101,110 @@ fn structured_quick_fix(
         Some(DiagnosticCode::IrrefutableLetElse) => {
             remove_irrefutable_let_else_code_action(uri, artifact, diagnostic, ide_diagnostic)
         }
+        Some(DiagnosticCode::MissingTraitImplMethod) => {
+            trait_impl_stub_code_action(uri, artifact, diagnostic, ide_diagnostic)
+        }
+        Some(DiagnosticCode::UnresolvedIdentifier | DiagnosticCode::UnresolvedType) => None,
         _ => None,
     }
+}
+
+pub(super) fn import_insertion_code_actions(
+    uri: &str,
+    structure: &StructureArtifact,
+    target_path: &std::path::Path,
+    diagnostic: &kernc_utils::Diagnostic,
+    ide_diagnostic: IdeDiagnostic,
+) -> Vec<IdeCodeAction> {
+    if !matches!(
+        diagnostic.code,
+        Some(DiagnosticCode::UnresolvedIdentifier | DiagnosticCode::UnresolvedType)
+    ) {
+        return Vec::new();
+    }
+    let Some(name) = unresolved_name_from_diagnostic(structure.session(), diagnostic) else {
+        return Vec::new();
+    };
+    let Some(file) = structure
+        .session()
+        .source_manager
+        .get_file(diagnostic.primary_span.file)
+    else {
+        return Vec::new();
+    };
+    let type_only = matches!(diagnostic.code, Some(DiagnosticCode::UnresolvedType));
+
+    structure
+        .import_candidates_for_unresolved_name(
+            target_path,
+            diagnostic.primary_span,
+            &name,
+            type_only,
+        )
+        .into_iter()
+        .map(|candidate| {
+            single_edit_code_action(
+                uri,
+                &format!("Import `{}`", candidate.path),
+                "insert-import",
+                IdeTextEdit {
+                    range: empty_range_at(file, candidate.insertion_offset),
+                    new_text: candidate.insert_text,
+                },
+                ide_diagnostic.clone(),
+                false,
+            )
+        })
+        .collect()
+}
+
+pub(super) fn import_insertion_code_actions_for_imported_structure(
+    uri: &str,
+    imported: &ImportedStructureArtifact,
+    target_path: &std::path::Path,
+    diagnostic: &kernc_utils::Diagnostic,
+    ide_diagnostic: IdeDiagnostic,
+) -> Vec<IdeCodeAction> {
+    if !matches!(
+        diagnostic.code,
+        Some(DiagnosticCode::UnresolvedIdentifier | DiagnosticCode::UnresolvedType)
+    ) {
+        return Vec::new();
+    }
+    let Some(name) = unresolved_name_from_diagnostic(imported.session(), diagnostic) else {
+        return Vec::new();
+    };
+    let Some(file) = imported
+        .session()
+        .source_manager
+        .get_file(diagnostic.primary_span.file)
+    else {
+        return Vec::new();
+    };
+    let type_only = matches!(diagnostic.code, Some(DiagnosticCode::UnresolvedType));
+
+    imported
+        .import_candidates_for_unresolved_name(
+            target_path,
+            diagnostic.primary_span,
+            &name,
+            type_only,
+        )
+        .into_iter()
+        .map(|candidate| {
+            single_edit_code_action(
+                uri,
+                &format!("Import `{}`", candidate.path),
+                "insert-import",
+                IdeTextEdit {
+                    range: empty_range_at(file, candidate.insertion_offset),
+                    new_text: candidate.insert_text,
+                },
+                ide_diagnostic.clone(),
+                false,
+            )
+        })
+        .collect()
 }
 
 fn structured_text_quick_fix(
@@ -485,6 +616,49 @@ fn remove_irrefutable_let_else_code_action(
     ))
 }
 
+fn trait_impl_stub_code_action(
+    uri: &str,
+    artifact: &AnalysisArtifact,
+    diagnostic: &kernc_utils::Diagnostic,
+    ide_diagnostic: IdeDiagnostic,
+) -> Option<IdeCodeAction> {
+    let stub = artifact
+        .trait_impl_stubs()
+        .into_iter()
+        .find(|stub| diagnostic_span_targets_impl(stub.impl_span, diagnostic.primary_span))
+        .or_else(|| {
+            let stubs = artifact.trait_impl_stubs();
+            (stubs.len() == 1)
+                .then(|| stubs.into_iter().next())
+                .flatten()
+        })?;
+    let file = artifact
+        .session
+        .source_manager
+        .get_file(diagnostic.primary_span.file)?;
+
+    Some(single_edit_code_action(
+        uri,
+        &format!("Add `{}` method stub", stub.method_name),
+        "add-trait-impl-method-stub",
+        IdeTextEdit {
+            range: empty_range_at(file, stub.insertion_offset),
+            new_text: stub.insert_text,
+        },
+        ide_diagnostic,
+        false,
+    ))
+}
+
+fn diagnostic_span_targets_impl(
+    impl_span: kernc_utils::Span,
+    diagnostic_span: kernc_utils::Span,
+) -> bool {
+    impl_span.file == diagnostic_span.file
+        && impl_span.start <= diagnostic_span.end
+        && diagnostic_span.start <= impl_span.end
+}
+
 pub(super) fn workspace_edit_key(edit: &IdeWorkspaceEdit) -> String {
     let mut key = String::new();
     for (uri, edits) in &edit.changes {
@@ -706,4 +880,19 @@ fn leading_whitespace(text: &str) -> &str {
         .find_map(|(index, ch)| (!ch.is_whitespace()).then_some(index))
         .unwrap_or(text.len());
     &text[..width]
+}
+
+fn unresolved_name_from_diagnostic(
+    session: &kernc_utils::Session,
+    diagnostic: &kernc_utils::Diagnostic,
+) -> Option<String> {
+    session
+        .source_manager
+        .get_file(diagnostic.primary_span.file)
+        .and_then(|file| {
+            file.src
+                .get(diagnostic.primary_span.start..diagnostic.primary_span.end)
+        })
+        .filter(|name| super::is_valid_identifier(name))
+        .map(str::to_string)
 }

@@ -52,7 +52,8 @@ pub(super) struct ServerState {
     pub(super) document_request_results_rx: mpsc::Receiver<DocumentRequestTaskResult>,
     pub(super) diagnostics_results_rx: mpsc::Receiver<DiagnosticsTaskResult>,
     pub(super) workspace_refresh_results_rx: mpsc::Receiver<WorkspaceRefreshTaskResult>,
-    pub(super) worker_task_tx: mpsc::SyncSender<LspWorkerTask>,
+    pub(super) interactive_worker_task_tx: mpsc::SyncSender<InteractiveWorkerTask>,
+    pub(super) background_worker_task_tx: mpsc::SyncSender<BackgroundWorkerTask>,
     pub(super) pending_document_request_tasks: usize,
     pub(super) pending_diagnostics_worker_tasks: usize,
     pub(super) pending_workspace_refresh_tasks: usize,
@@ -166,8 +167,11 @@ pub(super) struct WorkspaceRefreshTaskResult {
     pub(super) refresh: Result<crate::analysis::WorkspaceIndexRefresh, String>,
 }
 
-pub(super) enum LspWorkerTask {
+pub(super) enum InteractiveWorkerTask {
     DocumentRequest(Box<dyn FnOnce() -> DocumentRequestTaskResult + Send + 'static>),
+}
+
+pub(super) enum BackgroundWorkerTask {
     Diagnostics(Box<dyn FnOnce() -> DiagnosticsTaskResult + Send + 'static>),
     WorkspaceRefresh(Box<dyn FnOnce() -> WorkspaceRefreshTaskResult + Send + 'static>),
 }
@@ -376,7 +380,7 @@ impl ServerState {
         let (document_request_results_tx, document_request_results_rx) = mpsc::channel();
         let (diagnostics_results_tx, diagnostics_results_rx) = mpsc::channel();
         let (workspace_refresh_results_tx, workspace_refresh_results_rx) = mpsc::channel();
-        let worker_task_tx = spawn_worker_threads(
+        let (interactive_worker_task_tx, background_worker_task_tx) = spawn_worker_threads(
             options.worker_threads,
             document_request_results_tx,
             diagnostics_results_tx,
@@ -409,7 +413,8 @@ impl ServerState {
             document_request_results_rx,
             diagnostics_results_rx,
             workspace_refresh_results_rx,
-            worker_task_tx,
+            interactive_worker_task_tx,
+            background_worker_task_tx,
             pending_document_request_tasks: 0,
             pending_diagnostics_worker_tasks: 0,
             pending_workspace_refresh_tasks: 0,
@@ -740,33 +745,58 @@ fn spawn_worker_threads(
     document_request_results_tx: mpsc::Sender<DocumentRequestTaskResult>,
     diagnostics_results_tx: mpsc::Sender<DiagnosticsTaskResult>,
     workspace_refresh_results_tx: mpsc::Sender<WorkspaceRefreshTaskResult>,
-) -> mpsc::SyncSender<LspWorkerTask> {
-    let (task_tx, task_rx) = mpsc::sync_channel::<LspWorkerTask>(worker_count.max(1) * 2);
-    let task_rx = std::sync::Arc::new(std::sync::Mutex::new(task_rx));
+) -> (
+    mpsc::SyncSender<InteractiveWorkerTask>,
+    mpsc::SyncSender<BackgroundWorkerTask>,
+) {
+    let (interactive_task_tx, interactive_task_rx) =
+        mpsc::sync_channel::<InteractiveWorkerTask>(worker_count.max(1) * 2);
+    let (background_task_tx, background_task_rx) =
+        mpsc::sync_channel::<BackgroundWorkerTask>(worker_count.max(1) * 2);
+
+    let interactive_task_rx = std::sync::Arc::new(std::sync::Mutex::new(interactive_task_rx));
     for _ in 0..worker_count.max(1) {
-        let task_rx = task_rx.clone();
+        let interactive_task_rx = interactive_task_rx.clone();
         let document_request_results_tx = document_request_results_tx.clone();
-        let diagnostics_results_tx = diagnostics_results_tx.clone();
-        let workspace_refresh_results_tx = workspace_refresh_results_tx.clone();
         thread::spawn(move || {
             loop {
                 let task = {
-                    let task_rx = task_rx.lock().unwrap();
+                    let task_rx = interactive_task_rx.lock().unwrap();
                     task_rx.recv()
                 };
                 let Ok(task) = task else {
                     break;
                 };
                 match task {
-                    LspWorkerTask::DocumentRequest(task) => {
+                    InteractiveWorkerTask::DocumentRequest(task) => {
                         let result = task();
                         let _ = document_request_results_tx.send(result);
                     }
-                    LspWorkerTask::Diagnostics(task) => {
+                }
+            }
+        });
+    }
+
+    let background_task_rx = std::sync::Arc::new(std::sync::Mutex::new(background_task_rx));
+    for _ in 0..worker_count.max(1) {
+        let background_task_rx = background_task_rx.clone();
+        let diagnostics_results_tx = diagnostics_results_tx.clone();
+        let workspace_refresh_results_tx = workspace_refresh_results_tx.clone();
+        thread::spawn(move || {
+            loop {
+                let task = {
+                    let task_rx = background_task_rx.lock().unwrap();
+                    task_rx.recv()
+                };
+                let Ok(task) = task else {
+                    break;
+                };
+                match task {
+                    BackgroundWorkerTask::Diagnostics(task) => {
                         let result = task();
                         let _ = diagnostics_results_tx.send(result);
                     }
-                    LspWorkerTask::WorkspaceRefresh(task) => {
+                    BackgroundWorkerTask::WorkspaceRefresh(task) => {
                         let result = task();
                         let _ = workspace_refresh_results_tx.send(result);
                     }
@@ -774,5 +804,6 @@ fn spawn_worker_threads(
             }
         });
     }
-    task_tx
+
+    (interactive_task_tx, background_task_tx)
 }

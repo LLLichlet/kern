@@ -17,12 +17,12 @@ use super::signature::SignatureModel;
 use super::{
     AnalysisArtifact, AnalysisCall, AnalysisCallKind, AnalysisDefinitionLink, AnalysisHover,
     AnalysisNavigationArtifact, AnalysisOutline, AnalysisReference, AnalysisReport,
-    AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSpanReplacement,
-    AnalysisSurfaceArtifact, AnalysisSymbol, AnalysisSymbolKind, AnalysisUnusedBinding,
-    AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind, Canceled,
-    CancellationToken, CollectedStructureArtifact, CompileStructureArtifact, CompilerDriver,
-    ImportedStructureArtifact, ParsedModule, ParsedModuleArtifact, PhaseTiming, SourceOverrides,
-    StructureArtifact, TargetedAnalysisReport,
+    AnalysisSemanticArtifact, AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole,
+    AnalysisSpanReplacement, AnalysisSurfaceArtifact, AnalysisSymbol, AnalysisSymbolKind,
+    AnalysisUnusedBinding, AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind,
+    Canceled, CancellationToken, CollectedStructureArtifact, CompileStructureArtifact,
+    CompilerDriver, ImportedStructureArtifact, ParsedModule, ParsedModuleArtifact, PhaseTiming,
+    SourceOverrides, StructureArtifact, TargetedAnalysisReport,
 };
 use crate::doc::{lint_docs, render_hover_markdown};
 use crate::loader::ModuleLoader;
@@ -122,7 +122,29 @@ impl CompilerDriver {
             cancellation,
         )? {
             Ok(structure) => structure,
-            Err(session) => return Ok(self.empty_analysis_artifact(*session)),
+            Err(_session) => {
+                let mut diagnostic_session = Session::new();
+                diagnostic_session.apply_options(&self.options);
+                match self.analyze_diagnostic_structure_cancelable(
+                    diagnostic_session,
+                    input_file,
+                    source_overrides,
+                    cancellation,
+                )? {
+                    Ok(structure) => {
+                        cancellation.check()?;
+                        let mut artifact =
+                            self.analyze_artifact_from_structure(&structure, cancellation)?;
+                        if artifact.trait_impl_stubs.is_empty()
+                            && !structure.trait_impl_stubs.is_empty()
+                        {
+                            artifact.trait_impl_stubs = structure.trait_impl_stubs.clone();
+                        }
+                        return Ok(artifact);
+                    }
+                    Err(session) => return Ok(self.empty_analysis_artifact(*session)),
+                }
+            }
         };
         cancellation.check()?;
         self.analyze_artifact_from_structure(&structure, cancellation)
@@ -149,6 +171,29 @@ impl CompilerDriver {
         };
         cancellation.check()?;
         self.analyze_navigation_artifact_from_structure(&structure, cancellation)
+    }
+
+    pub fn analyze_semantic_artifact(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+        cancellation: &CancellationToken,
+    ) -> Result<AnalysisSemanticArtifact, Canceled> {
+        cancellation.check()?;
+        let mut session = Session::new();
+        session.apply_options(&self.options);
+
+        let structure = match self.try_analyze_structure_cancelable(
+            session,
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
+            Ok(structure) => structure,
+            Err(session) => return Ok(self.empty_analysis_semantic_artifact(*session)),
+        };
+        cancellation.check()?;
+        self.analyze_semantic_artifact_from_structure(&structure, cancellation)
     }
 
     pub fn analyze_imported_structure(

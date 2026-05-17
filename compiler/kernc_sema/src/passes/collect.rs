@@ -1409,6 +1409,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             }
             method_defs.push(TraitMethodDef {
                 signature: method.signature.clone(),
+                params: method.params.clone(),
                 default_impl,
             });
         }

@@ -52,6 +52,11 @@ impl CompilerDriver {
         cancellation.check()?;
         let dead_stores =
             self.collect_dead_stores_cancelable(&ctx, &raw_references, &flow_model, cancellation)?;
+        let trait_impl_stubs = if structure.trait_impl_stubs.is_empty() {
+            self.collect_trait_impl_stubs(&ctx)
+        } else {
+            structure.trait_impl_stubs.clone()
+        };
         let resolved_globals = self.collect_resolved_globals(&ctx);
         drop(ctx);
         cancellation.check()?;
@@ -74,6 +79,7 @@ impl CompilerDriver {
             unused_items,
             unused_bindings,
             dead_stores,
+            trait_impl_stubs,
         })
     }
 
@@ -121,6 +127,44 @@ impl CompilerDriver {
             definition_links,
             semantic_entries,
             calls,
+        })
+    }
+
+    pub fn analyze_semantic_artifact_from_structure(
+        &self,
+        structure: &StructureArtifact,
+        cancellation: &CancellationToken,
+    ) -> Result<AnalysisSemanticArtifact, Canceled> {
+        cancellation.check()?;
+        let mut session = structure.session.clone();
+        let analysis_asts = structure.asts.clone();
+
+        let mut ctx = self.build_sema_context(&mut session);
+        ctx.restore_structure(structure.snapshot.clone());
+        cancellation.check()?;
+        let succeeded = self.run_navigation_pipeline_cancelable(&mut ctx, cancellation)?;
+        cancellation.check()?;
+        let symbols = self.collect_analysis_symbols(&ctx, &analysis_asts);
+        let references = ctx
+            .identifier_references()
+            .iter()
+            .map(|(reference_span, definition_span)| AnalysisReference {
+                reference_span: *reference_span,
+                definition_span: *definition_span,
+            })
+            .collect::<Vec<_>>();
+        let hovers = self.collect_analysis_hovers(&ctx);
+        let semantic_entries = self.collect_analysis_semantic_entries(&symbols, &ctx, &references);
+        drop(ctx);
+        cancellation.check()?;
+
+        Ok(AnalysisSemanticArtifact {
+            session,
+            succeeded,
+            symbols,
+            references,
+            hovers,
+            semantic_entries,
         })
     }
 
@@ -606,6 +650,7 @@ impl CompilerDriver {
             unused_items: Vec::new(),
             unused_bindings: Vec::new(),
             dead_stores: Vec::new(),
+            trait_impl_stubs: Vec::new(),
         }
     }
 
@@ -623,6 +668,20 @@ impl CompilerDriver {
             definition_links: Vec::new(),
             semantic_entries: Vec::new(),
             calls: Vec::new(),
+        }
+    }
+
+    pub(super) fn empty_analysis_semantic_artifact(
+        &self,
+        session: Session,
+    ) -> AnalysisSemanticArtifact {
+        AnalysisSemanticArtifact {
+            session,
+            succeeded: false,
+            symbols: Vec::new(),
+            references: Vec::new(),
+            hovers: Vec::new(),
+            semantic_entries: Vec::new(),
         }
     }
 

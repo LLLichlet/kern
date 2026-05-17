@@ -349,6 +349,38 @@ fn diagnostics_expose_structured_code_for_nonexhaustive_match() {
 }
 
 #[test]
+fn diagnostics_expose_structured_code_for_missing_trait_impl_method() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "trait Render { fn render() i32; }\n",
+        "struct Widget {}\n",
+        "impl Widget: Render {}\n",
+    );
+    let uri = temp_file_uri("diagnostic_code_missing_trait_impl_method", source);
+
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    let diagnostic = bundle
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .message
+                .contains("missing required method `render`")
+        })
+        .expect("missing trait impl method diagnostic");
+    assert_eq!(
+        diagnostic.code.as_deref(),
+        Some("missing-trait-impl-method")
+    );
+}
+
+#[test]
 fn diagnostics_warn_for_unreachable_private_item_chain() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

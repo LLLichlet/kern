@@ -36,7 +36,11 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
         .hover(&result_uri, position_of_nth(result_source, "Result", 0, 1))
         .unwrap();
     assert_eq!(analysis.structure_cache.lock().unwrap().len(), 1);
-    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        1
+    );
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
@@ -48,7 +52,11 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
         },
     });
     assert_eq!(analysis.structure_cache.lock().unwrap().len(), 1);
-    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        1
+    );
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 
     let _ = analysis
@@ -57,7 +65,7 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
     assert_eq!(analysis.structure_cache.lock().unwrap().len(), 1);
     assert!(
         analysis
-            .navigation_cache
+            .semantic_classification_cache
             .lock()
             .unwrap()
             .keys()
@@ -175,7 +183,11 @@ fn dirty_interactive_requests_after_complex_error_avoid_full_dirty_analysis() {
         .unwrap();
 
     assert!(!actions.is_empty());
-    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        1
+    );
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 1);
 }
 
@@ -288,7 +300,11 @@ fn dirty_complex_hover_uses_clean_analysis() {
         .hover(&uri, position_of_nth(dirty, "make_point", 1, 1))
         .unwrap();
 
-    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        1
+    );
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
     assert_eq!(
         analysis.last_analysis_tier(),
@@ -578,7 +594,11 @@ root = "src/lib.kn"
         .unwrap();
 
     assert!(!tokens.data.is_empty());
-    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        1
+    );
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
     assert!(hover.contents.contains("fn helper"), "{}", hover.contents);
 }

@@ -49,6 +49,7 @@ struct TypeResolutionPhaseTimings {
     resolve_non_alias_items: Duration,
     validate_supertrait_graph: Duration,
     validate_trait_impl_coherence: Duration,
+    validate_trait_impl_method_contracts: Duration,
     validate_impl_associated_type_targets: Duration,
 }
 
@@ -64,6 +65,10 @@ impl TypeResolutionPhaseTimings {
             (
                 "    validate_trait_impl_coherence",
                 self.validate_trait_impl_coherence,
+            ),
+            (
+                "    validate_trait_impl_method_contracts",
+                self.validate_trait_impl_method_contracts,
             ),
             (
                 "    validate_impl_associated_type_targets",

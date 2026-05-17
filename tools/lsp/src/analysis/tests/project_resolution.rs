@@ -1,4 +1,5 @@
 use super::*;
+use craft::project::AnalysisProject;
 
 #[test]
 fn resolve_analysis_uses_workspace_package_root_and_local_aliases() {
@@ -1257,4 +1258,60 @@ roots = [\"tests/smoke.kn\"]
     assert_eq!(test_lenses[0].title, "Run Test smoke");
     assert_eq!(test_lenses[0].command, "kern.craft.testTarget");
     assert_eq!(test_lenses[0].arguments[0]["targetName"], "smoke");
+}
+
+#[test]
+fn test_target_files_resolve_as_full_analysis_targets() {
+    let root = unique_temp_dir("analysis_test_target_resolution");
+    let src_dir = root.join("src");
+    let tests_dir = root.join("tests");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::create_dir_all(&tests_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+
+[test]
+roots = [\"tests/smoke.kn\"]
+"
+        ),
+    )
+    .unwrap();
+    fs::write(src_dir.join("lib.kn"), "pub fn helper() void {}\n").unwrap();
+    fs::write(
+        tests_dir.join("smoke.kn"),
+        "fn test_smoke() void { helper(); }\n",
+    )
+    .unwrap();
+
+    let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
+    let resolved =
+        project.resolve_for_file(&tests_dir.join("smoke.kn"), &CompileOptions::default());
+
+    assert_eq!(
+        super::normalize_path(&resolved.input_file),
+        super::normalize_path(&tests_dir.join("smoke.kn"))
+    );
+    assert_eq!(
+        resolved.compile_options.metadata_package_name,
+        Some("app".to_string())
+    );
+    assert_eq!(
+        resolved
+            .target
+            .as_ref()
+            .and_then(|target| target.target_kind),
+        Some(craft::plan::TargetKind::Test)
+    );
+    assert!(resolved.target_roots.iter().any(|path| {
+        super::normalize_path(path) == super::normalize_path(&tests_dir.join("smoke.kn"))
+    }));
 }

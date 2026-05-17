@@ -156,17 +156,24 @@ impl CompilerDriver {
         let callable_entries = semantic_entries
             .iter()
             .filter(|entry| {
-                entry.role == AnalysisSemanticRole::Reference
-                    && matches!(
-                        entry.kind,
-                        AnalysisSemanticKind::Function | AnalysisSemanticKind::Method
-                    )
+                matches!(
+                    entry.role,
+                    AnalysisSemanticRole::Definition | AnalysisSemanticRole::Reference
+                ) && matches!(
+                    entry.kind,
+                    AnalysisSemanticKind::Function | AnalysisSemanticKind::Method
+                )
             })
             .map(|entry| (entry.span, entry.definition_span))
             .collect::<std::collections::BTreeMap<_, _>>();
         if callable_entries.is_empty() {
             return Vec::new();
         }
+        let reference_definition_spans = semantic_entries
+            .iter()
+            .filter(|entry| entry.role == AnalysisSemanticRole::Reference)
+            .map(|entry| (entry.span, entry.definition_span))
+            .collect::<std::collections::BTreeMap<_, _>>();
 
         let mut function_definition_spans = std::collections::HashMap::new();
         for def in &ctx.defs {
@@ -183,6 +190,7 @@ impl CompilerDriver {
                     ctx,
                     decl,
                     &callable_entries,
+                    &reference_definition_spans,
                     flow_model,
                     &function_definition_spans,
                     &mut calls,
@@ -252,6 +260,20 @@ impl CompilerDriver {
             else {
                 continue;
             };
+            eprintln!(
+                "collect stubs impl={:?} trait={} methods={:?}",
+                impl_def.span,
+                ctx.resolve(trait_def.name),
+                trait_def
+                    .methods
+                    .iter()
+                    .map(|method| (
+                        ctx.resolve(method.signature.name).to_string(),
+                        method.params.len(),
+                        method.default_impl.is_some()
+                    ))
+                    .collect::<Vec<_>>()
+            );
 
             for method_id in &impl_def.methods {
                 let Some(kernc_sema::def::Def::Function(function)) =
@@ -491,27 +513,39 @@ impl CompilerDriver {
                 let kernc_sema::def::Def::Function(function) = &ctx.defs[def_id.0 as usize] else {
                     return None;
                 };
-                self.render_function_hover(ctx, function, name)?
+                self.function_decl_signature(ctx, function, name)
             }
             kernc_sema::scope::SymbolKind::Const => {
-                format!("const {}: {}", name, ctx.ty_to_string(info.type_id))
+                format!(
+                    "const {}: {}",
+                    name,
+                    self.hover_type_label(ctx, info.type_id)
+                )
             }
             kernc_sema::scope::SymbolKind::ConstParam => {
-                format!("const {}: {}", name, ctx.ty_to_string(info.type_id))
+                format!(
+                    "const {}: {}",
+                    name,
+                    self.hover_type_label(ctx, info.type_id)
+                )
             }
             kernc_sema::scope::SymbolKind::Static => {
-                let mut prefix = String::from("static");
-                if info.is_mut {
-                    prefix.push_str(" mut");
-                }
-                format!("{} {}: {}", prefix, name, ctx.ty_to_string(info.type_id))
+                let prefix = if info.is_mut { "static mut" } else { "static" };
+                format!(
+                    "{} {}: {}",
+                    prefix,
+                    name,
+                    self.hover_type_label(ctx, info.type_id)
+                )
             }
             kernc_sema::scope::SymbolKind::Var => {
-                let mut prefix = String::from("var");
-                if info.is_mut {
-                    prefix.push_str(" mut");
-                }
-                format!("{} {}: {}", prefix, name, ctx.ty_to_string(info.type_id))
+                let prefix = if info.is_mut { "let mut" } else { "let" };
+                format!(
+                    "{} {}: {}",
+                    prefix,
+                    name,
+                    self.hover_type_label(ctx, info.type_id)
+                )
             }
             kernc_sema::scope::SymbolKind::Struct => format!("struct {}", name),
             kernc_sema::scope::SymbolKind::Union => format!("union {}", name),
@@ -524,16 +558,16 @@ impl CompilerDriver {
                     && let kernc_sema::def::Def::TypeAlias(alias) = &ctx.defs[def_id.0 as usize]
                 {
                     ctx.node_type(alias.target.id)
-                        .map(|target_ty| ctx.ty_to_string(target_ty))
+                        .map(|target_ty| self.hover_type_label(ctx, target_ty))
                 } else if let Some(def_id) = info.def_id
                     && let kernc_sema::def::Def::AssociatedType(assoc) =
                         &ctx.defs[def_id.0 as usize]
                     && let Some(target) = assoc.target.as_ref()
                 {
                     ctx.node_type(target.id)
-                        .map(|target_ty| ctx.ty_to_string(target_ty))
+                        .map(|target_ty| self.hover_type_label(ctx, target_ty))
                 } else {
-                    Some(ctx.ty_to_string(info.type_id))
+                    Some(self.hover_type_label(ctx, info.type_id))
                 };
 
                 if let Some(detail) = detail {
@@ -558,18 +592,97 @@ impl CompilerDriver {
         function: &kernc_sema::def::FunctionDef,
     ) -> Option<String> {
         let name = ctx.resolve(function.name);
-        let code = self.render_function_hover(ctx, function, name)?;
+        let code = self.function_decl_signature(ctx, function, name);
         Some(render_hover_markdown(&code, function.docs.as_ref()))
     }
 
-    fn render_function_hover(
+    fn function_decl_signature(
         &self,
         ctx: &SemaContext<'_>,
         function: &kernc_sema::def::FunctionDef,
         name: &str,
-    ) -> Option<String> {
-        let sig = function.resolved_sig?;
-        Some(format!("fn {}: {}", name, ctx.ty_to_string(sig)))
+    ) -> String {
+        let mut out = String::new();
+        if function.is_extern {
+            out.push_str("extern ");
+        }
+        if function.is_const {
+            out.push_str("const ");
+        }
+        out.push_str("fn ");
+        out.push_str(name);
+        out.push_str(&generic_params_label_local(ctx, &function.generics));
+        out.push('(');
+
+        let mut params = Vec::new();
+        for param in &function.params {
+            params.push(format!(
+                "{}: {}",
+                ctx.resolve(param.pattern.name),
+                self.hover_type_node_label(ctx, &param.type_node)
+            ));
+        }
+        if function.is_variadic {
+            params.push("...".to_string());
+        }
+        out.push_str(&params.join(", "));
+        out.push(')');
+        out.push(' ');
+        out.push_str(&self.hover_type_node_label(ctx, &function.ret_type));
+        out
+    }
+
+    fn function_type_signature(
+        &self,
+        ctx: &SemaContext<'_>,
+        name: &str,
+        type_node: &ast::TypeNode,
+    ) -> String {
+        let ast::TypeKind::Function {
+            params,
+            ret,
+            is_variadic,
+        } = &type_node.kind
+        else {
+            return format!(
+                "fn {}: {}",
+                name,
+                self.hover_type_node_label(ctx, type_node)
+            );
+        };
+
+        let mut out = String::new();
+        out.push_str("fn ");
+        out.push_str(name);
+        out.push('(');
+
+        let mut rendered_params = Vec::new();
+        for param in params {
+            rendered_params.push(self.hover_type_node_label(ctx, param));
+        }
+        if *is_variadic {
+            rendered_params.push("...".to_string());
+        }
+        out.push_str(&rendered_params.join(", "));
+        out.push(')');
+        out.push(' ');
+        if let Some(ret) = ret {
+            out.push_str(&self.hover_type_node_label(ctx, ret));
+        } else {
+            out.push_str("void");
+        }
+        out
+    }
+
+    fn hover_type_node_label(&self, ctx: &SemaContext<'_>, type_node: &ast::TypeNode) -> String {
+        if let Some(ty) = ctx.node_type(type_node.id) {
+            return ctx.ty_to_string(ty);
+        }
+        ctx.sess
+            .source_manager
+            .slice_source(type_node.span)
+            .trim()
+            .to_string()
     }
 
     fn collect_member_hovers(
@@ -613,7 +726,7 @@ impl CompilerDriver {
                         let Some(contents) = self.hover_contents_for_trait_method(
                             ctx,
                             method.signature.name,
-                            method.signature.type_node.id,
+                            &method.signature.type_node,
                         ) else {
                             continue;
                         };
@@ -639,6 +752,45 @@ impl CompilerDriver {
         }
     }
 
+    fn hover_type_label(&self, ctx: &SemaContext<'_>, ty: kernc_sema::ty::TypeId) -> String {
+        match ctx
+            .type_registry
+            .get(ctx.type_registry.normalize(ty))
+            .clone()
+        {
+            kernc_sema::ty::TypeKind::Function {
+                params,
+                ret,
+                is_variadic,
+            } => {
+                let mut out = String::from("fn(");
+                let mut rendered_params = params
+                    .iter()
+                    .map(|param| ctx.ty_to_string(*param))
+                    .collect::<Vec<_>>();
+                if is_variadic {
+                    rendered_params.push("...".to_string());
+                }
+                out.push_str(&rendered_params.join(", "));
+                out.push_str(") ");
+                out.push_str(&ctx.ty_to_string(ret));
+                out
+            }
+            kernc_sema::ty::TypeKind::ClosureInterface { params, ret } => {
+                let mut out = String::from("Fn(");
+                let rendered_params = params
+                    .iter()
+                    .map(|param| ctx.ty_to_string(*param))
+                    .collect::<Vec<_>>();
+                out.push_str(&rendered_params.join(", "));
+                out.push_str(") ");
+                out.push_str(&ctx.ty_to_string(ret));
+                out
+            }
+            _ => ctx.ty_to_string(ty),
+        }
+    }
+
     fn hover_contents_for_field(
         &self,
         ctx: &SemaContext<'_>,
@@ -656,12 +808,12 @@ impl CompilerDriver {
         &self,
         ctx: &SemaContext<'_>,
         name: kernc_utils::SymbolId,
-        type_node_id: kernc_utils::NodeId,
+        type_node: &ast::TypeNode,
     ) -> Option<String> {
-        let ty = ctx.node_type(type_node_id)?;
+        let rendered = self.function_type_signature(ctx, ctx.resolve(name), type_node);
         Some(render_hover_markdown(
-            &format!("fn {}: {}", ctx.resolve(name), ctx.ty_to_string(ty)),
-            self.trait_method_doc_block(ctx, name, type_node_id),
+            &rendered,
+            self.trait_method_doc_block(ctx, name, type_node.id),
         ))
     }
 
@@ -907,12 +1059,183 @@ impl CompilerDriver {
             .trim()
             .to_string()
     }
+
+    pub(super) fn collect_trait_impl_stubs(
+        &self,
+        ctx: &SemaContext<'_>,
+    ) -> Vec<crate::AnalysisTraitImplStub> {
+        let mut stubs = Vec::new();
+        for def in &ctx.defs {
+            let kernc_sema::def::Def::Impl(impl_def) = def else {
+                continue;
+            };
+            if impl_def.is_imported {
+                continue;
+            }
+            let Some(trait_ty) = impl_def.resolved_trait_ty else {
+                continue;
+            };
+            let trait_ty = ctx.type_registry.normalize(trait_ty);
+            let TypeKind::TraitObject(trait_def_id, _, _) = ctx.type_registry.get(trait_ty).clone()
+            else {
+                continue;
+            };
+            let Some(kernc_sema::def::Def::Trait(trait_def)) =
+                ctx.defs.get(trait_def_id.0 as usize)
+            else {
+                continue;
+            };
+
+            let implemented_methods = impl_def
+                .methods
+                .iter()
+                .filter_map(|method_id| match ctx.defs.get(method_id.0 as usize) {
+                    Some(kernc_sema::def::Def::Function(function)) => Some(function.name),
+                    _ => None,
+                })
+                .collect::<std::collections::BTreeSet<_>>();
+            let Some(file) = ctx.sess.source_manager.get_file(impl_def.span.file) else {
+                continue;
+            };
+            let Some(insertion_offset) = impl_body_end_insertion_offset(file, impl_def.span) else {
+                continue;
+            };
+            let indent = impl_member_indent(file, insertion_offset);
+
+            for method in &trait_def.methods {
+                if method.default_impl.is_some()
+                    || implemented_methods.contains(&method.signature.name)
+                {
+                    continue;
+                }
+                let method_name = ctx.resolve(method.signature.name).to_string();
+                stubs.push(crate::AnalysisTraitImplStub {
+                    impl_span: impl_def.span,
+                    method_name,
+                    insertion_offset,
+                    insert_text: trait_impl_stub_text(ctx, method, &indent),
+                });
+            }
+        }
+
+        stubs.sort_by_key(|stub| {
+            (
+                stub.impl_span.file.0,
+                stub.impl_span.start,
+                stub.impl_span.end,
+                stub.method_name.clone(),
+            )
+        });
+        stubs
+    }
+}
+
+fn generic_params_label_local(ctx: &SemaContext<'_>, generics: &[ast::GenericParam]) -> String {
+    if generics.is_empty() {
+        return String::new();
+    }
+    let names = generics
+        .iter()
+        .map(|param| match &param.kind {
+            ast::GenericParamKind::Type => ctx.resolve(param.name).to_string(),
+            ast::GenericParamKind::Const { ty } => {
+                format!(
+                    "{}: {}",
+                    ctx.resolve(param.name),
+                    ctx.sess.source_manager.slice_source(ty.span).trim()
+                )
+            }
+        })
+        .collect::<Vec<_>>();
+    format!("[{}]", names.join(", "))
+}
+
+fn trait_impl_stub_text(
+    ctx: &SemaContext<'_>,
+    method: &kernc_sema::def::TraitMethodDef,
+    indent: &str,
+) -> String {
+    let mut out = String::new();
+    out.push('\n');
+    out.push_str(indent);
+    out.push_str("fn ");
+    out.push_str(ctx.resolve(method.signature.name));
+    out.push('(');
+
+    let mut params = Vec::new();
+    for param in &method.params {
+        params.push(format!(
+            "{}: {}",
+            ctx.resolve(param.pattern.name),
+            type_node_source(ctx, &param.type_node)
+        ));
+    }
+    if let ast::TypeKind::Function { is_variadic, .. } = &method.signature.type_node.kind
+        && *is_variadic
+    {
+        params.push("...".to_string());
+    }
+    out.push_str(&params.join(", "));
+    out.push(')');
+    let ret_type = trait_method_return_type_source(ctx, &method.signature.type_node);
+    if ret_type != "void" {
+        out.push(' ');
+        out.push_str(&ret_type);
+    } else {
+        out.push_str(" void");
+    }
+    out.push_str(" {\n");
+    out.push_str(indent);
+    out.push_str("    @unreachable();\n");
+    out.push_str(indent);
+    out.push_str("}\n");
+    out
+}
+
+fn trait_method_return_type_source(ctx: &SemaContext<'_>, type_node: &ast::TypeNode) -> String {
+    match &type_node.kind {
+        ast::TypeKind::Function { ret: Some(ret), .. } => type_node_source(ctx, ret),
+        ast::TypeKind::Function { ret: None, .. } => "void".to_string(),
+        _ => type_node_source(ctx, type_node),
+    }
+}
+
+fn type_node_source(ctx: &SemaContext<'_>, type_node: &ast::TypeNode) -> String {
+    let source = ctx.sess.source_manager.slice_source(type_node.span).trim();
+    if source.is_empty() {
+        return ctx
+            .node_type(type_node.id)
+            .map(|ty| ctx.ty_to_string(ty))
+            .unwrap_or_else(|| "void".to_string());
+    }
+    source.to_string()
+}
+
+fn impl_body_end_insertion_offset(file: &kernc_utils::SourceFile, span: Span) -> Option<usize> {
+    if span.end > file.src.len() || span.start >= span.end {
+        return None;
+    }
+    let close_relative = file.src.get(span.start..span.end)?.rfind('}')?;
+    Some(span.start + close_relative)
+}
+
+fn impl_member_indent(file: &kernc_utils::SourceFile, insertion_offset: usize) -> String {
+    let line_start = file.src[..insertion_offset]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let close_indent = file.src[line_start..insertion_offset]
+        .chars()
+        .take_while(|ch| ch.is_whitespace())
+        .collect::<String>();
+    format!("{}    ", close_indent)
 }
 
 fn collect_calls_in_decl(
     ctx: &mut SemaContext<'_>,
     decl: &ast::Decl,
     callable_entries: &std::collections::BTreeMap<Span, Span>,
+    reference_definition_spans: &std::collections::BTreeMap<Span, Span>,
     flow_model: &FlowModel,
     function_definition_spans: &std::collections::HashMap<DefId, Span>,
     calls: &mut Vec<AnalysisCall>,
@@ -920,30 +1243,47 @@ fn collect_calls_in_decl(
     match &decl.kind {
         ast::DeclKind::Function {
             body: Some(body), ..
-        } => collect_calls_in_expr(
-            ctx,
-            body,
-            callable_entries,
-            flow_model,
-            function_definition_spans,
-            calls,
-        ),
+        } => {
+            let indirect_call_targets = IndirectCallTargetFacts::collect(
+                body,
+                callable_entries,
+                reference_definition_spans,
+            );
+            collect_calls_in_expr(
+                ctx,
+                body,
+                callable_entries,
+                &indirect_call_targets,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+        }
         ast::DeclKind::Var {
             value: Some(value), ..
-        } => collect_calls_in_expr(
-            ctx,
-            value,
-            callable_entries,
-            flow_model,
-            function_definition_spans,
-            calls,
-        ),
+        } => {
+            let indirect_call_targets = IndirectCallTargetFacts::collect(
+                value,
+                callable_entries,
+                reference_definition_spans,
+            );
+            collect_calls_in_expr(
+                ctx,
+                value,
+                callable_entries,
+                &indirect_call_targets,
+                flow_model,
+                function_definition_spans,
+                calls,
+            );
+        }
         ast::DeclKind::ExternBlock { decls, .. } => {
             for child in decls {
                 collect_calls_in_decl(
                     ctx,
                     child,
                     callable_entries,
+                    reference_definition_spans,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -956,6 +1296,7 @@ fn collect_calls_in_decl(
                     ctx,
                     child,
                     callable_entries,
+                    reference_definition_spans,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -968,6 +1309,7 @@ fn collect_calls_in_decl(
                     ctx,
                     child,
                     callable_entries,
+                    reference_definition_spans,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1163,10 +1505,213 @@ fn callee_method_name(callee: &ast::Expr) -> Option<kernc_utils::SymbolId> {
     }
 }
 
+#[derive(Default)]
+struct IndirectCallTargetFacts {
+    binding_targets: std::collections::BTreeMap<Span, Span>,
+    reference_definition_spans: std::collections::BTreeMap<Span, Span>,
+}
+
+impl IndirectCallTargetFacts {
+    fn collect(
+        expr: &ast::Expr,
+        callable_entries: &std::collections::BTreeMap<Span, Span>,
+        reference_definition_spans: &std::collections::BTreeMap<Span, Span>,
+    ) -> Self {
+        let mut facts = Self {
+            reference_definition_spans: reference_definition_spans.clone(),
+            ..Self::default()
+        };
+        collect_indirect_call_target_facts(expr, callable_entries, &mut facts);
+        facts
+    }
+
+    fn target_for_callee(&self, callee: &ast::Expr) -> Vec<Span> {
+        let callee_reference_span = callee_reference_span(callee);
+        let Some(binding_definition_span) =
+            self.reference_definition_spans.get(&callee_reference_span)
+        else {
+            return Vec::new();
+        };
+        self.binding_targets
+            .get(binding_definition_span)
+            .copied()
+            .into_iter()
+            .collect()
+    }
+}
+
+fn collect_indirect_call_target_facts(
+    expr: &ast::Expr,
+    callable_entries: &std::collections::BTreeMap<Span, Span>,
+    facts: &mut IndirectCallTargetFacts,
+) {
+    match &expr.kind {
+        ast::ExprKind::Let {
+            pattern,
+            init,
+            else_clause,
+            ..
+        } => {
+            if else_clause.is_none()
+                && let ast::PatternKind::Binding(binding) = &pattern.pattern.kind
+                && !binding.is_mut
+                && let Some(target_span) = callable_entries.get(&callee_reference_span(init))
+            {
+                facts
+                    .binding_targets
+                    .insert(binding.name_span, *target_span);
+            }
+            collect_indirect_call_target_facts(init, callable_entries, facts);
+            if let Some(else_clause) = else_clause {
+                match else_clause {
+                    ast::LetElseClause::Expr(else_expr) => {
+                        collect_indirect_call_target_facts(else_expr, callable_entries, facts);
+                    }
+                    ast::LetElseClause::Arms(arms) => {
+                        for arm in arms {
+                            collect_indirect_call_target_facts(&arm.body, callable_entries, facts);
+                        }
+                    }
+                }
+            }
+        }
+        ast::ExprKind::Block { stmts, result } => {
+            let mut scoped = IndirectCallTargetFacts::default();
+            for stmt in stmts {
+                match &stmt.kind {
+                    ast::StmtKind::Use(_) => {}
+                    ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
+                        collect_indirect_call_target_facts(expr, callable_entries, &mut scoped);
+                    }
+                }
+            }
+            if let Some(result) = result {
+                collect_indirect_call_target_facts(result, callable_entries, &mut scoped);
+            }
+            facts.binding_targets.extend(scoped.binding_targets);
+        }
+        ast::ExprKind::Static { init, .. } => {
+            if let Some(init) = init {
+                collect_indirect_call_target_facts(init, callable_entries, facts);
+            }
+        }
+        ast::ExprKind::Binary { lhs, rhs, .. } | ast::ExprKind::Assign { lhs, rhs, .. } => {
+            collect_indirect_call_target_facts(lhs, callable_entries, facts);
+            collect_indirect_call_target_facts(rhs, callable_entries, facts);
+        }
+        ast::ExprKind::Range { start, end, .. } => {
+            if let Some(start) = start {
+                collect_indirect_call_target_facts(start, callable_entries, facts);
+            }
+            if let Some(end) = end {
+                collect_indirect_call_target_facts(end, callable_entries, facts);
+            }
+        }
+        ast::ExprKind::Unary { operand, .. }
+        | ast::ExprKind::Grouped { expr: operand }
+        | ast::ExprKind::FieldAccess { lhs: operand, .. }
+        | ast::ExprKind::As { lhs: operand, .. }
+        | ast::ExprKind::Propagate { operand }
+        | ast::ExprKind::Defer { expr: operand }
+        | ast::ExprKind::GenericInstantiation {
+            target: operand, ..
+        } => collect_indirect_call_target_facts(operand, callable_entries, facts),
+        ast::ExprKind::IndexAccess { lhs, index, .. } => {
+            collect_indirect_call_target_facts(lhs, callable_entries, facts);
+            collect_indirect_call_target_facts(index, callable_entries, facts);
+        }
+        ast::ExprKind::Call { callee, args } => {
+            collect_indirect_call_target_facts(callee, callable_entries, facts);
+            for arg in args {
+                collect_indirect_call_target_facts(arg, callable_entries, facts);
+            }
+        }
+        ast::ExprKind::DataInit { literal, .. } => match literal {
+            ast::DataLiteralKind::Struct(fields) => {
+                for field in fields {
+                    collect_indirect_call_target_facts(&field.value, callable_entries, facts);
+                }
+            }
+            ast::DataLiteralKind::Array(items) => {
+                for item in items {
+                    collect_indirect_call_target_facts(item, callable_entries, facts);
+                }
+            }
+            ast::DataLiteralKind::Repeat { value, count } => {
+                collect_indirect_call_target_facts(value, callable_entries, facts);
+                collect_indirect_call_target_facts(count, callable_entries, facts);
+            }
+            ast::DataLiteralKind::Scalar(value) => {
+                collect_indirect_call_target_facts(value, callable_entries, facts);
+            }
+        },
+        ast::ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_indirect_call_target_facts(cond, callable_entries, facts);
+            collect_indirect_call_target_facts(then_branch, callable_entries, facts);
+            if let Some(else_branch) = else_branch {
+                collect_indirect_call_target_facts(else_branch, callable_entries, facts);
+            }
+        }
+        ast::ExprKind::Match { target, arms } => {
+            collect_indirect_call_target_facts(target, callable_entries, facts);
+            for arm in arms {
+                collect_indirect_call_target_facts(&arm.body, callable_entries, facts);
+            }
+        }
+        ast::ExprKind::While { cond, body } => {
+            collect_indirect_call_target_facts(cond, callable_entries, facts);
+            collect_indirect_call_target_facts(body, callable_entries, facts);
+        }
+        ast::ExprKind::SliceOp {
+            lhs, start, end, ..
+        } => {
+            collect_indirect_call_target_facts(lhs, callable_entries, facts);
+            if let Some(start) = start {
+                collect_indirect_call_target_facts(start, callable_entries, facts);
+            }
+            if let Some(end) = end {
+                collect_indirect_call_target_facts(end, callable_entries, facts);
+            }
+        }
+        ast::ExprKind::Return(value) => {
+            if let Some(value) = value {
+                collect_indirect_call_target_facts(value, callable_entries, facts);
+            }
+        }
+        ast::ExprKind::Closure { captures, body, .. } => {
+            for capture in captures {
+                collect_indirect_call_target_facts(&capture.value, callable_entries, facts);
+            }
+            collect_indirect_call_target_facts(body, callable_entries, facts);
+        }
+        ast::ExprKind::Error
+        | ast::ExprKind::Integer { .. }
+        | ast::ExprKind::Float { .. }
+        | ast::ExprKind::Bool(_)
+        | ast::ExprKind::Char(_)
+        | ast::ExprKind::ByteChar(_)
+        | ast::ExprKind::String(_)
+        | ast::ExprKind::Identifier(_)
+        | ast::ExprKind::AnchoredPath { .. }
+        | ast::ExprKind::TypeNode(_)
+        | ast::ExprKind::EnumLiteral { .. }
+        | ast::ExprKind::Break
+        | ast::ExprKind::Continue
+        | ast::ExprKind::Undef
+        | ast::ExprKind::Infer
+        | ast::ExprKind::SelfValue => {}
+    }
+}
+
 fn collect_calls_in_expr(
     ctx: &mut SemaContext<'_>,
     expr: &ast::Expr,
     callable_entries: &std::collections::BTreeMap<Span, Span>,
+    indirect_call_targets: &IndirectCallTargetFacts,
     flow_model: &FlowModel,
     function_definition_spans: &std::collections::HashMap<DefId, Span>,
     calls: &mut Vec<AnalysisCall>,
@@ -1179,6 +1724,7 @@ fn collect_calls_in_expr(
                 ctx,
                 init,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1189,6 +1735,7 @@ fn collect_calls_in_expr(
                         ctx,
                         else_expr,
                         callable_entries,
+                        indirect_call_targets,
                         flow_model,
                         function_definition_spans,
                         calls,
@@ -1199,6 +1746,7 @@ fn collect_calls_in_expr(
                                 ctx,
                                 &arm.body,
                                 callable_entries,
+                                indirect_call_targets,
                                 flow_model,
                                 function_definition_spans,
                                 calls,
@@ -1214,6 +1762,7 @@ fn collect_calls_in_expr(
                     ctx,
                     init,
                     callable_entries,
+                    indirect_call_targets,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1225,6 +1774,7 @@ fn collect_calls_in_expr(
                 ctx,
                 lhs,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1233,6 +1783,7 @@ fn collect_calls_in_expr(
                 ctx,
                 rhs,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1244,6 +1795,7 @@ fn collect_calls_in_expr(
                     ctx,
                     start,
                     callable_entries,
+                    indirect_call_targets,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1254,6 +1806,7 @@ fn collect_calls_in_expr(
                     ctx,
                     end,
                     callable_entries,
+                    indirect_call_targets,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1272,6 +1825,7 @@ fn collect_calls_in_expr(
             ctx,
             operand,
             callable_entries,
+            indirect_call_targets,
             flow_model,
             function_definition_spans,
             calls,
@@ -1281,6 +1835,7 @@ fn collect_calls_in_expr(
                 ctx,
                 lhs,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1289,6 +1844,7 @@ fn collect_calls_in_expr(
                 ctx,
                 index,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1299,6 +1855,7 @@ fn collect_calls_in_expr(
                 ctx,
                 callee,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1308,6 +1865,7 @@ fn collect_calls_in_expr(
                     ctx,
                     arg,
                     callable_entries,
+                    indirect_call_targets,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1324,6 +1882,11 @@ fn collect_calls_in_expr(
                 if kind == AnalysisCallKind::Direct && callee_definition_span.is_none() {
                     kind = AnalysisCallKind::Indirect;
                 }
+                let indirect_targets = if kind == AnalysisCallKind::Indirect {
+                    indirect_call_targets.target_for_callee(callee)
+                } else {
+                    Vec::new()
+                };
                 calls.push(AnalysisCall {
                     kind,
                     call_span: expr.span,
@@ -1331,6 +1894,7 @@ fn collect_calls_in_expr(
                     callee_definition_span,
                     caller_definition_span: *caller_definition_span,
                     dynamic_dispatch_targets: dynamic_dispatch_targets(ctx, callee),
+                    indirect_targets,
                 });
             }
         }
@@ -1341,6 +1905,7 @@ fn collect_calls_in_expr(
                         ctx,
                         &field.value,
                         callable_entries,
+                        indirect_call_targets,
                         flow_model,
                         function_definition_spans,
                         calls,
@@ -1353,6 +1918,7 @@ fn collect_calls_in_expr(
                         ctx,
                         item,
                         callable_entries,
+                        indirect_call_targets,
                         flow_model,
                         function_definition_spans,
                         calls,
@@ -1364,6 +1930,7 @@ fn collect_calls_in_expr(
                     ctx,
                     value,
                     callable_entries,
+                    indirect_call_targets,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1372,6 +1939,7 @@ fn collect_calls_in_expr(
                     ctx,
                     count,
                     callable_entries,
+                    indirect_call_targets,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1381,6 +1949,7 @@ fn collect_calls_in_expr(
                 ctx,
                 value,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1395,6 +1964,7 @@ fn collect_calls_in_expr(
                 ctx,
                 cond,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1403,6 +1973,7 @@ fn collect_calls_in_expr(
                 ctx,
                 then_branch,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1412,6 +1983,7 @@ fn collect_calls_in_expr(
                     ctx,
                     else_branch,
                     callable_entries,
+                    indirect_call_targets,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1423,6 +1995,7 @@ fn collect_calls_in_expr(
                 ctx,
                 target,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1433,6 +2006,7 @@ fn collect_calls_in_expr(
                         ctx,
                         pattern,
                         callable_entries,
+                        indirect_call_targets,
                         flow_model,
                         function_definition_spans,
                         calls,
@@ -1442,6 +2016,7 @@ fn collect_calls_in_expr(
                     ctx,
                     &arm.body,
                     callable_entries,
+                    indirect_call_targets,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1457,6 +2032,7 @@ fn collect_calls_in_expr(
                             ctx,
                             expr,
                             callable_entries,
+                            indirect_call_targets,
                             flow_model,
                             function_definition_spans,
                             calls,
@@ -1469,6 +2045,7 @@ fn collect_calls_in_expr(
                     ctx,
                     result,
                     callable_entries,
+                    indirect_call_targets,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1480,6 +2057,7 @@ fn collect_calls_in_expr(
                 ctx,
                 cond,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1488,6 +2066,7 @@ fn collect_calls_in_expr(
                 ctx,
                 body,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1500,6 +2079,7 @@ fn collect_calls_in_expr(
                 ctx,
                 lhs,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1509,6 +2089,7 @@ fn collect_calls_in_expr(
                     ctx,
                     start,
                     callable_entries,
+                    indirect_call_targets,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1519,6 +2100,7 @@ fn collect_calls_in_expr(
                     ctx,
                     end,
                     callable_entries,
+                    indirect_call_targets,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1531,6 +2113,7 @@ fn collect_calls_in_expr(
                     ctx,
                     value,
                     callable_entries,
+                    indirect_call_targets,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1542,6 +2125,7 @@ fn collect_calls_in_expr(
                 ctx,
                 lhs,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1550,6 +2134,7 @@ fn collect_calls_in_expr(
                 ctx,
                 rhs,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1561,6 +2146,7 @@ fn collect_calls_in_expr(
                     ctx,
                     &capture.value,
                     callable_entries,
+                    indirect_call_targets,
                     flow_model,
                     function_definition_spans,
                     calls,
@@ -1570,6 +2156,7 @@ fn collect_calls_in_expr(
                 ctx,
                 body,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,
@@ -1598,6 +2185,7 @@ fn collect_calls_in_match_pattern(
     ctx: &mut SemaContext<'_>,
     pattern: &ast::MatchPattern,
     callable_entries: &std::collections::BTreeMap<Span, Span>,
+    indirect_call_targets: &IndirectCallTargetFacts,
     flow_model: &FlowModel,
     function_definition_spans: &std::collections::HashMap<DefId, Span>,
     calls: &mut Vec<AnalysisCall>,
@@ -1607,6 +2195,7 @@ fn collect_calls_in_match_pattern(
             ctx,
             expr,
             callable_entries,
+            indirect_call_targets,
             flow_model,
             function_definition_spans,
             calls,
@@ -1615,6 +2204,7 @@ fn collect_calls_in_match_pattern(
             ctx,
             pattern,
             callable_entries,
+            indirect_call_targets,
             flow_model,
             function_definition_spans,
             calls,
@@ -1626,6 +2216,7 @@ fn collect_calls_in_pattern(
     ctx: &mut SemaContext<'_>,
     pattern: &ast::Pattern,
     callable_entries: &std::collections::BTreeMap<Span, Span>,
+    indirect_call_targets: &IndirectCallTargetFacts,
     flow_model: &FlowModel,
     function_definition_spans: &std::collections::HashMap<DefId, Span>,
     calls: &mut Vec<AnalysisCall>,
@@ -1636,6 +2227,7 @@ fn collect_calls_in_pattern(
                 ctx,
                 &field.pattern,
                 callable_entries,
+                indirect_call_targets,
                 flow_model,
                 function_definition_spans,
                 calls,

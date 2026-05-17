@@ -1126,9 +1126,13 @@ Tasks:
   local reaching sources are marked exact; ambiguous, branch-merged, parameter,
   or otherwise incomplete sources are marked partial. Parameter propagation
   records known function-value and closure-object targets passed through direct
-  calls, parameter-to-parameter forwarding chains, multi-source local arguments,
-  and partially unknown argument sets while preserving useful known targets
-  without pretending the set is exhaustive. Closure-object recovery covers
+  calls, compiler-resolved indirect callees, parameter-resolved callees,
+  parameter-to-parameter forwarding chains, multi-source local arguments, and
+  partially unknown argument sets while preserving useful known targets without
+  pretending the set is exhaustive. The parameter propagation pass is a fixed
+  point over those facts, so higher-order calls can use previously discovered
+  parameter targets when deciding which callee parameters receive each argument.
+  Closure-object recovery covers
   transparent grouping, address-taking, `&Fn` casts, immutable forwarding through
   erased closure values, and closure body outgoing edges for named callable
   values. Anonymous closure bodies remain unrepresented instead of being

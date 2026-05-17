@@ -719,6 +719,235 @@ fn analysis_artifact_propagates_partial_parameter_facts_through_forwarding_chain
 }
 
 #[test]
+fn analysis_artifact_propagates_arguments_through_indirect_callees() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analysis_indirect_callee_argument_forwarding_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let source = concat!(
+        "fn leaf() i32 { return 1; }\n",
+        "fn apply(cb: &fn() i32) i32 { return cb(); }\n",
+        "fn forward(cb: &fn() i32) i32 { return apply(cb); }\n",
+        "fn main() i32 {\n",
+        "    let f = forward;\n",
+        "    return f(leaf);\n",
+        "}\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    let forward_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Indirect && span_text(source, call.callee_span) == "f"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected indirect forward call through local callee, got {:#?}",
+                artifact.calls
+            )
+        });
+    assert_eq!(forward_call.indirect_targets.len(), 1);
+    assert_eq!(
+        span_text(source, forward_call.indirect_targets[0]),
+        "forward"
+    );
+
+    let parameter_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Indirect && span_text(source, call.callee_span) == "cb"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected parameter target propagated through indirect callee, got {:#?}",
+                artifact.calls
+            )
+        });
+    assert_eq!(
+        parameter_call.indirect_target_completeness,
+        AnalysisCallTargetCompleteness::Partial
+    );
+    assert_eq!(parameter_call.indirect_targets.len(), 1);
+    assert_eq!(
+        span_text(source, parameter_call.indirect_targets[0]),
+        "leaf"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analysis_artifact_propagates_arguments_through_multi_source_indirect_callees() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analysis_multi_source_indirect_callee_argument_forwarding_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let source = concat!(
+        "fn first() i32 { return 1; }\n",
+        "fn second() i32 { return 2; }\n",
+        "fn apply_a(cb: &fn() i32) i32 { return cb(); }\n",
+        "fn apply_b(cb: &fn() i32) i32 { return cb(); }\n",
+        "fn forward_a(cb: &fn() i32) i32 { return apply_a(cb); }\n",
+        "fn forward_b(cb: &fn() i32) i32 { return apply_b(cb); }\n",
+        "fn main(flag: bool) i32 {\n",
+        "    let mut f = forward_a;\n",
+        "    let mut cb = first;\n",
+        "    if (flag) {\n",
+        "        f = forward_b;\n",
+        "        cb = second;\n",
+        "    }\n",
+        "    return f(cb);\n",
+        "}\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    for callee in ["apply_a", "apply_b"] {
+        let parameter_call = artifact
+            .calls
+            .iter()
+            .find(|call| {
+                call.kind == AnalysisCallKind::Indirect
+                    && span_text(source, call.callee_span) == "cb"
+                    && span_text(source, call.caller_definition_span) == callee
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected parameter targets propagated through {callee}, got {:#?}",
+                    artifact.calls
+                )
+            });
+        assert_eq!(
+            parameter_call.indirect_target_completeness,
+            AnalysisCallTargetCompleteness::Partial
+        );
+        assert_eq!(parameter_call.indirect_targets.len(), 2);
+        assert!(
+            parameter_call
+                .indirect_targets
+                .iter()
+                .any(|span| span_text(source, *span) == "first")
+        );
+        assert!(
+            parameter_call
+                .indirect_targets
+                .iter()
+                .any(|span| span_text(source, *span) == "second")
+        );
+    }
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analysis_artifact_propagates_arguments_through_parameter_callees() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analysis_parameter_callee_argument_forwarding_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let source = concat!(
+        "fn leaf() i32 { return 1; }\n",
+        "fn apply(cb: &fn() i32) i32 { return cb(); }\n",
+        "fn forward(cb: &fn() i32) i32 { return apply(cb); }\n",
+        "fn route(run: &fn(&fn() i32) i32, cb: &fn() i32) i32 {\n",
+        "    return run(cb);\n",
+        "}\n",
+        "fn main() i32 {\n",
+        "    return route(forward, leaf);\n",
+        "}\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    let route_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Indirect && span_text(source, call.callee_span) == "run"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected parameter callee target propagated into route, got {:#?}",
+                artifact.calls
+            )
+        });
+    assert_eq!(
+        route_call.indirect_target_completeness,
+        AnalysisCallTargetCompleteness::Partial
+    );
+    assert_eq!(route_call.indirect_targets.len(), 1);
+    assert_eq!(span_text(source, route_call.indirect_targets[0]), "forward");
+
+    let apply_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Indirect
+                && span_text(source, call.callee_span) == "cb"
+                && span_text(source, call.caller_definition_span) == "apply"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected argument propagated through parameter callee into apply, got {:#?}",
+                artifact.calls
+            )
+        });
+    assert_eq!(
+        apply_call.indirect_target_completeness,
+        AnalysisCallTargetCompleteness::Partial
+    );
+    assert_eq!(apply_call.indirect_targets.len(), 1);
+    assert_eq!(span_text(source, apply_call.indirect_targets[0]), "leaf");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn analysis_artifact_keeps_unknown_only_parameter_cycles_unresolved() {
     let root = std::env::temp_dir().join(format!(
         "kern_analysis_unknown_parameter_cycle_{}_{}",

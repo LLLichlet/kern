@@ -1522,7 +1522,7 @@ struct InterproceduralFunctionValueFacts {
     facts_by_parameter_span: std::collections::BTreeMap<Span, ParameterFunctionValueFact>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 struct ParameterFunctionValueFact {
     targets: std::collections::BTreeSet<Span>,
     saw_partial_source: bool,
@@ -1606,36 +1606,47 @@ impl InterproceduralFunctionValueFacts {
     ) -> Self {
         let mut facts_by_parameter_span =
             std::collections::BTreeMap::<Span, ParameterFunctionValueFact>::new();
-        let mut parameter_edges = Vec::<(Span, Span)>::new();
+        let mut parameter_edges = std::collections::BTreeSet::<(Span, Span)>::new();
 
-        for (_module_id, module) in asts {
-            for decl in &module.decls {
-                collect_interprocedural_function_value_edges_in_decl(
-                    ctx,
-                    decl,
-                    callable_entries,
-                    function_ids_by_definition_span,
-                    function_param_spans_by_def_id,
-                    flow_model,
-                    &mut facts_by_parameter_span,
-                    &mut parameter_edges,
-                );
+        loop {
+            let previous_facts_by_parameter_span = facts_by_parameter_span.clone();
+            let previous_parameter_edges = parameter_edges.clone();
+            let parameter_call_targets = Self {
+                facts_by_parameter_span: facts_by_parameter_span.clone(),
+            };
+
+            for (_module_id, module) in asts {
+                for decl in &module.decls {
+                    collect_interprocedural_function_value_edges_in_decl(
+                        ctx,
+                        decl,
+                        callable_entries,
+                        function_ids_by_definition_span,
+                        function_param_spans_by_def_id,
+                        flow_model,
+                        &parameter_call_targets,
+                        &mut facts_by_parameter_span,
+                        &mut parameter_edges,
+                    );
+                }
             }
-        }
 
-        let mut changed = true;
-        while changed {
-            changed = false;
             for (source_parameter, target_parameter) in &parameter_edges {
                 let source_fact = facts_by_parameter_span.get(source_parameter).cloned();
                 let target_fact = facts_by_parameter_span
                     .entry(*target_parameter)
                     .or_default();
                 if let Some(source_fact) = source_fact {
-                    changed |= target_fact.add_fact(&source_fact);
+                    target_fact.add_fact(&source_fact);
                 } else {
-                    changed |= target_fact.add_unknown_source();
+                    target_fact.add_unknown_source();
                 }
+            }
+
+            if facts_by_parameter_span == previous_facts_by_parameter_span
+                && parameter_edges == previous_parameter_edges
+            {
+                break;
             }
         }
 
@@ -2546,8 +2557,9 @@ fn collect_interprocedural_function_value_edges_in_decl(
     function_ids_by_definition_span: &std::collections::BTreeMap<Span, DefId>,
     function_param_spans_by_def_id: &std::collections::HashMap<DefId, Vec<Span>>,
     flow_model: &FlowModel,
+    parameter_call_targets: &InterproceduralFunctionValueFacts,
     facts_by_parameter_span: &mut std::collections::BTreeMap<Span, ParameterFunctionValueFact>,
-    parameter_edges: &mut Vec<(Span, Span)>,
+    parameter_edges: &mut std::collections::BTreeSet<(Span, Span)>,
 ) {
     match &decl.kind {
         ast::DeclKind::Function {
@@ -2561,6 +2573,7 @@ fn collect_interprocedural_function_value_edges_in_decl(
                 &facts,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -2576,6 +2589,7 @@ fn collect_interprocedural_function_value_edges_in_decl(
                 &facts,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -2593,6 +2607,7 @@ fn collect_interprocedural_function_value_edges_in_decl(
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
                     flow_model,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -2609,8 +2624,9 @@ fn collect_interprocedural_function_value_edges_in_expr(
     indirect_call_targets: &IndirectCallTargetFacts,
     function_ids_by_definition_span: &std::collections::BTreeMap<Span, DefId>,
     function_param_spans_by_def_id: &std::collections::HashMap<DefId, Vec<Span>>,
+    parameter_call_targets: &InterproceduralFunctionValueFacts,
     facts_by_parameter_span: &mut std::collections::BTreeMap<Span, ParameterFunctionValueFact>,
-    parameter_edges: &mut Vec<(Span, Span)>,
+    parameter_edges: &mut std::collections::BTreeSet<(Span, Span)>,
 ) {
     match &expr.kind {
         ast::ExprKind::Let {
@@ -2623,6 +2639,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -2636,6 +2653,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                             indirect_call_targets,
                             function_ids_by_definition_span,
                             function_param_spans_by_def_id,
+                            parameter_call_targets,
                             facts_by_parameter_span,
                             parameter_edges,
                         );
@@ -2649,6 +2667,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                                 indirect_call_targets,
                                 function_ids_by_definition_span,
                                 function_param_spans_by_def_id,
+                                parameter_call_targets,
                                 facts_by_parameter_span,
                                 parameter_edges,
                             );
@@ -2666,6 +2685,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -2679,6 +2699,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -2689,6 +2710,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -2702,6 +2724,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -2714,6 +2737,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -2734,6 +2758,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
             indirect_call_targets,
             function_ids_by_definition_span,
             function_param_spans_by_def_id,
+            parameter_call_targets,
             facts_by_parameter_span,
             parameter_edges,
         ),
@@ -2751,6 +2776,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -2761,6 +2787,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -2775,6 +2802,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -2786,6 +2814,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -2798,6 +2827,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -2811,6 +2841,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -2822,11 +2853,12 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
             }
-            record_direct_parameter_function_value_edges(
+            record_parameter_function_value_edges(
                 ctx,
                 callee,
                 args,
@@ -2834,6 +2866,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -2848,6 +2881,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                         indirect_call_targets,
                         function_ids_by_definition_span,
                         function_param_spans_by_def_id,
+                        parameter_call_targets,
                         facts_by_parameter_span,
                         parameter_edges,
                     );
@@ -2862,6 +2896,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                         indirect_call_targets,
                         function_ids_by_definition_span,
                         function_param_spans_by_def_id,
+                        parameter_call_targets,
                         facts_by_parameter_span,
                         parameter_edges,
                     );
@@ -2875,6 +2910,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -2885,6 +2921,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -2897,6 +2934,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -2914,6 +2952,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -2924,6 +2963,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -2935,6 +2975,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -2948,6 +2989,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -2960,6 +3002,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                         indirect_call_targets,
                         function_ids_by_definition_span,
                         function_param_spans_by_def_id,
+                        parameter_call_targets,
                         facts_by_parameter_span,
                         parameter_edges,
                     );
@@ -2971,6 +3014,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -2988,6 +3032,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                             indirect_call_targets,
                             function_ids_by_definition_span,
                             function_param_spans_by_def_id,
+                            parameter_call_targets,
                             facts_by_parameter_span,
                             parameter_edges,
                         );
@@ -3002,6 +3047,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -3015,6 +3061,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -3025,6 +3072,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -3038,6 +3086,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -3052,6 +3101,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                     indirect_call_targets,
                     function_ids_by_definition_span,
                     function_param_spans_by_def_id,
+                    parameter_call_targets,
                     facts_by_parameter_span,
                     parameter_edges,
                 );
@@ -3063,6 +3113,7 @@ fn collect_interprocedural_function_value_edges_in_expr(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -3093,8 +3144,9 @@ fn collect_interprocedural_function_value_edges_in_match_pattern(
     indirect_call_targets: &IndirectCallTargetFacts,
     function_ids_by_definition_span: &std::collections::BTreeMap<Span, DefId>,
     function_param_spans_by_def_id: &std::collections::HashMap<DefId, Vec<Span>>,
+    parameter_call_targets: &InterproceduralFunctionValueFacts,
     facts_by_parameter_span: &mut std::collections::BTreeMap<Span, ParameterFunctionValueFact>,
-    parameter_edges: &mut Vec<(Span, Span)>,
+    parameter_edges: &mut std::collections::BTreeSet<(Span, Span)>,
 ) {
     match &pattern.kind {
         ast::MatchPatternKind::Value(expr) => {
@@ -3105,6 +3157,7 @@ fn collect_interprocedural_function_value_edges_in_match_pattern(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -3117,6 +3170,7 @@ fn collect_interprocedural_function_value_edges_in_match_pattern(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -3131,8 +3185,9 @@ fn collect_interprocedural_function_value_edges_in_pattern(
     indirect_call_targets: &IndirectCallTargetFacts,
     function_ids_by_definition_span: &std::collections::BTreeMap<Span, DefId>,
     function_param_spans_by_def_id: &std::collections::HashMap<DefId, Vec<Span>>,
+    parameter_call_targets: &InterproceduralFunctionValueFacts,
     facts_by_parameter_span: &mut std::collections::BTreeMap<Span, ParameterFunctionValueFact>,
-    parameter_edges: &mut Vec<(Span, Span)>,
+    parameter_edges: &mut std::collections::BTreeSet<(Span, Span)>,
 ) {
     if let ast::PatternKind::Destructure(destructure) = &pattern.kind {
         for field in &destructure.fields {
@@ -3143,6 +3198,7 @@ fn collect_interprocedural_function_value_edges_in_pattern(
                 indirect_call_targets,
                 function_ids_by_definition_span,
                 function_param_spans_by_def_id,
+                parameter_call_targets,
                 facts_by_parameter_span,
                 parameter_edges,
             );
@@ -3150,7 +3206,7 @@ fn collect_interprocedural_function_value_edges_in_pattern(
     }
 }
 
-fn record_direct_parameter_function_value_edges(
+fn record_parameter_function_value_edges(
     ctx: &mut SemaContext<'_>,
     callee: &ast::Expr,
     args: &[ast::Expr],
@@ -3158,39 +3214,48 @@ fn record_direct_parameter_function_value_edges(
     indirect_call_targets: &IndirectCallTargetFacts,
     function_ids_by_definition_span: &std::collections::BTreeMap<Span, DefId>,
     function_param_spans_by_def_id: &std::collections::HashMap<DefId, Vec<Span>>,
+    parameter_call_targets: &InterproceduralFunctionValueFacts,
     facts_by_parameter_span: &mut std::collections::BTreeMap<Span, ParameterFunctionValueFact>,
-    parameter_edges: &mut Vec<(Span, Span)>,
+    parameter_edges: &mut std::collections::BTreeSet<(Span, Span)>,
 ) {
-    if analysis_call_kind(ctx, callee) != Some(AnalysisCallKind::Direct) {
-        return;
-    }
-    let Some(callee_definition_span) = callable_entries
+    let callee_definition_span = callable_entries
         .get(&callee_reference_span(callee))
-        .copied()
-    else {
-        return;
-    };
-    let Some(callee_def_id) = function_ids_by_definition_span
-        .get(&callee_definition_span)
-        .copied()
-    else {
-        return;
-    };
-    let Some(parameter_spans) = function_param_spans_by_def_id.get(&callee_def_id) else {
-        return;
+        .copied();
+    let callee_definition_spans = match analysis_call_kind(ctx, callee) {
+        Some(AnalysisCallKind::Direct) if callee_definition_span.is_some() => {
+            callee_definition_span.into_iter().collect::<Vec<_>>()
+        }
+        Some(AnalysisCallKind::Direct | AnalysisCallKind::Indirect) => {
+            indirect_call_targets
+                .target_for_callee(callee, parameter_call_targets)
+                .targets
+        }
+        _ => Vec::new(),
     };
 
-    for (arg, parameter_span) in args.iter().zip(parameter_spans.iter().copied()) {
-        let sources = indirect_call_targets.sources_for_expr(arg);
-        facts_by_parameter_span
-            .entry(parameter_span)
-            .or_default()
-            .add_sources(&sources);
-        for source in sources.sources {
-            match source {
-                FunctionValueSource::Target(_) => {}
-                FunctionValueSource::Parameter(source_parameter_span) => {
-                    parameter_edges.push((source_parameter_span, parameter_span));
+    for callee_definition_span in callee_definition_spans {
+        let Some(callee_def_id) = function_ids_by_definition_span
+            .get(&callee_definition_span)
+            .copied()
+        else {
+            continue;
+        };
+        let Some(parameter_spans) = function_param_spans_by_def_id.get(&callee_def_id) else {
+            continue;
+        };
+
+        for (arg, parameter_span) in args.iter().zip(parameter_spans.iter().copied()) {
+            let sources = indirect_call_targets.sources_for_expr(arg);
+            facts_by_parameter_span
+                .entry(parameter_span)
+                .or_default()
+                .add_sources(&sources);
+            for source in sources.sources {
+                match source {
+                    FunctionValueSource::Target(_) => {}
+                    FunctionValueSource::Parameter(source_parameter_span) => {
+                        parameter_edges.insert((source_parameter_span, parameter_span));
+                    }
                 }
             }
         }

@@ -660,6 +660,112 @@ fn analysis_artifact_marks_parameters_partial_when_any_argument_source_is_unknow
 }
 
 #[test]
+fn analysis_artifact_propagates_partial_parameter_facts_through_forwarding_chains() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analysis_partial_parameter_forwarding_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let source = concat!(
+        "fn known() i32 { return 1; }\n",
+        "fn apply(cb: &fn() i32) i32 { return cb(); }\n",
+        "fn forward(cb: &fn() i32) i32 { return apply(cb); }\n",
+        "fn main(flag: bool, incoming: &fn() i32) i32 {\n",
+        "    if (flag) {\n",
+        "        return forward(known);\n",
+        "    }\n",
+        "    return forward(incoming);\n",
+        "}\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    let parameter_call = artifact
+        .calls
+        .iter()
+        .find(|call| {
+            call.kind == AnalysisCallKind::Indirect && span_text(source, call.callee_span) == "cb"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected forwarded partially unknown parameter call, got {:#?}",
+                artifact.calls
+            )
+        });
+    assert_eq!(
+        parameter_call.indirect_target_completeness,
+        AnalysisCallTargetCompleteness::Partial
+    );
+    assert_eq!(parameter_call.indirect_targets.len(), 1);
+    assert_eq!(
+        span_text(source, parameter_call.indirect_targets[0]),
+        "known"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analysis_artifact_keeps_unknown_only_parameter_cycles_unresolved() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analysis_unknown_parameter_cycle_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.kn");
+    let source = concat!(
+        "fn left(cb: &fn() i32) i32 { return right(cb) + cb(); }\n",
+        "fn right(cb: &fn() i32) i32 { return left(cb) + cb(); }\n",
+        "fn run(cb: &fn() i32) i32 { return left(cb); }\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver
+        .analyze_artifact(
+            main.to_str().unwrap(),
+            &SourceOverrides::new(),
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    let parameter_calls = artifact
+        .calls
+        .iter()
+        .filter(|call| {
+            call.kind == AnalysisCallKind::Indirect && span_text(source, call.callee_span) == "cb"
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(parameter_calls.len(), 2, "{:#?}", artifact.calls);
+    for call in parameter_calls {
+        assert_eq!(
+            call.indirect_target_completeness,
+            AnalysisCallTargetCompleteness::Unknown
+        );
+        assert!(call.indirect_targets.is_empty());
+    }
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn analysis_artifact_resolves_grouped_function_value_call_targets() {
     let root = std::env::temp_dir().join(format!(
         "kern_analysis_grouped_indirect_calls_{}_{}",

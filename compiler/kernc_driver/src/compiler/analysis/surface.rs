@@ -1576,7 +1576,7 @@ impl ParameterFunctionValueFact {
 
     fn into_targets(self) -> ParameterFunctionValueTargets {
         let targets = self.targets.into_iter().collect::<Vec<_>>();
-        let completeness = if self.saw_unknown_source && targets.is_empty() {
+        let completeness = if targets.is_empty() {
             AnalysisCallTargetCompleteness::Unknown
         } else if self.saw_unknown_source || self.saw_partial_source {
             AnalysisCallTargetCompleteness::Partial
@@ -1854,10 +1854,7 @@ impl<'a> IndirectCallTargetFacts<'a> {
                     IndirectCallTargets::partial(targets)
                 }
             }
-            AnalysisCallTargetCompleteness::Partial => IndirectCallTargets {
-                targets,
-                completeness: AnalysisCallTargetCompleteness::Partial,
-            },
+            AnalysisCallTargetCompleteness::Partial => IndirectCallTargets::partial(targets),
             AnalysisCallTargetCompleteness::Unknown => IndirectCallTargets::unknown(),
         }
     }

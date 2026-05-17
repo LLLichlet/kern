@@ -52,9 +52,11 @@ Important architectural constraints today:
 
 - The server uses a bounded worker pool rather than an async runtime.
 - Protocol IO and state mutation remain coordinator-owned and serialized.
-- Cancellation is checked at scheduler, snapshot, driver analysis, and major
-  compiler-analysis artifact boundaries; deeper parser/lowering/type-checker
-  loop cancellation remains profiling-driven future work.
+- Cancellation is checked at scheduler, snapshot, driver analysis, parser token
+  traversal, module loading, structure collector/import/type-resolution loops,
+  body type-check worklist boundaries, and flow dataflow worklists; deeper
+  parser recovery/list loops, lowering preparation, and expression/pattern
+  traversal loops remain Phase 9 work.
 - LSP protocol coverage is hand-written and incomplete.
 - The LSP layer still knows too much about compiler artifacts.
 
@@ -836,7 +838,7 @@ stopping only at driver phase boundaries.
 
 Tasks:
 
-- In progress: compiler cancellation token has been moved to `kernc_utils`
+- Done: compiler cancellation token has been moved to `kernc_utils`
   and re-exported by `kernc_driver`, so lower compiler crates can share the
   same cancellation contract without depending on the driver.
 - Done: LSP semantic/navigation analysis paths now use cancelable body
@@ -850,19 +852,73 @@ Tasks:
   Collected-structure cache production uses a fallible memo API so cancellation
   does not cache partial or failed results. Deterministic tests cancel inside
   multi-module loading for parse and analysis requests.
-- Continue parser cancellation inside token-stream traversal and recursive
-  descent recovery paths.
-- Continue structure cancellation inside collector/import/type-resolution
-  passes and lowering preparation/body worklist construction.
-- Continue type-checker cancellation from worklist boundaries into large
-  expression/pattern traversal loops.
-- Thread cancellation through flow analysis, unused/dead-store passes, linkage
-  checks, semantic token/reference collection, and workspace target iteration.
-- Add deterministic stress tests that cancel requests while those loops are in
-  progress. Tests should use explicit barriers or synthetic large inputs rather
-  than timing guesses.
-- Preserve diagnostics correctness: cancellation must exit with `Canceled` or
-  `RequestCancelled`, not partial successful artifacts.
+- Done: structure artifact production now threads cancellation through
+  collector, import resolver, and top-level type-resolution pass loops,
+  including collected/imported/typed cache production and body-only clean-reuse
+  paths. Cancellation is no longer swallowed into cache misses on these
+  fallible paths. Deterministic tests cancel inside collector declaration
+  loops, import resolver pending-import loops, and type resolver module/item
+  loops.
+- Done: parser construction and frontend parse-cache production now accept the
+  compiler cancellation token. Parser cancellation checks run through token
+  advancement and major recursive-descent entry points, and canceled parses do
+  not poison the frontend parse memo as failed syntax parses. Tests distinguish
+  cancellation from ordinary parse errors and verify a canceled parse can be
+  retried successfully.
+- Done: parser cancellation now also reaches specialized recovery and list
+  loops, including doc/meta scanning, attribute metadata lists, comma-separated
+  generic/parameter/where/type/data/call/pattern lists, use-tree/path loops,
+  match/let-else arm loops, data-initializer recovery, balanced delimiter
+  skipping, and type/pattern lookahead loops. Deterministic parser tests cancel
+  inside attribute metadata, call argument, and data-initializer recovery loops.
+- Done: body analysis now threads cancellation through flow owner/reference
+  collection, per-owner CFG/dataflow phase boundaries, module-item reachability,
+  unused-item/unused-binding/dead-store diagnostics, and linkage checking.
+  Deterministic tests cancel after body type-checking inside flow collection and
+  again after flow while producing body diagnostics.
+- Done: `kernc_flow` now exposes cancelable dataflow algorithms and the driver
+  uses them for CFG topology, node fact/transfer collection, liveness,
+  reaching-definition worklists, use-def/def-use maps, resolved/single-source
+  uses, binding summaries, and materialized analysis views. Deterministic
+  `kernc_flow` tests cancel inside the liveness and reaching-definition
+  worklists rather than only at driver phase boundaries.
+- Done: LSP semantic-token, reference, and workspace-symbol collection now
+  observe request cancellation inside their own long loops. This includes dirty
+  lexical semantic tokenization, semantic class/reference merging, semantic
+  token range decode/filter, workspace symbol index materialization and query
+  filtering, recursive symbol flattening, single-target reference scans,
+  workspace reference target iteration, and definition identity scans.
+  Deterministic LSP tests cancel inside these helper loops without relying on
+  timing.
+- Done: structure/lowering preparation and body-only reuse now use cancelable
+  module indexing, AST reuse, rebinding, and function-body reuse plan
+  construction. Dirty reuse no longer performs non-cancelable clean/dirty
+  module scans before entering body analysis.
+- Done: type-checker cancellation now reaches beyond global/body worklist
+  boundaries into expression, block statement, match arm, pattern, aggregate
+  literal, generic-argument, field-default, and trait-default-method traversal.
+  A deterministic driver test cancels during a large function body rather than
+  only between body work items.
+- Done: lowering now has a real cancelable API. `Lowerer` owns a compiler
+  cancellation token, `lower_all_with_report_cancelable` checks root discovery,
+  root lowering, pending monomorphization draining, expression lowering, block
+  statement traversal, aggregate field ordering, and selected intrinsic
+  aggregate construction loops. Driver lowering preparation exposes the
+  cancelable path without leaving a dead public wrapper, and a deterministic
+  lowering test cancels inside root body lowering.
+- Done: workspace refresh/index warmup now uses the same cancelable snapshot
+  path as request analysis. Refresh target enumeration and workspace-symbol
+  index prewarming observe cancellation, while ordinary project-resolution
+  failures remain failed refresh targets instead of being mislabeled as
+  cancellation or worker panic. The background scheduler uses a fresh token
+  because workspace refresh is not tied to an LSP request ID.
+- Done: deterministic tests now cover parser recovery/list loops, module
+  loading, collector/import/type-resolution loops, type-checker worklists and
+  body traversal, flow/dataflow, diagnostics/linkage, lowering, LSP
+  semantic/reference/workspace-symbol loops, and workspace index warmup.
+- Done: cancellation exits as `Canceled`/`RequestCancelled` on cancelable
+  paths and does not publish partial successful artifacts or poison fallible
+  caches.
 
 Exit criteria:
 
@@ -872,12 +928,34 @@ Exit criteria:
 - Cancellation tests cover parser, lowering/structure, type-checking, and
   workspace target iteration.
 
+Status: complete. Phase 10 can start from observability rather than additional
+compiler cancellation plumbing.
+
 ### Phase 10: Complete Observability
 
 Purpose: make production LSP failures diagnosable without attaching a debugger.
 
 Tasks:
 
+- Done: introduced structured LSP trace context for document requests,
+  diagnostics, workspace refreshes, cancellations, stale response drops, and
+  worker panic recovery. Verbose traces now include request ID, method, target
+  URI, scheduler document generation, document version when a document is open,
+  snapshot generation, queue wait, execution time, analysis tier, cancellation
+  status, and explicit error class.
+- Done: analysis now records per-request cache events and summarizes project
+  resolution, driver, parse/surface/structure/semantic/navigation artifacts,
+  workspace symbol index reuse, semantic token cache reuse, lexical cache reuse,
+  and dirty fallback decisions in verbose trace output.
+- Done: string-only worker failure traces were replaced by explicit
+  `LspErrorClass` values for project availability/validity, analysis failures,
+  request cancellation, internal bugs, and protocol encoding errors. Unsupported
+  or stale behavior is traced honestly instead of being hidden behind success
+  responses.
+- Done: added verbose trace regression coverage for success, diagnostics,
+  workspace refresh, workspace symbol cache reuse, stale response dropping,
+  project metadata invalidation, semantic token cache reuse, cancellation, and
+  worker panic paths.
 - Add structured request trace fields for request ID, method, target URI,
   document generation, snapshot generation, queue wait, execution time,
   analysis tier, cancellation status, and error class.
@@ -892,6 +970,12 @@ Tasks:
 - Add server tests asserting the complete verbose trace shape for success,
   cancellation, stale response dropping, project invalidation, cache hit, cache
   miss, and worker panic paths.
+
+Remaining:
+
+- Decide after dogfooding whether verbose LSP tracing is sufficient or whether a
+  separate `KERN_LSP_LOG` sink is still needed for editor clients that suppress
+  `$/logTrace` output.
 
 Exit criteria:
 

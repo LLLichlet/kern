@@ -10,6 +10,7 @@ use crate::analysis::{
     AnalysisOutcome, AnalysisSnapshot, CancellationToken, DocumentSyncAction, cleared_uris,
 };
 use crate::protocol::{
+    SemanticTokens, SemanticTokensDelta, SemanticTokensDeltaResult, SemanticTokensEdit,
     WorkDoneProgressValue, error_response, null_response, progress, publish_diagnostics,
     success_response, work_done_progress_create,
 };
@@ -452,6 +453,47 @@ where
     Ok(())
 }
 
+pub(super) fn execute_raw_document_request<F>(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    id: Value,
+    target_uri: &str,
+    lane: SchedulerLane,
+    method: &str,
+    analysis: F,
+) -> Result<(), ServerError>
+where
+    F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<DocumentRequestResponse, String>
+        + Send
+        + 'static,
+{
+    state.mark_active_document(target_uri);
+    let mut request = state.request_context_for_document(id, target_uri);
+    if state.should_skip_request(&request) {
+        return Ok(());
+    }
+    let was_canceled_before_registration = state.take_pending_cancel(&request.id);
+    state.register_request_cancellation(&mut request);
+    if was_canceled_before_registration && let Some(cancellation) = &request.cancellation {
+        cancellation.cancel();
+    }
+
+    submit_document_request_task(
+        state,
+        ScheduledDocumentRequestTask {
+            request,
+            target_uri: target_uri.to_string(),
+            lane,
+            method: method.to_string(),
+            queued_at: Instant::now(),
+        },
+        state.workspace_root.clone(),
+        analysis,
+    );
+    let _ = writer;
+    Ok(())
+}
+
 pub(super) fn execute_document_request_with_progress<T, F>(
     state: &mut ServerState,
     writer: &mut MessageWriter<impl io::Write>,
@@ -813,6 +855,25 @@ pub(super) fn submit_document_request_result(
             emit_request_progress_end(writer, &result.request, "Complete")?;
             write_null_response(state, writer, &result.request)?
         }
+        DocumentRequestResponse::SemanticTokensFull { uri, data } => {
+            emit_request_progress_end(writer, &result.request, "Complete")?;
+            write_semantic_tokens_full_response(state, writer, &result.request, uri, data)?
+        }
+        DocumentRequestResponse::SemanticTokensDelta {
+            uri,
+            previous_result_id,
+            data,
+        } => {
+            emit_request_progress_end(writer, &result.request, "Complete")?;
+            write_semantic_tokens_delta_response(
+                state,
+                writer,
+                &result.request,
+                uri,
+                previous_result_id,
+                data,
+            )?
+        }
         DocumentRequestResponse::Error { code, message } => {
             emit_request_progress_end(writer, &result.request, "Failed")?;
             write_error_response(state, writer, &result.request, code, message)?
@@ -848,6 +909,95 @@ fn emit_request_progress_end(
         },
     ))?;
     Ok(())
+}
+
+fn write_semantic_tokens_full_response(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    request: &RequestContext,
+    uri: String,
+    data: Vec<u32>,
+) -> Result<(), ServerError> {
+    if state.should_drop_response(request) {
+        emit_stale_response_trace(state, writer, request)?;
+        return Ok(());
+    }
+    let result_id = state.register_semantic_tokens_result(uri, request.generation, data.clone());
+    writer.write_json(&success_response(
+        request.id.clone(),
+        serde_json::to_value(SemanticTokens {
+            result_id: Some(result_id),
+            data,
+        })?,
+    ))?;
+    Ok(())
+}
+
+fn write_semantic_tokens_delta_response(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    request: &RequestContext,
+    uri: String,
+    previous_result_id: String,
+    data: Vec<u32>,
+) -> Result<(), ServerError> {
+    if state.should_drop_response(request) {
+        emit_stale_response_trace(state, writer, request)?;
+        return Ok(());
+    }
+
+    let previous = state
+        .semantic_tokens_result(&previous_result_id)
+        .filter(|result| {
+            result.uri == uri
+                && result
+                    .generation
+                    .zip(request.generation)
+                    .is_none_or(|(left, right)| left == right)
+        })
+        .map(|result| result.data.clone());
+    let result_id = state.register_semantic_tokens_result(uri, request.generation, data.clone());
+    let response = if let Some(previous) = previous {
+        SemanticTokensDeltaResult::Delta(SemanticTokensDelta {
+            result_id: Some(result_id),
+            edits: semantic_tokens_delta_edits(&previous, &data),
+        })
+    } else {
+        SemanticTokensDeltaResult::Tokens(SemanticTokens {
+            result_id: Some(result_id),
+            data,
+        })
+    };
+    writer.write_json(&success_response(
+        request.id.clone(),
+        serde_json::to_value(response)?,
+    ))?;
+    Ok(())
+}
+
+fn semantic_tokens_delta_edits(previous: &[u32], next: &[u32]) -> Vec<SemanticTokensEdit> {
+    let mut prefix_len = 0usize;
+    while prefix_len < previous.len()
+        && prefix_len < next.len()
+        && previous[prefix_len] == next[prefix_len]
+    {
+        prefix_len += 1;
+    }
+
+    let mut suffix_len = 0usize;
+    while suffix_len < previous.len().saturating_sub(prefix_len)
+        && suffix_len < next.len().saturating_sub(prefix_len)
+        && previous[previous.len() - 1 - suffix_len] == next[next.len() - 1 - suffix_len]
+    {
+        suffix_len += 1;
+    }
+
+    let replacement = next[prefix_len..next.len() - suffix_len].to_vec();
+    vec![SemanticTokensEdit {
+        start: prefix_len as u32,
+        delete_count: previous.len().saturating_sub(prefix_len + suffix_len) as u32,
+        data: (!replacement.is_empty()).then_some(replacement),
+    }]
 }
 
 fn emit_request_canceled_trace(

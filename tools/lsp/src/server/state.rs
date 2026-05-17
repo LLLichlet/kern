@@ -39,7 +39,9 @@ pub(super) struct ServerState {
     pub(super) next_analysis_generation: u64,
     next_server_request_id: u64,
     next_progress_token: u64,
+    next_semantic_tokens_result_id: u64,
     pending_server_request_ids: Vec<Value>,
+    semantic_tokens_results: BTreeMap<String, SemanticTokensResultState>,
     pub(super) latest_generation_by_target: BTreeMap<String, AnalysisGeneration>,
     pub(super) active_document_uri: Option<String>,
     pub(super) canceled_request_ids: Vec<Value>,
@@ -56,6 +58,13 @@ pub(super) struct ServerState {
     pub(super) pending_diagnostics_worker_tasks: usize,
     pub(super) pending_workspace_refresh_tasks: usize,
     pub(super) published_by_target: BTreeMap<String, BTreeSet<String>>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct SemanticTokensResultState {
+    pub(super) uri: String,
+    pub(super) generation: Option<AnalysisGeneration>,
+    pub(super) data: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -174,7 +183,19 @@ pub(crate) enum WorkspaceRefreshKind {
 pub(super) enum DocumentRequestResponse {
     Success(Value),
     Null,
-    Error { code: i64, message: String },
+    Error {
+        code: i64,
+        message: String,
+    },
+    SemanticTokensFull {
+        uri: String,
+        data: Vec<u32>,
+    },
+    SemanticTokensDelta {
+        uri: String,
+        previous_result_id: String,
+        data: Vec<u32>,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -376,7 +397,9 @@ impl ServerState {
             next_analysis_generation: 0,
             next_server_request_id: 0,
             next_progress_token: 0,
+            next_semantic_tokens_result_id: 0,
             pending_server_request_ids: Vec::new(),
+            semantic_tokens_results: BTreeMap::new(),
             latest_generation_by_target: BTreeMap::new(),
             active_document_uri: None,
             canceled_request_ids: Vec::new(),
@@ -456,6 +479,40 @@ impl ServerState {
     pub(super) fn next_progress_token(&mut self, label: &str) -> Value {
         self.next_progress_token += 1;
         Value::String(format!("kern-lsp/{label}/{}", self.next_progress_token))
+    }
+
+    pub(super) fn register_semantic_tokens_result(
+        &mut self,
+        uri: String,
+        generation: Option<AnalysisGeneration>,
+        data: Vec<u32>,
+    ) -> String {
+        self.next_semantic_tokens_result_id += 1;
+        let result_id = format!(
+            "kern-lsp/semantic-tokens/{}",
+            self.next_semantic_tokens_result_id
+        );
+        self.semantic_tokens_results.insert(
+            result_id.clone(),
+            SemanticTokensResultState {
+                uri,
+                generation,
+                data,
+            },
+        );
+        result_id
+    }
+
+    pub(super) fn semantic_tokens_result(
+        &self,
+        result_id: &str,
+    ) -> Option<&SemanticTokensResultState> {
+        self.semantic_tokens_results.get(result_id)
+    }
+
+    pub(super) fn clear_semantic_tokens_results_for_uri(&mut self, uri: &str) {
+        self.semantic_tokens_results
+            .retain(|_, result| result.uri != uri);
     }
 
     pub(super) fn is_pending_server_request(&mut self, id: Option<&Value>) -> bool {

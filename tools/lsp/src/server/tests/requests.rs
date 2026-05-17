@@ -1948,6 +1948,138 @@ fn semantic_tokens_request_returns_encoded_token_data() {
     let data = response["result"]["data"].as_array().unwrap();
     assert!(!data.is_empty());
     assert_eq!(data.len() % 5, 0);
+    assert!(response["result"]["resultId"].as_str().is_some());
+}
+
+#[test]
+fn semantic_tokens_delta_request_returns_edits() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "struct Point { x: i32 }\n",
+        "fn helper(point: Point) i32 {\n",
+        "    return point.x;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("server_semantic_tokens_delta", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let full = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(310)),
+            method: Some("textDocument/semanticTokens/full".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+    let previous_result_id = full["result"]["resultId"].as_str().unwrap().to_string();
+
+    let delta = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(311)),
+            method: Some("textDocument/semanticTokens/full/delta".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "previousResultId": previous_result_id
+            })),
+        },
+    );
+
+    assert_eq!(delta["id"], json!(311));
+    assert!(delta["result"]["resultId"].as_str().is_some());
+    let edits = delta["result"]["edits"].as_array().unwrap();
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0]["deleteCount"], json!(0));
+    assert!(edits[0].get("data").is_none());
+}
+
+#[test]
+fn semantic_tokens_delta_with_unknown_result_id_returns_full_tokens() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "struct Point { x: i32 }\n",
+        "fn helper(point: Point) i32 {\n",
+        "    return point.x;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("server_semantic_tokens_delta_unknown", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(312)),
+            method: Some("textDocument/semanticTokens/full/delta".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "previousResultId": "missing"
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(312));
+    assert!(response["result"]["resultId"].as_str().is_some());
+    let data = response["result"]["data"].as_array().unwrap();
+    assert!(!data.is_empty());
+    assert!(response["result"].get("edits").is_none());
+}
+
+#[test]
+fn semantic_tokens_delta_after_document_change_returns_full_tokens() {
+    let mut state = initialized_state();
+    let source = concat!(
+        "struct Point { x: i32 }\n",
+        "fn helper(point: Point) i32 {\n",
+        "    return point.x;\n",
+        "}\n",
+    );
+    let changed = concat!(
+        "struct Point { x: i32 }\n",
+        "fn helper(point: Point) i32 {\n",
+        "    let value = point.x;\n",
+        "    return value;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("server_semantic_tokens_delta_changed", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let full = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(313)),
+            method: Some("textDocument/semanticTokens/full".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+    let previous_result_id = full["result"]["resultId"].as_str().unwrap().to_string();
+
+    assert!(dispatch_messages(&mut state, did_change_message(&uri, changed, 2)).is_empty());
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(314)),
+            method: Some("textDocument/semanticTokens/full/delta".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "previousResultId": previous_result_id
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(314));
+    assert!(response["result"]["resultId"].as_str().is_some());
+    let data = response["result"]["data"].as_array().unwrap();
+    assert!(!data.is_empty());
+    assert!(response["result"].get("edits").is_none());
 }
 
 #[test]

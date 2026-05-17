@@ -505,9 +505,6 @@ implemented by adding more direct compiler calls inside request dispatch.
 
 These are known capability gaps, not completed work:
 
-- Semantic token delta support. Full and range semantic tokens are implemented;
-  delta requires result-id lifecycle, edit-aware token cache invalidation, and
-  server tests before it can be advertised.
 - Multi-root workspace support beyond the current explicit single-root policy.
   The server currently records one primary root and reports ignored folders;
   true multi-root support requires per-root project/index state.
@@ -1045,12 +1042,14 @@ non-support as completion.
 
 Tasks:
 
-- In progress: phase has started after the IDE boundary cleanup. The first
-  implementation target should be semantic token delta support because it has a
-  narrow protocol surface and directly benefits large-file editor refreshes.
-- Semantic token delta support: implement result-id lifecycle, edit-aware token
-  cache invalidation, client capability negotiation, stale result handling, and
-  server tests before advertising delta.
+- Done: semantic token delta support now has client capability negotiation,
+  advertised `full.delta` only when supported, server-owned result-id lifecycle,
+  minimal common-prefix/suffix token edits, and full-token fallback when the
+  previous result id is unknown or invalidated by document changes. Result ids
+  are recorded only by the coordinator when a non-stale response is actually
+  written, so canceled or stale requests cannot poison the delta cache. Server
+  tests cover advertised capability gating, normal delta edits, unknown
+  result-id fallback, and edit-aware invalidation fallback.
 - Multi-root workspace support: replace the single-root policy with per-root
   project/index state, root-scoped invalidation, workspace folder change
   handling, and cross-root workspace symbol/reference tests.

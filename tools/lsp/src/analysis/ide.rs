@@ -495,7 +495,10 @@ impl IdePrepareRenameResult {
 
 impl IdeSemanticTokens {
     pub(crate) fn into_lsp(self) -> SemanticTokens {
-        SemanticTokens { data: self.data }
+        SemanticTokens {
+            result_id: None,
+            data: self.data,
+        }
     }
 }
 

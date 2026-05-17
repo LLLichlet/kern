@@ -127,7 +127,32 @@ pub struct InlayHintClientCapabilities {
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensClientCapabilities {
     #[serde(default)]
-    pub _requests: Option<Value>,
+    pub requests: Option<SemanticTokensClientRequests>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensClientRequests {
+    #[serde(default)]
+    pub full: Option<SemanticTokensFullClientRequest>,
+    #[serde(default)]
+    pub _range: Option<Value>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(untagged)]
+pub enum SemanticTokensFullClientRequest {
+    Bool(bool),
+    Options(SemanticTokensFullClientRequestOptions),
+    #[default]
+    Missing,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensFullClientRequestOptions {
+    #[serde(default)]
+    pub delta: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -339,6 +364,13 @@ pub struct RenameParams {
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensParams {
     pub text_document: TextDocumentIdentifier,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensDeltaParams {
+    pub text_document: TextDocumentIdentifier,
+    pub previous_result_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -655,8 +687,35 @@ impl From<DiagnosticTag> for u8 {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SemanticTokens {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_id: Option<String>,
     pub data: Vec<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensDelta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_id: Option<String>,
+    pub edits: Vec<SemanticTokensEdit>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensEdit {
+    pub start: u32,
+    pub delete_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Vec<u32>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum SemanticTokensDeltaResult {
+    Tokens(SemanticTokens),
+    Delta(SemanticTokensDelta),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -786,6 +845,7 @@ pub struct InitializeResultOptions {
     pub inlay_hint: bool,
     pub rename_prepare_support: bool,
     pub semantic_tokens: bool,
+    pub semantic_tokens_delta: bool,
     pub work_done_progress: bool,
 }
 
@@ -796,6 +856,7 @@ impl Default for InitializeResultOptions {
             inlay_hint: true,
             rename_prepare_support: true,
             semantic_tokens: true,
+            semantic_tokens_delta: true,
             work_done_progress: true,
         }
     }
@@ -877,7 +938,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
                 },
                 "range": true,
                 "full": {
-                    "delta": false
+                    "delta": options.semantic_tokens_delta
                 }
             }),
         );

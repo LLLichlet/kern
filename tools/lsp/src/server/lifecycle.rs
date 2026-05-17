@@ -76,6 +76,26 @@ pub(super) fn negotiate_capabilities(capabilities: &ClientCapabilities) -> Initi
         .unwrap_or(false);
     let inlay_hint = capabilities.text_document.inlay_hint.is_some();
     let semantic_tokens = capabilities.text_document.semantic_tokens.is_some();
+    let semantic_tokens_delta = capabilities
+        .text_document
+        .semantic_tokens
+        .as_ref()
+        .is_some_and(|capabilities| {
+            capabilities
+                .requests
+                .as_ref()
+                .and_then(|requests| requests.full.as_ref())
+                .is_some_and(|full| match full {
+                    crate::protocol::SemanticTokensFullClientRequest::Bool(value) => {
+                        let _ = value;
+                        false
+                    }
+                    crate::protocol::SemanticTokensFullClientRequest::Missing => false,
+                    crate::protocol::SemanticTokensFullClientRequest::Options(options) => {
+                        options.delta
+                    }
+                })
+        });
     let work_done_progress = capabilities.window.work_done_progress;
 
     InitializeResultOptions {
@@ -83,6 +103,7 @@ pub(super) fn negotiate_capabilities(capabilities: &ClientCapabilities) -> Initi
         inlay_hint,
         rename_prepare_support,
         semantic_tokens,
+        semantic_tokens_delta,
         work_done_progress,
     }
 }

@@ -6,8 +6,8 @@ use super::lifecycle::{
 use super::scheduler::{
     drain_scheduler, execute_document_diagnostics, execute_document_request,
     execute_document_request_with_progress, execute_optional_document_request,
-    execute_request_with_progress, flush_document_request_results, schedule_workspace_refresh,
-    write_error_response, write_null_response, write_success_response,
+    execute_raw_document_request, execute_request_with_progress, flush_document_request_results,
+    schedule_workspace_refresh, write_error_response, write_null_response, write_success_response,
 };
 use super::{
     INVALID_REQUEST, METHOD_NOT_FOUND, SERVER_NOT_INITIALIZED, SchedulerLane, ServerError,
@@ -26,8 +26,8 @@ use crate::protocol::{
     DocumentHighlightParams, DocumentLinkParams, DocumentSymbolParams, FoldingRangeParams,
     FormattingParams, IncomingMessage, InitializeParams, InlayHintParams, MarkupContent, Position,
     Range, RangeFormattingParams, ReferenceParams, RenameParams, SelectionRangeParams,
-    SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams,
-    WorkspaceSymbolParams, error_response, initialize_result, log_message,
+    SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams,
+    SignatureHelpParams, WorkspaceSymbolParams, error_response, initialize_result, log_message,
 };
 use crate::transport::MessageWriter;
 use serde_json::Value;
@@ -261,6 +261,7 @@ fn handle_message_with_document_request_policy(
         "textDocument/didChange" => {
             let params = required_params::<DidChangeTextDocumentParams>(message.params)?;
             let target_uri = params.text_document.uri.clone();
+            state.clear_semantic_tokens_results_for_uri(&target_uri);
             let change = ide_change_document_from_protocol(params);
             execute_document_diagnostics(
                 state,
@@ -273,6 +274,7 @@ fn handle_message_with_document_request_policy(
         "textDocument/didClose" => {
             let params = required_params::<DidCloseTextDocumentParams>(message.params)?;
             let target_uri = params.text_document.uri.clone();
+            state.clear_semantic_tokens_results_for_uri(&target_uri);
             let document = ide_close_document_from_protocol(params);
             execute_document_diagnostics(
                 state,
@@ -716,7 +718,7 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<SemanticTokensParams>(message.params)?;
             let target_uri = params.text_document.uri;
             let query_uri = target_uri.clone();
-            execute_document_request(
+            execute_raw_document_request(
                 state,
                 writer,
                 id,
@@ -726,7 +728,42 @@ fn handle_message_with_document_request_policy(
                 move |analysis, snapshot| {
                     analysis
                         .semantic_tokens_in_snapshot(snapshot, &query_uri)
-                        .map(crate::analysis::ide::IdeSemanticTokens::into_lsp)
+                        .map(
+                            |tokens| super::DocumentRequestResponse::SemanticTokensFull {
+                                uri: query_uri,
+                                data: tokens.data,
+                            },
+                        )
+                },
+            )?;
+        }
+        "textDocument/semanticTokens/full/delta" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/semanticTokens/full/delta must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<SemanticTokensDeltaParams>(message.params)?;
+            let target_uri = params.text_document.uri;
+            let query_uri = target_uri.clone();
+            let previous_result_id = params.previous_result_id;
+            execute_raw_document_request(
+                state,
+                writer,
+                id,
+                &target_uri,
+                SchedulerLane::Interactive,
+                method,
+                move |analysis, snapshot| {
+                    analysis
+                        .semantic_tokens_in_snapshot(snapshot, &query_uri)
+                        .map(
+                            |tokens| super::DocumentRequestResponse::SemanticTokensDelta {
+                                uri: query_uri,
+                                previous_result_id,
+                                data: tokens.data,
+                            },
+                        )
                 },
             )?;
         }

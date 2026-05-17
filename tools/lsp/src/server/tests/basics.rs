@@ -79,7 +79,7 @@ fn initialize_result_advertises_precise_capabilities() {
     );
     assert_eq!(
         result["capabilities"]["semanticTokensProvider"]["full"]["delta"],
-        false
+        true
     );
     assert_eq!(result["capabilities"]["inlayHintProvider"], true);
     assert_eq!(
@@ -274,10 +274,12 @@ fn advertised_request_coverages(capabilities: &Value) -> Vec<CapabilityRequestCo
             capability: "semanticTokensProvider",
             methods: &[
                 "textDocument/semanticTokens/full",
+                "textDocument/semanticTokens/full/delta",
                 "textDocument/semanticTokens/range",
             ],
             test_markers: &[
                 "semantic_tokens_request_returns_encoded_token_data",
+                "semantic_tokens_delta_request_returns_edits",
                 "semantic_tokens_range_request_filters_token_data",
             ],
         });
@@ -682,8 +684,51 @@ fn initialize_negotiates_capabilities_from_client_support() {
             .get("semanticTokensProvider")
             .is_some()
     );
+    assert_eq!(
+        messages[0]["result"]["capabilities"]["semanticTokensProvider"]["full"]["delta"],
+        false
+    );
     assert_eq!(messages[1]["method"], "window/logMessage");
     assert_eq!(messages[2]["method"], "window/logMessage");
+}
+
+#[test]
+fn initialize_disables_semantic_token_delta_without_client_support() {
+    let mut state = ServerState::new();
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(111)),
+            method: Some("initialize".to_string()),
+            params: Some(json!({
+                "capabilities": {
+                    "general": {
+                        "positionEncodings": ["utf-16"]
+                    },
+                    "textDocument": {
+                        "semanticTokens": {
+                            "requests": {
+                                "range": true,
+                                "full": { "delta": false }
+                            }
+                        }
+                    }
+                }
+            })),
+        },
+    )
+    .unwrap();
+
+    let messages = read_all_messages(&output);
+    assert_eq!(
+        messages[0]["result"]["capabilities"]["semanticTokensProvider"]["full"]["delta"],
+        false
+    );
 }
 
 #[test]

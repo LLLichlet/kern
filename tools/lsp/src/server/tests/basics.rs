@@ -1,4 +1,4 @@
-use super::super::lifecycle::TraceValue;
+use super::super::lifecycle::{TraceValue, emit_trace};
 use super::super::*;
 use super::*;
 use std::fs;
@@ -787,6 +787,52 @@ fn set_trace_updates_state_and_emits_trace_notification() {
         response["params"]["message"],
         "trace level set to `verbose`"
     );
+}
+
+#[test]
+fn kern_lsp_log_records_trace_without_client_trace() {
+    let mut state = ServerState::new();
+    let log_path = std::env::temp_dir().join(format!(
+        "kern_lsp_trace_{}_{}.jsonl",
+        std::process::id(),
+        UNIQUE_COUNTER.fetch_add(1, Ordering::SeqCst)
+    ));
+    let _ = fs::remove_file(&log_path);
+    state.trace_log_path = Some(log_path.clone());
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    emit_trace(
+        &state,
+        &mut writer,
+        "analysis tier selected",
+        Some("request_id=1 cache=none".to_string()),
+        true,
+    )
+    .unwrap();
+
+    assert!(output.is_empty());
+    let logged = fs::read_to_string(&log_path).unwrap();
+    let record: Value = serde_json::from_str(logged.trim()).unwrap();
+    assert_eq!(record["message"], json!("analysis tier selected"));
+    assert_eq!(record["verbose"], json!("request_id=1 cache=none"));
+    assert_eq!(record["verbose_only"], json!(true));
+    let _ = fs::remove_file(log_path);
+}
+
+#[test]
+fn kern_lsp_log_write_failure_does_not_fail_trace_delivery() {
+    let mut state = ServerState::new();
+    state.trace = TraceValue::Messages;
+    state.trace_log_path = Some(std::env::temp_dir());
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    emit_trace(&state, &mut writer, "still delivered", None, false).unwrap();
+
+    let response = read_single_response(&output);
+    assert_eq!(response["method"], "$/logTrace");
+    assert_eq!(response["params"]["message"], json!("still delivered"));
 }
 
 #[test]

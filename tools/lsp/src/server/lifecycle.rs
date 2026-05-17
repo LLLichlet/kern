@@ -4,8 +4,11 @@ use crate::protocol::{
     file_uri_to_path, log_message, log_trace,
 };
 use crate::transport::MessageWriter;
+use serde::Serialize;
 use serde_json::Value;
+use std::fs::OpenOptions;
 use std::io;
+use std::io::Write;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +171,8 @@ pub(super) fn emit_trace(
     verbose: Option<String>,
     verbose_only: bool,
 ) -> Result<(), ServerError> {
+    let message = message.into();
+    let _ = emit_trace_log_sink(state, &message, verbose.as_deref(), verbose_only);
     match state.trace {
         TraceValue::Off => Ok(()),
         TraceValue::Messages if verbose_only => Ok(()),
@@ -183,4 +188,33 @@ pub(super) fn emit_trace(
             Ok(())
         }
     }
+}
+
+#[derive(Serialize)]
+struct TraceLogRecord<'a> {
+    message: &'a str,
+    verbose: Option<&'a str>,
+    verbose_only: bool,
+}
+
+fn emit_trace_log_sink(
+    state: &ServerState,
+    message: &str,
+    verbose: Option<&str>,
+    verbose_only: bool,
+) -> Result<(), ServerError> {
+    let Some(path) = &state.trace_log_path else {
+        return Ok(());
+    };
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    serde_json::to_writer(
+        &mut file,
+        &TraceLogRecord {
+            message,
+            verbose,
+            verbose_only,
+        },
+    )?;
+    file.write_all(b"\n")?;
+    Ok(())
 }

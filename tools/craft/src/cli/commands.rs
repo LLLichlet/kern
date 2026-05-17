@@ -31,6 +31,9 @@ use super::render::{
 use super::{Command, InstallSelection, RunSelection};
 
 pub(super) fn run_command(command: Command) -> Result<()> {
+    #[cfg(test)]
+    let _test_slot = command_resource_slot(&command);
+
     match command {
         Command::Help { topic, color } => {
             print!("{}", super::help_text(&topic, color)?);
@@ -97,6 +100,19 @@ pub(super) fn run_command(command: Command) -> Result<()> {
             test_name,
             runtime_args,
         } => run_tests(path, feature_selection, ui, test_name, runtime_args),
+    }
+}
+
+#[cfg(test)]
+fn command_resource_slot(command: &Command) -> Option<crate::test_support::TestCommandSlot> {
+    match command {
+        Command::Build { .. }
+        | Command::Check { .. }
+        | Command::Run { .. }
+        | Command::Test { .. }
+        | Command::Install { .. }
+        | Command::Doc { .. } => Some(crate::test_support::acquire_command_slot()),
+        _ => None,
     }
 }
 

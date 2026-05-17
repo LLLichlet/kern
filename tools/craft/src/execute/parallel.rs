@@ -126,6 +126,12 @@ fn target_parallel_worker_count(job_count: usize) -> usize {
         return 1;
     }
 
+    #[cfg(test)]
+    {
+        return crate::test_support::test_parallel_worker_count(job_count);
+    }
+
+    #[cfg(not(test))]
     thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(1)

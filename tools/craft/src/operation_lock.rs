@@ -19,6 +19,11 @@ pub(crate) struct OutputOperationLock {
     path: PathBuf,
 }
 
+#[cfg(test)]
+pub(crate) struct TestResourceLock {
+    path: PathBuf,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct LockOwner {
     pid: u32,
@@ -40,6 +45,23 @@ impl OutputOperationLock {
     }
 }
 
+#[cfg(test)]
+impl TestResourceLock {
+    pub(crate) fn try_acquire(path: &Path, operation: &str) -> Result<Option<Self>> {
+        local_state::ensure_parent_dir(path)?;
+        match try_acquire(path, operation) {
+            Ok(lock) => Ok(Some(Self { path: lock.path })),
+            Err(err) if is_lock_contention_error(path, &err) => {
+                if reclaim_stale_lock(path)? {
+                    return Self::try_acquire(path, operation);
+                }
+                Ok(None)
+            }
+            Err(err) => Err(Error::from_io(path, err)),
+        }
+    }
+}
+
 fn is_lock_contention_error(path: &Path, err: &std::io::Error) -> bool {
     err.kind() == ErrorKind::AlreadyExists
         || (cfg!(windows) && err.kind() == ErrorKind::PermissionDenied && path.exists())
@@ -56,6 +78,17 @@ impl Drop for WorkspaceOperationLock {
 }
 
 impl Drop for OutputOperationLock {
+    fn drop(&mut self) {
+        if let Err(err) = fs::remove_file(&self.path)
+            && err.kind() != ErrorKind::NotFound
+        {
+            let _ = err;
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestResourceLock {
     fn drop(&mut self) {
         if let Err(err) = fs::remove_file(&self.path)
             && err.kind() != ErrorKind::NotFound

@@ -11,7 +11,7 @@ struct DelimiterSpan {
 impl AnalysisEngine {
     #[cfg(test)]
     pub fn folding_ranges(&self, uri: &str) -> Result<Vec<IdeFoldingRange>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.folding_ranges_in_snapshot(&snapshot, uri)
     }
 
@@ -68,7 +68,7 @@ impl AnalysisEngine {
         uri: &str,
         positions: Vec<impl IntoIdePosition>,
     ) -> Result<Vec<IdeSelectionRange>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.selection_ranges_in_snapshot(&snapshot, uri, positions)
     }
 
@@ -96,7 +96,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn document_links(&self, uri: &str) -> Result<Vec<IdeDocumentLink>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.document_links_in_snapshot(&snapshot, uri)
     }
 

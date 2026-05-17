@@ -57,6 +57,20 @@ pub struct WorkspaceFolder {
     pub _name: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DidChangeWorkspaceFoldersParams {
+    pub event: WorkspaceFoldersChangeEvent,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WorkspaceFoldersChangeEvent {
+    #[serde(default)]
+    pub added: Vec<WorkspaceFolder>,
+    #[serde(default)]
+    pub removed: Vec<WorkspaceFolder>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientCapabilities {
@@ -909,8 +923,8 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
         "workspace".to_string(),
         json!({
             "workspaceFolders": {
-                "supported": false,
-                "changeNotifications": false
+                "supported": true,
+                "changeNotifications": true
             }
         }),
     );

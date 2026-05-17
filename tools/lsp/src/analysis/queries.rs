@@ -1,14 +1,13 @@
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
 
 impl AnalysisEngine {
     pub(crate) fn warm_workspace_symbol_indexes_cancelable(
         &self,
-        workspace_root: Option<PathBuf>,
+        workspace_roots: Vec<PathBuf>,
         cancellation: CancellationToken,
     ) -> Result<(usize, usize), String> {
-        let snapshot = self.snapshot(workspace_root, cancellation);
+        let snapshot = self.snapshot(workspace_roots, cancellation);
         match self.warm_workspace_symbol_indexes_in_snapshot_cancelable(&snapshot) {
             Ok(indexed_targets) => Ok((indexed_targets, 0)),
             Err(err) if snapshot.cancellation.is_canceled() => Err(err),
@@ -23,8 +22,14 @@ impl AnalysisEngine {
         snapshot.check_canceled()?;
         let mut indexed_targets = 0;
 
-        if let Some(workspace_root) = snapshot.workspace_root() {
-            if let Some(project) = self.project_for_path(workspace_root)? {
+        if !snapshot.workspace_roots().is_empty() {
+            let mut saw_project = false;
+            for workspace_root in snapshot.workspace_roots() {
+                snapshot.check_canceled()?;
+                let Some(project) = self.project_for_path(workspace_root)? else {
+                    continue;
+                };
+                saw_project = true;
                 let targets = project
                     .workspace_targets(&self.settings.compile_options)
                     .map_err(|err| {
@@ -46,6 +51,8 @@ impl AnalysisEngine {
                     )?;
                     indexed_targets += 1;
                 }
+            }
+            if saw_project {
                 self.record_analysis_tier(AnalysisTier::Surface);
                 return Ok(indexed_targets);
             }
@@ -70,15 +77,15 @@ impl AnalysisEngine {
     #[cfg(test)]
     pub(crate) fn warm_workspace_symbol_indexes_with_cancellation_for_testing(
         &self,
-        workspace_root: Option<PathBuf>,
+        workspace_roots: Vec<PathBuf>,
         cancellation: CancellationToken,
     ) -> Result<(usize, usize), String> {
-        self.warm_workspace_symbol_indexes_cancelable(workspace_root, cancellation)
+        self.warm_workspace_symbol_indexes_cancelable(workspace_roots, cancellation)
     }
 
     #[cfg(test)]
     pub fn workspace_symbols(&self, query: &str) -> Result<Vec<IdeWorkspaceSymbol>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.workspace_symbols_in_snapshot(&snapshot, query)
     }
 
@@ -91,8 +98,14 @@ impl AnalysisEngine {
         let needle = query.trim().to_ascii_lowercase();
         let mut symbols = Vec::new();
 
-        if let Some(workspace_root) = snapshot.workspace_root() {
-            if let Some(project) = self.project_for_path(workspace_root)? {
+        if !snapshot.workspace_roots().is_empty() {
+            let mut saw_project = false;
+            for workspace_root in snapshot.workspace_roots() {
+                snapshot.check_canceled()?;
+                let Some(project) = self.project_for_path(workspace_root)? else {
+                    continue;
+                };
+                saw_project = true;
                 let targets = project
                     .workspace_targets(&self.settings.compile_options)
                     .map_err(|err| {
@@ -119,6 +132,8 @@ impl AnalysisEngine {
                         }
                     }
                 }
+            }
+            if saw_project {
                 symbols.sort_by(workspace_symbol_order);
                 symbols.dedup_by(workspace_symbol_same_location);
                 self.record_analysis_tier(AnalysisTier::Surface);
@@ -235,7 +250,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn document_symbols(&self, uri: &str) -> Result<Vec<IdeDocumentSymbol>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.document_symbols_in_snapshot(&snapshot, uri)
     }
 
@@ -310,7 +325,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn code_lenses(&self, uri: &str) -> Result<Vec<IdeCodeLens>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.code_lenses_in_snapshot(&snapshot, uri)
     }
 
@@ -413,7 +428,7 @@ impl AnalysisEngine {
         uri: &str,
         position: impl IntoIdePosition,
     ) -> Result<Option<IdeLocation>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.goto_definition_in_snapshot(&snapshot, uri, position)
     }
 
@@ -476,7 +491,7 @@ impl AnalysisEngine {
         position: impl IntoIdePosition,
         include_declaration: bool,
     ) -> Result<Vec<IdeLocation>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.references_in_snapshot(&snapshot, uri, position, include_declaration)
     }
 
@@ -755,7 +770,7 @@ impl AnalysisEngine {
         uri: &str,
         position: impl IntoIdePosition,
     ) -> Result<Vec<IdeDocumentHighlight>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.document_highlights_in_snapshot(&snapshot, uri, position)
     }
 
@@ -798,7 +813,7 @@ impl AnalysisEngine {
         uri: &str,
         position: impl IntoIdePosition,
     ) -> Result<Option<IdeHover>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.hover_in_snapshot(&snapshot, uri, position)
     }
 
@@ -838,7 +853,7 @@ impl AnalysisEngine {
         uri: &str,
         position: impl IntoIdePosition,
     ) -> Result<Option<IdeSignatureHelp>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.signature_help_in_snapshot(&snapshot, uri, position)
     }
 
@@ -871,7 +886,7 @@ impl AnalysisEngine {
         uri: &str,
         position: impl IntoIdePosition,
     ) -> Result<Vec<IdeCompletionItem>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.completion_in_snapshot(&snapshot, uri, position)
     }
 
@@ -1010,7 +1025,7 @@ impl AnalysisEngine {
         uri: &str,
         position: impl IntoIdePosition,
     ) -> Result<Option<IdePrepareRenameResult>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.prepare_rename_in_snapshot(&snapshot, uri, position)
     }
 
@@ -1057,7 +1072,7 @@ impl AnalysisEngine {
         position: impl IntoIdePosition,
         new_name: &str,
     ) -> Result<IdeWorkspaceEdit, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.rename_in_snapshot(&snapshot, uri, position, new_name)
     }
 
@@ -1110,7 +1125,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn semantic_tokens(&self, uri: &str) -> Result<IdeSemanticTokens, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.semantic_tokens_in_snapshot(&snapshot, uri)
     }
 
@@ -1193,7 +1208,7 @@ impl AnalysisEngine {
         uri: &str,
         range: impl IntoIdeRange,
     ) -> Result<Vec<IdeInlayHint>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.inlay_hints_in_snapshot(&snapshot, uri, range)
     }
 
@@ -1240,7 +1255,7 @@ impl AnalysisEngine {
         uri: &str,
         range: impl IntoIdeRange,
     ) -> Result<Vec<IdeCodeAction>, String> {
-        let snapshot = self.snapshot(None, CancellationToken::new());
+        let snapshot = self.snapshot(Vec::new(), CancellationToken::new());
         self.code_actions_in_snapshot(&snapshot, uri, range)
     }
 

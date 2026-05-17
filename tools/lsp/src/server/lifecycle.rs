@@ -9,7 +9,7 @@ use serde_json::Value;
 use std::fs::OpenOptions;
 use std::io;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TraceValue {
@@ -126,16 +126,6 @@ pub(super) fn emit_initialize_followups(
             "Client does not advertise prepareRename support; kern-lsp will serve basic rename only.",
         ))?;
     }
-    if !state.ignored_workspace_folders.is_empty() {
-        writer.write_json(&log_message(
-            2,
-            format!(
-                "Kern LSP uses a single primary workspace folder; ignoring {} additional workspace folder(s).",
-                state.ignored_workspace_folders.len()
-            ),
-        ))?;
-    }
-
     let mut verbose = Vec::new();
     if let Some(client_info) = &params.client_info {
         verbose.push(match &client_info.version {
@@ -146,13 +136,15 @@ pub(super) fn emit_initialize_followups(
     if let Some(encodings) = &params.capabilities.general.position_encodings {
         verbose.push(format!("positionEncodings={}", encodings.join(",")));
     }
-    if let Some(root) = &state.workspace_root {
-        verbose.push(format!("workspaceRoot={}", root.display()));
-    }
-    if !state.ignored_workspace_folders.is_empty() {
+    if !state.workspace_roots.is_empty() {
         verbose.push(format!(
-            "ignoredWorkspaceFolders={}",
-            state.ignored_workspace_folders.join(",")
+            "workspaceRoots={}",
+            state
+                .workspace_roots
+                .iter()
+                .map(|root| root.display().to_string())
+                .collect::<Vec<_>>()
+                .join(",")
         ));
     }
 
@@ -165,24 +157,50 @@ pub(super) fn emit_initialize_followups(
     )
 }
 
-pub(super) fn select_workspace_root(params: &InitializeParams) -> (Option<PathBuf>, Vec<String>) {
+pub(super) fn select_workspace_roots(params: &InitializeParams) -> Vec<PathBuf> {
     let folders = params.workspace_folders.as_deref().unwrap_or(&[]);
-    if let Some(first) = folders.first() {
-        let root = workspace_folder_path(first);
-        let ignored = folders
-            .iter()
-            .skip(1)
-            .map(|folder| folder.uri.clone())
-            .collect();
-        return (root, ignored);
+    let mut roots = folders
+        .iter()
+        .filter_map(workspace_folder_path)
+        .collect::<Vec<_>>();
+    if roots.is_empty() {
+        roots.extend(params.root_uri.as_deref().and_then(file_uri_to_path));
     }
-
-    let root = params.root_uri.as_deref().and_then(file_uri_to_path);
-    (root, Vec::new())
+    normalize_workspace_roots(roots)
 }
 
 fn workspace_folder_path(folder: &WorkspaceFolder) -> Option<PathBuf> {
     file_uri_to_path(&folder.uri)
+}
+
+pub(super) fn normalize_workspace_roots(roots: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut normalized = roots.into_iter().map(normalize_path).collect::<Vec<_>>();
+    normalized.sort();
+    normalized.dedup();
+    normalized
+}
+
+fn normalize_path(path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        return lexical_clean(&path);
+    }
+    std::env::current_dir()
+        .map(|cwd| lexical_clean(&cwd.join(&path)))
+        .unwrap_or(path)
+}
+
+fn lexical_clean(path: &Path) -> PathBuf {
+    let mut cleaned = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                cleaned.pop();
+            }
+            _ => cleaned.push(component.as_os_str()),
+        }
+    }
+    cleaned
 }
 
 pub(super) fn emit_trace(

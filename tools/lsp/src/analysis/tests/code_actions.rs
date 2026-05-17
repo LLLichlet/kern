@@ -5,7 +5,7 @@ fn resolve_deferred_action(
     action: super::super::ide::IdeCodeAction,
 ) -> super::super::ide::IdeCodeAction {
     let data = action.resolve_data.clone().unwrap();
-    let snapshot = analysis.snapshot(None, CancellationToken::new());
+    let snapshot = analysis.snapshot(Vec::new(), CancellationToken::new());
     analysis
         .resolve_code_action_in_snapshot(&snapshot, &data)
         .unwrap()

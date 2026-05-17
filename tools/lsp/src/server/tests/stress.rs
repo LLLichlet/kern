@@ -317,7 +317,7 @@ root = "src/lib.kn"
     let source_path = src.join("lib.kn");
     fs::write(&source_path, source).unwrap();
     let uri = format!("file://{}", source_path.to_string_lossy());
-    state.workspace_root = Some(root);
+    state.workspace_roots = vec![root];
 
     let mut output = Vec::new();
     {
@@ -427,7 +427,7 @@ root = "src/lib.kn"
     let uri = format!("file://{}", source_path.to_string_lossy());
     let manifest_uri = format!("file://{}", manifest_path.to_string_lossy());
     let mut state = initialized_state();
-    state.workspace_root = Some(root);
+    state.workspace_roots = vec![root];
     state.trace = super::super::lifecycle::TraceValue::Verbose;
 
     let mut output = Vec::new();

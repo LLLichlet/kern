@@ -443,9 +443,10 @@ Required 0.7.7 protocol work:
 
 - proper LSP error codes for cancellation and request failure
 - `window/workDoneProgress/create` and `$/progress` for long workspace work
-- `workspace/workspaceFolders` support or explicit single-folder policy. The
-  0.7.7 line currently uses an explicit single-folder policy and advertises
-  `workspace.workspaceFolders.supported = false`.
+- `workspace/workspaceFolders` support. Static initialize folders and
+  `workspace/didChangeWorkspaceFolders` are supported and advertised; workspace
+  symbol indexing now walks all configured roots instead of silently ignoring
+  later folders.
 - `workspace/didChangeConfiguration`. The 0.7.7 server now parses supported
   `kern.project` analysis settings from the synchronized `kern` configuration
   payload, applies safe hot updates through the analysis engine, invalidates
@@ -505,9 +506,9 @@ implemented by adding more direct compiler calls inside request dispatch.
 
 These are known capability gaps, not completed work:
 
-- Multi-root workspace support beyond the current explicit single-root policy.
-  The server currently records one primary root and reports ignored folders;
-  true multi-root support requires per-root project/index state.
+- Multi-root workspace polish beyond the current correct in-memory behavior:
+  root-scoped invalidation and cross-root reference expansion should continue
+  to be hardened, but the server no longer uses the old single-root policy.
 - Code lens and document link resolve providers. Existing code lenses and
   document links are eager; advertise resolve only after there is a real lazy
   payload to compute.
@@ -1050,9 +1051,15 @@ Tasks:
   written, so canceled or stale requests cannot poison the delta cache. Server
   tests cover advertised capability gating, normal delta edits, unknown
   result-id fallback, and edit-aware invalidation fallback.
-- Multi-root workspace support: replace the single-root policy with per-root
-  project/index state, root-scoped invalidation, workspace folder change
-  handling, and cross-root workspace symbol/reference tests.
+- Done: multi-root workspace support now records all initialize
+  `workspaceFolders`, advertises workspace folder support and change
+  notifications, handles `workspace/didChangeWorkspaceFolders`, refreshes
+  project metadata after folder changes, and makes workspace symbol queries and
+  index warmup walk every configured root with deterministic de-duplication.
+  Server tests cover initialization, folder changes, refreshed indexing, and
+  cross-root workspace symbol results. Remaining polish is tracked separately:
+  root-scoped invalidation and cross-root reference expansion need deeper
+  compiler/project-index work before they should be called complete.
 - `codeLens/resolve` and `documentLink/resolve`: keep eager providers until
   there is a real lazy payload; implement resolve only with stable opaque data,
   stale checks, and capability tests.

@@ -1,7 +1,7 @@
 use super::configuration::{ConfigurationChange, handle_configuration_change};
 use super::lifecycle::{
     TraceValue, emit_initialize_followups, emit_trace, ensure_utf16_position_encoding,
-    negotiate_capabilities, select_workspace_root,
+    negotiate_capabilities, normalize_workspace_roots, select_workspace_roots,
 };
 use super::scheduler::{
     drain_scheduler, execute_document_diagnostics, execute_document_request,
@@ -22,12 +22,13 @@ use crate::protocol::{
     CancelRequestParams, CodeAction, CodeActionParams, CodeActionResolveData, CodeLensParams,
     CompletionItem, CompletionParams, CompletionResolveData, DefinitionParams,
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentHighlightParams, DocumentLinkParams, DocumentSymbolParams, FoldingRangeParams,
-    FormattingParams, IncomingMessage, InitializeParams, InlayHintParams, MarkupContent, Position,
-    Range, RangeFormattingParams, ReferenceParams, RenameParams, SelectionRangeParams,
-    SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams,
-    SignatureHelpParams, WorkspaceSymbolParams, error_response, initialize_result, log_message,
+    DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentHighlightParams, DocumentLinkParams, DocumentSymbolParams,
+    FoldingRangeParams, FormattingParams, IncomingMessage, InitializeParams, InlayHintParams,
+    MarkupContent, Position, Range, RangeFormattingParams, ReferenceParams, RenameParams,
+    SelectionRangeParams, SemanticTokensDeltaParams, SemanticTokensParams,
+    SemanticTokensRangeParams, SetTraceParams, SignatureHelpParams, WorkspaceSymbolParams,
+    error_response, initialize_result, log_message,
 };
 use crate::transport::MessageWriter;
 use serde_json::Value;
@@ -129,11 +130,10 @@ fn handle_message_with_document_request_policy(
             let params = required_params::<InitializeParams>(message.params)?;
             ensure_utf16_position_encoding(&params.capabilities, request.id.clone(), writer)?;
             let capabilities = negotiate_capabilities(&params.capabilities);
-            let (workspace_root, ignored_workspace_folders) = select_workspace_root(&params);
+            let workspace_roots = select_workspace_roots(&params);
             state.trace = TraceValue::from_raw(params.trace.as_deref());
             state.work_done_progress = capabilities.work_done_progress;
-            state.workspace_root = workspace_root;
-            state.ignored_workspace_folders = ignored_workspace_folders;
+            state.workspace_roots = workspace_roots;
             state.initialized = true;
             write_success_response(state, writer, &request, initialize_result(capabilities))?;
             emit_initialize_followups(state, writer, &params, capabilities)?;
@@ -202,6 +202,35 @@ fn handle_message_with_document_request_policy(
                 WorkspaceRefreshKind::ProjectMetadata => "workspace project metadata changed",
             };
             schedule_workspace_refresh(state, writer, reason, kind)?;
+        }
+        "workspace/didChangeWorkspaceFolders" => {
+            let params = required_params::<DidChangeWorkspaceFoldersParams>(message.params)?;
+            let removed = params
+                .event
+                .removed
+                .iter()
+                .filter_map(|folder| crate::protocol::file_uri_to_path(&folder.uri))
+                .collect::<Vec<_>>();
+            let mut roots = state
+                .workspace_roots
+                .iter()
+                .filter(|root| !removed.iter().any(|removed| removed == *root))
+                .cloned()
+                .collect::<Vec<_>>();
+            roots.extend(
+                params
+                    .event
+                    .added
+                    .iter()
+                    .filter_map(|folder| crate::protocol::file_uri_to_path(&folder.uri)),
+            );
+            state.workspace_roots = normalize_workspace_roots(roots);
+            schedule_workspace_refresh(
+                state,
+                writer,
+                "workspace folders changed",
+                WorkspaceRefreshKind::ProjectMetadata,
+            )?;
         }
         "workspace/symbol" => {
             let id = message.id.ok_or_else(|| {

@@ -180,7 +180,7 @@ root = \"src/lib.kn\"
     assert_eq!(analysis.cached_workspace_symbol_index_count(), 0);
 
     let refresh = analysis
-        .refresh_workspace_index_cancelable(Some(root.clone()), CancellationToken::new())
+        .refresh_workspace_index_cancelable(vec![root.clone()], CancellationToken::new())
         .expect("fresh cancellation token cannot be canceled");
 
     assert_eq!(refresh.targets.len(), 1);
@@ -219,7 +219,7 @@ root = \"src/lib.kn\"
             .is_some_and(|path| path.ends_with(".craft/analysis.toml"))
     );
 
-    let snapshot = analysis.snapshot(Some(root.clone()), CancellationToken::new());
+    let snapshot = analysis.snapshot(vec![root.clone()], CancellationToken::new());
     let symbols = analysis
         .workspace_symbols_in_snapshot(&snapshot, "warmed")
         .unwrap();
@@ -228,7 +228,7 @@ root = \"src/lib.kn\"
     assert_eq!(analysis.cached_workspace_symbol_index_count(), 1);
 
     let next_refresh = analysis
-        .refresh_workspace_index_cancelable(Some(root), CancellationToken::new())
+        .refresh_workspace_index_cancelable(vec![root], CancellationToken::new())
         .expect("fresh cancellation token cannot be canceled");
     assert!(next_refresh.generation > refresh.generation);
     assert_eq!(analysis.cached_workspace_index_target_count(), 1);
@@ -273,7 +273,7 @@ root = \"src/lib.kn\"
     let cancellation = CancellationToken::with_check_budget_for_testing(1);
 
     let result = analysis.warm_workspace_symbol_indexes_with_cancellation_for_testing(
-        Some(root),
+        vec![root],
         cancellation.clone(),
     );
 
@@ -349,7 +349,7 @@ pub fn build(b: &mut builder.Builder) void {
     });
 
     let refresh = analysis
-        .refresh_workspace_index_cancelable(Some(root.clone()), CancellationToken::new())
+        .refresh_workspace_index_cancelable(vec![root.clone()], CancellationToken::new())
         .expect("fresh cancellation token cannot be canceled");
 
     assert_eq!(refresh.indexed_targets, 1);

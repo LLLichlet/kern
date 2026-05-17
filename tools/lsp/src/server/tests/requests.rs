@@ -23,6 +23,36 @@ fn lsp_position_to_byte_offset(source: &str, position: &Value) -> usize {
     offset + target_character
 }
 
+fn file_path_to_uri_for_test(path: &std::path::Path) -> String {
+    format!("file://{}", path.to_string_lossy())
+}
+
+fn write_workspace_symbol_project(root: &std::path::Path, package: &str, symbol: &str) {
+    let src = root.join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "{package}"
+version = "0.1.0"
+kern = "{}"
+
+[lib]
+root = "src/lib.kn"
+"#,
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    fs::write(
+        src.join("lib.kn"),
+        format!("struct {symbol} {{ value: i32 }}\nfn other() void {{}}\n"),
+    )
+    .unwrap();
+}
+
 #[test]
 fn document_highlight_request_returns_same_file_spans() {
     let mut state = initialized_state();
@@ -499,7 +529,7 @@ root = "src/lib.kn"
     .unwrap();
 
     let mut state = initialized_state();
-    state.workspace_root = Some(root.clone());
+    state.workspace_roots = vec![root.clone()];
     let response = dispatch_single_response(
         &mut state,
         IncomingMessage {
@@ -521,6 +551,89 @@ root = "src/lib.kn"
             .unwrap()
             .ends_with("/src/lib.kn")
     );
+}
+
+#[test]
+fn workspace_symbol_request_uses_all_workspace_roots() {
+    let root_a = unique_temp_dir("server_workspace_symbol_multi_a");
+    let root_b = unique_temp_dir("server_workspace_symbol_multi_b");
+    write_workspace_symbol_project(&root_a, "demo_a", "WorkspaceAlphaNeedle");
+    write_workspace_symbol_project(&root_b, "demo_b", "WorkspaceBetaNeedle");
+
+    let mut state = initialized_state();
+    state.workspace_roots = vec![root_a, root_b];
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(243)),
+            method: Some("workspace/symbol".to_string()),
+            params: Some(json!({
+                "query": "workspace"
+            })),
+        },
+    );
+
+    let names = response["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|symbol| symbol["name"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(names.len(), 2);
+    assert!(names.contains(&"WorkspaceAlphaNeedle".to_string()));
+    assert!(names.contains(&"WorkspaceBetaNeedle".to_string()));
+}
+
+#[test]
+fn workspace_folder_change_updates_roots_and_refreshes_index() {
+    let root_a = unique_temp_dir("server_workspace_folder_change_a");
+    let root_b = unique_temp_dir("server_workspace_folder_change_b");
+    write_workspace_symbol_project(&root_a, "demo_a", "WorkspaceAlphaNeedle");
+    write_workspace_symbol_project(&root_b, "demo_b", "WorkspaceBetaNeedle");
+
+    let mut state = initialized_state();
+    state.workspace_roots = vec![root_a.clone()];
+    let _ = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeWorkspaceFolders".to_string()),
+            params: Some(json!({
+                "event": {
+                    "added": [
+                        { "uri": file_path_to_uri_for_test(&root_b), "name": "b" }
+                    ],
+                    "removed": [
+                        { "uri": file_path_to_uri_for_test(&root_a), "name": "a" }
+                    ]
+                }
+            })),
+        },
+    );
+
+    assert_eq!(state.workspace_roots, vec![root_b.clone()]);
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(244)),
+            method: Some("workspace/symbol".to_string()),
+            params: Some(json!({
+                "query": "workspace"
+            })),
+        },
+    );
+
+    let names = response["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|symbol| symbol["name"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["WorkspaceBetaNeedle".to_string()]);
+    assert_eq!(state.analysis.cached_workspace_symbol_index_count(), 1);
 }
 
 #[test]
@@ -552,7 +665,7 @@ root = "src/lib.kn"
 
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;
-    state.workspace_root = Some(root);
+    state.workspace_roots = vec![root];
     let _ = dispatch_messages(
         &mut state,
         IncomingMessage {

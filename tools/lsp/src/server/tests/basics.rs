@@ -84,11 +84,11 @@ fn initialize_result_advertises_precise_capabilities() {
     assert_eq!(result["capabilities"]["inlayHintProvider"], true);
     assert_eq!(
         result["capabilities"]["workspace"]["workspaceFolders"]["supported"],
-        false
+        true
     );
     assert_eq!(
         result["capabilities"]["workspace"]["workspaceFolders"]["changeNotifications"],
-        false
+        true
     );
 }
 
@@ -304,6 +304,13 @@ fn advertised_request_coverages(capabilities: &Value) -> Vec<CapabilityRequestCo
             ],
         });
     }
+    if capabilities["workspace"]["workspaceFolders"]["supported"] == true {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "workspace.workspaceFolders",
+            methods: &["workspace/didChangeWorkspaceFolders"],
+            test_markers: &["workspace_folder_change_updates_roots_and_refreshes_index"],
+        });
+    }
 
     coverages
 }
@@ -357,16 +364,14 @@ fn initialize_records_root_uri_as_primary_workspace_root() {
     )
     .unwrap();
 
-    assert_eq!(state.workspace_root.as_ref(), Some(&root));
-    assert!(state.ignored_workspace_folders.is_empty());
+    assert_eq!(state.workspace_roots, vec![root]);
 }
 
 #[test]
-fn initialize_uses_first_workspace_folder_and_warns_about_ignored_folders() {
+fn initialize_records_all_workspace_folders() {
     let root_a = unique_temp_dir("server_initialize_workspace_a");
     let root_b = unique_temp_dir("server_initialize_workspace_b");
     let mut state = ServerState::new();
-    state.trace = TraceValue::Verbose;
     let mut output = Vec::new();
     let mut writer = MessageWriter::new(&mut output);
 
@@ -379,6 +384,7 @@ fn initialize_uses_first_workspace_folder_and_warns_about_ignored_folders() {
             method: Some("initialize".to_string()),
             params: Some(json!({
                 "rootUri": file_path_to_uri_for_test(&root_b),
+                "trace": "verbose",
                 "workspaceFolders": [
                     { "uri": file_path_to_uri_for_test(&root_a), "name": "a" },
                     { "uri": file_path_to_uri_for_test(&root_b), "name": "b" }
@@ -389,17 +395,13 @@ fn initialize_uses_first_workspace_folder_and_warns_about_ignored_folders() {
     )
     .unwrap();
 
-    assert_eq!(state.workspace_root.as_ref(), Some(&root_a));
-    assert_eq!(
-        state.ignored_workspace_folders,
-        vec![file_path_to_uri_for_test(&root_b)]
-    );
+    assert_eq!(state.workspace_roots, vec![root_a, root_b]);
     let messages = read_all_messages(&output);
     assert!(messages.iter().any(|message| {
-        message["method"] == "window/logMessage"
-            && message["params"]["message"]
+        message["method"] == "$/logTrace"
+            && message["params"]["verbose"]
                 .as_str()
-                .is_some_and(|message| message.contains("single primary workspace folder"))
+                .is_some_and(|message| message.contains("workspaceRoots="))
     }));
 }
 

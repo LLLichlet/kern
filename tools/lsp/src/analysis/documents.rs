@@ -151,12 +151,12 @@ impl AnalysisEngine {
 
     pub(crate) fn reload_project_metadata_index_cancelable(
         &mut self,
-        workspace_root: Option<PathBuf>,
+        workspace_roots: Vec<PathBuf>,
         cancellation: CancellationToken,
     ) -> Result<WorkspaceIndexRefresh, String> {
         self.project_cache.lock().unwrap().clear();
         self.driver_cache.lock().unwrap().clear();
-        self.refresh_workspace_index_cancelable(workspace_root, cancellation)
+        self.refresh_workspace_index_cancelable(workspace_roots, cancellation)
     }
 
     pub fn refresh_workspace_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
@@ -168,7 +168,7 @@ impl AnalysisEngine {
 
     pub(crate) fn refresh_workspace_index_cancelable(
         &mut self,
-        workspace_root: Option<PathBuf>,
+        workspace_roots: Vec<PathBuf>,
         cancellation: CancellationToken,
     ) -> Result<WorkspaceIndexRefresh, String> {
         self.driver_cache.lock().unwrap().clear();
@@ -179,7 +179,7 @@ impl AnalysisEngine {
         }
         let targets = self.workspace_refresh_targets();
         let (indexed_targets, failed_targets) =
-            self.warm_workspace_symbol_indexes_cancelable(workspace_root, cancellation)?;
+            self.warm_workspace_symbol_indexes_cancelable(workspace_roots, cancellation)?;
         let stats = self.finish_workspace_index_refresh(indexed_targets, failed_targets);
         Ok(WorkspaceIndexRefresh {
             targets,

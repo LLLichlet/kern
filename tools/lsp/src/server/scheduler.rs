@@ -118,7 +118,7 @@ fn submit_workspace_refresh_task(
     kind: WorkspaceRefreshKind,
 ) -> Result<(), ServerError> {
     let mut analysis = state.analysis.clone();
-    let workspace_root = state.workspace_root.clone();
+    let workspace_roots = state.workspace_roots.clone();
     let queued_at = Instant::now();
     let progress_token = emit_workspace_refresh_progress_begin(state, writer, &reason)?;
     state.queue_workspace_refresh_worker_task();
@@ -127,9 +127,12 @@ fn submit_workspace_refresh_task(
         let started_at = Instant::now();
         let refresh = catch_unwind(AssertUnwindSafe(|| match kind {
             WorkspaceRefreshKind::Sources => analysis
-                .refresh_workspace_index_cancelable(workspace_root, CancellationToken::new()),
+                .refresh_workspace_index_cancelable(workspace_roots, CancellationToken::new()),
             WorkspaceRefreshKind::ProjectMetadata => analysis
-                .reload_project_metadata_index_cancelable(workspace_root, CancellationToken::new()),
+                .reload_project_metadata_index_cancelable(
+                    workspace_roots,
+                    CancellationToken::new(),
+                ),
         }))
         .map_err(|payload| panic_message(payload.as_ref()))
         .and_then(|result| result);
@@ -439,7 +442,7 @@ where
             method: method.to_string(),
             queued_at: Instant::now(),
         },
-        state.workspace_root.clone(),
+        state.workspace_roots.clone(),
         |engine, snapshot| {
             analysis(engine, snapshot)
                 .and_then(|result| {
@@ -487,7 +490,7 @@ where
             method: method.to_string(),
             queued_at: Instant::now(),
         },
-        state.workspace_root.clone(),
+        state.workspace_roots.clone(),
         analysis,
     );
     let _ = writer;
@@ -545,7 +548,7 @@ where
             method: method.to_string(),
             queued_at: Instant::now(),
         },
-        state.workspace_root.clone(),
+        state.workspace_roots.clone(),
         |engine, snapshot| {
             analysis(engine, snapshot)
                 .and_then(|result| {
@@ -605,7 +608,7 @@ where
             method: method.to_string(),
             queued_at: Instant::now(),
         },
-        state.workspace_root.clone(),
+        state.workspace_roots.clone(),
         |engine, snapshot| {
             analysis(engine, snapshot)
                 .and_then(|result| {
@@ -621,7 +624,7 @@ where
 fn submit_document_request_task<F>(
     state: &mut ServerState,
     task_info: ScheduledDocumentRequestTask,
-    workspace_root: Option<std::path::PathBuf>,
+    workspace_roots: Vec<std::path::PathBuf>,
     task: F,
 ) where
     F: FnOnce(&AnalysisEngine, &AnalysisSnapshot) -> Result<DocumentRequestResponse, String>
@@ -637,7 +640,7 @@ fn submit_document_request_task<F>(
         .as_ref()
         .map(|token| token.analysis_token())
         .unwrap_or_else(CancellationToken::new);
-    let snapshot = analysis.snapshot(workspace_root, cancellation);
+    let snapshot = analysis.snapshot(workspace_roots, cancellation);
     let trace = TraceContext {
         request_id: Some(task_info.request.id.clone()),
         document_generation: task_info.request.generation,
@@ -795,7 +798,7 @@ where
             method: method.to_string(),
             queued_at: Instant::now(),
         },
-        state.workspace_root.clone(),
+        state.workspace_roots.clone(),
         |engine, snapshot| match analysis(engine, snapshot)? {
             Some(result) => serde_json::to_value(result)
                 .map(DocumentRequestResponse::Success)

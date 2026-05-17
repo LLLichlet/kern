@@ -472,7 +472,7 @@ pub struct AnalysisSnapshot {
     documents: BTreeMap<String, OpenDocument>,
     dirty_documents: Arc<DirtyDocumentsSnapshot>,
     open_uri_by_path: Arc<BTreeMap<PathBuf, String>>,
-    workspace_root: Option<PathBuf>,
+    workspace_roots: Vec<PathBuf>,
     cancellation: CancellationToken,
 }
 
@@ -508,8 +508,8 @@ impl AnalysisSnapshot {
         &self.open_uri_by_path
     }
 
-    fn workspace_root(&self) -> Option<&Path> {
-        self.workspace_root.as_deref()
+    fn workspace_roots(&self) -> &[PathBuf] {
+        &self.workspace_roots
     }
 
     fn analysis_path_exists(&self, path: &Path) -> bool {
@@ -716,7 +716,7 @@ impl AnalysisEngine {
 
     pub(crate) fn snapshot(
         &self,
-        workspace_root: Option<PathBuf>,
+        workspace_roots: Vec<PathBuf>,
         cancellation: CancellationToken,
     ) -> AnalysisSnapshot {
         self.start_analysis_trace();
@@ -724,7 +724,7 @@ impl AnalysisEngine {
             documents: self.documents.clone(),
             dirty_documents: self.dirty_documents_snapshot(),
             open_uri_by_path: self.open_uri_by_normalized_path(),
-            workspace_root,
+            workspace_roots,
             cancellation,
         }
     }

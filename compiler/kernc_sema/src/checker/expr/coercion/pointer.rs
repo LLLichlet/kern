@@ -567,10 +567,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return Err(());
                 }
                 if self.array_decay_uses_temporary_storage(expr) {
-                    self.record_pointer_origin_expr(
-                        expr.id,
-                        crate::checker::expr::PointerOrigin::Temporary(expr.span),
-                    );
+                    let origin = if matches!(&expr.kind, ExprKind::String(_)) {
+                        crate::checker::expr::PointerOrigin::StaticLiteral(expr.span)
+                    } else {
+                        crate::checker::expr::PointerOrigin::Temporary(expr.span)
+                    };
+                    self.record_pointer_origin_expr(expr.id, origin);
                 }
                 return Ok(true);
             }

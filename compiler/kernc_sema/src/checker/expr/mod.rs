@@ -37,6 +37,7 @@ pub(crate) struct NumericInferenceState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum PointerOrigin {
     Temporary(Span),
+    StaticLiteral(Span),
     CapturingClosure(Span),
     Parameter(usize),
 }
@@ -444,7 +445,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     fn emit_stack_pointer_escape(&mut self, origin: PointerOrigin, destination: &str) {
         match origin {
-            PointerOrigin::Temporary(address_span) => {
+            PointerOrigin::Temporary(address_span) | PointerOrigin::StaticLiteral(address_span) => {
+                if matches!(origin, PointerOrigin::StaticLiteral(_))
+                    && destination == "static storage"
+                {
+                    return;
+                }
                 self.ctx
                     .struct_error(
                         address_span,

@@ -1047,7 +1047,11 @@ impl AnalysisEngine {
         if document.version != data.version {
             return Ok(None);
         }
-        let items = self.completion_in_snapshot(snapshot, &data.uri, data.position.clone())?;
+        let items = self.completion_in_snapshot(
+            snapshot,
+            &data.uri,
+            IdePosition::from(data.position.clone()),
+        )?;
         Ok(items.into_iter().find(|item| item.label == data.label))
     }
 
@@ -1461,7 +1465,7 @@ impl AnalysisEngine {
         let actions = self.code_actions_in_snapshot_with_deferred(
             snapshot,
             &data.uri,
-            data.range.clone(),
+            IdeRange::from(data.range.clone()),
             false,
         )?;
         Ok(actions.into_iter().find(|action| {

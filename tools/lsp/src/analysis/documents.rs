@@ -143,6 +143,7 @@ impl AnalysisEngine {
         }
     }
 
+    #[cfg(test)]
     pub fn reload_project_metadata_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
         self.project_cache.lock().unwrap().clear();
         self.driver_cache.lock().unwrap().clear();
@@ -159,6 +160,7 @@ impl AnalysisEngine {
         self.refresh_workspace_index_cancelable(workspace_roots, cancellation)
     }
 
+    #[cfg(test)]
     pub fn refresh_workspace_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
         self.driver_cache.lock().unwrap().clear();
         self.invalidate_artifact_cache();

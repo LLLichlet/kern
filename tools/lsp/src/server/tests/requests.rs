@@ -3905,6 +3905,7 @@ fn verbose_trace_reports_dirty_code_actions_as_parse_only() {
 fn verbose_trace_reports_dirty_signature_help_as_clean_semantic() {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;
+    state.request_budget_policy.interactive_ms = u128::MAX;
     let clean = concat!(
         "fn helper(first: i32, second: i32) i32 {\n",
         "    return first + second;\n",
@@ -3998,6 +3999,7 @@ fn dirty_navigation_trace_messages(
 ) -> Vec<Value> {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;
+    state.request_budget_policy.interactive_ms = u128::MAX;
     let clean = concat!(
         "fn helper() i32 { return 1; }\n",
         "fn main() i32 {\n",

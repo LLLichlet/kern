@@ -643,7 +643,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 continue;
             }
             match check.origin {
-                crate::checker::expr::PointerOrigin::Temporary(address_span) => {
+                crate::checker::expr::PointerOrigin::Temporary(address_span)
+                | crate::checker::expr::PointerOrigin::StaticLiteral(address_span) => {
                     self.ctx
                         .struct_error(
                             address_span,

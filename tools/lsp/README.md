@@ -22,6 +22,7 @@ The current server implements:
 - `$/cancelRequest`
 - `shutdown`
 - `exit`
+- `workspace/didChangeWorkspaceFolders`
 - `workspace/didChangeConfiguration`
 - `workspace/didChangeWatchedFiles`
 - `textDocument/didOpen`
@@ -31,15 +32,29 @@ The current server implements:
 - `textDocument/publishDiagnostics`
 - `textDocument/documentSymbol`
 - `textDocument/definition`
+- `textDocument/declaration`
+- `textDocument/typeDefinition`
+- `textDocument/implementation`
 - `textDocument/documentHighlight`
 - `textDocument/references`
+- `textDocument/selectionRange`
+- `textDocument/foldingRange`
 - `textDocument/hover`
 - `textDocument/signatureHelp`
 - `textDocument/completion`
 - `textDocument/semanticTokens/full`
+- `textDocument/semanticTokens/full/delta`
+- `textDocument/semanticTokens/range`
 - `textDocument/codeAction`
+- `codeAction/resolve`
 - `textDocument/prepareRename`
 - `textDocument/rename`
+- `textDocument/codeLens`
+- `codeLens/resolve`
+- `textDocument/documentLink`
+- `documentLink/resolve`
+- `textDocument/inlayHint`
+- `workspace/symbol`
 
 Document state is maintained in memory and reanalyzed through compiler source
 overrides, so diagnostics and editor queries stay aligned with unsaved buffers.
@@ -47,7 +62,8 @@ overrides, so diagnostics and editor queries stay aligned with unsaved buffers.
 incremental range updates. Semantic tokens currently combine lexer-driven token
 classes with compiler analysis for declarations and identifier references, then
 fill common syntax contexts such as parameters, field access, and type
-positions.
+positions. Full semantic-token requests support server-owned delta updates with
+result IDs, and workspace-aware queries use all configured workspace roots.
 Diagnostics now surface compiler hints inline and forward related spans through
 LSP `relatedInformation`, which improves cross-location error navigation in
 clients that support it. Document highlights resolve same-file definition and
@@ -55,7 +71,9 @@ reference spans for the symbol under the cursor. Signature help resolves
 function parameter labels and tracks the active argument for callable
 expressions with compiler-known signatures. Code actions currently focus on
 safe quick fixes such as inserting a missing semicolon or closing delimiter,
-plus a small set of compiler-guided semantic repairs.
+plus a small set of compiler-guided semantic repairs. Code lenses and document
+links now use deferred resolve payloads instead of exposing eager command or
+target fields in the initial response.
 
 Current limitations:
 
@@ -65,8 +83,10 @@ Current limitations:
   server startup with `--library-bundle <none|base|std>`,
   `--module-path name=path`, and `--module-interface-path name=path`
 - semantic tokens do not yet cover every semantic reference class
-- code actions are intentionally limited to safe, local edits
-- formatting and workspace-wide indexing are not implemented yet
+- code actions are still intentionally limited to safe, local edits and the
+  current deferred resolve providers only cover stable Craft build/test/link
+  payloads
+- formatting is not exposed yet
 
 ## Client Interoperability
 

@@ -198,7 +198,8 @@ to drive a specific compile or link action directly.
 
 The first-party VS Code extension lives in [editors/vscode](editors/vscode).
 It provides Kern language support, language icons, semantic tokens,
-completion, hover, diagnostics, rename, and code actions.
+completion, hover, diagnostics, rename, code actions, code lenses, document
+links, folding ranges, selection ranges, inlay hints, and workspace symbols.
 
 ## Build From Source
 

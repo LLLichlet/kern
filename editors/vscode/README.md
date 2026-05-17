@@ -8,7 +8,9 @@ experience for `.kn` source files.
 - Kern language registration for `.kn`
 - Kern mark as the bundled language icon
 - stdio LSP connection to `kern-lsp`
-- diagnostics, hover, completion, rename, semantic tokens, and code actions
+- diagnostics, hover, completion, rename, semantic tokens, code actions,
+  code lenses, document links, folding ranges, selection ranges, inlay hints,
+  and workspace symbols
 - a lightweight TextMate grammar and language configuration for editor basics
 - a `Kern: Restart Language Server` command
 - a `Kern: Show Language Server Output` command
@@ -59,6 +61,10 @@ copy embedded in the VSIX. For normal users, the installer-provided toolchain or
 `target/release/` on `PATH` makes the extension use that freshly built server;
 opening the compiler repository can also fall back to the local `target/`
 binary.
+
+The language server currently advertises workspace folder support, semantic
+token delta support, deferred resolve for code lenses and document links, and
+workspace-wide search/navigation over every configured workspace root.
 
 `kern-lsp` resolves the official libraries relative to its own executable:
 installed toolchains use `lib/kern`, while repository builds use the repository
@@ -133,4 +139,4 @@ language server so diagnostics and navigation pick up the new plan immediately.
 - Marketplace name: `Kern`
 - Release packaging: ship editor integration only; use the installed Kern toolchain for `kern-lsp` and libraries
 - Local fallback behavior: configured path, configured toolchain, `PATH`, installed toolchain, workspace build
-- Current release check: `npm run check && npm run package:vsix`
+- Current release check: `npm run check && npm run test && npm run package:vsix`

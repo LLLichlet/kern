@@ -18,6 +18,27 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  nix:
+    name: Verify Nix Flake
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Show Flake Outputs
+        run: nix flake show --no-write-lock-file
+
+      - name: Run Flake Checks
+        run: nix flake check --no-write-lock-file
+
   verify:
     name: Verify ${{ matrix.name }}
     runs-on: ${{ matrix.os }}

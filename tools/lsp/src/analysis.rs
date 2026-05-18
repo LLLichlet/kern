@@ -1996,6 +1996,19 @@ impl AnalysisEngine {
     }
 
     fn project_for_path(&self, path: &Path) -> Result<Option<AnalysisProject>, String> {
+        if let Some(project) = self
+            .project_cache
+            .lock()
+            .unwrap()
+            .values()
+            .flatten()
+            .find(|project| project.contains_path(path))
+            .cloned()
+        {
+            self.record_cache_hit(AnalysisCacheTraceKind::ProjectResolution);
+            return Ok(Some(project));
+        }
+
         let start = if path.is_dir() {
             path
         } else {

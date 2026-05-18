@@ -191,59 +191,6 @@ pub(super) fn package_entries(
     Ok(packages)
 }
 
-pub(super) fn analysis_targets(
-    manifest_path: &Path,
-    manifest: &Manifest,
-    workspace_members: &[WorkspaceMember],
-) -> Result<Vec<AnalysisTarget>> {
-    let mut targets = Vec::new();
-    if manifest.package.is_some() {
-        collect_manifest_targets(manifest_path, manifest, &mut targets)?;
-    }
-    for member in workspace_members {
-        collect_manifest_targets(&member.manifest_path, &member.manifest, &mut targets)?;
-    }
-    targets.sort_by(|lhs, rhs| {
-        (
-            lhs.manifest_path.as_path(),
-            lhs.kind,
-            lhs.name.as_deref().unwrap_or(""),
-            lhs.root.as_path(),
-        )
-            .cmp(&(
-                rhs.manifest_path.as_path(),
-                rhs.kind,
-                rhs.name.as_deref().unwrap_or(""),
-                rhs.root.as_path(),
-            ))
-    });
-    Ok(targets)
-}
-
-fn collect_manifest_targets(
-    manifest_path: &Path,
-    manifest: &Manifest,
-    out: &mut Vec<AnalysisTarget>,
-) -> Result<()> {
-    let Some(package) = &manifest.package else {
-        return Ok(());
-    };
-    let package_id =
-        graph::local_package_id_from_manifest(manifest_path, manifest, SourceId::Root)?;
-    let plan = PackagePlan::from_manifest(manifest_path, &package_id, manifest)?;
-    let package_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    for target in plan.targets {
-        out.push(AnalysisTarget {
-            package_name: package.name.clone(),
-            manifest_path: manifest_path.to_path_buf(),
-            kind: target.kind,
-            name: target.name,
-            root: package_root.join(target.root),
-        });
-    }
-    Ok(())
-}
-
 fn package_entry(
     manifest_path: &Path,
     manifest: &Manifest,

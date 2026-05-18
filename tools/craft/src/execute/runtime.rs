@@ -44,6 +44,7 @@ pub fn run(
         action_plan,
         crate::script::ScriptCommand::Run,
         None,
+        false,
     )?;
     run_built(build_plan, action_plan, unit, build, &[])
 }
@@ -85,6 +86,7 @@ pub fn test(
         action_plan,
         crate::script::ScriptCommand::Test,
         None,
+        false,
     )?;
     test_built(build_plan, action_plan, units, build, &[])
 }

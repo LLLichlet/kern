@@ -136,7 +136,7 @@ root = \"src/lib.kn\"
 
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].0, uri);
-    assert_eq!(targets[0].1, DiagnosticsAnalysisMode::Full);
+    assert_eq!(targets[0].1, DiagnosticsAnalysisMode::Structure);
     assert_eq!(analysis.cached_project_count(), 1);
     assert_eq!(analysis.cached_driver_count(), 0);
 }
@@ -421,7 +421,7 @@ root = \"src/lib.kn\"
 
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].0, uri);
-    assert_eq!(targets[0].1, DiagnosticsAnalysisMode::Full);
+    assert_eq!(targets[0].1, DiagnosticsAnalysisMode::Structure);
     assert_eq!(analysis.cached_project_count(), 0);
     assert_eq!(analysis.cached_driver_count(), 0);
 }
@@ -1259,6 +1259,52 @@ roots = [\"tests/smoke.kn\"]
     assert_eq!(test_lenses[0].command, "kern.craft.testTarget");
     assert_eq!(test_lenses[0].arguments[0]["targetName"], "smoke");
     assert_eq!(test_lenses[0].range.start.line, 2);
+}
+
+#[test]
+fn code_lenses_reuse_loaded_project_targets() {
+    let root = unique_temp_dir("analysis_code_lens_project_cache");
+    let src_dir = root.join("src");
+    let tests_dir = root.join("tests");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::create_dir_all(&tests_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[test]
+roots = [\"tests/smoke.kn\"]
+"
+        ),
+    )
+    .unwrap();
+    let test_source = "#[test]\nfn test_smoke() void {}\n";
+    let test_path = tests_dir.join("smoke.kn");
+    fs::write(&test_path, test_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let test_uri = file_path_to_uri(&test_path).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: test_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: test_source.to_string(),
+        },
+    });
+    let _ = analysis.code_lenses(&test_uri).unwrap();
+
+    fs::write(root.join("Craft.toml"), "this is not a valid manifest\n").unwrap();
+
+    let lenses = analysis.code_lenses(&test_uri).unwrap();
+
+    assert_eq!(lenses.len(), 1, "{lenses:#?}");
+    assert_eq!(lenses[0].title, "Run test target smoke");
 }
 
 #[test]

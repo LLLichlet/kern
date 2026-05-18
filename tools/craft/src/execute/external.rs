@@ -168,6 +168,7 @@ pub(super) fn build_external_package(
                 command: config.command,
                 profile_selection: config.profile_selection,
                 std_workspace_root: config.std_workspace_root,
+                report_timings: config.report_timings,
             },
             external,
             external_summary,
@@ -197,6 +198,7 @@ pub(super) fn build_external_package(
             command: config.command,
             profile_selection: config.profile_selection,
             std_workspace_root: config.std_workspace_root,
+            report_timings: config.report_timings,
         },
         external,
     )?;
@@ -359,6 +361,7 @@ pub(super) fn ensure_external_tool_built(
                 command: config.command,
                 profile_selection: config.profile_selection,
                 std_workspace_root: config.std_workspace_root,
+                report_timings: config.report_timings,
             },
             external,
             &mut external_summary,
@@ -386,6 +389,7 @@ pub(super) fn ensure_external_tool_built(
             command: config.command,
             profile_selection: config.profile_selection,
             std_workspace_root: config.std_workspace_root,
+            report_timings: config.report_timings,
         },
         external,
     )?;
@@ -409,6 +413,7 @@ pub(super) fn ensure_external_tool_built(
                 command: config.command,
                 profile_selection: config.profile_selection,
                 std_workspace_root: config.std_workspace_root,
+                report_timings: config.report_timings,
             },
             external: ExternalArtifacts {
                 built_std_packages: &mut *external.built_std_packages,

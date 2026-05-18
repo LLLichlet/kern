@@ -449,10 +449,11 @@ fn run_check(
     #[cfg(test)]
     crate::test_support::hit(crate::test_support::FAILPOINT_AFTER_ANALYSIS_CONTEXT_SYNC);
     let mut progress = render.progress("check", compile_execution_progress_plan(&action_plan));
-    let execution = execute::check_with_progress(
+    let execution = execute::check_with_progress_and_timings(
         &build_plan,
         &action_plan,
         progress.as_ref().map(|progress| progress.reporter()),
+        ui.timings,
     );
     if let Some(progress) = progress.as_mut() {
         progress.finish();
@@ -787,10 +788,11 @@ fn run_build(
     print_compile_actions(&render, &action_plan);
     print_link_actions(&render, &action_plan);
     let mut progress = render.progress("build", full_execution_progress_plan(&action_plan));
-    let execution = execute::build_with_progress(
+    let execution = execute::build_with_progress_and_timings(
         &build_plan,
         &action_plan,
         progress.as_ref().map(|progress| progress.reporter()),
+        ui.timings,
     );
     if let Some(progress) = progress.as_mut() {
         progress.finish();
@@ -863,10 +865,11 @@ fn run_install(
     }
 
     let mut progress = render.progress("install", full_execution_progress_plan(&action_plan));
-    let execution = execute::build_with_progress(
+    let execution = execute::build_with_progress_and_timings(
         &build_plan,
         &action_plan,
         progress.as_ref().map(|progress| progress.reporter()),
+        ui.timings,
     );
     if let Some(progress) = progress.as_mut() {
         progress.finish();
@@ -942,10 +945,11 @@ fn run_doc(
     print_compile_actions(&render, &action_plan);
     print_link_actions(&render, &action_plan);
     let mut progress = render.progress("doc", full_execution_progress_plan(&action_plan));
-    let execution = execute::build_with_progress(
+    let execution = execute::build_with_progress_and_timings(
         &build_plan,
         &action_plan,
         progress.as_ref().map(|progress| progress.reporter()),
+        ui.timings,
     );
     if let Some(progress) = progress.as_mut() {
         progress.finish();
@@ -1264,10 +1268,11 @@ fn run_target(
     print_compile_actions_for_unit(&render, &action_plan, run_unit);
     print_link_actions_for_unit(&render, &action_plan, run_unit);
     let mut progress = render.progress("run", full_execution_progress_plan(&action_plan));
-    let build = execute::build_with_progress(
+    let build = execute::build_with_progress_and_timings(
         &build_plan,
         &action_plan,
         progress.as_ref().map(|progress| progress.reporter()),
+        ui.timings,
     );
     if let Some(progress) = progress.as_mut() {
         progress.finish();
@@ -1348,10 +1353,11 @@ fn run_tests(
         print_link_actions_for_unit(&render, &action_plan, unit);
     }
     let mut progress = render.progress("test", full_execution_progress_plan(&action_plan));
-    let build = execute::build_with_progress(
+    let build = execute::build_with_progress_and_timings(
         &build_plan,
         &action_plan,
         progress.as_ref().map(|progress| progress.reporter()),
+        ui.timings,
     );
     if let Some(progress) = progress.as_mut() {
         progress.finish();

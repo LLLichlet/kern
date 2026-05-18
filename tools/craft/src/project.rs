@@ -5,8 +5,8 @@ mod tests;
 
 pub use self::packages::AnalysisTarget;
 use self::packages::{
-    AnalysisPackage, AnalysisScriptRoot, PackageEntry, analysis_targets, assemble_packages,
-    package_entries, target_match_score,
+    AnalysisPackage, AnalysisScriptRoot, PackageEntry, assemble_packages, package_entries,
+    target_match_score,
 };
 use self::paths::{
     build_unit_source_aliases, compile_time_defines, resolve_unit_source_root_path,
@@ -107,6 +107,12 @@ impl AnalysisProject {
 
     pub fn workspace_root(&self) -> &Path {
         &self.workspace_root
+    }
+
+    pub fn contains_path(&self, path: &Path) -> bool {
+        self.packages
+            .iter()
+            .any(|package| path.starts_with(&package.package_root))
     }
 
     pub fn resolve_for_file(&self, file: &Path, base_options: &CompileOptions) -> ResolvedAnalysis {
@@ -300,10 +306,34 @@ impl AnalysisProject {
     }
 
     pub fn analysis_targets(&self) -> Result<Vec<AnalysisTarget>> {
-        let manifest = Manifest::load(&self.manifest_path)?;
-        manifest.validate(&self.manifest_path)?;
-        let workspace_members = workspace::load_members(&self.manifest_path, &manifest)?;
-        analysis_targets(&self.manifest_path, &manifest, &workspace_members)
+        let mut targets = self
+            .packages
+            .iter()
+            .flat_map(|package| {
+                package.target_roots.iter().map(|target| AnalysisTarget {
+                    package_name: package.id.name.clone(),
+                    manifest_path: package.manifest_path.clone(),
+                    kind: target.kind,
+                    name: target.name.clone(),
+                    root: target.root.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+        targets.sort_by(|lhs, rhs| {
+            (
+                lhs.manifest_path.as_path(),
+                lhs.kind,
+                lhs.name.as_deref().unwrap_or(""),
+                lhs.root.as_path(),
+            )
+                .cmp(&(
+                    rhs.manifest_path.as_path(),
+                    rhs.kind,
+                    rhs.name.as_deref().unwrap_or(""),
+                    rhs.root.as_path(),
+                ))
+        });
+        Ok(targets)
     }
 
     fn from_parts(

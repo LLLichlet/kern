@@ -6,6 +6,7 @@ use std::time::Duration;
 type NamedFieldQueryKey = (Option<DefId>, DefId, Vec<GenericArg>, SymbolId);
 type NamedFieldQueryValue = Option<crate::query::MemberCandidate>;
 type MemberResolutionQueryKey = (Option<DefId>, TypeId, SymbolId);
+type MethodResolutionQueryKey = (TypeId, SymbolId);
 type GenericBoundsCheckKey = (DefId, Vec<GenericArg>);
 
 #[derive(Clone, Default)]
@@ -30,6 +31,8 @@ pub(crate) struct SemaQueryCacheState {
     pub(crate) named_field_query_cache: FastHashMap<NamedFieldQueryKey, NamedFieldQueryValue>,
     pub(crate) member_resolution_query_cache:
         FastHashMap<MemberResolutionQueryKey, crate::query::MemberResolution>,
+    pub(crate) method_resolution_query_cache:
+        FastHashMap<MethodResolutionQueryKey, Option<crate::query::MemberResolution>>,
 }
 
 impl SemaQueryCacheState {
@@ -47,6 +50,7 @@ impl SemaQueryCacheState {
         self.generic_bounds_success_cache.clear();
         self.named_field_query_cache.clear();
         self.member_resolution_query_cache.clear();
+        self.method_resolution_query_cache.clear();
     }
 
     pub(crate) fn clear_active_bound_caches(&mut self) {
@@ -55,6 +59,7 @@ impl SemaQueryCacheState {
         self.impl_method_query_cache.clear();
         self.generic_bounds_success_cache.clear();
         self.member_resolution_query_cache.clear();
+        self.method_resolution_query_cache.clear();
     }
 }
 

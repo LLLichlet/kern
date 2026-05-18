@@ -76,6 +76,7 @@ fn main() i32 {
             &built_std_packages,
             &BTreeMap::new(),
             &mut manifest_runtime_options,
+            false,
         )
         .unwrap();
 

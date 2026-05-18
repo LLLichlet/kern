@@ -146,6 +146,7 @@ fn build_parallel_target_link_job(
     built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
     manifest_runtime_options: &mut BTreeMap<PathBuf, ManifestRuntimeOptions>,
     driver_families: &mut DriverFamilyMap,
+    report_timings: bool,
 ) -> Result<ParallelTargetLinkResult> {
     ensure_parent_dir(&job.compile_action.object_path)?;
     ensure_parent_dir(&job.compile_action.artifact_path)?;
@@ -156,6 +157,7 @@ fn build_parallel_target_link_job(
         built_std_packages,
         built_external_packages,
         manifest_runtime_options,
+        report_timings,
     )?;
     let mut summary = ExecutionSummary::default();
     let _ = build_compile_action_if_needed(
@@ -198,6 +200,7 @@ fn build_parallel_target_compile_job(
     built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
     manifest_runtime_options: &mut BTreeMap<PathBuf, ManifestRuntimeOptions>,
     driver_families: &mut DriverFamilyMap,
+    report_timings: bool,
 ) -> Result<ParallelTargetCompileResult> {
     ensure_parent_dir(&job.compile_action.object_path)?;
     ensure_parent_dir(&job.compile_action.artifact_path)?;
@@ -208,6 +211,7 @@ fn build_parallel_target_compile_job(
         built_std_packages,
         built_external_packages,
         manifest_runtime_options,
+        report_timings,
     )?;
     let mut summary = ExecutionSummary::default();
     let _ = build_compile_action_if_needed(
@@ -230,6 +234,7 @@ pub(super) fn build_parallel_target_compile_jobs(
     local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
     built_std_packages: &BTreeMap<String, BuiltStdPackage>,
     built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+    report_timings: bool,
 ) -> Result<Vec<ParallelTargetCompileResult>> {
     let worker_count = target_parallel_worker_count(jobs.len());
     if worker_count <= 1 {
@@ -257,6 +262,7 @@ pub(super) fn build_parallel_target_compile_jobs(
                         built_external_packages,
                         &mut manifest_runtime_options,
                         &mut driver_families,
+                        report_timings,
                     )?);
                 }
                 Ok(results)
@@ -285,6 +291,7 @@ pub(super) fn build_parallel_target_link_jobs(
     local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
     built_std_packages: &BTreeMap<String, BuiltStdPackage>,
     built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+    report_timings: bool,
 ) -> Result<Vec<ParallelTargetLinkResult>> {
     let worker_count = target_parallel_worker_count(jobs.len());
     if worker_count <= 1 {
@@ -312,6 +319,7 @@ pub(super) fn build_parallel_target_link_jobs(
                         built_external_packages,
                         &mut manifest_runtime_options,
                         &mut driver_families,
+                        report_timings,
                     )?);
                 }
                 Ok(results)

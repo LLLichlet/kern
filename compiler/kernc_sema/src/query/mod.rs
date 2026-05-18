@@ -417,6 +417,20 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         env: &MemberQueryEnv<'_>,
         diagnostic_span: Option<Span>,
     ) -> Option<MemberResolution> {
+        let cache_key = (receiver_ty, member_name);
+        let can_use_cache = env.is_current_active_bounds(self.ctx);
+        if can_use_cache
+            && let Some(cached) = self
+                .ctx
+                .analysis
+                .query_caches
+                .method_resolution_query_cache
+                .get(&cache_key)
+                .cloned()
+        {
+            return cached;
+        }
+
         let search_types = self.search_types(receiver_ty);
         for search_norm in search_types.iter() {
             if let Some(resolution) = self.resolve_named_method_in_type(
@@ -426,10 +440,24 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 env,
                 diagnostic_span,
             ) {
+                if can_use_cache && resolution.candidate.type_id != TypeId::ERROR {
+                    self.ctx
+                        .analysis
+                        .query_caches
+                        .method_resolution_query_cache
+                        .insert(cache_key, Some(resolution.clone()));
+                }
                 return Some(resolution);
             }
         }
 
+        if can_use_cache {
+            self.ctx
+                .analysis
+                .query_caches
+                .method_resolution_query_cache
+                .insert(cache_key, None);
+        }
         None
     }
 

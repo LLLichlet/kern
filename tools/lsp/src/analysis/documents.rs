@@ -203,14 +203,7 @@ impl AnalysisEngine {
     fn workspace_refresh_targets(&self) -> Vec<(String, DiagnosticsAnalysisMode)> {
         self.documents
             .iter()
-            .map(|(uri, document)| {
-                let mode = if document.is_dirty {
-                    DiagnosticsAnalysisMode::Structure
-                } else {
-                    DiagnosticsAnalysisMode::Full
-                };
-                (uri.clone(), mode)
-            })
+            .map(|(uri, _document)| (uri.clone(), DiagnosticsAnalysisMode::Structure))
             .collect()
     }
 

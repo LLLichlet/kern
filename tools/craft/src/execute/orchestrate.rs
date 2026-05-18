@@ -7,19 +7,22 @@ pub fn build(build_plan: &BuildPlan, action_plan: &ActionPlan) -> Result<Executi
         action_plan,
         crate::script::ScriptCommand::Build,
         None,
+        false,
     )
 }
 
-pub fn build_with_progress(
+pub fn build_with_progress_and_timings(
     build_plan: &BuildPlan,
     action_plan: &ActionPlan,
     progress: Option<ProgressReporter>,
+    report_timings: bool,
 ) -> Result<ExecutionSummary> {
     build_with_command(
         build_plan,
         action_plan,
         crate::script::ScriptCommand::Build,
         progress,
+        report_timings,
     )
 }
 
@@ -30,19 +33,22 @@ pub fn check(build_plan: &BuildPlan, action_plan: &ActionPlan) -> Result<Executi
         action_plan,
         crate::script::ScriptCommand::Check,
         None,
+        false,
     )
 }
 
-pub fn check_with_progress(
+pub fn check_with_progress_and_timings(
     build_plan: &BuildPlan,
     action_plan: &ActionPlan,
     progress: Option<ProgressReporter>,
+    report_timings: bool,
 ) -> Result<ExecutionSummary> {
     build_with_command(
         build_plan,
         action_plan,
         crate::script::ScriptCommand::Check,
         progress,
+        report_timings,
     )
 }
 
@@ -97,6 +103,7 @@ pub(crate) fn materialize_analysis_inputs_with_progress(
         command: crate::script::ScriptCommand::Build,
         profile_selection,
         std_workspace_root: &build_plan.workspace_root,
+        report_timings: false,
     };
     let mut session = ExecutionSession {
         indexes,
@@ -143,6 +150,7 @@ pub(super) fn build_with_command(
     action_plan: &ActionPlan,
     command: crate::script::ScriptCommand,
     progress: Option<ProgressReporter>,
+    report_timings: bool,
 ) -> Result<ExecutionSummary> {
     let source_config = load_source_config(build_plan)?;
     let profile_selection = profile_selection_for_action_plan(action_plan);
@@ -171,6 +179,7 @@ pub(super) fn build_with_command(
         command,
         profile_selection,
         std_workspace_root: &build_plan.workspace_root,
+        report_timings,
     };
     {
         let mut external = ExternalArtifacts {
@@ -265,6 +274,7 @@ pub(super) fn build_with_command(
             &local_library_actions,
             &built_std_packages,
             &built_external_packages,
+            config.report_timings,
         )? {
             compiled.insert(result.compile_object_path);
             local_summary.absorb(result.summary);
@@ -349,6 +359,7 @@ pub(super) fn build_with_command(
         &local_library_actions,
         &built_std_packages,
         &built_external_packages,
+        config.report_timings,
     )? {
         compiled.insert(result.compile_object_path);
         linked.insert(result.artifact_path);

@@ -47,7 +47,7 @@ use self::staging::{
     execute_staged_actions, link_progress_label,
 };
 
-pub use self::orchestrate::{build_with_progress, check_with_progress};
+pub use self::orchestrate::{build_with_progress_and_timings, check_with_progress_and_timings};
 pub(crate) use self::orchestrate::{
     materialize_analysis_inputs, materialize_analysis_inputs_with_progress,
 };
@@ -283,6 +283,7 @@ struct ExecutionConfig<'a> {
     command: crate::script::ScriptCommand,
     profile_selection: crate::script::ProfileSelection,
     std_workspace_root: &'a Path,
+    report_timings: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -552,6 +553,7 @@ fn ensure_compile_action_built(
         session.external.built_std_packages,
         session.external.built_external_packages,
         session.external.manifest_runtime_options,
+        session.config.report_timings,
     )?;
     if let Some(progress) = &session.state.progress {
         progress.set_phase(ExecutionPhase::Compile);

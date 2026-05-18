@@ -175,6 +175,7 @@ pub(super) fn compile_action_options(
     built_std_packages: &BTreeMap<String, BuiltStdPackage>,
     built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
     manifest_runtime_options: &mut BTreeMap<std::path::PathBuf, ManifestRuntimeOptions>,
+    report_timings: bool,
 ) -> Result<CompileOptions> {
     let mut options = CompileOptions {
         input_file: Some(action.source_path().to_string_lossy().to_string()),
@@ -205,6 +206,7 @@ pub(super) fn compile_action_options(
             &action.profile,
             action.domain,
         ),
+        report_timings,
         split_sections_for_gc: true,
         ..default_target_compile_options(action.target_kind)
     };
@@ -508,6 +510,7 @@ mod tests {
             &BTreeMap::new(),
             &BTreeMap::new(),
             &mut manifest_runtime_options,
+            false,
         )
         .unwrap();
 
@@ -547,6 +550,7 @@ root = "src/lib.kn"
             &built_std_packages,
             &BTreeMap::new(),
             &mut manifest_runtime_options,
+            false,
         )
         .unwrap();
 
@@ -598,6 +602,7 @@ root = "src/lib.kn"
             &built_std_packages,
             &BTreeMap::new(),
             &mut manifest_runtime_options,
+            false,
         )
         .unwrap();
 
@@ -642,6 +647,7 @@ root = "src/lib.kn"
             &built_std_packages,
             &BTreeMap::new(),
             &mut manifest_runtime_options,
+            false,
         )
         .unwrap();
 
@@ -686,6 +692,7 @@ root = "src/lib.kn"
             &built_std_packages,
             &BTreeMap::new(),
             &mut manifest_runtime_options,
+            false,
         )
         .unwrap();
 

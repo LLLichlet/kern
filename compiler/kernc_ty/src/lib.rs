@@ -446,7 +446,7 @@ impl TypeRegistry {
 
     fn add_primitive(&mut self, p: PrimitiveType) {
         let kind = TypeKind::Primitive(p);
-        let id = TypeId(self.types.len() as u32);
+        let id = TypeId(next_compact_id(self.types.len(), "type"));
         self.types.push(kind.clone());
         self.interner.insert(kind, id);
     }
@@ -457,7 +457,7 @@ impl TypeRegistry {
             return id;
         }
 
-        let id = TypeId(self.types.len() as u32);
+        let id = TypeId(next_compact_id(self.types.len(), "type"));
         self.types.push(kind.clone());
         self.interner.insert(kind, id);
         id
@@ -473,7 +473,7 @@ impl TypeRegistry {
             return id;
         }
 
-        let id = ConstExprId(self.const_exprs.len() as u32);
+        let id = ConstExprId(next_compact_id(self.const_exprs.len(), "const expression"));
         self.const_exprs.push(kind);
         self.const_expr_interner.insert(kind, id);
         id
@@ -805,6 +805,10 @@ impl TypeRegistry {
             _ => false,
         }
     }
+}
+
+fn next_compact_id(len: usize, kind: &str) -> u32 {
+    u32::try_from(len).unwrap_or_else(|_| panic!("{kind} id space exhausted"))
 }
 
 #[cfg(test)]

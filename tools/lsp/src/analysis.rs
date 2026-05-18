@@ -2088,6 +2088,21 @@ impl AnalysisEngine {
             .retain(|key, _| key.uri != uri);
     }
 
+    fn retain_semantic_tokens_for_document_text(&self, path: &Path, text_hash: u64) {
+        let target_path = normalize_path(path);
+        self.semantic_tokens_cache
+            .lock()
+            .unwrap()
+            .retain(|key, _| key.target_path != target_path || key.text_hash == text_hash);
+    }
+
+    fn invalidate_lexical_cache_for_document(&self, uri: &str) {
+        self.lexical_cache
+            .lock()
+            .unwrap()
+            .retain(|key, _| key.uri != uri);
+    }
+
     fn lexical_index_for_document(&self, uri: &str, document: &OpenDocument) -> Arc<LexicalIndex> {
         let key = LexicalCacheKey {
             uri: uri.to_string(),

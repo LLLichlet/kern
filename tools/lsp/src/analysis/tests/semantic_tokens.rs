@@ -467,6 +467,91 @@ fn semantic_tokens_cache_is_invalidated_per_document() {
             uri: first_uri.clone(),
         },
     });
+    assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn semantic_tokens_cache_survives_close_and_reopen_with_same_text() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn stable() i32 {\n    return 1;\n}\n";
+    let uri = temp_file_uri("semantic_tokens_cache_reopen", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+    let first = analysis.semantic_tokens(&uri).unwrap();
+    assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
+
+    let _ = analysis.close_document(DidCloseTextDocumentParams {
+        text_document: crate::protocol::TextDocumentIdentifier { uri: uri.clone() },
+    });
+    assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
+
+    analysis
+        .semantic_classification_cache
+        .lock()
+        .unwrap()
+        .clear();
+    analysis.navigation_cache.lock().unwrap().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 2,
+            text: source.to_string(),
+        },
+    });
+    let reopened = analysis.semantic_tokens(&uri).unwrap();
+
+    assert_eq!(first.data, reopened.data);
+    assert!(
+        analysis
+            .semantic_classification_cache
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(analysis.navigation_cache.lock().unwrap().is_empty());
+    assert!(analysis.artifact_cache.lock().unwrap().is_empty());
+}
+
+#[test]
+fn semantic_tokens_cache_for_reopened_document_drops_stale_text() {
+    let mut analysis = AnalysisEngine::default();
+    let first_source = "fn stable() i32 {\n    return 1;\n}\n";
+    let second_source = "fn stable() i32 {\n    return 2;\n}\n";
+    let uri = temp_file_uri("semantic_tokens_cache_reopen_stale", first_source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: first_source.to_string(),
+        },
+    });
+    let _ = analysis.semantic_tokens(&uri).unwrap();
+    assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
+
+    let _ = analysis.close_document(DidCloseTextDocumentParams {
+        text_document: crate::protocol::TextDocumentIdentifier { uri: uri.clone() },
+    });
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 2,
+            text: second_source.to_string(),
+        },
+    });
+
     assert!(analysis.semantic_tokens_cache.lock().unwrap().is_empty());
 }
 

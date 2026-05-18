@@ -188,12 +188,16 @@
           },
           "patterns": [
             {
-              "name": "entity.name.namespace.kern",
+              "name": "variable.other.namespace.kern",
               "match": "\\b[a-z][A-Za-z0-9_]*\\b(?=\\s*(?:\\.\\{|\\.))"
             },
             {
               "name": "support.type.imported.kern",
               "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+            },
+            {
+              "name": "entity.name.function.imported.kern",
+              "match": "\\b[a-z_][A-Za-z0-9_]*\\b(?=\\s*(?:,|\\}|;))"
             },
             {
               "name": "punctuation.separator.path.kern",
@@ -404,7 +408,7 @@
           "match": "\\.[A-Z][A-Za-z0-9_]*\\b"
         },
         {
-          "name": "entity.name.enum-variant.kern",
+          "name": "entity.name.type.enum-variant.kern",
           "match": "\\b[A-Z][A-Za-z0-9_]*\\b(?=\\s*(?:=|,|\\}))"
         }
       ]

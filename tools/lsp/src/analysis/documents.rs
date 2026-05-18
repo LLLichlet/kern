@@ -24,11 +24,12 @@ impl AnalysisEngine {
         };
 
         let is_dirty = Self::document_differs_from_disk(&path, &doc.text);
+        let text_hash = hash_source_text(&doc.text);
         self.documents.insert(
             uri.clone(),
             OpenDocument {
                 is_dirty,
-                text_hash: hash_source_text(&doc.text),
+                text_hash,
                 path: path.clone(),
                 version: doc.version,
                 text: doc.text,
@@ -36,7 +37,8 @@ impl AnalysisEngine {
         );
         self.invalidate_open_path_index();
         self.invalidate_dirty_document_snapshot();
-        self.invalidate_render_caches_for_document(&uri, &path);
+        self.invalidate_lexical_cache_for_document(&uri);
+        self.retain_semantic_tokens_for_document_text(&path, text_hash);
 
         DocumentSyncAction::ScheduleTarget {
             uri,
@@ -109,8 +111,8 @@ impl AnalysisEngine {
         let closed_document = self.documents.remove(&params.uri);
         self.invalidate_open_path_index();
         self.invalidate_dirty_document_snapshot();
-        if let Some(doc) = closed_document {
-            self.invalidate_render_caches_for_document(&params.uri, &doc.path);
+        if closed_document.is_some() {
+            self.invalidate_lexical_cache_for_document(&params.uri);
         }
         DocumentSyncAction::Immediate(AnalysisOutcome {
             bundles: vec![DiagnosticBundle {

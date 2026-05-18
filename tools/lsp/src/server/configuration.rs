@@ -124,7 +124,9 @@ enum ProjectSettings<'a> {
     Missing,
 }
 
-fn settings_root<'a>(root: &'a Map<String, Value>) -> (&'a Map<String, Value>, Option<&'static str>) {
+fn settings_root<'a>(
+    root: &'a Map<String, Value>,
+) -> (&'a Map<String, Value>, Option<&'static str>) {
     match root.get("kern").and_then(Value::as_object) {
         Some(kern) => (kern, Some("kern")),
         None => (root, None),

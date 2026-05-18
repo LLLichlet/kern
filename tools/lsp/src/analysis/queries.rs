@@ -1182,7 +1182,6 @@ impl AnalysisEngine {
         let token_key = SemanticTokensCacheKey {
             analysis: context.cache_key.clone(),
             target_path: target_path.clone(),
-            document_version: target_doc.version,
             text_hash: target_doc.text_hash,
         };
         if let Some(tokens) = self.semantic_tokens_cache.lock().unwrap().get(&token_key) {

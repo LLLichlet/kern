@@ -114,7 +114,6 @@ pub(super) struct AnalysisCacheFamilyKey {
 pub(super) struct SemanticTokensCacheKey {
     pub(super) analysis: AnalysisCacheKey,
     pub(super) target_path: PathBuf,
-    pub(super) document_version: i64,
     pub(super) text_hash: u64,
 }
 

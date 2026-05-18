@@ -102,6 +102,13 @@ fn decode_shell_status(raw: i32) i32 {
 
 impl &[u8] {
     /// Runs this text as one hosted shell command and captures combined stdout/stderr.
+    ///
+    /// Safety:
+    /// This API invokes the platform shell. On Unix-like hosts, shell syntax
+    /// such as `;`, `&&`, pipes, redirections, `$()`, backticks, and globbing is
+    /// interpreted by the shell. On Windows, the command is interpreted by
+    /// `cmd.exe`. Do not pass untrusted input to this function unless every
+    /// interpolated value has been quoted for the target shell.
     pub fn shell_capture(alloc: &mut Allocator) Capture!Error {
         #[if(os == "linux")]
         {
@@ -173,6 +180,9 @@ impl &[u8] {
     }
 
     /// Runs this text as one shell command and returns only its normalized exit status.
+    ///
+    /// Safety:
+    /// This has the same shell interpretation rules as `shell_capture`.
     pub fn shell_status(alloc: &mut Allocator) i32!Error {
         let mut capture = self.shell_capture(alloc).?;
         let status = capture.status;
@@ -181,6 +191,9 @@ impl &[u8] {
     }
 
     /// Runs this text as one shell command and returns whether it exited successfully.
+    ///
+    /// Safety:
+    /// This has the same shell interpretation rules as `shell_capture`.
     pub fn shell_success(alloc: &mut Allocator) bool!Error {
         return self.shell_status(alloc).map([](status: i32) bool {
             return status == 0;

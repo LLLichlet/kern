@@ -5,7 +5,7 @@ the report's speculative severity labels out of the active queue and tracks the
 small set of changes that are useful for Kern as a personal, actively maintained
 language project.
 
-## Priority 1: Shell API Documentation
+## Priority 1: Shell API Hardening
 
 `library/std/proc/shell.kn` exposes `shell_capture`, `shell_status`, and
 `shell_success` as shell-command helpers. Their implementations intentionally
@@ -24,10 +24,28 @@ Planned work:
 - Add prominent documentation warnings to the public shell helpers.
 - State that callers must not pass untrusted input unless they fully understand
   platform shell quoting.
+- Avoid unnecessary shell wrapping where the platform implementation already
+  redirects stderr directly.
 - Plan a future argv-style process API that executes a program with arguments
   without invoking a shell.
 
-## Priority 2: Craft Git Source Hardening
+## Priority 2: Panic And Unsafe Cleanup
+
+Kern should not carry avoidable `unwrap`, `expect`, `panic`, or undocumented
+`unsafe` debt into 1.0. This is the current cleanup focus.
+
+Planned work:
+
+- Audit production code separately from tests.
+- Replace recoverable `unwrap` and `expect` sites with explicit error
+  propagation or diagnostics.
+- Keep true compiler invariant failures as ICEs, but make them deliberate and
+  clearly worded.
+- Re-review `unsafe` blocks and add concise safety comments where the invariant
+  is non-obvious.
+- Prefer focused cleanups by subsystem so behavior stays reviewable.
+
+## Priority 3: Craft Git Source Hardening
 
 Craft already has release source policy checks for floating git references and
 `http://` sources. The report missed this existing policy, but the fetch path
@@ -41,17 +59,18 @@ Planned work:
 - Keep local path git dependencies working.
 - Add tests around policy classification and git command construction.
 
-## Priority 3: Security Policy
+## Completed: Security Policy
 
-Add a lightweight `SECURITY.md` so vulnerability reports have a private path and
-do not default to public issues.
+`SECURITY.md` gives vulnerability reports a private path and avoids implying a
+fixed response window for a personal project.
 
-Planned work:
+Completed work:
 
 - Keep commitments realistic for a personal project.
 - Support current `main` and the latest release only.
 - Ask reporters to avoid public disclosure until a fix is available.
-- Prefer GitHub private vulnerability reporting when available.
+- Prefer GitHub private vulnerability reporting when available and list the
+  maintainer contact email.
 
 ## Backlog
 
@@ -60,8 +79,6 @@ Planned work:
   names are worth the complexity.
 - Consider configurable LSP resource limits for open documents and cached
   analysis state.
-- Treat broad `unwrap` and `panic!` cleanup as ICE quality work driven by real
-  crashes, not as a blanket security task.
 
 ## Not Planned
 

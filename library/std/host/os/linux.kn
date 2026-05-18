@@ -406,16 +406,7 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
     let dash_lc = abi.cstr.owned(alloc, "-lc").map_err(wrap_alloc_error).?..&;
     defer dash_lc.deinit(alloc);
 
-    let wrapped = String.{}..&;
-    defer wrapped.deinit(alloc);
-    if (wrapped.try_push_str(alloc, "(").is_err()
-        or wrapped.try_push_str(alloc, command).is_err()
-        or wrapped.try_push_str(alloc, ") 2>&1").is_err())
-    {
-        return .{ Err: .{ code: 12 } };
-    }
-
-    let command_c = abi.cstr.owned(alloc, wrapped.as_str()).map_err(wrap_alloc_error).?..&;
+    let command_c = abi.cstr.owned(alloc, command).map_err(wrap_alloc_error).?..&;
     defer command_c.deinit(alloc);
 
     let mut fds: [2]i32 = undef;

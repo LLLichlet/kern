@@ -19,6 +19,7 @@ Preferred reporting path:
 
 - Use GitHub private vulnerability reporting if it is available for this
   repository.
+- Email softfault at `givenyoung46@gmail.com`.
 - If private vulnerability reporting is not available, open a minimal public
   issue asking for a private contact path without including exploit details.
 

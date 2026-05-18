@@ -89,7 +89,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         operand: &MirOperand,
     ) -> IntValue<'ctx> {
         let source_ty = self.mir_operand_ty(body, operand).unwrap_or(TypeId::USIZE);
-        let value = self.compile_mir_operand(body, operand).into_int_value();
+        let value = self.compile_mir_operand(body, operand);
+        let Some(value) = self.expect_int_value(value, Span::default(), "MIR index operand") else {
+            return self.context.i64_type().const_zero();
+        };
         // GEP indices must use a stable widened integer so signed `i32` indices do not leak
         // uninitialized high bits when a contextual `usize` temp is involved.
         self.cast_int_value_to_target_width(
@@ -308,15 +311,24 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     }
 
     pub(super) fn compile_mir_trap(&mut self) {
-        let intrinsic = Intrinsic::find("llvm.trap").unwrap();
-        let decl = intrinsic.get_declaration(&self.module, &[]).unwrap();
+        let Some(decl) =
+            self.lookup_intrinsic_declaration("llvm.trap", &[], Span::default(), "MIR trap")
+        else {
+            return;
+        };
         self.builder.build_call(decl, &[], "mir_trap").unwrap();
         self.builder.build_unreachable().unwrap();
     }
 
     pub(super) fn compile_mir_breakpoint(&mut self) {
-        let intrinsic = Intrinsic::find("llvm.debugtrap").unwrap();
-        let decl = intrinsic.get_declaration(&self.module, &[]).unwrap();
+        let Some(decl) = self.lookup_intrinsic_declaration(
+            "llvm.debugtrap",
+            &[],
+            Span::default(),
+            "MIR breakpoint",
+        ) else {
+            return;
+        };
         self.builder.build_call(decl, &[], "mir_bkpt").unwrap();
     }
 
@@ -442,7 +454,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     self.null_ptr()
                 }),
             MirPlace::Deref(operand) => {
-                self.compile_mir_operand(body, operand).into_pointer_value()
+                let value = self.compile_mir_operand(body, operand);
+                self.expect_pointer_value(value, span, "MIR dereference place")
+                    .unwrap_or_else(|| self.null_ptr())
             }
             MirPlace::Field {
                 base,
@@ -495,14 +509,21 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
                 match self.type_registry.get(norm_base_ty) {
                     TypeKind::Slice { elem, .. } => {
-                        let slice_val = self
-                            .compile_mir_place_load(body, base, norm_base_ty, span)
-                            .into_struct_value();
-                        let ptr_val = self
+                        let value = self.compile_mir_place_load(body, base, norm_base_ty, span);
+                        let Some(slice_val) =
+                            self.expect_struct_value(value, span, "MIR slice indexed place")
+                        else {
+                            return self.null_ptr();
+                        };
+                        let ptr_value = self
                             .builder
                             .build_extract_value(slice_val, 0, "mir_slice_ptr")
-                            .unwrap()
-                            .into_pointer_value();
+                            .unwrap();
+                        let Some(ptr_val) =
+                            self.expect_pointer_value(ptr_value, span, "MIR slice pointer field")
+                        else {
+                            return self.null_ptr();
+                        };
                         let elem_ty = self.get_llvm_type(*elem);
                         unsafe {
                             self.builder
@@ -511,9 +532,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         }
                     }
                     TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
-                        let ptr_val = self
-                            .compile_mir_place_load(body, base, norm_base_ty, span)
-                            .into_pointer_value();
+                        let value = self.compile_mir_place_load(body, base, norm_base_ty, span);
+                        let Some(ptr_val) =
+                            self.expect_pointer_value(value, span, "MIR pointer indexed place")
+                        else {
+                            return self.null_ptr();
+                        };
                         let elem_ty = self.get_llvm_type(*elem);
                         unsafe {
                             self.builder
@@ -576,7 +600,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .build_load(vector_ty, base_ptr, "mir_simd_load")
                     .unwrap()
             };
-            let idx_val = self.compile_mir_operand(body, index).into_int_value();
+            let idx_value = self.compile_mir_operand(body, index);
+            let Some(idx_val) = self.expect_int_value(idx_value, span, "MIR SIMD lane load index")
+            else {
+                return self.zero_i8_value();
+            };
             return self
                 .builder
                 .build_extract_element(vector_val.into_vector_value(), idx_val, "mir_simd_lane")
@@ -618,32 +646,36 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                 let ptr = match base {
                     MirSliceBase::Operand(operand) => {
-                        self.compile_mir_operand(body, operand).into_pointer_value()
+                        let value = self.compile_mir_operand(body, operand);
+                        self.expect_pointer_value(value, span, "MIR slice pointer base")?
                     }
-                    MirSliceBase::Place(place) => self
-                        .compile_mir_place_load(body, place, norm_base_ty, span)
-                        .into_pointer_value(),
+                    MirSliceBase::Place(place) => {
+                        let value = self.compile_mir_place_load(body, place, norm_base_ty, span);
+                        self.expect_pointer_value(value, span, "MIR slice pointer place base")?
+                    }
                 };
                 Some((ptr, None, *elem))
             }
             TypeKind::Slice { elem, .. } => {
-                let slice_val = match base {
+                let slice_value = match base {
                     MirSliceBase::Operand(operand) => self.compile_mir_operand(body, operand),
                     MirSliceBase::Place(place) => {
                         self.compile_mir_place_load(body, place, norm_base_ty, span)
                     }
-                }
-                .into_struct_value();
-                let ptr = self
+                };
+                let slice_val =
+                    self.expect_struct_value(slice_value, span, "MIR slice base value")?;
+                let ptr_value = self
                     .builder
                     .build_extract_value(slice_val, 0, "mir_slice_base_ptr")
-                    .unwrap()
-                    .into_pointer_value();
-                let len = self
+                    .unwrap();
+                let ptr =
+                    self.expect_pointer_value(ptr_value, span, "MIR slice base pointer field")?;
+                let len_value = self
                     .builder
                     .build_extract_value(slice_val, 1, "mir_slice_base_len")
-                    .unwrap()
-                    .into_int_value();
+                    .unwrap();
+                let len = self.expect_int_value(len_value, span, "MIR slice base length field")?;
                 Some((ptr, Some(len), *elem))
             }
             TypeKind::Array { elem, len, .. } => {
@@ -693,7 +725,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .build_load(vector_ty, base_ptr, "mir_simd_store_load")
                     .unwrap()
             };
-            let idx_val = self.compile_mir_operand(body, index).into_int_value();
+            let idx_value = self.compile_mir_operand(body, index);
+            let Some(idx_val) = self.expect_int_value(idx_value, span, "MIR SIMD lane store index")
+            else {
+                return;
+            };
             let updated_vector = self
                 .builder
                 .build_insert_element(

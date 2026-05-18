@@ -1,6 +1,5 @@
 use super::CodeGenerator;
 use crate::basic_block::BasicBlock;
-use crate::intrinsics::Intrinsic;
 use crate::llvm_sys::core::LLVMSetWeak;
 use crate::types::BasicTypeEnum;
 use crate::values::{AsValueRef, BasicValueEnum, FunctionValue, IntValue, PointerValue};

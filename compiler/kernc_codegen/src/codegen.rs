@@ -18,6 +18,7 @@ mod alloca;
 mod debug_info;
 mod decl;
 mod emit;
+mod ice;
 mod math;
 mod mir;
 mod refs;

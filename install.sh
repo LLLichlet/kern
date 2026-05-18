@@ -17,6 +17,18 @@ need_tool() {
     command -v "$1" >/dev/null 2>&1 || fail "required tool \`$1\` was not found in PATH."
 }
 
+find_python3() {
+    if command -v python3 >/dev/null 2>&1; then
+        command -v python3
+        return 0
+    fi
+    if command -v python >/dev/null 2>&1 && python --version 2>&1 | grep -Eq '^Python 3\.'; then
+        command -v python
+        return 0
+    fi
+    fail "required tool \`python3\` was not found in PATH."
+}
+
 print_help() {
     cat <<'EOF'
 Install a Kern SDK release archive.
@@ -144,14 +156,99 @@ json_string_field() {
     sed -n "s/.*\"${field}\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$path" | head -n 1
 }
 
+validate_manifest_components() {
+    sdk_root="$1"
+    expected_target="$2"
+    manifest_path="$3"
+    python_bin="$(find_python3)"
+
+    "$python_bin" - "$sdk_root" "$expected_target" "$manifest_path" <<'PY'
+import hashlib
+import json
+import os
+import sys
+
+
+def fail(message):
+    print(f"Error: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+sdk_root, expected_target, manifest_path = sys.argv[1:]
+try:
+    with open(manifest_path, "r", encoding="utf-8") as handle:
+        manifest = json.load(handle)
+except Exception as err:
+    fail(f"failed to parse SDK manifest `{manifest_path}`: {err}")
+
+if manifest.get("host_target") != expected_target:
+    fail(f"SDK host target mismatch in `{manifest_path}`")
+
+toolchain = manifest.get("toolchain")
+if not isinstance(toolchain, dict):
+    fail("SDK manifest is missing the `toolchain` section")
+
+components = toolchain.get("components")
+if not isinstance(components, dict):
+    fail("SDK manifest toolchain components are invalid")
+
+if not toolchain.get("bundled"):
+    sys.exit(0)
+
+required = ["clang", "lld"]
+if expected_target.endswith("windows-msvc"):
+    required.append("llvm_lib")
+
+for component in required:
+    if component not in components:
+        fail(f"SDK manifest is missing bundled component `{component}`")
+
+for component, entry in components.items():
+    if not isinstance(entry, dict):
+        fail(f"SDK manifest component `{component}` is invalid")
+
+    relative_path = entry.get("path")
+    if not isinstance(relative_path, str) or not relative_path:
+        fail(f"SDK manifest component `{component}` has no path")
+    if os.path.isabs(relative_path) or ".." in relative_path.replace("\\", "/").split("/"):
+        fail(f"SDK manifest component `{component}` has an unsafe path")
+
+    target = os.path.join(sdk_root, *relative_path.replace("\\", "/").split("/"))
+    kind = entry.get("kind") or "file"
+    if kind == "directory":
+        if not os.path.isdir(target):
+            fail(f"SDK bundled component `{component}` is missing at `{target}`")
+        expected_sha = entry.get("sha256")
+        if expected_sha:
+            fail(f"SDK manifest component `{component}` unexpectedly has a directory checksum")
+        continue
+    if kind != "file":
+        fail(f"SDK manifest component `{component}` has unsupported kind `{kind}`")
+    if not os.path.isfile(target):
+        fail(f"SDK bundled component `{component}` is missing at `{target}`")
+
+    expected_size = entry.get("size")
+    if expected_size is not None and int(expected_size) != os.path.getsize(target):
+        fail(f"SDK bundled component `{component}` size mismatch at `{target}`")
+
+    expected_sha = entry.get("sha256")
+    if expected_sha:
+        digest = hashlib.sha256()
+        with open(target, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest().lower() != str(expected_sha).lower():
+            fail(f"SDK bundled component `{component}` checksum mismatch at `{target}`")
+PY
+}
+
 validate_sdk_root() {
     sdk_root="$1"
     expected_target="$2"
     manifest_path="$sdk_root/manifest/sdk.json"
 
     [ -f "$manifest_path" ] || fail "SDK manifest \`$manifest_path\` is missing"
-    host_target="$(json_string_field "host_target" "$manifest_path")"
-    [ "$host_target" = "$expected_target" ] || fail "SDK host target mismatch in \`$manifest_path\`"
+    validate_manifest_components "$sdk_root" "$expected_target" "$manifest_path"
 
     for binary in kernc craft kern-lsp; do
         [ -f "$sdk_root/bin/$binary" ] || fail "SDK binary \`$binary\` is missing from \`$sdk_root\`"
@@ -285,6 +382,7 @@ configure_path() {
     info "Added $install_bin to your PATH in $rc_file."
 }
 
+main() {
 VERSION=""
 TARGET=""
 ARCHIVE=""
@@ -392,3 +490,8 @@ if [ "$NO_PATH" -eq 0 ]; then
 fi
 
 info "Kern ${VERSION} toolchain installed successfully!"
+}
+
+if [ "${KERN_INSTALL_SH_SOURCE_ONLY:-0}" -ne 1 ]; then
+    main "$@"
+fi

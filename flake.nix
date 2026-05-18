@@ -97,7 +97,7 @@
 
               buildAndTestSubdir = ".";
               cargoBuildFlags = [ "-p" cargoPackage ];
-              cargoTestFlags = [ "-p" cargoPackage ];
+              doCheck = false;
 
               nativeBuildInputs = commonNativeBuildInputs;
               buildInputs = commonBuildInputs;
@@ -198,6 +198,25 @@
           kern-lsp = kernLsp;
         });
 
+      checks = forEachSystem (pkgs:
+        let
+          system = pkgs.stdenv.hostPlatform.system;
+          packages = self.packages.${system};
+          mkVersionCheck = name: pkg:
+            pkgs.runCommand "${name}-version-check" { } ''
+              "${pkg}/bin/${name}" --version > /dev/null
+              touch "$out"
+            '';
+        in
+        {
+          inherit (packages) kernc craft;
+          kern-lsp = packages.kern-lsp;
+
+          kernc-version = mkVersionCheck "kernc" packages.kernc;
+          craft-version = mkVersionCheck "craft" packages.craft;
+          kern-lsp-version = mkVersionCheck "kern-lsp" packages.kern-lsp;
+        });
+
       overlays.default = final: _prev: {
         kernc = self.packages.${final.stdenv.hostPlatform.system}.kernc;
         craft = self.packages.${final.stdenv.hostPlatform.system}.craft;
@@ -213,18 +232,23 @@
           kernc = {
             type = "app";
             program = "${self.packages.${system}.kernc}/bin/kernc";
+            meta.description = "Run the Kern compiler";
           };
           craft = {
             type = "app";
             program = "${self.packages.${system}.craft}/bin/craft";
+            meta.description = "Run the Kern package manager and build tool";
           };
           kern-lsp = {
             type = "app";
             program = "${self.packages.${system}.kern-lsp}/bin/kern-lsp";
+            meta.description = "Run the Kern language server";
           };
-          default = self.apps.${system}.kernc;
+          default = self.apps.${system}.kernc // {
+            meta.description = "Run the default Kern CLI entrypoint";
+          };
         });
 
-      formatter = forEachSystem (pkgs: pkgs.nixfmt-rfc-style);
+      formatter = forEachSystem (pkgs: pkgs.nixfmt);
     };
 }

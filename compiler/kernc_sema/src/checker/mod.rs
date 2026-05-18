@@ -11,7 +11,8 @@ use crate::scope::{ScopeId, SymbolInfo, SymbolKind, SymbolNamespace};
 use crate::semantic::SemanticSymbolKind;
 use crate::ty::{ConstGeneric, GenericArg, TypeId, TypeKind};
 use kernc_ast::{self as ast, Visibility};
-use kernc_utils::{Canceled, CancellationToken, Span};
+use kernc_utils::{Canceled, CancellationToken, FileId, Span};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// Main entry point for semantic type checking.
@@ -478,6 +479,19 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         self.worklists().1
     }
 
+    pub fn body_worklist_for_file(&self, target_path: &Path) -> Vec<BodyWorkItem> {
+        let target_file_ids = self.target_file_ids(target_path);
+        if target_file_ids.is_empty() {
+            return Vec::new();
+        }
+
+        self.worklists()
+            .1
+            .into_iter()
+            .filter(|(def_id, _)| self.def_is_in_files(*def_id, &target_file_ids))
+            .collect()
+    }
+
     pub fn check_body_worklist(&mut self, worklist: &[BodyWorkItem]) -> TypeckBodyTimings {
         self.check_body_worklist_cancelable(worklist, &CancellationToken::new())
             .expect("fresh cancellation token cannot be canceled")
@@ -503,6 +517,30 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         })();
         self.cancellation = previous;
         result
+    }
+
+    fn target_file_ids(&self, target_path: &Path) -> Vec<FileId> {
+        let target_path = normalize_checker_path(target_path);
+        self.ctx
+            .sess
+            .source_manager
+            .files()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, file)| {
+                (normalize_checker_path(&file.path) == target_path).then_some(FileId(index))
+            })
+            .collect()
+    }
+
+    fn def_is_in_files(&self, def_id: DefId, file_ids: &[FileId]) -> bool {
+        let Some(def) = self.ctx.defs.get(def_id.0 as usize) else {
+            return false;
+        };
+        let Some(span) = def_primary_span(def) else {
+            return false;
+        };
+        file_ids.contains(&span.file)
     }
 
     fn check_canceled(&self) -> Result<(), Canceled> {
@@ -1339,4 +1377,27 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         self.ctx.clear_active_bound_caches();
         self.ctx.scopes.exit_scope();
     }
+}
+
+fn def_primary_span(def: &Def) -> Option<Span> {
+    match def {
+        Def::Module(module) => Some(Span {
+            file: module.file_id,
+            start: 0,
+            end: 0,
+        }),
+        Def::Function(function) => Some(function.span),
+        Def::Struct(strukt) => Some(strukt.span),
+        Def::Union(union) => Some(union.span),
+        Def::Enum(enm) => Some(enm.span),
+        Def::Trait(trait_def) => Some(trait_def.span),
+        Def::AssociatedType(assoc) => Some(assoc.span),
+        Def::Impl(imp) => Some(imp.span),
+        Def::Global(global) => Some(global.span),
+        Def::TypeAlias(alias) => Some(alias.span),
+    }
+}
+
+fn normalize_checker_path(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }

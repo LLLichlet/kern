@@ -919,13 +919,13 @@ impl AnalysisEngine {
         let context = self
             .resolve_analysis_context_for_snapshot(snapshot, uri)
             .map_err(|message| format!("hover analysis failed: {message}"))?;
-        let artifact = self
-            .analyze_interactive_semantic_token_artifact_for_context(&context)
-            .map_err(|message| format!("hover analysis failed: {message}"))?;
         let Some(target_doc) = snapshot.document(uri) else {
             return Err("requested hover for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
+        let artifact = self
+            .analyze_interactive_semantic_token_artifact_for_context(&context, &target_path)
+            .map_err(|message| format!("hover analysis failed: {message}"))?;
 
         Ok(find_hover(
             &artifact.session,
@@ -1250,7 +1250,8 @@ impl AnalysisEngine {
 
         let tokens = if context.dirty_documents.is_clean() {
             self.record_analysis_tier(AnalysisTier::CleanSemantic);
-            let artifact = self.analyze_semantic_token_artifact_for_context(&context)?;
+            let artifact =
+                self.analyze_semantic_token_artifact_for_context(&context, &target_path)?;
             semantic::semantic_tokens_cancelable(
                 semantic::SemanticArtifactView {
                     session: &artifact.session,
@@ -1266,11 +1267,11 @@ impl AnalysisEngine {
         } else if context.dirty_documents.contains_path(&target_path) {
             self.record_analysis_tier(AnalysisTier::DirtySemantic);
             let artifact = if let Some(artifact) =
-                self.analyze_dirty_semantic_token_artifact_for_context(&context)?
+                self.analyze_dirty_semantic_token_artifact_for_context(&context, &target_path)?
             {
                 artifact
             } else {
-                self.analyze_semantic_token_artifact_for_context(&context)?
+                self.analyze_semantic_token_artifact_for_context(&context, &target_path)?
             };
             semantic::semantic_tokens_cancelable(
                 semantic::SemanticArtifactView {
@@ -1286,7 +1287,8 @@ impl AnalysisEngine {
             )?
         } else {
             self.record_analysis_tier(AnalysisTier::CleanSemantic);
-            let artifact = self.analyze_clean_semantic_token_artifact_for_context(&context)?;
+            let artifact =
+                self.analyze_clean_semantic_token_artifact_for_context(&context, &target_path)?;
             semantic::semantic_tokens_cancelable(
                 semantic::SemanticArtifactView {
                     session: &artifact.session,

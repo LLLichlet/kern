@@ -85,7 +85,7 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
             .lock()
             .unwrap()
             .keys()
-            .all(AnalysisCacheKey::is_clean)
+            .all(|key| key.is_clean())
     );
 }
 
@@ -215,7 +215,7 @@ fn dirty_interactive_requests_after_complex_error_avoid_full_dirty_analysis() {
     drop(semantic_cache);
     let semantic_token_cache = analysis.semantic_token_classification_cache.lock().unwrap();
     assert_eq!(semantic_token_cache.len(), 2);
-    assert!(semantic_token_cache.keys().any(AnalysisCacheKey::is_clean));
+    assert!(semantic_token_cache.keys().any(|key| key.is_clean()));
     assert!(semantic_token_cache.keys().any(|key| !key.is_clean()));
     drop(semantic_token_cache);
     assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);

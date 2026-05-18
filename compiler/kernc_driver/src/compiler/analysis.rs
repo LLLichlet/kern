@@ -233,6 +233,7 @@ impl CompilerDriver {
         &self,
         input_file: &str,
         source_overrides: &SourceOverrides,
+        target_path: &Path,
         cancellation: &CancellationToken,
     ) -> Result<AnalysisSemanticTokenArtifact, Canceled> {
         cancellation.check()?;
@@ -258,6 +259,7 @@ impl CompilerDriver {
                     Ok(structure) => {
                         return self.analyze_semantic_token_artifact_from_structure(
                             &structure,
+                            target_path,
                             cancellation,
                         );
                     }
@@ -266,7 +268,7 @@ impl CompilerDriver {
             }
         };
         cancellation.check()?;
-        self.analyze_semantic_token_artifact_from_structure(&structure, cancellation)
+        self.analyze_semantic_token_artifact_from_structure(&structure, target_path, cancellation)
     }
 
     pub fn analyze_imported_structure(

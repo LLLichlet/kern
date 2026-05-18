@@ -118,6 +118,12 @@ pub(super) struct SemanticTokensCacheKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(super) struct SemanticTokenClassificationCacheKey {
+    pub(super) analysis: AnalysisCacheKey,
+    pub(super) target_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct LexicalCacheKey {
     pub(super) uri: String,
     pub(super) document_version: i64,
@@ -201,6 +207,30 @@ impl AnalysisCacheKey {
             module_aliases: self.module_aliases.clone(),
             module_interface_aliases: self.module_interface_aliases.clone(),
         }
+    }
+}
+
+impl SemanticTokenClassificationCacheKey {
+    pub(super) fn for_target(analysis: AnalysisCacheKey, target_path: &Path) -> Self {
+        Self {
+            analysis,
+            target_path: Some(super::normalize_path(target_path)),
+        }
+    }
+
+    pub(super) fn complete(analysis: AnalysisCacheKey) -> Self {
+        Self {
+            analysis,
+            target_path: None,
+        }
+    }
+
+    pub(super) fn family(&self) -> AnalysisCacheFamilyKey {
+        self.analysis.family()
+    }
+
+    pub(super) fn is_clean(&self) -> bool {
+        self.analysis.is_clean()
     }
 }
 

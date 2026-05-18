@@ -227,6 +227,7 @@ impl CompilerDriver {
     pub fn analyze_semantic_token_artifact_from_structure(
         &self,
         structure: &StructureArtifact,
+        target_path: &Path,
         cancellation: &CancellationToken,
     ) -> Result<AnalysisSemanticTokenArtifact, Canceled> {
         cancellation.check()?;
@@ -236,7 +237,8 @@ impl CompilerDriver {
         let mut ctx = self.build_sema_context(&mut session);
         ctx.restore_structure(structure.snapshot.clone());
         cancellation.check()?;
-        let succeeded = self.run_navigation_pipeline_cancelable(&mut ctx, cancellation)?;
+        let succeeded =
+            self.run_targeted_navigation_pipeline_cancelable(&mut ctx, target_path, cancellation)?;
         cancellation.check()?;
         let symbols = self.collect_analysis_symbols(&ctx, &analysis_asts);
         let references = ctx
@@ -266,6 +268,7 @@ impl CompilerDriver {
         &self,
         structure: &StructureArtifact,
         parsed: &ParsedModuleArtifact,
+        target_path: &Path,
         cancellation: &CancellationToken,
     ) -> Result<Option<AnalysisSemanticTokenArtifact>, Canceled> {
         cancellation.check()?;
@@ -288,7 +291,8 @@ impl CompilerDriver {
             return Ok(None);
         };
         cancellation.check()?;
-        let succeeded = self.run_navigation_pipeline_cancelable(&mut ctx, cancellation)?;
+        let succeeded =
+            self.run_targeted_navigation_pipeline_cancelable(&mut ctx, target_path, cancellation)?;
         cancellation.check()?;
         let symbols = self.collect_analysis_symbols(&ctx, &analysis_asts);
         let references = ctx
@@ -571,6 +575,24 @@ impl CompilerDriver {
     ) -> Result<bool, Canceled> {
         let mut typeck = TypeckDriver::new(ctx);
         let (globals, worklist) = typeck.worklists();
+        cancellation.check()?;
+        typeck.resolve_global_worklist_cancelable(&globals, cancellation)?;
+        typeck.check_body_worklist_cancelable(&worklist, cancellation)?;
+        let ctx = typeck.into_context();
+        cancellation.check()?;
+        Ok(Self::report_diagnostics_if_errors(ctx))
+    }
+
+    pub(in crate::compiler) fn run_targeted_navigation_pipeline_cancelable<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+        target_path: &Path,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, Canceled> {
+        let target_path = normalize_driver_path(target_path);
+        let mut typeck = TypeckDriver::new(ctx);
+        let globals = typeck.global_worklist();
+        let worklist = typeck.body_worklist_for_file(&target_path);
         cancellation.check()?;
         typeck.resolve_global_worklist_cancelable(&globals, cancellation)?;
         typeck.check_body_worklist_cancelable(&worklist, cancellation)?;

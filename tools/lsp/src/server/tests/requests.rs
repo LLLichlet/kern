@@ -3830,7 +3830,7 @@ fn decode_semantic_token_positions(data: &[Value]) -> Vec<(u64, u64)> {
 }
 
 #[test]
-fn verbose_trace_reports_dirty_semantic_tokens_as_lexical() {
+fn verbose_trace_reports_dirty_semantic_tokens_as_semantic() {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;
     let clean = "fn main() i32 {\n    return 0;\n}\n";
@@ -3856,7 +3856,10 @@ fn verbose_trace_reports_dirty_semantic_tokens_as_lexical() {
     assert_eq!(messages[1]["method"], "$/logTrace");
     assert_eq!(messages[1]["params"]["message"], "analysis tier selected");
     let verbose = messages[1]["params"]["verbose"].as_str().unwrap();
-    assert!(verbose.contains("tier=lexical"), "{verbose}");
+    assert!(
+        verbose.contains("tier=dirty-semantic") || verbose.contains("tier=clean-semantic"),
+        "{verbose}"
+    );
     assert!(verbose.contains("budget=ok"), "{verbose}");
     assert!(verbose.contains("lane=Interactive"), "{verbose}");
 }

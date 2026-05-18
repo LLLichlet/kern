@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn semantic_tokens_for_dirty_documents_fall_back_to_lexical_tokens() {
+fn semantic_tokens_for_dirty_documents_keep_semantic_classification() {
     let mut analysis = AnalysisEngine::default();
     let uri = temp_file_uri(
         "semantic_tokens_dirty_fallback",
@@ -30,16 +30,20 @@ fn semantic_tokens_for_dirty_documents_fall_back_to_lexical_tokens() {
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
     assert!(!decoded.is_empty());
-    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::DirtySemantic)
+    );
     assert!(
         decoded
             .iter()
-            .any(|token| token.2 == SemanticTokenTypes::KEYWORD)
+            .any(|token| token.2 != SemanticTokenTypes::KEYWORD),
+        "{decoded:?}"
     );
 }
 
 #[test]
-fn semantic_tokens_for_valid_dirty_documents_use_lexical_fallback() {
+fn semantic_tokens_for_valid_dirty_documents_keep_semantic_classification() {
     let mut analysis = AnalysisEngine::default();
     let clean_source = "fn main() i32 {\n    let value = 1;\n    return value;\n}\n";
     let dirty_source = "fn main() i32 {\n\n    let value = 1;\n    return value;\n}\n";
@@ -68,7 +72,10 @@ fn semantic_tokens_for_valid_dirty_documents_use_lexical_fallback() {
     let cached_artifacts = analysis.artifact_cache.lock().unwrap().len();
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
     assert!(!decoded.is_empty());
-    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::DirtySemantic)
+    );
     assert_eq!(
         analysis.artifact_cache.lock().unwrap().len(),
         cached_artifacts
@@ -76,7 +83,8 @@ fn semantic_tokens_for_valid_dirty_documents_use_lexical_fallback() {
     assert!(
         decoded
             .iter()
-            .any(|token| token.2 == SemanticTokenTypes::KEYWORD)
+            .any(|token| token.2 == SemanticTokenTypes::FUNCTION),
+        "{decoded:?}"
     );
 }
 
@@ -366,6 +374,100 @@ fn semantic_tokens_cache_reuses_rendered_tokens_for_stable_document() {
     assert!(analysis.navigation_cache.lock().unwrap().is_empty());
     assert!(analysis.artifact_cache.lock().unwrap().is_empty());
     assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn semantic_tokens_cache_is_invalidated_per_document() {
+    let mut analysis = AnalysisEngine::default();
+    let first_source = "fn first() i32 {\n    return 1;\n}\n";
+    let second_source = "fn second() i32 {\n    return 2;\n}\n";
+    let first_uri = temp_file_uri("semantic_tokens_cache_first", first_source);
+    let second_uri = temp_file_uri("semantic_tokens_cache_second", second_source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: first_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: first_source.to_string(),
+        },
+    });
+    let first_tokens = analysis.semantic_tokens(&first_uri).unwrap();
+    assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: second_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: second_source.to_string(),
+        },
+    });
+    assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
+
+    analysis
+        .semantic_classification_cache
+        .lock()
+        .unwrap()
+        .clear();
+    analysis.navigation_cache.lock().unwrap().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
+    let cached_first_tokens = analysis.semantic_tokens(&first_uri).unwrap();
+    assert_eq!(first_tokens.data, cached_first_tokens.data);
+    assert!(
+        analysis
+            .semantic_classification_cache
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
+
+    let _ = analysis.semantic_tokens(&second_uri).unwrap();
+    assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 2);
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: second_uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: "fn second() i32 {\n    return 3;\n}\n".to_string(),
+        }],
+    });
+    assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
+
+    let _ = analysis.close_document(DidCloseTextDocumentParams {
+        text_document: crate::protocol::TextDocumentIdentifier {
+            uri: second_uri.clone(),
+        },
+    });
+    assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
+
+    analysis
+        .semantic_classification_cache
+        .lock()
+        .unwrap()
+        .clear();
+    analysis.navigation_cache.lock().unwrap().clear();
+    analysis.artifact_cache.lock().unwrap().clear();
+    let cached_first_tokens = analysis.semantic_tokens(&first_uri).unwrap();
+    assert_eq!(first_tokens.data, cached_first_tokens.data);
+    assert!(
+        analysis
+            .semantic_classification_cache
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
+
+    let _ = analysis.close_document(DidCloseTextDocumentParams {
+        text_document: crate::protocol::TextDocumentIdentifier {
+            uri: first_uri.clone(),
+        },
+    });
+    assert!(analysis.semantic_tokens_cache.lock().unwrap().is_empty());
 }
 
 #[test]

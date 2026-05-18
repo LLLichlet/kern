@@ -29,14 +29,14 @@ impl AnalysisEngine {
             OpenDocument {
                 is_dirty,
                 text_hash: hash_source_text(&doc.text),
-                path,
+                path: path.clone(),
                 version: doc.version,
                 text: doc.text,
             },
         );
         self.invalidate_open_path_index();
         self.invalidate_dirty_document_snapshot();
-        self.invalidate_render_caches();
+        self.invalidate_render_caches_for_document(&uri, &path);
 
         DocumentSyncAction::ScheduleTarget {
             uri,
@@ -80,8 +80,9 @@ impl AnalysisEngine {
         doc.version = params.version;
         doc.is_dirty = Self::document_differs_from_disk(&doc.path, &doc.text);
         doc.text_hash = hash_source_text(&doc.text);
+        let path = doc.path.clone();
         self.invalidate_dirty_document_snapshot();
-        self.invalidate_render_caches();
+        self.invalidate_render_caches_for_document(&params.uri, &path);
 
         DocumentSyncAction::ScheduleTarget {
             uri: params.uri,
@@ -105,14 +106,12 @@ impl AnalysisEngine {
         params: impl IntoIdeCloseDocument,
     ) -> DocumentSyncAction {
         let params = params.into_ide_close_document();
-        let _was_dirty = self
-            .documents
-            .remove(&params.uri)
-            .map(|doc| doc.is_dirty)
-            .unwrap_or(false);
+        let closed_document = self.documents.remove(&params.uri);
         self.invalidate_open_path_index();
         self.invalidate_dirty_document_snapshot();
-        self.invalidate_render_caches();
+        if let Some(doc) = closed_document {
+            self.invalidate_render_caches_for_document(&params.uri, &doc.path);
+        }
         DocumentSyncAction::Immediate(AnalysisOutcome {
             bundles: vec![DiagnosticBundle {
                 uri: params.uri,

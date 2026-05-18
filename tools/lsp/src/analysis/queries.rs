@@ -1183,28 +1183,55 @@ impl AnalysisEngine {
             analysis: context.cache_key.clone(),
             target_path: target_path.clone(),
             document_version: target_doc.version,
+            text_hash: target_doc.text_hash,
         };
         if let Some(tokens) = self.semantic_tokens_cache.lock().unwrap().get(&token_key) {
             self.record_cache_hit(AnalysisCacheTraceKind::SemanticTokens);
-            self.record_analysis_tier(if context.dirty_documents.is_clean() {
-                AnalysisTier::CleanSemantic
-            } else {
-                AnalysisTier::Lexical
-            });
+            self.record_analysis_tier(semantic_tokens_analysis_tier(&context, &target_path));
             return Ok(tokens.clone());
         }
         self.record_cache_miss(AnalysisCacheTraceKind::SemanticTokens);
 
-        let tokens = if !context.dirty_documents.is_clean() {
-            self.record_analysis_tier(AnalysisTier::Lexical);
-            semantic::lexical_semantic_tokens_cancelable(&file, &snapshot.cancellation)?
+        let tokens = if context.dirty_documents.is_clean() {
+            self.record_analysis_tier(AnalysisTier::CleanSemantic);
+            let artifact = self.analyze_semantic_classification_artifact_for_context(&context)?;
+            semantic::semantic_tokens_cancelable(
+                semantic::SemanticArtifactView {
+                    session: &artifact.session,
+                    symbols: &artifact.symbols,
+                    references: &artifact.references,
+                    hovers: &artifact.hovers,
+                    semantic_entries: &artifact.semantic_entries,
+                },
+                &file,
+                &target_path,
+                &snapshot.cancellation,
+            )?
+        } else if context.dirty_documents.contains_path(&target_path) {
+            self.record_analysis_tier(AnalysisTier::DirtySemantic);
+            let artifact = if let Some(artifact) =
+                self.analyze_dirty_semantic_classification_artifact_for_context(&context)?
+            {
+                artifact
+            } else {
+                self.analyze_semantic_classification_artifact_for_context(&context)?
+            };
+            semantic::semantic_tokens_cancelable(
+                semantic::SemanticArtifactView {
+                    session: &artifact.session,
+                    symbols: &artifact.symbols,
+                    references: &artifact.references,
+                    hovers: &artifact.hovers,
+                    semantic_entries: &artifact.semantic_entries,
+                },
+                &file,
+                &target_path,
+                &snapshot.cancellation,
+            )?
         } else {
             self.record_analysis_tier(AnalysisTier::CleanSemantic);
-            let artifact = if context.dirty_documents.is_clean() {
-                self.analyze_semantic_classification_artifact_for_context(&context)?
-            } else {
-                self.analyze_clean_semantic_classification_artifact_for_context(&context)?
-            };
+            let artifact =
+                self.analyze_clean_semantic_classification_artifact_for_context(&context)?;
             semantic::semantic_tokens_cancelable(
                 semantic::SemanticArtifactView {
                     session: &artifact.session,
@@ -1622,6 +1649,19 @@ fn workspace_symbol_same_location(
     rhs: &mut IdeWorkspaceSymbol,
 ) -> bool {
     lhs.name == rhs.name && lhs.kind == rhs.kind && lhs.location == rhs.location
+}
+
+fn semantic_tokens_analysis_tier(
+    context: &AnalysisRequestContext,
+    target_path: &Path,
+) -> AnalysisTier {
+    if context.dirty_documents.is_clean() {
+        AnalysisTier::CleanSemantic
+    } else if context.dirty_documents.contains_path(target_path) {
+        AnalysisTier::DirtySemantic
+    } else {
+        AnalysisTier::CleanSemantic
+    }
 }
 
 fn line_range(file: &SourceFile, line: u32) -> IdeRange {

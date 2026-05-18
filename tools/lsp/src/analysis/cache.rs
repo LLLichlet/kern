@@ -2,7 +2,7 @@ use craft::project::ResolvedAnalysis;
 use kernc_driver::SourceOverrides;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct DirtyDocumentsSnapshot {
@@ -17,6 +17,13 @@ impl DirtyDocumentsSnapshot {
 
     pub(super) fn len(&self) -> usize {
         self.hashed_overrides.len()
+    }
+
+    pub(super) fn contains_path(&self, path: &Path) -> bool {
+        let normalized = super::normalize_path(path);
+        self.hashed_overrides
+            .iter()
+            .any(|(dirty_path, _)| *dirty_path == normalized)
     }
 
     pub(super) fn remap_for(&self, aliases: &std::collections::BTreeMap<PathBuf, PathBuf>) -> Self {
@@ -108,6 +115,7 @@ pub(super) struct SemanticTokensCacheKey {
     pub(super) analysis: AnalysisCacheKey,
     pub(super) target_path: PathBuf,
     pub(super) document_version: i64,
+    pub(super) text_hash: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

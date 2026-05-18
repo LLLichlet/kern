@@ -1236,6 +1236,72 @@ impl AnalysisEngine {
         self.analyze_clean_semantic_classification_artifact_for_context(context)
     }
 
+    fn analyze_dirty_semantic_classification_artifact_for_context(
+        &self,
+        context: &AnalysisRequestContext,
+    ) -> Result<Option<Arc<AnalysisSemanticArtifact>>, String> {
+        context.check_canceled()?;
+        if context.dirty_documents.is_clean() || !context.resolved.input_file.is_file() {
+            return Ok(None);
+        }
+
+        if let Some(artifact) = self
+            .semantic_classification_cache
+            .lock()
+            .unwrap()
+            .get(&context.cache_key)
+        {
+            self.record_cache_hit(AnalysisCacheTraceKind::SemanticClassificationArtifact);
+            return Ok(Some(Arc::clone(artifact)));
+        }
+        self.record_cache_miss(AnalysisCacheTraceKind::SemanticClassificationArtifact);
+
+        let clean_key = AnalysisCacheKey::clean(&context.resolved);
+        let Some(clean_structure) = self
+            .structure_cache
+            .lock()
+            .unwrap()
+            .get(&clean_key)
+            .cloned()
+        else {
+            return Ok(None);
+        };
+
+        let Some(parsed) = context
+            .with_driver(|driver| {
+                driver.parse_modules(
+                    &context.resolved.input_file.to_string_lossy(),
+                    &context.dirty_documents.overrides,
+                    &context.cancellation,
+                )
+            })
+            .map_err(|_| "request was canceled".to_string())?
+        else {
+            return Ok(None);
+        };
+
+        let Some(artifact) = context
+            .with_driver(|driver| {
+                driver.analyze_semantic_artifact_from_structure_and_parsed(
+                    &clean_structure,
+                    &parsed,
+                    &context.cancellation,
+                )
+            })
+            .map_err(|_| "request was canceled".to_string())?
+        else {
+            return Ok(None);
+        };
+
+        let artifact = Arc::new(artifact);
+        self.semantic_classification_cache
+            .lock()
+            .unwrap()
+            .insert(context.cache_key.clone(), Arc::clone(&artifact));
+        self.record_cache_store(AnalysisCacheTraceKind::SemanticClassificationArtifact);
+        Ok(Some(artifact))
+    }
+
     fn dirty_navigation_can_use_clean_artifact(&self, context: &AnalysisRequestContext) -> bool {
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
         let Some(parsed) = context
@@ -2008,6 +2074,18 @@ impl AnalysisEngine {
     fn invalidate_render_caches(&self) {
         self.semantic_tokens_cache.lock().unwrap().clear();
         self.lexical_cache.lock().unwrap().clear();
+    }
+
+    fn invalidate_render_caches_for_document(&self, uri: &str, path: &Path) {
+        let target_path = normalize_path(path);
+        self.semantic_tokens_cache
+            .lock()
+            .unwrap()
+            .retain(|key, _| key.target_path != target_path);
+        self.lexical_cache
+            .lock()
+            .unwrap()
+            .retain(|key, _| key.uri != uri);
     }
 
     fn lexical_index_for_document(&self, uri: &str, document: &OpenDocument) -> Arc<LexicalIndex> {

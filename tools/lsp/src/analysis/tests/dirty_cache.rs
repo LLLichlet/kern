@@ -74,7 +74,7 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
 }
 
 #[test]
-fn dirty_semantic_tokens_use_lexical_fallback_without_full_analysis() {
+fn dirty_semantic_tokens_use_semantic_classification_without_full_analysis() {
     let clean = "fn main() void {\n    let value = 1;\n}\n";
     let dirty = "fn main() void {\n    _ = value;\n}\n";
     let root = unique_temp_dir("dirty_semantic_tokens_lexical_project");
@@ -125,9 +125,20 @@ root = "src/main.kn"
     analysis.artifact_cache.lock().unwrap().clear();
 
     let tokens = analysis.semantic_tokens(&uri).unwrap();
+    let decoded = decode_semantic_tokens(&tokens);
 
     assert!(!tokens.data.is_empty());
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::DirtySemantic)
+    );
+    assert!(
+        decoded
+            .iter()
+            .any(|token| token.2 == SemanticTokenTypes::FUNCTION),
+        "{decoded:?}"
+    );
 }
 
 #[test]
@@ -183,10 +194,11 @@ fn dirty_interactive_requests_after_complex_error_avoid_full_dirty_analysis() {
         .unwrap();
 
     assert!(!actions.is_empty());
-    assert_eq!(
-        analysis.semantic_classification_cache.lock().unwrap().len(),
-        1
-    );
+    let semantic_cache = analysis.semantic_classification_cache.lock().unwrap();
+    assert_eq!(semantic_cache.len(), 2);
+    assert!(semantic_cache.keys().any(AnalysisCacheKey::is_clean));
+    assert!(semantic_cache.keys().any(|key| !key.is_clean()));
+    drop(semantic_cache);
     assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 1);
 }
@@ -269,14 +281,30 @@ fn dirty_complex_change_state_only_finishes() {
 }
 
 #[test]
-fn dirty_complex_semantic_tokens_stay_lexical() {
+fn dirty_complex_semantic_tokens_use_semantic_classification() {
     let (clean, dirty) = dirty_complex_sources();
     let (uri, analysis) = dirty_complex_analysis_after_change(clean, dirty);
 
     let tokens = analysis.semantic_tokens(&uri).unwrap();
+    let decoded = decode_semantic_tokens(&tokens);
 
     assert!(!tokens.data.is_empty());
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::DirtySemantic)
+    );
+    assert!(
+        decoded.iter().any(|token| {
+            matches!(
+                token.2,
+                SemanticTokenTypes::STRUCT
+                    | SemanticTokenTypes::ENUM
+                    | SemanticTokenTypes::PARAMETER
+            )
+        }),
+        "{decoded:?}"
+    );
 }
 
 #[test]

@@ -89,7 +89,7 @@ fn semantic_tokens_for_valid_dirty_documents_keep_semantic_classification() {
 }
 
 #[test]
-fn semantic_tokens_classify_keywords_types_and_functions() {
+fn semantic_tokens_classify_semantic_identifiers_without_lexical_tokens() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
         "struct Point { x: i32 }\n",
@@ -111,7 +111,7 @@ fn semantic_tokens_classify_keywords_types_and_functions() {
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
 
-    assert_token_type(
+    assert_no_token_type_at(
         &decoded,
         position_of_nth(source, "struct", 0, 0),
         SemanticTokenTypes::KEYWORD,
@@ -141,12 +141,7 @@ fn semantic_tokens_classify_keywords_types_and_functions() {
         position_of_nth(source, "x", 1, 0),
         SemanticTokenTypes::PROPERTY,
     );
-    assert_token_type(
-        &decoded,
-        position_of_nth(source, "struct", 0, 0),
-        SemanticTokenTypes::KEYWORD,
-    );
-    assert_token_type(
+    assert_no_token_type_at(
         &decoded,
         position_of_nth(source, "return", 0, 0),
         SemanticTokenTypes::KEYWORD,

@@ -3458,7 +3458,7 @@ fn semantic_tokens_range_request_filters_token_data() {
     assert_eq!(data.len() % 5, 0);
     let decoded = decode_semantic_token_positions(data);
     assert!(decoded.iter().all(|(line, _)| *line == 1));
-    assert_eq!(decoded[0], (1, 0));
+    assert_eq!(decoded[0], (1, 3));
 }
 
 #[test]

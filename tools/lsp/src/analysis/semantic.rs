@@ -41,8 +41,11 @@ impl SemanticTokenTypes {
     pub(super) const FUNCTION: u32 = 9;
     pub(super) const METHOD: u32 = 10;
     pub(super) const KEYWORD: u32 = 11;
+    #[allow(dead_code)]
     pub(super) const STRING: u32 = 12;
+    #[allow(dead_code)]
     pub(super) const NUMBER: u32 = 13;
+    #[allow(dead_code)]
     pub(super) const OPERATOR: u32 = 14;
 }
 
@@ -386,56 +389,9 @@ fn collect_semantic_token_entries_cancelable(
             TokenType::Identifier => parameter_declaration_class(&tokens, index)
                 .or_else(|| span_classes.get(&span_key(token.span)).copied())
                 .or_else(|| heuristic_identifier_class(&tokens, index)),
-            TokenType::Fn
-            | TokenType::Let
-            | TokenType::Mut
-            | TokenType::Const
-            | TokenType::Static
-            | TokenType::Type
-            | TokenType::Struct
-            | TokenType::Union
-            | TokenType::Enum
-            | TokenType::Trait
-            | TokenType::If
-            | TokenType::Else
-            | TokenType::For
-            | TokenType::While
-            | TokenType::Break
-            | TokenType::Continue
-            | TokenType::Return
-            | TokenType::Defer
-            | TokenType::Pub
-            | TokenType::Extern
-            | TokenType::Use
-            | TokenType::Impl
-            | TokenType::True
-            | TokenType::False
-            | TokenType::Undef
-            | TokenType::As
-            | TokenType::And
-            | TokenType::Or
-            | TokenType::Underscore
-            | TokenType::SelfType
-            | TokenType::SelfValue
-            | TokenType::Match
-            | TokenType::Mod
-            | TokenType::Where
-            | TokenType::CapitalFn
-            | TokenType::Void => Some(SemanticClass {
-                token_type: SemanticTokenTypes::KEYWORD,
-                modifiers: 0,
-            }),
-            TokenType::StringLiteral | TokenType::CharLiteral | TokenType::ByteCharLiteral => {
-                Some(SemanticClass {
-                    token_type: SemanticTokenTypes::STRING,
-                    modifiers: 0,
-                })
-            }
+            TokenType::StringLiteral | TokenType::CharLiteral | TokenType::ByteCharLiteral => None,
             TokenType::DocCommentOuter | TokenType::DocCommentInner => None,
-            TokenType::IntLiteral | TokenType::FloatLiteral => Some(SemanticClass {
-                token_type: SemanticTokenTypes::NUMBER,
-                modifiers: 0,
-            }),
+            TokenType::IntLiteral | TokenType::FloatLiteral => None,
             TokenType::Plus
             | TokenType::Minus
             | TokenType::Star
@@ -478,10 +434,7 @@ fn collect_semantic_token_entries_cancelable(
             | TokenType::DotLBrace
             | TokenType::DotDotAmpersand
             | TokenType::Ellipsis
-            | TokenType::Arrow => Some(SemanticClass {
-                token_type: SemanticTokenTypes::OPERATOR,
-                modifiers: 0,
-            }),
+            | TokenType::Arrow => None,
             _ => None,
         };
 

@@ -694,6 +694,20 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         .with_hint("bind the value to stable storage before taking its address")
                         .emit();
                 }
+                crate::checker::expr::PointerOrigin::Local(address_span) => {
+                    self.ctx
+                        .struct_error(
+                            address_span,
+                            "address of local value escapes through function call",
+                        )
+                        .with_hint(
+                            "the callee stores the parameter receiving an address into the current stack frame",
+                        )
+                        .with_hint(
+                            "move the value into storage that outlives the stored pointer",
+                        )
+                        .emit();
+                }
                 crate::checker::expr::PointerOrigin::CapturingClosure(closure_span) => {
                     self.ctx
                         .struct_error(

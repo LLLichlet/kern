@@ -1,0 +1,14 @@
+// class: escaping-stack-state
+// source: returning an address into the current stack frame must be rejected
+// stderr: address of local value escapes into a return value
+// stderr: current function's stack frame
+// stderr-not: LLVM IR Verification Failed
+
+fn leak() &i32 {
+    let value = 1i32;
+    return value.&;
+}
+
+fn main() i32 {
+    return leak().*;
+}

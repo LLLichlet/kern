@@ -451,7 +451,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             }
         }
 
-        if can_use_cache {
+        if can_use_cache && diagnostic_span.is_some() {
             self.ctx
                 .analysis
                 .query_caches

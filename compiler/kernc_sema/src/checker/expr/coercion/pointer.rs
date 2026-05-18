@@ -566,12 +566,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .emit();
                     return Err(());
                 }
-                if self.array_decay_uses_temporary_storage(expr) {
-                    let origin = if matches!(&expr.kind, ExprKind::String(_)) {
-                        crate::checker::expr::PointerOrigin::StaticLiteral(expr.span)
-                    } else {
-                        crate::checker::expr::PointerOrigin::Temporary(expr.span)
-                    };
+                if let Some(origin) = self.array_decay_pointer_origin(expr) {
                     self.record_pointer_origin_expr(expr.id, origin);
                 }
                 return Ok(true);
@@ -580,28 +575,34 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         Ok(false)
     }
 
-    fn array_decay_uses_temporary_storage(&self, expr: &Expr) -> bool {
+    fn array_decay_pointer_origin(
+        &self,
+        expr: &Expr,
+    ) -> Option<crate::checker::expr::PointerOrigin> {
         match &expr.kind {
-            ExprKind::Grouped { expr: inner } => self.array_decay_uses_temporary_storage(inner),
-            ExprKind::Identifier(name) => {
-                self.ctx
-                    .scopes
-                    .resolve_value_symbol(*name)
-                    .is_none_or(|info| {
-                        !matches!(
-                            info.kind,
-                            crate::scope::SymbolKind::Var | crate::scope::SymbolKind::Static
-                        )
-                    })
-            }
+            ExprKind::Grouped { expr: inner } => self.array_decay_pointer_origin(inner),
+            ExprKind::Identifier(name) => self.ctx.scopes.resolve_value_symbol(*name).map_or(
+                Some(crate::checker::expr::PointerOrigin::Temporary(expr.span)),
+                |info| match info.kind {
+                    crate::scope::SymbolKind::Static => None,
+                    crate::scope::SymbolKind::Var => {
+                        Some(crate::checker::expr::PointerOrigin::Local(expr.span))
+                    }
+                    _ => Some(crate::checker::expr::PointerOrigin::Temporary(expr.span)),
+                },
+            ),
             ExprKind::SelfValue
             | ExprKind::FieldAccess { .. }
             | ExprKind::IndexAccess { .. }
-            | ExprKind::Unary {
+            | ExprKind::SliceOp { .. } => self.local_storage_pointer_origin(expr, expr.span),
+            ExprKind::Unary {
                 op: UnaryOperator::PointerDeRef,
                 ..
-            } => false,
-            _ => true,
+            } => None,
+            ExprKind::String(_) => Some(crate::checker::expr::PointerOrigin::StaticLiteral(
+                expr.span,
+            )),
+            _ => Some(crate::checker::expr::PointerOrigin::Temporary(expr.span)),
         }
     }
 }

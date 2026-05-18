@@ -385,6 +385,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     origin,
                     crate::checker::expr::PointerOrigin::Temporary(_)
                         | crate::checker::expr::PointerOrigin::StaticLiteral(_)
+                        | crate::checker::expr::PointerOrigin::Local(_)
                         | crate::checker::expr::PointerOrigin::CapturingClosure(_)
                 ) {
                     continue;

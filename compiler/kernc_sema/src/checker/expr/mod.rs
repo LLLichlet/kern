@@ -38,6 +38,7 @@ pub(crate) struct NumericInferenceState {
 pub(crate) enum PointerOrigin {
     Temporary(Span),
     StaticLiteral(Span),
+    Local(Span),
     CapturingClosure(Span),
     Parameter(usize),
 }
@@ -207,10 +208,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         match &expr.kind {
             ExprKind::Grouped { expr: inner } => self.collect_pointer_origins(inner, out),
             ExprKind::Unary {
-                op: UnaryOperator::MutAddressOf,
+                op: UnaryOperator::AddressOf | UnaryOperator::MutAddressOf,
                 operand,
-            } if self.can_materialize_mut_temporary(operand) => {
-                out.insert(PointerOrigin::Temporary(expr.span));
+            } => {
+                if self.can_materialize_mut_temporary(operand) {
+                    out.insert(PointerOrigin::Temporary(expr.span));
+                } else if let Some(origin) = self.local_storage_pointer_origin(operand, expr.span) {
+                    out.insert(origin);
+                }
             }
             ExprKind::Unary {
                 op: UnaryOperator::PointerDeRef,
@@ -227,7 +232,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             | ExprKind::Range { .. }
             | ExprKind::Assign { .. }
             | ExprKind::FieldAccess { .. }
-            | ExprKind::IndexAccess { .. } => {}
+            | ExprKind::IndexAccess { .. } => {
+                self.collect_direct_pointer_origins(expr, out);
+            }
+            ExprKind::SliceOp { .. } => {
+                self.collect_direct_pointer_origins(expr, out);
+                if let Some(origin) = self.local_storage_pointer_origin(expr, expr.span) {
+                    out.insert(origin);
+                }
+            }
             ExprKind::Call { .. } => {}
             ExprKind::DataInit { literal, .. } => {
                 self.collect_pointer_origins_in_literal(literal, out);
@@ -253,7 +266,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
             ExprKind::While { .. } => {}
-            ExprKind::SliceOp { .. } => {}
             ExprKind::Return(value) => {
                 if let Some(value) = value {
                     self.collect_pointer_origins(value, out);
@@ -328,6 +340,62 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::As { lhs, .. } => self.collect_direct_pointer_origins(lhs, out),
             _ => {}
         }
+    }
+
+    fn local_storage_pointer_origin(
+        &self,
+        expr: &Expr,
+        address_span: Span,
+    ) -> Option<PointerOrigin> {
+        match &expr.kind {
+            ExprKind::Grouped { expr } => self.local_storage_pointer_origin(expr, address_span),
+            ExprKind::Identifier(name) => self.local_binding_pointer_origin(*name, address_span),
+            ExprKind::SelfValue => Some(PointerOrigin::Local(address_span)),
+            ExprKind::FieldAccess { lhs, .. } => {
+                let lhs_ty = self.ctx.node_type_or_error(lhs.id);
+                let lhs_norm = self.ctx.type_registry.normalize(lhs_ty);
+                if matches!(
+                    self.ctx.type_registry.get(lhs_norm),
+                    TypeKind::Pointer { .. }
+                        | TypeKind::VolatilePtr { .. }
+                        | TypeKind::Slice { .. }
+                ) {
+                    None
+                } else {
+                    self.local_storage_pointer_origin(lhs, address_span)
+                }
+            }
+            ExprKind::IndexAccess { lhs, .. } | ExprKind::SliceOp { lhs, .. } => {
+                let lhs_ty = self.ctx.node_type_or_error(lhs.id);
+                let lhs_norm = self.ctx.type_registry.normalize(lhs_ty);
+                match self.ctx.type_registry.get(lhs_norm) {
+                    TypeKind::Array { .. } | TypeKind::ArrayInfer { .. } => {
+                        self.local_storage_pointer_origin(lhs, address_span)
+                    }
+                    _ => None,
+                }
+            }
+            ExprKind::Unary {
+                op: UnaryOperator::PointerDeRef,
+                ..
+            } => None,
+            _ => None,
+        }
+    }
+
+    fn local_binding_pointer_origin(
+        &self,
+        name: SymbolId,
+        address_span: Span,
+    ) -> Option<PointerOrigin> {
+        self.ctx
+            .scopes
+            .resolve_value_symbol(name)
+            .and_then(|info| match info.kind {
+                crate::scope::SymbolKind::Static => None,
+                crate::scope::SymbolKind::Var => Some(PointerOrigin::Local(address_span)),
+                _ => None,
+            })
     }
 
     fn pointer_origin_binding_set(&self, name: SymbolId) -> Option<FastHashSet<PointerOrigin>> {
@@ -460,6 +528,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         "`..&` may materialize a temporary that is only valid in the current scope",
                     )
                     .with_hint("bind the value to stable storage before taking its address")
+                    .emit();
+            }
+            PointerOrigin::Local(address_span) => {
+                self.ctx
+                    .struct_error(
+                        address_span,
+                        format!("address of local value escapes into {}", destination),
+                    )
+                    .with_hint("this address points into the current function's stack frame")
+                    .with_hint(
+                        "move the value into storage that outlives the returned or stored pointer",
+                    )
                     .emit();
             }
             PointerOrigin::CapturingClosure(closure_span) => {

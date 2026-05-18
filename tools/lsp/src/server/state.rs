@@ -52,11 +52,14 @@ pub(super) struct ServerState {
     pub(super) document_request_results_rx: mpsc::Receiver<DocumentRequestTaskResult>,
     pub(super) diagnostics_results_rx: mpsc::Receiver<DiagnosticsTaskResult>,
     pub(super) workspace_refresh_results_rx: mpsc::Receiver<WorkspaceRefreshTaskResult>,
+    pub(super) prewarm_results_rx: mpsc::Receiver<PrewarmTaskResult>,
     pub(super) interactive_worker_task_tx: mpsc::SyncSender<InteractiveWorkerTask>,
     pub(super) background_worker_task_tx: mpsc::SyncSender<BackgroundWorkerTask>,
     pub(super) pending_document_request_tasks: usize,
     pub(super) pending_diagnostics_worker_tasks: usize,
     pub(super) pending_workspace_refresh_tasks: usize,
+    pub(super) pending_prewarm_tasks: usize,
+    active_prewarm_cancellations: BTreeMap<String, Vec<GenerationCancellation>>,
     pub(super) published_by_target: BTreeMap<String, BTreeSet<String>>,
 }
 
@@ -87,6 +90,12 @@ pub(super) struct CancellationToken {
 #[derive(Debug)]
 struct ActiveRequestCancellation {
     id: Value,
+    token: CancellationToken,
+}
+
+#[derive(Debug)]
+struct GenerationCancellation {
+    generation: AnalysisGeneration,
     token: CancellationToken,
 }
 
@@ -147,6 +156,7 @@ pub(super) struct DiagnosticsTaskResult {
     pub(super) target_uri: String,
     pub(super) generation: AnalysisGeneration,
     pub(super) mode: DiagnosticsAnalysisMode,
+    pub(super) prewarm: bool,
     pub(super) trace: TraceContext,
     pub(super) queue_wait_ms: u128,
     pub(super) elapsed_ms: u128,
@@ -167,6 +177,17 @@ pub(super) struct WorkspaceRefreshTaskResult {
     pub(super) refresh: Result<crate::analysis::WorkspaceIndexRefresh, String>,
 }
 
+pub(super) struct PrewarmTaskResult {
+    pub(super) target_uri: String,
+    pub(super) generation: AnalysisGeneration,
+    pub(super) trace: TraceContext,
+    pub(super) queue_wait_ms: u128,
+    pub(super) elapsed_ms: u128,
+    pub(super) analysis_tier: Option<AnalysisTier>,
+    pub(super) analysis_trace: AnalysisTrace,
+    pub(super) error_class: Option<LspErrorClass>,
+}
+
 pub(super) enum InteractiveWorkerTask {
     DocumentRequest(Box<dyn FnOnce() -> DocumentRequestTaskResult + Send + 'static>),
 }
@@ -174,6 +195,7 @@ pub(super) enum InteractiveWorkerTask {
 pub(super) enum BackgroundWorkerTask {
     Diagnostics(Box<dyn FnOnce() -> DiagnosticsTaskResult + Send + 'static>),
     WorkspaceRefresh(Box<dyn FnOnce() -> WorkspaceRefreshTaskResult + Send + 'static>),
+    Prewarm(Box<dyn FnOnce() -> PrewarmTaskResult + Send + 'static>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,6 +274,7 @@ pub(super) struct ScheduledDiagnosticsPublish {
 pub(super) struct ScheduledDiagnosticsTask {
     pub(super) generation: AnalysisGeneration,
     pub(super) mode: DiagnosticsAnalysisMode,
+    pub(super) prewarm: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -380,11 +403,13 @@ impl ServerState {
         let (document_request_results_tx, document_request_results_rx) = mpsc::channel();
         let (diagnostics_results_tx, diagnostics_results_rx) = mpsc::channel();
         let (workspace_refresh_results_tx, workspace_refresh_results_rx) = mpsc::channel();
+        let (prewarm_results_tx, prewarm_results_rx) = mpsc::channel();
         let (interactive_worker_task_tx, background_worker_task_tx) = spawn_worker_threads(
             options.worker_threads,
             document_request_results_tx,
             diagnostics_results_tx,
             workspace_refresh_results_tx,
+            prewarm_results_tx,
         );
         Self {
             initialized: false,
@@ -413,16 +438,20 @@ impl ServerState {
             document_request_results_rx,
             diagnostics_results_rx,
             workspace_refresh_results_rx,
+            prewarm_results_rx,
             interactive_worker_task_tx,
             background_worker_task_tx,
             pending_document_request_tasks: 0,
             pending_diagnostics_worker_tasks: 0,
             pending_workspace_refresh_tasks: 0,
+            pending_prewarm_tasks: 0,
+            active_prewarm_cancellations: BTreeMap::new(),
             published_by_target: BTreeMap::new(),
         }
     }
 
     pub(super) fn begin_target_analysis(&mut self, target_uri: &str) -> AnalysisGeneration {
+        self.cancel_prewarm_tasks_for_target(target_uri);
         self.next_analysis_generation += 1;
         let generation = AnalysisGeneration(self.next_analysis_generation);
         self.latest_generation_by_target
@@ -631,6 +660,7 @@ impl ServerState {
         target_uri: String,
         generation: AnalysisGeneration,
         mode: DiagnosticsAnalysisMode,
+        prewarm: bool,
     ) {
         if self.pending_workspace_refresh_reason.is_some()
             || !self.is_current_generation(&target_uri, generation)
@@ -642,8 +672,13 @@ impl ServerState {
             .and_modify(|existing| {
                 existing.generation = generation;
                 existing.mode = existing.mode.merge(mode);
+                existing.prewarm |= prewarm;
             })
-            .or_insert(ScheduledDiagnosticsTask { generation, mode });
+            .or_insert(ScheduledDiagnosticsTask {
+                generation,
+                mode,
+                prewarm,
+            });
     }
 
     pub(super) fn pop_next_diagnostics_target(
@@ -718,6 +753,7 @@ impl ServerState {
             || !self.pending_diagnostics_targets.is_empty()
             || self.pending_diagnostics_worker_tasks > 0
             || self.pending_workspace_refresh_tasks > 0
+            || self.pending_prewarm_tasks > 0
             || !self.pending_diagnostics.is_empty()
     }
 
@@ -738,6 +774,53 @@ impl ServerState {
         self.pending_workspace_refresh_tasks =
             self.pending_workspace_refresh_tasks.saturating_sub(1);
     }
+
+    pub(super) fn queue_prewarm_worker_task(&mut self) {
+        self.pending_prewarm_tasks += 1;
+    }
+
+    pub(super) fn complete_prewarm_worker_task(&mut self) {
+        self.pending_prewarm_tasks = self.pending_prewarm_tasks.saturating_sub(1);
+    }
+
+    pub(super) fn register_prewarm_cancellation(
+        &mut self,
+        target_uri: &str,
+        generation: AnalysisGeneration,
+    ) -> CancellationToken {
+        let token = CancellationToken::new();
+        self.active_prewarm_cancellations
+            .entry(target_uri.to_string())
+            .or_default()
+            .push(GenerationCancellation {
+                generation,
+                token: token.clone(),
+            });
+        token
+    }
+
+    pub(super) fn finish_prewarm_cancellation(
+        &mut self,
+        target_uri: &str,
+        generation: AnalysisGeneration,
+    ) {
+        let Some(cancellations) = self.active_prewarm_cancellations.get_mut(target_uri) else {
+            return;
+        };
+        cancellations.retain(|cancellation| cancellation.generation != generation);
+        if cancellations.is_empty() {
+            self.active_prewarm_cancellations.remove(target_uri);
+        }
+    }
+
+    fn cancel_prewarm_tasks_for_target(&mut self, target_uri: &str) {
+        let Some(cancellations) = self.active_prewarm_cancellations.get(target_uri) else {
+            return;
+        };
+        for cancellation in cancellations {
+            cancellation.token.cancel();
+        }
+    }
 }
 
 fn spawn_worker_threads(
@@ -745,6 +828,7 @@ fn spawn_worker_threads(
     document_request_results_tx: mpsc::Sender<DocumentRequestTaskResult>,
     diagnostics_results_tx: mpsc::Sender<DiagnosticsTaskResult>,
     workspace_refresh_results_tx: mpsc::Sender<WorkspaceRefreshTaskResult>,
+    prewarm_results_tx: mpsc::Sender<PrewarmTaskResult>,
 ) -> (
     mpsc::SyncSender<InteractiveWorkerTask>,
     mpsc::SyncSender<BackgroundWorkerTask>,
@@ -782,6 +866,7 @@ fn spawn_worker_threads(
         let background_task_rx = background_task_rx.clone();
         let diagnostics_results_tx = diagnostics_results_tx.clone();
         let workspace_refresh_results_tx = workspace_refresh_results_tx.clone();
+        let prewarm_results_tx = prewarm_results_tx.clone();
         thread::spawn(move || {
             loop {
                 let task = {
@@ -799,6 +884,10 @@ fn spawn_worker_threads(
                     BackgroundWorkerTask::WorkspaceRefresh(task) => {
                         let result = task();
                         let _ = workspace_refresh_results_tx.send(result);
+                    }
+                    BackgroundWorkerTask::Prewarm(task) => {
+                        let result = task();
+                        let _ = prewarm_results_tx.send(result);
                     }
                 }
             }

@@ -52,6 +52,9 @@
       "include": "#functions"
     },
     {
+      "include": "#variables"
+    },
+    {
       "include": "#keywords"
     },
     {
@@ -405,6 +408,10 @@
       "patterns": [
         {
           "name": "constant.other.enum-variant.kern",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b(?=\\s*:)"
+        },
+        {
+          "name": "constant.other.enum-variant.kern",
           "match": "\\.[A-Z][A-Za-z0-9_]*\\b"
         },
         {
@@ -478,6 +485,14 @@
         {
           "name": "entity.name.function.method.kern",
           "match": "(?<=\\.)[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*\\()"
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "name": "variable.other.kern",
+          "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
         }
       ]
     },

@@ -49,9 +49,13 @@ pub(super) fn drain_scheduler_to_quiescence(
 ) {
     while state.pending_workspace_refresh_tasks > 0
         || state.pending_diagnostics_worker_tasks > 0
+        || state.pending_prewarm_tasks > 0
         || state.has_pending_document_request_work()
         || !state.pending_diagnostics.is_empty()
     {
+        if state.pending_prewarm_tasks > 0 {
+            super::scheduler::flush_prewarm_results(state, writer, true).unwrap();
+        }
         if state.pending_workspace_refresh_tasks > 0 {
             super::scheduler::flush_workspace_refresh_results(state, writer, true).unwrap();
         }

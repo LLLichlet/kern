@@ -377,6 +377,37 @@ fn semantic_tokens_cache_reuses_rendered_tokens_for_stable_document() {
 }
 
 #[test]
+fn semantic_tokens_reuse_artifact_warmed_by_full_diagnostics() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn main() i32 {\n    return 1;\n}\n";
+    let uri = temp_file_uri("semantic_tokens_full_diagnostics_warm", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+    let _ = analysis.analyze_document_uri(&uri);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 1);
+
+    analysis.clear_last_analysis_trace();
+    let tokens = analysis.semantic_tokens(&uri).unwrap();
+
+    assert!(!tokens.data.is_empty());
+    let trace = analysis.last_analysis_trace();
+    assert!(
+        trace.cache_events.iter().any(|event| {
+            event.kind.as_str() == "semantic-classification"
+                && format!("{:?}", event.outcome) == "Hit"
+        }),
+        "{trace:?}"
+    );
+}
+
+#[test]
 fn semantic_tokens_cache_is_invalidated_per_document() {
     let mut analysis = AnalysisEngine::default();
     let first_source = "fn first() i32 {\n    return 1;\n}\n";

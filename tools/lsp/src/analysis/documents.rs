@@ -5,7 +5,7 @@ impl AnalysisEngine {
     #[cfg(test)]
     pub fn open_document(&mut self, params: impl IntoIdeOpenDocument) -> AnalysisOutcome {
         match self.open_document_state(params.into_ide_open_document()) {
-            DocumentSyncAction::ScheduleTarget { uri, mode } => match mode {
+            DocumentSyncAction::ScheduleTarget { uri, mode, .. } => match mode {
                 DiagnosticsAnalysisMode::Structure => self.analyze_document_structure(&uri),
                 DiagnosticsAnalysisMode::Full => self.analyze_document(&uri),
             },
@@ -43,13 +43,14 @@ impl AnalysisEngine {
         DocumentSyncAction::ScheduleTarget {
             uri,
             mode: DiagnosticsAnalysisMode::Structure,
+            prewarm: !is_dirty,
         }
     }
 
     #[cfg(test)]
     pub fn change_document(&mut self, params: impl IntoIdeChangeDocument) -> AnalysisOutcome {
         match self.change_document_state(params.into_ide_change_document()) {
-            DocumentSyncAction::ScheduleTarget { uri, mode } => match mode {
+            DocumentSyncAction::ScheduleTarget { uri, mode, .. } => match mode {
                 DiagnosticsAnalysisMode::Structure => self.analyze_document_structure(&uri),
                 DiagnosticsAnalysisMode::Full => self.analyze_document(&uri),
             },
@@ -89,13 +90,14 @@ impl AnalysisEngine {
         DocumentSyncAction::ScheduleTarget {
             uri: params.uri,
             mode: DiagnosticsAnalysisMode::Structure,
+            prewarm: false,
         }
     }
 
     #[cfg(test)]
     pub fn close_document(&mut self, params: impl IntoIdeCloseDocument) -> AnalysisOutcome {
         match self.close_document_state(params.into_ide_close_document()) {
-            DocumentSyncAction::ScheduleTarget { uri, mode } => match mode {
+            DocumentSyncAction::ScheduleTarget { uri, mode, .. } => match mode {
                 DiagnosticsAnalysisMode::Structure => self.analyze_document_structure(&uri),
                 DiagnosticsAnalysisMode::Full => self.analyze_document(&uri),
             },
@@ -130,9 +132,14 @@ impl AnalysisEngine {
             ));
         };
 
+        let was_dirty = doc.is_dirty;
         let is_dirty = Self::document_differs_from_disk(&doc.path, &doc.text);
         doc.is_dirty = is_dirty;
         self.invalidate_dirty_document_snapshot();
+        if was_dirty && !is_dirty {
+            self.driver_cache.lock().unwrap().clear();
+            self.invalidate_artifact_cache();
+        }
 
         DocumentSyncAction::ScheduleTarget {
             uri,
@@ -141,6 +148,7 @@ impl AnalysisEngine {
             } else {
                 DiagnosticsAnalysisMode::Full
             },
+            prewarm: false,
         }
     }
 

@@ -2,9 +2,9 @@ use super::state::RequestBudgetKind;
 use super::{
     AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, DiagnosticsTaskResult,
     DocumentRequestResponse, DocumentRequestTaskResult, INVALID_REQUEST, LspErrorClass,
-    REQUEST_CANCELLED, RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerError,
-    ServerState, TraceContext, WorkspaceRefreshKind, WorkspaceRefreshTaskResult,
-    lifecycle::emit_trace,
+    PrewarmTaskResult, REQUEST_CANCELLED, RequestContext, ScheduledDocumentRequestTask,
+    SchedulerLane, ServerError, ServerState, TraceContext, WorkspaceRefreshKind,
+    WorkspaceRefreshTaskResult, lifecycle::emit_trace,
 };
 use crate::analysis::{
     AnalysisOutcome, AnalysisSnapshot, CancellationToken, DocumentSyncAction, cleared_uris,
@@ -87,7 +87,7 @@ pub(super) fn flush_diagnostics_lane(
             if !state.is_current_generation(&target_uri, generation) {
                 continue;
             }
-            submit_diagnostics_task(state, target_uri, generation, mode);
+            submit_diagnostics_task(state, target_uri, generation, mode, task.prewarm);
             submitted_targets += 1;
             if submitted_targets >= target_task_budget {
                 break;
@@ -162,15 +162,80 @@ fn submit_diagnostics_task(
     target_uri: String,
     generation: AnalysisGeneration,
     mode: DiagnosticsAnalysisMode,
+    prewarm: bool,
 ) {
     let analysis = state.analysis.clone();
     let queued_at = Instant::now();
     state.queue_diagnostics_worker_task();
     let task = super::state::BackgroundWorkerTask::Diagnostics(Box::new(move || {
-        run_diagnostics_task(analysis, target_uri, generation, mode, queued_at)
+        run_diagnostics_task(analysis, target_uri, generation, mode, prewarm, queued_at)
     }));
     if state.background_worker_task_tx.send(task).is_err() {
         state.complete_diagnostics_worker_task();
+    }
+}
+
+fn submit_prewarm_task(
+    state: &mut ServerState,
+    target_uri: String,
+    generation: AnalysisGeneration,
+) {
+    let analysis = state.analysis.clone();
+    let workspace_roots = state.workspace_roots.clone();
+    let task_uri = target_uri.clone();
+    let cancellation = state.register_prewarm_cancellation(&target_uri, generation);
+    let queued_at = Instant::now();
+    state.queue_prewarm_worker_task();
+    let task = super::state::BackgroundWorkerTask::Prewarm(Box::new(move || {
+        run_prewarm_task(
+            analysis,
+            workspace_roots,
+            task_uri,
+            generation,
+            cancellation.analysis_token(),
+            queued_at,
+        )
+    }));
+    if state.background_worker_task_tx.send(task).is_err() {
+        state.complete_prewarm_worker_task();
+        state.finish_prewarm_cancellation(&target_uri, generation);
+    }
+}
+
+fn run_prewarm_task(
+    analysis: AnalysisEngine,
+    workspace_roots: Vec<std::path::PathBuf>,
+    target_uri: String,
+    generation: AnalysisGeneration,
+    cancellation: CancellationToken,
+    queued_at: Instant,
+) -> PrewarmTaskResult {
+    analysis.clear_last_analysis_tier();
+    analysis.clear_last_analysis_trace();
+    let snapshot = analysis.snapshot(workspace_roots, cancellation);
+    let trace = TraceContext {
+        request_id: None,
+        document_generation: Some(generation),
+        document_version: snapshot.document_version(&target_uri),
+    };
+    let started_at = Instant::now();
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        analysis.prewarm_interactive_artifacts_in_snapshot(&snapshot, &target_uri)
+    }));
+    let error_class = match &result {
+        Ok(Ok(())) => None,
+        Ok(Err(message)) => Some(classify_lsp_error(message)),
+        Err(_) => Some(LspErrorClass::InternalBug),
+    };
+    PrewarmTaskResult {
+        target_uri,
+        generation,
+        trace,
+        queue_wait_ms: started_at.duration_since(queued_at).as_millis(),
+        elapsed_ms: started_at.elapsed().as_millis(),
+        analysis_tier: analysis.last_analysis_tier(),
+        analysis_trace: analysis.last_analysis_trace(),
+        error_class,
     }
 }
 
@@ -179,6 +244,7 @@ fn run_diagnostics_task(
     target_uri: String,
     generation: AnalysisGeneration,
     mode: DiagnosticsAnalysisMode,
+    prewarm: bool,
     queued_at: Instant,
 ) -> DiagnosticsTaskResult {
     analysis.clear_last_analysis_tier();
@@ -204,6 +270,7 @@ fn run_diagnostics_task(
         target_uri,
         generation,
         mode,
+        prewarm,
         trace: TraceContext {
             request_id: None,
             document_generation: Some(generation),
@@ -252,7 +319,7 @@ fn submit_workspace_refresh_result(
             let generation = refresh.generation;
             for (target_uri, mode) in refresh.targets {
                 let generation = state.begin_target_analysis(&target_uri);
-                state.queue_target_diagnostics_task(target_uri, generation, mode);
+                state.queue_target_diagnostics_task(target_uri, generation, mode, false);
             }
             emit_workspace_refresh_queued_trace(
                 state,
@@ -324,6 +391,49 @@ pub(super) fn flush_diagnostics_results(
     Ok(())
 }
 
+pub(super) fn flush_prewarm_results(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    wait_for_ready: bool,
+) -> Result<(), ServerError> {
+    if wait_for_ready && state.pending_prewarm_tasks > 0 {
+        let result = state.prewarm_results_rx.recv().map_err(|err| {
+            ServerError::Protocol(format!("prewarm result channel closed: {err}"))
+        })?;
+        state.complete_prewarm_worker_task();
+        submit_prewarm_result(state, writer, result)?;
+    }
+
+    while let Ok(result) = state.prewarm_results_rx.try_recv() {
+        state.complete_prewarm_worker_task();
+        submit_prewarm_result(state, writer, result)?;
+    }
+
+    Ok(())
+}
+
+pub(super) fn submit_prewarm_result(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    result: PrewarmTaskResult,
+) -> Result<(), ServerError> {
+    state.finish_prewarm_cancellation(&result.target_uri, result.generation);
+    if !state.is_current_generation(&result.target_uri, result.generation) {
+        return Ok(());
+    }
+    emit_prewarm_trace(
+        state,
+        writer,
+        &result.target_uri,
+        result.queue_wait_ms,
+        result.elapsed_ms,
+        result.analysis_tier,
+        &result.trace,
+        &result.analysis_trace,
+        result.error_class,
+    )
+}
+
 fn submit_diagnostics_result(
     state: &mut ServerState,
     writer: &mut MessageWriter<impl io::Write>,
@@ -344,6 +454,9 @@ fn submit_diagnostics_result(
         &result.analysis_trace,
         result.error_class,
     )?;
+    if result.prewarm {
+        submit_prewarm_task(state, result.target_uri.clone(), result.generation);
+    }
     state.queue_diagnostics_publish(result.target_uri, result.generation, result.outcome);
     Ok(())
 }
@@ -370,11 +483,11 @@ where
     let generation = state.begin_target_analysis(target_uri);
     let result = catch_unwind(AssertUnwindSafe(|| action(&mut state.analysis)));
     match result {
-        Ok(DocumentSyncAction::ScheduleTarget { uri, mode }) => {
+        Ok(DocumentSyncAction::ScheduleTarget { uri, mode, prewarm }) => {
             state
                 .latest_generation_by_target
                 .insert(uri.clone(), generation);
-            state.queue_target_diagnostics_task(uri, generation, mode);
+            state.queue_target_diagnostics_task(uri, generation, mode, prewarm);
         }
         Ok(DocumentSyncAction::Immediate(outcome)) => {
             state.queue_diagnostics_publish(target_uri.to_string(), generation, outcome);
@@ -1109,6 +1222,46 @@ fn emit_diagnostics_analysis_trace(
         state,
         writer,
         "diagnostics analysis completed",
+        Some(verbose),
+        true,
+    )
+}
+
+fn emit_prewarm_trace(
+    state: &ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    target_uri: &str,
+    queue_wait_ms: u128,
+    elapsed_ms: u128,
+    analysis_tier: Option<crate::analysis::AnalysisTier>,
+    trace: &TraceContext,
+    analysis_trace: &crate::analysis::AnalysisTrace,
+    error_class: Option<LspErrorClass>,
+) -> Result<(), ServerError> {
+    let tier = analysis_tier.map(|tier| tier.as_str());
+    let error_class = error_class.map(LspErrorClass::as_str).unwrap_or("None");
+    let trace_fields = format_trace_context(trace, analysis_trace);
+    let mut verbose = format!(
+        "{} queue_wait_ms={} elapsed_ms={} status=completed budget={} lane={:?} target={} cache={} error_class={}",
+        trace_fields,
+        queue_wait_ms,
+        elapsed_ms,
+        state
+            .request_budget_policy
+            .status(RequestBudgetKind::Diagnostics, elapsed_ms)
+            .as_str(),
+        SchedulerLane::Diagnostics,
+        target_uri,
+        analysis_trace.cache_summary(),
+        error_class
+    );
+    if let Some(tier) = tier {
+        verbose.insert_str(0, &format!("tier={} ", tier));
+    }
+    emit_trace(
+        state,
+        writer,
+        "interactive analysis prewarmed",
         Some(verbose),
         true,
     )

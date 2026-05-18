@@ -469,6 +469,7 @@ pub enum DocumentSyncAction {
     ScheduleTarget {
         uri: String,
         mode: DiagnosticsAnalysisMode,
+        prewarm: bool,
     },
     Immediate(AnalysisOutcome),
 }
@@ -1092,14 +1093,13 @@ impl AnalysisEngine {
 
     fn analyze_diagnostic_report(&self, target_uri: &str) -> Result<AnalysisReport, String> {
         let context = self.resolve_analysis_context(target_uri)?;
-        if let Some(artifact) = self.artifact_cache.lock().unwrap().get(&context.cache_key) {
-            self.record_cache_hit(AnalysisCacheTraceKind::SemanticArtifact);
+        if context.dirty_documents.is_clean() {
+            let artifact = self.analyze_artifact_for_context(&context)?;
             return Ok(AnalysisReport {
                 session: artifact.session.clone(),
                 succeeded: artifact.succeeded,
             });
         }
-        self.record_cache_miss(AnalysisCacheTraceKind::SemanticArtifact);
 
         let structure =
             if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
@@ -1234,6 +1234,18 @@ impl AnalysisEngine {
 
         self.record_analysis_tier(AnalysisTier::CleanSemantic);
         self.analyze_clean_semantic_classification_artifact_for_context(context)
+    }
+
+    pub(crate) fn prewarm_interactive_artifacts_in_snapshot(
+        &self,
+        snapshot: &AnalysisSnapshot,
+        target_uri: &str,
+    ) -> Result<(), String> {
+        snapshot.check_canceled()?;
+        let context = self.resolve_analysis_context_for_snapshot(snapshot, target_uri)?;
+        let _ = self.analyze_interactive_navigation_artifact_for_context(&context)?;
+        let _ = self.analyze_interactive_semantic_classification_artifact_for_context(&context)?;
+        Ok(())
     }
 
     fn analyze_dirty_semantic_classification_artifact_for_context(
@@ -1408,7 +1420,46 @@ impl AnalysisEngine {
             .unwrap()
             .insert(context.cache_key.clone(), Arc::clone(&artifact));
         self.record_cache_store(AnalysisCacheTraceKind::SemanticArtifact);
+        self.store_derived_interactive_artifacts(&context.cache_key, &artifact);
         Ok(artifact)
+    }
+
+    fn store_derived_interactive_artifacts(
+        &self,
+        cache_key: &AnalysisCacheKey,
+        artifact: &Arc<AnalysisArtifact>,
+    ) {
+        let navigation = Arc::new(AnalysisNavigationArtifact {
+            session: artifact.session.clone(),
+            succeeded: artifact.succeeded,
+            symbols: artifact.symbols.clone(),
+            references: artifact.references.clone(),
+            hovers: artifact.hovers.clone(),
+            type_hints: artifact.type_hints.clone(),
+            definition_links: artifact.definition_links.clone(),
+            semantic_entries: artifact.semantic_entries.clone(),
+            calls: artifact.calls.clone(),
+        });
+        self.navigation_cache
+            .lock()
+            .unwrap()
+            .insert(cache_key.clone(), navigation);
+        self.record_cache_store(AnalysisCacheTraceKind::NavigationArtifact);
+
+        let semantic = Arc::new(AnalysisSemanticArtifact {
+            session: artifact.session.clone(),
+            succeeded: artifact.succeeded,
+            symbols: artifact.symbols.clone(),
+            references: artifact.references.clone(),
+            hovers: artifact.hovers.clone(),
+            type_hints: artifact.type_hints.clone(),
+            semantic_entries: artifact.semantic_entries.clone(),
+        });
+        self.semantic_classification_cache
+            .lock()
+            .unwrap()
+            .insert(cache_key.clone(), semantic);
+        self.record_cache_store(AnalysisCacheTraceKind::SemanticClassificationArtifact);
     }
 
     fn analyze_structure_artifact_for_context(

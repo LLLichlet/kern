@@ -13,8 +13,8 @@ use self::dispatch::{
 pub use self::state::ServerOptions;
 use self::state::{
     AnalysisGeneration, DiagnosticsTaskResult, DocumentRequestResponse, DocumentRequestTaskResult,
-    LspErrorClass, RequestContext, ScheduledDocumentRequestTask, SchedulerLane, ServerState,
-    TraceContext, WorkspaceRefreshTaskResult,
+    LspErrorClass, PrewarmTaskResult, RequestContext, ScheduledDocumentRequestTask, SchedulerLane,
+    ServerState, TraceContext, WorkspaceRefreshTaskResult,
 };
 pub(crate) use self::state::{DiagnosticsAnalysisMode, WorkspaceRefreshKind};
 use crate::analysis::AnalysisEngine;
@@ -128,17 +128,20 @@ where
     let mut input_closed = false;
     loop {
         scheduler::flush_document_request_results(state, writer, false)?;
+        scheduler::flush_prewarm_results(state, writer, false)?;
         scheduler::flush_workspace_refresh_results(state, writer, false)?;
         scheduler::flush_diagnostics_results(state, writer, false)?;
+        let has_finished_diagnostics = !state.pending_diagnostics.is_empty();
         if state.pending_workspace_refresh_reason.is_some()
             || !state.pending_diagnostics_targets.is_empty()
-            || !state.pending_diagnostics.is_empty()
+            || has_finished_diagnostics
         {
             scheduler::drain_scheduler(state, writer)?;
         }
         if input_closed {
             if state.has_pending_worker_work() {
                 scheduler::flush_document_request_results(state, writer, true)?;
+                scheduler::flush_prewarm_results(state, writer, true)?;
                 scheduler::flush_workspace_refresh_results(state, writer, true)?;
                 scheduler::flush_diagnostics_results(state, writer, true)?;
                 continue;

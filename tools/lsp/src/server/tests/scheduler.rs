@@ -5,7 +5,8 @@ use super::super::scheduler::{
     write_success_response,
 };
 use super::super::state::{
-    DocumentRequestResponse, DocumentRequestTaskResult, SchedulerDrainDecision,
+    DocumentRequestResponse, DocumentRequestTaskResult, PrewarmTaskResult, SchedulerDrainDecision,
+    TraceContext,
 };
 use super::super::*;
 use super::*;
@@ -82,8 +83,18 @@ fn diagnostics_lane_coalesces_target_analysis_tasks() {
     let first = state.begin_target_analysis(&uri);
     let second = state.begin_target_analysis(&uri);
 
-    state.queue_target_diagnostics_task(uri.clone(), first, DiagnosticsAnalysisMode::Structure);
-    state.queue_target_diagnostics_task(uri.clone(), second, DiagnosticsAnalysisMode::Structure);
+    state.queue_target_diagnostics_task(
+        uri.clone(),
+        first,
+        DiagnosticsAnalysisMode::Structure,
+        false,
+    );
+    state.queue_target_diagnostics_task(
+        uri.clone(),
+        second,
+        DiagnosticsAnalysisMode::Structure,
+        false,
+    );
 
     assert_eq!(state.pending_diagnostics_targets.len(), 1);
     let task = state.pending_diagnostics_targets.get(&uri).unwrap();
@@ -98,8 +109,13 @@ fn diagnostics_lane_upgrades_coalesced_target_to_full_analysis() {
     let first = state.begin_target_analysis(&uri);
     let second = state.begin_target_analysis(&uri);
 
-    state.queue_target_diagnostics_task(uri.clone(), first, DiagnosticsAnalysisMode::Structure);
-    state.queue_target_diagnostics_task(uri.clone(), second, DiagnosticsAnalysisMode::Full);
+    state.queue_target_diagnostics_task(
+        uri.clone(),
+        first,
+        DiagnosticsAnalysisMode::Structure,
+        false,
+    );
+    state.queue_target_diagnostics_task(uri.clone(), second, DiagnosticsAnalysisMode::Full, false);
 
     assert_eq!(state.pending_diagnostics_targets.len(), 1);
     let task = state.pending_diagnostics_targets.get(&uri).unwrap();
@@ -139,6 +155,92 @@ fn dirty_open_queues_structure_diagnostics() {
             .map(|task| task.mode),
         Some(DiagnosticsAnalysisMode::Structure)
     );
+    assert_eq!(state.pending_prewarm_tasks, 0);
+}
+
+#[test]
+fn did_open_prewarms_interactive_artifacts_without_publishing_extra_diagnostics() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
+    let uri = temp_file_uri("server_open_prewarm_interactive", source);
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    execute_document_diagnostics(
+        &mut state,
+        &mut writer,
+        &uri,
+        SchedulerLane::Diagnostics,
+        |analysis| {
+            analysis.open_document_state(DidOpenTextDocumentParams {
+                text_document: crate::protocol::TextDocumentItem {
+                    uri: uri.clone(),
+                    _language_id: "kern".to_string(),
+                    version: 1,
+                    text: source.to_string(),
+                },
+            })
+        },
+    )
+    .unwrap();
+    drain_scheduler_to_quiescence(&mut state, &mut writer);
+    drain_scheduler(&mut state, &mut writer).unwrap();
+    drain_scheduler_to_quiescence(&mut state, &mut writer);
+
+    let messages = read_all_messages(&output);
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| message["method"] == "textDocument/publishDiagnostics")
+            .count(),
+        1,
+        "{messages:#?}"
+    );
+    assert!(
+        messages.iter().any(|message| {
+            message["method"] == "$/logTrace"
+                && message["params"]["message"] == "interactive analysis prewarmed"
+                && message["params"]["verbose"]
+                    .as_str()
+                    .is_some_and(|verbose| {
+                        verbose.contains("navigation:")
+                            && verbose.contains("semantic-classification:")
+                    })
+        }),
+        "{messages:#?}"
+    );
+}
+
+#[test]
+fn stale_prewarm_result_does_not_publish_or_break_new_generation() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri(
+        "server_stale_prewarm",
+        "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n",
+    );
+    let stale = state.begin_target_analysis(&uri);
+    let _current = state.begin_target_analysis(&uri);
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    super::super::scheduler::submit_prewarm_result(
+        &mut state,
+        &mut writer,
+        PrewarmTaskResult {
+            target_uri: uri,
+            generation: stale,
+            trace: TraceContext::default(),
+            queue_wait_ms: 0,
+            elapsed_ms: 0,
+            analysis_tier: Some(crate::analysis::AnalysisTier::CleanSemantic),
+            analysis_trace: crate::analysis::AnalysisTrace::default(),
+            error_class: None,
+        },
+    )
+    .unwrap();
+
+    assert!(output.is_empty());
 }
 
 #[test]
@@ -257,6 +359,7 @@ fn stale_diagnostics_task_skips_analysis_work() {
         super::super::state::ScheduledDiagnosticsTask {
             generation: stale,
             mode: DiagnosticsAnalysisMode::Full,
+            prewarm: false,
         },
     );
     let mut output = Vec::new();
@@ -277,7 +380,7 @@ fn stale_diagnostics_task_is_not_queued() {
     let stale = state.begin_target_analysis(&uri);
     let _newer = state.begin_target_analysis(&uri);
 
-    state.queue_target_diagnostics_task(uri, stale, DiagnosticsAnalysisMode::Full);
+    state.queue_target_diagnostics_task(uri, stale, DiagnosticsAnalysisMode::Full, false);
 
     assert!(state.pending_diagnostics_targets.is_empty());
 }
@@ -294,11 +397,13 @@ fn diagnostics_lane_yields_remaining_tasks_after_exceeded_budget() {
         uri_a.clone(),
         generation_a,
         DiagnosticsAnalysisMode::Structure,
+        false,
     );
     state.queue_target_diagnostics_task(
         uri_b.clone(),
         generation_b,
         DiagnosticsAnalysisMode::Structure,
+        false,
     );
     let mut output = Vec::new();
     let mut writer = MessageWriter::new(&mut output);
@@ -323,11 +428,13 @@ fn diagnostics_lane_prioritizes_active_document_within_target_budget() {
         uri_a.clone(),
         generation_a,
         DiagnosticsAnalysisMode::Structure,
+        false,
     );
     state.queue_target_diagnostics_task(
         uri_b.clone(),
         generation_b,
         DiagnosticsAnalysisMode::Structure,
+        false,
     );
     state.mark_active_document(&uri_b);
     let mut output = Vec::new();
@@ -367,6 +474,7 @@ fn diagnostics_lane_respects_per_drain_target_budget() {
             uri.clone(),
             generation,
             DiagnosticsAnalysisMode::Structure,
+            false,
         );
     }
     let mut output = Vec::new();
@@ -444,11 +552,13 @@ fn interactive_requests_do_not_force_drain_when_diagnostics_budget_is_reached() 
         uri_a.clone(),
         generation_a,
         DiagnosticsAnalysisMode::Structure,
+        false,
     );
     state.queue_target_diagnostics_task(
         uri_b.clone(),
         generation_b,
         DiagnosticsAnalysisMode::Structure,
+        false,
     );
     assert_eq!(
         state.pending_diagnostics_targets.len(),

@@ -30,13 +30,21 @@ fn verbose_trace_reports_diagnostics_lane_analysis() {
 
     let messages = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
 
-    assert_eq!(messages.len(), 2);
-    assert_eq!(messages[0]["method"], "$/logTrace");
-    assert_eq!(
-        messages[0]["params"]["message"],
-        "diagnostics analysis completed"
+    assert!(
+        messages
+            .iter()
+            .any(|message| message["method"] == "textDocument/publishDiagnostics"),
+        "{messages:#?}"
     );
-    let verbose = messages[0]["params"]["verbose"].as_str().unwrap();
+    let trace = messages
+        .iter()
+        .find(|message| {
+            message["method"] == "$/logTrace"
+                && message["params"]["message"] == "diagnostics analysis completed"
+        })
+        .expect("expected diagnostics analysis trace");
+    assert_eq!(trace["params"]["message"], "diagnostics analysis completed");
+    let verbose = trace["params"]["verbose"].as_str().unwrap();
     assert!(verbose.contains("tier=parse-only"), "{verbose}");
     assert!(verbose.contains("mode=Structure"), "{verbose}");
     assert!(verbose.contains("queue_wait_ms="), "{verbose}");
@@ -49,7 +57,6 @@ fn verbose_trace_reports_diagnostics_lane_analysis() {
     assert!(verbose.contains("status=completed"), "{verbose}");
     assert!(verbose.contains("budget=ok"), "{verbose}");
     assert!(verbose.contains("error_class=None"), "{verbose}");
-    assert_eq!(messages[1]["method"], "textDocument/publishDiagnostics");
 }
 
 #[test]

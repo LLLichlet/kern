@@ -22,13 +22,13 @@ pub use compiler::{
     AnalysisFlowUseDef, AnalysisHover, AnalysisImportCandidate, AnalysisNavigationArtifact,
     AnalysisOutline, AnalysisParameterInformation, AnalysisReference, AnalysisReport,
     AnalysisSemanticArtifact, AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole,
-    AnalysisSignatureHelp, AnalysisSignatureInformation, AnalysisSpanReplacement,
-    AnalysisSurfaceArtifact, AnalysisSymbol, AnalysisSymbolKind, AnalysisTraitImplStub,
-    AnalysisTypeHint, AnalysisTypeHintKind, AnalysisUnusedBinding, AnalysisUnusedBindingKind,
-    AnalysisUnusedItem, AnalysisUnusedItemKind, Canceled, CancellationToken,
-    CodegenImportPlanReport, CodegenPlanFallback, CodegenPlanReport, CompileCacheStats,
-    CompileReport, ImportedStructureArtifact, IncrementalDriverKey, ParsedModuleArtifact,
-    PhaseTiming, SourceOverrides, StructureArtifact, TargetedAnalysisReport,
+    AnalysisSemanticTokenArtifact, AnalysisSignatureHelp, AnalysisSignatureInformation,
+    AnalysisSpanReplacement, AnalysisSurfaceArtifact, AnalysisSymbol, AnalysisSymbolKind,
+    AnalysisTraitImplStub, AnalysisTypeHint, AnalysisTypeHintKind, AnalysisUnusedBinding,
+    AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind, Canceled,
+    CancellationToken, CodegenImportPlanReport, CodegenPlanFallback, CodegenPlanReport,
+    CompileCacheStats, CompileReport, ImportedStructureArtifact, IncrementalDriverKey,
+    ParsedModuleArtifact, PhaseTiming, SourceOverrides, StructureArtifact, TargetedAnalysisReport,
 };
 pub use doc::{KernDoc, KernDocEntry, KernDocSection, KernDocSectionKind, KmetaDocItem};
 pub use metadata::{

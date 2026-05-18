@@ -19,10 +19,11 @@ use super::{
     AnalysisDefinitionLink, AnalysisFlowBindingId, AnalysisFlowDefinitionKind,
     AnalysisFlowDefinitionRef, AnalysisFlowNodeId, AnalysisHover, AnalysisNavigationArtifact,
     AnalysisOutline, AnalysisReference, AnalysisReport, AnalysisSemanticArtifact,
-    AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSpanReplacement,
-    AnalysisSurfaceArtifact, AnalysisSymbol, AnalysisSymbolKind, AnalysisUnusedBinding,
-    AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind, Canceled,
-    CancellationToken, CollectedStructureArtifact, CompileStructureArtifact, CompilerDriver,
+    AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole,
+    AnalysisSemanticTokenArtifact, AnalysisSpanReplacement, AnalysisSurfaceArtifact,
+    AnalysisSymbol, AnalysisSymbolKind, AnalysisUnusedBinding, AnalysisUnusedBindingKind,
+    AnalysisUnusedItem, AnalysisUnusedItemKind, Canceled, CancellationToken,
+    CollectedStructureArtifact, CompileStructureArtifact, CompilerDriver,
     ImportedStructureArtifact, ParsedModule, ParsedModuleArtifact, PhaseTiming, SourceOverrides,
     StructureArtifact, TargetedAnalysisReport,
 };
@@ -226,6 +227,46 @@ impl CompilerDriver {
         };
         cancellation.check()?;
         self.analyze_semantic_artifact_from_structure(&structure, cancellation)
+    }
+
+    pub fn analyze_semantic_token_artifact(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+        cancellation: &CancellationToken,
+    ) -> Result<AnalysisSemanticTokenArtifact, Canceled> {
+        cancellation.check()?;
+        let mut session = Session::new();
+        session.apply_options(&self.options);
+
+        let structure = match self.try_analyze_structure_cancelable(
+            session,
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
+            Ok(structure) => structure,
+            Err(session) => {
+                let mut diagnostic_session = Session::new();
+                diagnostic_session.apply_options(&self.options);
+                match self.analyze_diagnostic_structure_cancelable(
+                    diagnostic_session,
+                    input_file,
+                    source_overrides,
+                    cancellation,
+                )? {
+                    Ok(structure) => {
+                        return self.analyze_semantic_token_artifact_from_structure(
+                            &structure,
+                            cancellation,
+                        );
+                    }
+                    Err(_) => return Ok(self.empty_analysis_semantic_token_artifact(*session)),
+                }
+            }
+        };
+        cancellation.check()?;
+        self.analyze_semantic_token_artifact_from_structure(&structure, cancellation)
     }
 
     pub fn analyze_imported_structure(

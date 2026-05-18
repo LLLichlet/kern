@@ -347,14 +347,27 @@ fn semantic_tokens_cache_reuses_rendered_tokens_for_stable_document() {
     let first = analysis.semantic_tokens(&uri).unwrap();
     assert_eq!(analysis.semantic_tokens_cache.lock().unwrap().len(), 1);
     assert_eq!(
-        analysis.semantic_classification_cache.lock().unwrap().len(),
+        analysis
+            .semantic_token_classification_cache
+            .lock()
+            .unwrap()
+            .len(),
         1
+    );
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        0
     );
     assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
 
     analysis
         .semantic_classification_cache
+        .lock()
+        .unwrap()
+        .clear();
+    analysis
+        .semantic_token_classification_cache
         .lock()
         .unwrap()
         .clear();
@@ -366,6 +379,13 @@ fn semantic_tokens_cache_reuses_rendered_tokens_for_stable_document() {
     assert!(
         analysis
             .semantic_classification_cache
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        analysis
+            .semantic_token_classification_cache
             .lock()
             .unwrap()
             .is_empty()
@@ -399,7 +419,7 @@ fn semantic_tokens_reuse_artifact_warmed_by_full_diagnostics() {
     let trace = analysis.last_analysis_trace();
     assert!(
         trace.cache_events.iter().any(|event| {
-            event.kind.as_str() == "semantic-classification"
+            event.kind.as_str() == "semantic-token-classification"
                 && format!("{:?}", event.outcome) == "Hit"
         }),
         "{trace:?}"
@@ -407,10 +427,10 @@ fn semantic_tokens_reuse_artifact_warmed_by_full_diagnostics() {
 }
 
 #[test]
-fn semantic_tokens_reuse_artifact_warmed_by_navigation_prewarm() {
+fn semantic_tokens_reuse_artifact_warmed_by_token_prewarm() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
-    let uri = temp_file_uri("semantic_tokens_navigation_prewarm", source);
+    let uri = temp_file_uri("semantic_tokens_token_prewarm", source);
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -425,9 +445,17 @@ fn semantic_tokens_reuse_artifact_warmed_by_navigation_prewarm() {
         .prewarm_interactive_artifacts_in_snapshot(&snapshot, &uri)
         .unwrap();
 
-    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(
         analysis.semantic_classification_cache.lock().unwrap().len(),
+        0
+    );
+    assert_eq!(
+        analysis
+            .semantic_token_classification_cache
+            .lock()
+            .unwrap()
+            .len(),
         1
     );
 
@@ -438,14 +466,14 @@ fn semantic_tokens_reuse_artifact_warmed_by_navigation_prewarm() {
     let trace = analysis.last_analysis_trace();
     assert!(
         trace.cache_events.iter().any(|event| {
-            event.kind.as_str() == "semantic-classification"
+            event.kind.as_str() == "semantic-token-classification"
                 && format!("{:?}", event.outcome) == "Hit"
         }),
         "{trace:?}"
     );
     assert!(
         trace.cache_events.iter().all(|event| {
-            event.kind.as_str() != "semantic-classification"
+            event.kind.as_str() != "semantic-token-classification"
                 || format!("{:?}", event.outcome) != "Miss"
         }),
         "{trace:?}"
@@ -669,8 +697,16 @@ fn semantic_tokens_use_classification_artifact_without_navigation_or_full_analys
         Some(AnalysisTier::CleanSemantic)
     );
     assert_eq!(
-        analysis.semantic_classification_cache.lock().unwrap().len(),
+        analysis
+            .semantic_token_classification_cache
+            .lock()
+            .unwrap()
+            .len(),
         1
+    );
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        0
     );
     assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);

@@ -39,7 +39,7 @@ fn inlay_hints_include_inferred_let_binding_types() {
 }
 
 #[test]
-fn inlay_hints_reuse_semantic_classification_artifact_after_tokens() {
+fn inlay_hints_build_semantic_classification_artifact_after_tokens() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
         "fn helper() usize { return 1usize; }\n",
@@ -60,8 +60,16 @@ fn inlay_hints_reuse_semantic_classification_artifact_after_tokens() {
     });
     let _ = analysis.semantic_tokens(&uri).unwrap();
     assert_eq!(
-        analysis.semantic_classification_cache.lock().unwrap().len(),
+        analysis
+            .semantic_token_classification_cache
+            .lock()
+            .unwrap()
+            .len(),
         1
+    );
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        0
     );
 
     let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();

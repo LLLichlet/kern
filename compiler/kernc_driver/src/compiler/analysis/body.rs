@@ -224,6 +224,96 @@ impl CompilerDriver {
         }))
     }
 
+    pub fn analyze_semantic_token_artifact_from_structure(
+        &self,
+        structure: &StructureArtifact,
+        cancellation: &CancellationToken,
+    ) -> Result<AnalysisSemanticTokenArtifact, Canceled> {
+        cancellation.check()?;
+        let mut session = structure.session.clone();
+        let analysis_asts = structure.asts.clone();
+
+        let mut ctx = self.build_sema_context(&mut session);
+        ctx.restore_structure(structure.snapshot.clone());
+        cancellation.check()?;
+        let succeeded = self.run_navigation_pipeline_cancelable(&mut ctx, cancellation)?;
+        cancellation.check()?;
+        let symbols = self.collect_analysis_symbols(&ctx, &analysis_asts);
+        let references = ctx
+            .identifier_references()
+            .iter()
+            .map(|(reference_span, definition_span)| AnalysisReference {
+                reference_span: *reference_span,
+                definition_span: *definition_span,
+            })
+            .collect::<Vec<_>>();
+        let hovers = self.collect_analysis_hovers(&ctx);
+        let semantic_entries = self.collect_analysis_semantic_entries(&symbols, &ctx, &references);
+        drop(ctx);
+        cancellation.check()?;
+
+        Ok(AnalysisSemanticTokenArtifact {
+            session,
+            succeeded,
+            symbols,
+            references,
+            hovers,
+            semantic_entries,
+        })
+    }
+
+    pub fn analyze_semantic_token_artifact_from_structure_and_parsed(
+        &self,
+        structure: &StructureArtifact,
+        parsed: &ParsedModuleArtifact,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<AnalysisSemanticTokenArtifact>, Canceled> {
+        cancellation.check()?;
+        let mut session = parsed.session.clone();
+        let mut ctx = self.build_sema_context(&mut session);
+        ctx.restore_structure(structure.snapshot.clone());
+        cancellation.check()?;
+        if !self.rebind_body_only_modules_cancelable(
+            &mut ctx,
+            &structure.session,
+            &structure.asts,
+            parsed,
+            cancellation,
+        )? {
+            return Ok(None);
+        }
+        let Some(analysis_asts) =
+            self.reused_asts_cancelable(&structure.asts, parsed, cancellation)?
+        else {
+            return Ok(None);
+        };
+        cancellation.check()?;
+        let succeeded = self.run_navigation_pipeline_cancelable(&mut ctx, cancellation)?;
+        cancellation.check()?;
+        let symbols = self.collect_analysis_symbols(&ctx, &analysis_asts);
+        let references = ctx
+            .identifier_references()
+            .iter()
+            .map(|(reference_span, definition_span)| AnalysisReference {
+                reference_span: *reference_span,
+                definition_span: *definition_span,
+            })
+            .collect::<Vec<_>>();
+        let hovers = self.collect_analysis_hovers(&ctx);
+        let semantic_entries = self.collect_analysis_semantic_entries(&symbols, &ctx, &references);
+        drop(ctx);
+        cancellation.check()?;
+
+        Ok(Some(AnalysisSemanticTokenArtifact {
+            session,
+            succeeded,
+            symbols,
+            references,
+            hovers,
+            semantic_entries,
+        }))
+    }
+
     pub fn analyze_report_from_structure(
         &self,
         structure: &StructureArtifact,
@@ -738,6 +828,20 @@ impl CompilerDriver {
             references: Vec::new(),
             hovers: Vec::new(),
             type_hints: Vec::new(),
+            semantic_entries: Vec::new(),
+        }
+    }
+
+    pub(super) fn empty_analysis_semantic_token_artifact(
+        &self,
+        session: Session,
+    ) -> AnalysisSemanticTokenArtifact {
+        AnalysisSemanticTokenArtifact {
+            session,
+            succeeded: false,
+            symbols: Vec::new(),
+            references: Vec::new(),
+            hovers: Vec::new(),
             semantic_entries: Vec::new(),
         }
     }

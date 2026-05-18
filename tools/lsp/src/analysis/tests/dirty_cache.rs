@@ -37,8 +37,16 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
         .unwrap();
     assert_eq!(analysis.structure_cache.lock().unwrap().len(), 1);
     assert_eq!(
-        analysis.semantic_classification_cache.lock().unwrap().len(),
+        analysis
+            .semantic_token_classification_cache
+            .lock()
+            .unwrap()
+            .len(),
         1
+    );
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        0
     );
     assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
@@ -53,8 +61,16 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
     });
     assert_eq!(analysis.structure_cache.lock().unwrap().len(), 1);
     assert_eq!(
-        analysis.semantic_classification_cache.lock().unwrap().len(),
+        analysis
+            .semantic_token_classification_cache
+            .lock()
+            .unwrap()
+            .len(),
         1
+    );
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        0
     );
     assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
@@ -65,7 +81,7 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
     assert_eq!(analysis.structure_cache.lock().unwrap().len(), 1);
     assert!(
         analysis
-            .semantic_classification_cache
+            .semantic_token_classification_cache
             .lock()
             .unwrap()
             .keys()
@@ -195,10 +211,13 @@ fn dirty_interactive_requests_after_complex_error_avoid_full_dirty_analysis() {
 
     assert!(!actions.is_empty());
     let semantic_cache = analysis.semantic_classification_cache.lock().unwrap();
-    assert_eq!(semantic_cache.len(), 2);
-    assert!(semantic_cache.keys().any(AnalysisCacheKey::is_clean));
-    assert!(semantic_cache.keys().any(|key| !key.is_clean()));
+    assert_eq!(semantic_cache.len(), 0);
     drop(semantic_cache);
+    let semantic_token_cache = analysis.semantic_token_classification_cache.lock().unwrap();
+    assert_eq!(semantic_token_cache.len(), 2);
+    assert!(semantic_token_cache.keys().any(AnalysisCacheKey::is_clean));
+    assert!(semantic_token_cache.keys().any(|key| !key.is_clean()));
+    drop(semantic_token_cache);
     assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 1);
 }
@@ -329,8 +348,16 @@ fn dirty_complex_hover_uses_clean_analysis() {
         .unwrap();
 
     assert_eq!(
-        analysis.semantic_classification_cache.lock().unwrap().len(),
+        analysis
+            .semantic_token_classification_cache
+            .lock()
+            .unwrap()
+            .len(),
         1
+    );
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        0
     );
     assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
@@ -623,8 +650,16 @@ root = "src/lib.kn"
 
     assert!(!tokens.data.is_empty());
     assert_eq!(
-        analysis.semantic_classification_cache.lock().unwrap().len(),
+        analysis
+            .semantic_token_classification_cache
+            .lock()
+            .unwrap()
+            .len(),
         1
+    );
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        0
     );
     assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);

@@ -772,7 +772,7 @@ fn hover_resolves_function_signature_from_reference() {
 }
 
 #[test]
-fn hover_uses_classification_artifact_without_navigation_or_full_analysis() {
+fn hover_uses_token_artifact_without_navigation_or_full_analysis() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn helper(x: i32) i32 { return x; }\nfn main() i32 { return helper(1); }\n";
     let uri = temp_file_uri("hover_classification_artifact", source);
@@ -794,6 +794,11 @@ fn hover_uses_classification_artifact_without_navigation_or_full_analysis() {
         .lock()
         .unwrap()
         .clear();
+    analysis
+        .semantic_token_classification_cache
+        .lock()
+        .unwrap()
+        .clear();
     analysis.artifact_cache.lock().unwrap().clear();
 
     let hover = analysis
@@ -807,8 +812,16 @@ fn hover_uses_classification_artifact_without_navigation_or_full_analysis() {
         Some(AnalysisTier::CleanSemantic)
     );
     assert_eq!(
-        analysis.semantic_classification_cache.lock().unwrap().len(),
+        analysis
+            .semantic_token_classification_cache
+            .lock()
+            .unwrap()
+            .len(),
         1
+    );
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        0
     );
     assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
     assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);

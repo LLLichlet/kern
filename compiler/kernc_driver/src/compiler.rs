@@ -383,6 +383,15 @@ pub struct AnalysisSemanticArtifact {
     pub semantic_entries: Vec<AnalysisSemanticEntry>,
 }
 
+pub struct AnalysisSemanticTokenArtifact {
+    pub session: Session,
+    pub succeeded: bool,
+    pub symbols: Vec<AnalysisSymbol>,
+    pub references: Vec<AnalysisReference>,
+    pub hovers: Vec<AnalysisHover>,
+    pub semantic_entries: Vec<AnalysisSemanticEntry>,
+}
+
 pub struct AnalysisOutline {
     pub session: Session,
     pub symbols: Vec<AnalysisSymbol>,

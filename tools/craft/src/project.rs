@@ -199,13 +199,13 @@ impl AnalysisProject {
             apply_target_runtime_defaults(&mut compile_options, target_kind);
         }
 
-        if let Some(package) = resolved_package
-            && let Ok(manifest) = Manifest::load(&package.manifest_path)
-        {
+        if let Some(package) = resolved_package {
             if let Some(target_kind) = resolved_target_kind {
-                manifest.apply_runtime_options_for_target(target_kind, &mut compile_options);
+                package
+                    .manifest
+                    .apply_runtime_options_for_target(target_kind, &mut compile_options);
             } else {
-                manifest.apply_runtime_options(&mut compile_options);
+                package.manifest.apply_runtime_options(&mut compile_options);
             }
         }
 
@@ -243,8 +243,6 @@ impl AnalysisProject {
             let Some(package) = self.package_for_manifest_path(&build_package.manifest_path) else {
                 continue;
             };
-            let manifest = Manifest::load(&package.manifest_path)?;
-
             for unit in &build_package.units {
                 if unit.domain != crate::graph::BuildDomain::Target {
                     continue;
@@ -273,7 +271,9 @@ impl AnalysisProject {
                 }
                 compile_options.metadata_package_name = Some(package.id.name.clone());
                 apply_target_runtime_defaults(&mut compile_options, unit.target_kind);
-                manifest.apply_runtime_options_for_target(unit.target_kind, &mut compile_options);
+                package
+                    .manifest
+                    .apply_runtime_options_for_target(unit.target_kind, &mut compile_options);
                 apply_configured_library_aliases(&mut compile_options);
                 for (name, value) in compile_time_defines(&unit.cfg, &unit.define) {
                     compile_options.custom_defines.entry(name).or_insert(value);

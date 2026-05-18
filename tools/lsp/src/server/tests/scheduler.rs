@@ -204,8 +204,8 @@ fn did_open_prewarms_interactive_artifacts_without_publishing_extra_diagnostics(
                 && message["params"]["verbose"]
                     .as_str()
                     .is_some_and(|verbose| {
-                        verbose.contains("navigation:")
-                            && verbose.contains("semantic-classification:")
+                        verbose.contains("semantic-token-classification:")
+                            && !verbose.contains("navigation:")
                     })
         }),
         "{messages:#?}"

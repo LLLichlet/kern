@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
 pub(super) struct AnalysisPackage {
     pub(super) id: PackageId,
+    pub(super) manifest: Manifest,
     pub(super) manifest_path: PathBuf,
     pub(super) package_root: PathBuf,
     pub(super) lib_root: Option<PathBuf>,
@@ -36,6 +37,7 @@ pub(super) struct AnalysisScriptRoot {
 #[derive(Debug, Clone)]
 pub(super) struct PackageEntry {
     pub(super) id: PackageId,
+    pub(super) manifest: Manifest,
     pub(super) manifest_path: PathBuf,
     pub(super) package_root: PathBuf,
     pub(super) lib_root: Option<PathBuf>,
@@ -114,6 +116,7 @@ pub(super) fn assemble_packages(
             .unwrap_or_default();
         packages.push(AnalysisPackage {
             id: entry.id.clone(),
+            manifest: entry.manifest.clone(),
             manifest_path: entry.manifest_path.clone(),
             package_root: entry.package_root.clone(),
             lib_root: entry.lib_root.clone(),
@@ -222,6 +225,7 @@ fn package_entry(
 
     Ok(PackageEntry {
         id: package_id,
+        manifest: manifest.clone(),
         manifest_path: manifest_path.to_path_buf(),
         package_root,
         lib_root,

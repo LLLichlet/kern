@@ -21,6 +21,15 @@ import {
     resolveCraftCommand,
 } from "./craftContext";
 import {
+    isPathWithin,
+    manifestWorkingDirectory,
+    parseCraftBuildPackageArgs,
+    parseCraftTestTargetArgs,
+    taskEnvironment,
+    type CraftBuildPackageArgs,
+    type CraftTestTargetArgs,
+} from "./craftCommands";
+import {
     type AutoSuggestMode,
     type AutoSuggestDocument,
     createAutoSuggestRequest,
@@ -51,15 +60,6 @@ const AUTO_SUGGEST_DEBOUNCE_MS = 90;
 type WorkspaceRoot = {
     fsPath: string;
     name: string;
-};
-
-type CraftBuildPackageArgs = {
-    manifestPath?: string;
-};
-
-type CraftTestTargetArgs = {
-    manifestPath?: string;
-    targetName?: string;
 };
 
 const KERN_DOCUMENT_SELECTOR = [
@@ -602,38 +602,6 @@ async function runCraftTargetCommand(
     }
 }
 
-function parseCraftBuildPackageArgs(raw: unknown): CraftBuildPackageArgs {
-    if (!raw || typeof raw !== "object") {
-        return {};
-    }
-    const value = raw as Record<string, unknown>;
-    return {
-        manifestPath:
-            typeof value.manifestPath === "string" ? value.manifestPath : undefined,
-    };
-}
-
-function parseCraftTestTargetArgs(raw: unknown): CraftTestTargetArgs {
-    if (!raw || typeof raw !== "object") {
-        return {};
-    }
-    const value = raw as Record<string, unknown>;
-    return {
-        manifestPath:
-            typeof value.manifestPath === "string" ? value.manifestPath : undefined,
-        targetName: typeof value.targetName === "string" ? value.targetName : undefined,
-    };
-}
-
-function manifestWorkingDirectory(manifestPath: string): string {
-    const normalized = manifestPath.replace(/\\/g, "/");
-    const slash = normalized.lastIndexOf("/");
-    if (slash <= 0) {
-        return ".";
-    }
-    return manifestPath.slice(0, slash);
-}
-
 function runCraftCommand(
     command: string,
     args: string[],
@@ -721,16 +689,6 @@ function runCraftTerminalCommand(
     });
 }
 
-function taskEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
-    const clean: Record<string, string> = {};
-    for (const [key, value] of Object.entries(env)) {
-        if (typeof value === "string") {
-            clean[key] = value;
-        }
-    }
-    return clean;
-}
-
 function taskScopeForPath(cwd: string): vscode.WorkspaceFolder | vscode.TaskScope {
     const folders = vscode.workspace.workspaceFolders ?? [];
     for (const folder of folders) {
@@ -739,15 +697,6 @@ function taskScopeForPath(cwd: string): vscode.WorkspaceFolder | vscode.TaskScop
         }
     }
     return folders[0] ?? vscode.TaskScope.Workspace;
-}
-
-function isPathWithin(path: string, root: string): boolean {
-    const normalizedPath = path.replace(/\\/g, "/");
-    const normalizedRoot = root.replace(/\\/g, "/").replace(/\/+$/, "");
-    return (
-        normalizedPath === normalizedRoot ||
-        normalizedPath.startsWith(`${normalizedRoot}/`)
-    );
 }
 
 function createLanguageServerWatchers(): vscode.FileSystemWatcher[] {

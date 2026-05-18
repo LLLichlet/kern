@@ -56,20 +56,37 @@ Completed work:
 - Keep this narrow; do not redesign the ID representation.
 - Run `cargo test -p kernc_ty`.
 
-## Priority 1: Toolchain And Lint Policy
+## Completed: Toolchain And Lint Policy
 
-Decide policy before changing CI.
+The project intentionally tracks current stable Rust and does not pin local
+toolchains or CI lint gates during normal development.
 
-Options to evaluate:
+Policy decisions:
 
-- Add `rust-version = "1.85"` metadata to document the minimum Rust version for
-  Edition 2024.
-- Consider a concrete `rust-toolchain.toml` only if the project wants pinned
-  local toolchains.
-- Add `cargo fmt --check` first if CI linting is desired.
-- Evaluate `cargo clippy` separately and avoid enabling `-D warnings` until the
-  current baseline is known.
-- Treat dependency audit tooling as a separate policy decision.
+- Do not add `rust-version` metadata for now.
+- Do not add `rust-toolchain.toml`; use latest stable Rust.
+- Do not add CI `cargo fmt`, `clippy`, `audit`, or `deny` gates yet.
+- Keep `cargo-deny` available as a manual policy check.
+- Treat clippy cleanup as release preparation work, with no broad `allow`
+  policy.
+
+## Completed: VS Code Extension Maintenance
+
+The VS Code extension has a small dependency surface, but its dev and packaging
+toolchain still pulls in the broader TypeScript ecosystem.
+
+Completed work:
+
+- Run `npm audit` against the real registry and update vulnerable transitive
+  dev dependencies in `package-lock.json`.
+- Confirm `npm audit` reports zero vulnerabilities after the lockfile update.
+- Keep the update narrow: no runtime dependency or major version changes.
+- Extract Craft command parsing and path helpers from the VS Code glue layer so
+  cross-platform behavior is unit-tested.
+- Add coverage for code lens command argument parsing, manifest parent
+  directory resolution, task environment filtering, and workspace path
+  containment on Unix and Windows.
+- Run `npm run check`, `npm run test`, and `npm run package:vsix`.
 
 ## Backlog
 

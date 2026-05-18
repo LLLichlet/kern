@@ -44,7 +44,6 @@ let pendingAutoSuggestRequest:
     | undefined;
 let pendingAutoSuggestTimer: NodeJS.Timeout | undefined;
 let autoSuggestDocuments = new Map<string, AutoSuggestDocument>();
-let nextCraftTerminalId = 0;
 
 const DIAGNOSTIC_DISPLAY_DELAY_MS = 180;
 const AUTO_SUGGEST_DEBOUNCE_MS = 90;
@@ -672,102 +671,83 @@ function runCraftTerminalCommand(
     name: string,
 ): Promise<void> {
     return new Promise((resolve, reject) => {
-        const terminal = vscode.window.createTerminal({
-            name: `${name} #${++nextCraftTerminalId}`,
-            pty: new CraftTaskTerminal(command, args, cwd, env, resolve, reject),
+        const task = new vscode.Task(
+            {
+                type: "kern",
+                command: "craft",
+                cwd,
+                args,
+            },
+            taskScopeForPath(cwd),
+            name,
+            "Kern",
+            new vscode.ProcessExecution(command, args, {
+                cwd,
+                env: taskEnvironment(env),
+            }),
+            [],
+        );
+        task.presentationOptions = {
+            reveal: vscode.TaskRevealKind.Always,
+            panel: vscode.TaskPanelKind.Shared,
+            clear: true,
+            showReuseMessage: true,
+            close: false,
+        };
+
+        let execution: vscode.TaskExecution | undefined;
+        const disposable = vscode.tasks.onDidEndTaskProcess((event) => {
+            if (event.execution !== execution) {
+                return;
+            }
+            disposable.dispose();
+            const code = event.exitCode;
+            if (code === 0) {
+                resolve();
+                return;
+            }
+            reject(new Error(`craft exited with status ${code ?? "unknown"}`));
         });
-        terminal.show(true);
+
+        vscode.tasks.executeTask(task).then(
+            (started) => {
+                execution = started;
+            },
+            (error) => {
+                disposable.dispose();
+                reject(error instanceof Error ? error : new Error(String(error)));
+            },
+        );
     });
 }
 
-class CraftTaskTerminal implements vscode.Pseudoterminal {
-    private readonly writeEmitter = new vscode.EventEmitter<string>();
-    readonly onDidWrite = this.writeEmitter.event;
-
-    private child: ReturnType<typeof spawn> | undefined;
-    private completed = false;
-    private closedByUser = false;
-
-    constructor(
-        private readonly command: string,
-        private readonly args: string[],
-        private readonly cwd: string,
-        private readonly env: NodeJS.ProcessEnv,
-        private readonly resolve: () => void,
-        private readonly reject: (error: Error) => void,
-    ) {}
-
-    open(): void {
-        this.writeLine(`$ ${this.command} ${this.args.map(shellQuote).join(" ")}`);
-        const child = spawn(this.command, this.args, {
-            cwd: this.cwd,
-            env: this.env,
-            stdio: ["ignore", "pipe", "pipe"],
-        });
-        this.child = child;
-        child.stdout.on("data", (chunk: Buffer | string) => {
-            this.write(String(chunk));
-        });
-        child.stderr.on("data", (chunk: Buffer | string) => {
-            this.write(String(chunk));
-        });
-        child.on("error", (error) => {
-            if (this.completed) {
-                return;
-            }
-            this.completed = true;
-            this.writeLine(`craft failed to start: ${formatError(error)}`);
-            this.reject(error instanceof Error ? error : new Error(String(error)));
-        });
-        child.on("close", (code) => {
-            if (this.completed) {
-                return;
-            }
-            this.completed = true;
-            if (this.closedByUser) {
-                this.writeLine("[canceled] craft task stopped");
-                this.reject(new Error("craft task was canceled"));
-                return;
-            }
-            if (code === 0) {
-                this.writeLine("[ok] craft completed");
-                this.resolve();
-                return;
-            }
-            const status = code ?? "unknown";
-            this.writeLine(`[error] craft exited with status ${status}`);
-            this.reject(new Error(`craft exited with status ${status}`));
-        });
-    }
-
-    close(): void {
-        if (this.completed) {
-            return;
+function taskEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
+    const clean: Record<string, string> = {};
+    for (const [key, value] of Object.entries(env)) {
+        if (typeof value === "string") {
+            clean[key] = value;
         }
-        this.closedByUser = true;
-        const child = this.child;
-        if (child) {
-            child.kill();
-            return;
-        }
-        this.completed = true;
-        this.reject(new Error("craft task was canceled"));
     }
-
-    private write(output: string): void {
-        this.writeEmitter.fire(output.replace(/\r?\n/g, "\r\n"));
-    }
-
-    private writeLine(output: string): void {
-        this.write(`${output}\n`);
-    }
+    return clean;
 }
 
-function shellQuote(value: string): string {
-    if (/^[A-Za-z0-9_./:=+-]+$/.test(value)) {
-        return value;
+function taskScopeForPath(cwd: string): vscode.WorkspaceFolder | vscode.TaskScope {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    for (const folder of folders) {
+        if (isPathWithin(cwd, folder.uri.fsPath)) {
+            return folder;
+        }
     }
-    return `'${value.replace(/'/g, "'\\''")}'`;
+    return folders[0] ?? vscode.TaskScope.Workspace;
+}
+
+function isPathWithin(path: string, root: string): boolean {
+    const normalizedPath = path.replace(/\\/g, "/");
+    const normalizedRoot = root.replace(/\\/g, "/").replace(/\/+$/, "");
+    return (
+        normalizedPath === normalizedRoot ||
+        normalizedPath.startsWith(`${normalizedRoot}/`)
+    );
 }
 
 function createLanguageServerWatchers(): vscode.FileSystemWatcher[] {

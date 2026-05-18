@@ -72,7 +72,8 @@ pub(super) fn semantic_tokens_cancelable(
     })
 }
 
-pub(super) fn lexical_semantic_tokens_cancelable(
+#[cfg(test)]
+fn lexical_semantic_tokens_cancelable(
     file: &kernc_utils::SourceFile,
     cancellation: &CancellationToken,
 ) -> Result<IdeSemanticTokens, String> {

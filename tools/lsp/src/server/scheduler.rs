@@ -487,7 +487,10 @@ where
             state
                 .latest_generation_by_target
                 .insert(uri.clone(), generation);
-            state.queue_target_diagnostics_task(uri, generation, mode, prewarm);
+            state.queue_target_diagnostics_task(uri.clone(), generation, mode, false);
+            if prewarm {
+                submit_prewarm_task(state, uri, generation);
+            }
         }
         Ok(DocumentSyncAction::Immediate(outcome)) => {
             state.queue_diagnostics_publish(target_uri.to_string(), generation, outcome);

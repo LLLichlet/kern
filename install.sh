@@ -70,7 +70,7 @@ warn_if_nixos_host() {
     fi
 
     info "=> Detected NixOS."
-    info "=> If you manage your toolchain through Nix, prefer the flake/overlay flow documented in Nix.md."
+    info "=> If you manage your toolchain through Nix, prefer the flake/overlay flow documented in docs/nix.md."
     info "=> This installer will continue with the regular ~/.kern SDK installation."
 }
 

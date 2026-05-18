@@ -52,6 +52,7 @@ pub(super) fn drain_scheduler_to_quiescence(
         || state.pending_prewarm_tasks > 0
         || state.has_pending_document_request_work()
         || !state.pending_diagnostics.is_empty()
+        || !state.pending_diagnostics_targets.is_empty()
     {
         if state.pending_prewarm_tasks > 0 {
             super::scheduler::flush_prewarm_results(state, writer, true).unwrap();

@@ -507,20 +507,30 @@ fn interactive_requests_do_not_auto_drain_deferred_diagnostics() {
     let mut state = initialized_state();
     let invalid_source = "fn main() i32 {\n    let value = 1i32\n    return value;\n}\n";
     let uri = temp_file_uri("server_deferred_diagnostics_interactive", invalid_source);
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
 
-    let _ = dispatch_messages(&mut state, did_open_message(&uri, invalid_source, 1));
-    let _ = dispatch_messages(
+    handle_message_nonblocking(
         &mut state,
+        &mut writer,
+        did_open_message(&uri, invalid_source, 1),
+    )
+    .unwrap();
+    handle_message_nonblocking(
+        &mut state,
+        &mut writer,
         did_change_message(
             &uri,
             "fn main() i32 {\n    let value = 2i32\n    return value;\n}\n",
             2,
         ),
-    );
+    )
+    .unwrap();
     assert!(state.has_pending_diagnostics_work());
 
-    let response = dispatch_single_response(
+    handle_message_nonblocking(
         &mut state,
+        &mut writer,
         IncomingMessage {
             jsonrpc: JSONRPC_VERSION.to_string(),
             id: Some(json!(52)),
@@ -530,8 +540,15 @@ fn interactive_requests_do_not_auto_drain_deferred_diagnostics() {
                 "position": { "line": 0, "character": 3 }
             })),
         },
-    );
+    )
+    .unwrap();
 
+    flush_document_request_results(&mut state, &mut writer, true).unwrap();
+    let messages = read_all_messages(&output);
+    let response = messages
+        .iter()
+        .find(|message| message["id"] == json!(52))
+        .expect("expected hover response");
     assert_eq!(response["id"], json!(52));
     assert!(state.has_pending_diagnostics_work());
 }
@@ -542,9 +559,14 @@ fn interactive_requests_do_not_force_drain_when_diagnostics_budget_is_reached() 
     let source = "fn main() i32 {\n    let value = 1i32;\n    return value;\n}\n";
     let uri_a = temp_file_uri("server_interactive_budget_a", source);
     let uri_b = temp_file_uri("server_interactive_budget_b", source);
-
-    let _ = dispatch_messages(&mut state, did_open_message(&uri_a, source, 1));
-    let _ = dispatch_messages(&mut state, did_open_message(&uri_b, source, 1));
+    let mut output = Vec::new();
+    {
+        let mut writer = MessageWriter::new(&mut output);
+        handle_message_nonblocking(&mut state, &mut writer, did_open_message(&uri_a, source, 1))
+            .unwrap();
+        handle_message_nonblocking(&mut state, &mut writer, did_open_message(&uri_b, source, 1))
+            .unwrap();
+    }
     state.pending_diagnostics_targets.clear();
     let generation_a = state.begin_target_analysis(&uri_a);
     let generation_b = state.begin_target_analysis(&uri_b);
@@ -565,18 +587,26 @@ fn interactive_requests_do_not_force_drain_when_diagnostics_budget_is_reached() 
         state.diagnostics_flush_policy.target_task_budget
     );
 
-    let messages = dispatch_messages(
-        &mut state,
-        IncomingMessage {
-            jsonrpc: JSONRPC_VERSION.to_string(),
-            id: Some(json!(53)),
-            method: Some("textDocument/hover".to_string()),
-            params: Some(json!({
-                "textDocument": { "uri": uri_a },
-                "position": { "line": 0, "character": 3 }
-            })),
-        },
-    );
+    output.clear();
+    {
+        let mut writer = MessageWriter::new(&mut output);
+        handle_message_nonblocking(
+            &mut state,
+            &mut writer,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(53)),
+                method: Some("textDocument/hover".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri_a },
+                    "position": { "line": 0, "character": 3 }
+                })),
+            },
+        )
+        .unwrap();
+        flush_document_request_results(&mut state, &mut writer, true).unwrap();
+    }
+    let messages = read_all_messages(&output);
 
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0]["id"], json!(53));

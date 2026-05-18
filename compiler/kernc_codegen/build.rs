@@ -26,6 +26,7 @@ fn main() {
 fn llvm_dependency_var(suffix: &str) -> Option<String> {
     env::vars().find_map(|(key, value)| {
         if key.starts_with("DEP_LLVM_") && key.ends_with(suffix) {
+            println!("cargo:rerun-if-env-changed={key}");
             Some(value)
         } else {
             None

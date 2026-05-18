@@ -66,6 +66,8 @@ struct ThinLtoSession(*mut ThinLtoSessionOpaque);
 
 impl ThinLtoSession {
     fn new() -> Result<Self, String> {
+        // SAFETY: Creates an owned bridge session and returns either a valid
+        // opaque pointer or null on allocation/setup failure.
         let raw = unsafe { kern_thinlto_session_create() };
         if raw.is_null() {
             Err("LLVM ThinLTO failed to allocate a bridge session".to_string())
@@ -75,8 +77,11 @@ impl ThinLtoSession {
     }
 
     fn set_cpu(&self, cpu: &str) -> Result<(), String> {
-        let cpu = CString::new(cpu).unwrap();
+        let cpu = CString::new(cpu)
+            .map_err(|_| format!("ThinLTO target CPU contains an interior NUL byte: {cpu:?}"))?;
         self.run_bool(
+            // SAFETY: `self.0` is a live bridge session and `cpu` is a
+            // zero-terminated string that remains alive for this call.
             unsafe { kern_thinlto_session_set_cpu(self.0, cpu.as_ptr()) },
             "LLVM ThinLTO failed to configure the target CPU",
         )
@@ -85,6 +90,8 @@ impl ThinLtoSession {
     fn set_generated_objects_dir(&self, dir: &Path) -> Result<(), String> {
         let dir = c_string_path(dir, "ThinLTO generated-objects directory")?;
         self.run_bool(
+            // SAFETY: `self.0` is a live bridge session and `dir` is a
+            // zero-terminated path string that remains alive for this call.
             unsafe { kern_thinlto_session_set_generated_objects_dir(self.0, dir.as_ptr()) },
             "LLVM ThinLTO failed to configure the generated-objects directory",
         )
@@ -93,6 +100,8 @@ impl ThinLtoSession {
     fn set_cache_dir(&self, dir: &Path) -> Result<(), String> {
         let dir = c_string_path(dir, "ThinLTO cache directory")?;
         self.run_bool(
+            // SAFETY: `self.0` is a live bridge session and `dir` is a
+            // zero-terminated path string that remains alive for this call.
             unsafe { kern_thinlto_session_set_cache_dir(self.0, dir.as_ptr()) },
             "LLVM ThinLTO failed to configure the cache directory",
         )
@@ -106,6 +115,8 @@ impl ThinLtoSession {
             )
         })?;
         self.run_bool(
+            // SAFETY: `self.0` is live, `identifier` is zero-terminated and
+            // `module.bitcode` points to `len` bytes for the duration of the call.
             unsafe {
                 kern_thinlto_session_add_module(
                     self.0,
@@ -120,16 +131,22 @@ impl ThinLtoSession {
 
     fn process(&self) -> Result<(), String> {
         self.run_bool(
+            // SAFETY: `self.0` is a live bridge session configured through the
+            // methods above.
             unsafe { kern_thinlto_session_process(self.0) },
             "LLVM ThinLTO failed during post-link processing",
         )
     }
 
     fn object_count(&self) -> usize {
+        // SAFETY: `self.0` is a live bridge session and this query does not
+        // mutate Rust-owned memory.
         unsafe { kern_thinlto_session_object_count(self.0) }
     }
 
     fn object(&self, index: usize) -> Result<ThinLtoObject, String> {
+        // SAFETY: `self.0` is live. The bridge returns 0 for missing lengths,
+        // which is handled as an error below.
         let identifier_len = unsafe { kern_thinlto_session_object_identifier_len(self.0, index) };
         if identifier_len == 0 {
             return Err(format!(
@@ -137,6 +154,8 @@ impl ThinLtoSession {
             ));
         }
         let mut identifier_bytes = vec![0u8; identifier_len];
+        // SAFETY: `identifier_bytes` has exactly the length requested from the
+        // bridge and is valid for writes for the duration of the call.
         let copied_identifier = unsafe {
             kern_thinlto_session_copy_object_identifier(
                 self.0,
@@ -152,7 +171,10 @@ impl ThinLtoSession {
         }
         let identifier = String::from_utf8_lossy(&identifier_bytes).into_owned();
 
+        // SAFETY: `self.0` is live and `index` is being read from the object
+        // table exposed by the bridge.
         if unsafe { kern_thinlto_session_object_is_file(self.0, index) } != 0 {
+            // SAFETY: Same object-table query contract as above.
             let path_len = unsafe { kern_thinlto_session_object_path_len(self.0, index) };
             if path_len == 0 {
                 return Err(format!(
@@ -160,6 +182,8 @@ impl ThinLtoSession {
                 ));
             }
             let mut path_bytes = vec![0u8; path_len];
+            // SAFETY: `path_bytes` has the bridge-reported path length and is
+            // valid for writes for the duration of the call.
             let copied = unsafe {
                 kern_thinlto_session_copy_object_path(
                     self.0,
@@ -181,6 +205,7 @@ impl ThinLtoSession {
             });
         }
 
+        // SAFETY: Same object-table query contract as above.
         let buffer_len = unsafe { kern_thinlto_session_object_buffer_len(self.0, index) };
         if buffer_len == 0 {
             return Err(format!(
@@ -188,6 +213,8 @@ impl ThinLtoSession {
             ));
         }
         let mut buffer = vec![0u8; buffer_len];
+        // SAFETY: `buffer` has the bridge-reported buffer length and is valid
+        // for writes for the duration of the call.
         let copied = unsafe {
             kern_thinlto_session_copy_object_buffer(
                 self.0,
@@ -216,10 +243,13 @@ impl ThinLtoSession {
     }
 
     fn last_error(&self, fallback: String) -> String {
+        // SAFETY: `self.0` is live. A null result means no bridge error message.
         let message = unsafe { kern_thinlto_session_last_error(self.0) };
         if message.is_null() {
             fallback
         } else {
+            // SAFETY: Non-null bridge error messages are zero-terminated and
+            // owned by the session.
             let message = unsafe { CStr::from_ptr(message) }.to_string_lossy();
             if message.is_empty() {
                 fallback
@@ -232,6 +262,8 @@ impl ThinLtoSession {
 
 impl Drop for ThinLtoSession {
     fn drop(&mut self) {
+        // SAFETY: `self.0` is the owned session pointer returned by
+        // `kern_thinlto_session_create` and is disposed exactly once here.
         unsafe { kern_thinlto_session_dispose(self.0) };
     }
 }

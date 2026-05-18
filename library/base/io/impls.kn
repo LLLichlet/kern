@@ -52,6 +52,14 @@ impl[T] &[T] : Formatable
     }
 }
 
+impl[T] &T : Formatable
+    where T: Formatable,
+{
+    pub fn write_fmt(spec: FormatSpec, writer: &mut Write) void {
+        self.*.write_fmt(spec, writer);
+    }
+}
+
 fn digit_byte(digit: u8, upper: bool) u8 {
     if (digit < 10) return b'0' + digit;
     let base = if (upper) b'A' else b'a';

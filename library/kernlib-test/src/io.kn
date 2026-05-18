@@ -86,6 +86,13 @@ fn check_writers[T](t: &mut Report[T]) void
     let pair_writer = (pair_out..& as &mut Write);
     "{}".fmt(.{ pair, }).write_to(pair_writer);
     pair_out..&.as_slice().should().eq("(2, 5)").sum(@loc(), t);
+
+    let nested: [2]&[u8] = .{ "ab", "cd" };
+    let mut nested_storage: [32]u8 = undef;
+    let mut nested_out = (nested_storage..&[0...32]).writer();
+    let nested_writer = (nested_out..& as &mut Write);
+    "{}".fmt(.{ nested.&[0...2], }).write_to(nested_writer);
+    nested_out..&.as_slice().should().eq("[ab, cd]").sum(@loc(), t);
 }
 
 fn check_readers[T](t: &mut Report[T]) void

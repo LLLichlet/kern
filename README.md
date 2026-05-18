@@ -46,7 +46,7 @@ The installer places the SDK under `~/.kern` on Unix and
 `kern-lsp` start successfully.
 
 If you are using NixOS or otherwise manage your toolchain through Nix, see
-[Nix.md](./Nix.md) instead of the shell installer flow.
+[docs/nix.md](./docs/nix.md) instead of the shell installer flow.
 
 For offline installs, source builds, local SDK archives, and reproducibility
 details, see [Installing Kern](docs/install.md).

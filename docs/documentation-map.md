@@ -19,6 +19,7 @@ The important rule is simple:
 These are the current public reference documents.
 
 - [`README.md`](../README.md): default English repository front page, high-level language/toolchain overview, installation, and documentation entry points; the Simplified Chinese version is [`README.zh.md`](../README.zh.md)
+- [`docs/nix.md`](./nix.md): Nix and NixOS usage for installing Kern through flake configuration and entering the repository development shell
 - [`docs/install.md`](./install.md): SDK installation, installed layout, offline installs, source builds, local archive packaging, and reproducibility checks
 - [`docs/tutorial/`](./tutorial/README.md): default English guided tour through tools, language basics, core semantics, library usage, and freestanding entry points; the Simplified Chinese version is [`docs/tutorial/zh/README.md`](./tutorial/zh/README.md)
 - [`docs/design.md`](./design.md): current language semantics and syntax

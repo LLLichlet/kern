@@ -23,10 +23,6 @@ fn lsp_position_to_byte_offset(source: &str, position: &Value) -> usize {
     offset + target_character
 }
 
-fn file_path_to_uri_for_test(path: &std::path::Path) -> String {
-    format!("file://{}", path.to_string_lossy())
-}
-
 fn write_workspace_symbol_project(root: &std::path::Path, package: &str, symbol: &str) {
     let src = root.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -763,11 +759,9 @@ root = "src/lib.kn"
     assert_eq!(response["id"], json!(241));
     assert_eq!(response["result"].as_array().unwrap().len(), 1);
     assert_eq!(response["result"][0]["name"], "WorkspaceNeedle");
-    assert!(
-        response["result"][0]["location"]["uri"]
-            .as_str()
-            .unwrap()
-            .ends_with("/src/lib.kn")
+    assert_uri_path_ends_with(
+        response["result"][0]["location"]["uri"].as_str().unwrap(),
+        "src/lib.kn",
     );
 }
 
@@ -2785,7 +2779,7 @@ dep = {{ path = \"../dep\" }}
     .unwrap();
     let app_source = "use dep.helper;\npub fn run() i32 { return helper(); }\n";
     fs::write(app_dir.join("lib.kn"), app_source).unwrap();
-    let uri = format!("file://{}", dep_dir.join("lib.kn").to_string_lossy());
+    let uri = file_path_to_uri_for_test(&dep_dir.join("lib.kn"));
 
     let mut state = initialized_state();
     state.work_done_progress = true;
@@ -2816,19 +2810,19 @@ dep = {{ path = \"../dep\" }}
     let locations = response["result"].as_array().unwrap();
     assert_eq!(locations.len(), 3, "{locations:#?}");
     assert!(
-        locations.iter().any(|location| location["uri"]
-            .as_str()
-            .unwrap()
-            .ends_with("/dep/src/lib.kn")),
+        locations
+            .iter()
+            .any(
+                |location| crate::analysis::uri_to_file_path(location["uri"].as_str().unwrap())
+                    .is_some_and(|path| path.ends_with("dep/src/lib.kn"))
+            ),
         "{locations:#?}"
     );
     let app_locations = locations
         .iter()
         .filter(|location| {
-            location["uri"]
-                .as_str()
-                .unwrap()
-                .ends_with("/app/src/lib.kn")
+            crate::analysis::uri_to_file_path(location["uri"].as_str().unwrap())
+                .is_some_and(|path| path.ends_with("app/src/lib.kn"))
         })
         .collect::<Vec<_>>();
     assert_eq!(app_locations.len(), 2, "{locations:#?}");
@@ -2908,9 +2902,17 @@ dep = {{ path = \"{}\" }}
     let app_locations = locations
         .iter()
         .filter(|location| {
-            location["uri"]
-                .as_str()
-                .is_some_and(|uri| uri.ends_with("/src/lib.kn") && uri.contains("cross_root_app"))
+            location["uri"].as_str().is_some_and(|uri| {
+                crate::analysis::uri_to_file_path(uri).is_some_and(|path| {
+                    path.ends_with("src/lib.kn")
+                        && path.components().any(|component| {
+                            component
+                                .as_os_str()
+                                .to_string_lossy()
+                                .contains("cross_root_app")
+                        })
+                })
+            })
         })
         .collect::<Vec<_>>();
     assert_eq!(app_locations.len(), 2, "{locations:#?}");
@@ -3112,7 +3114,7 @@ root = \"src/lib.kn\"
     .unwrap();
     let source = "pub fn value() i32 { return 1; }\n";
     fs::write(root.join("src/lib.kn"), source).unwrap();
-    let uri = format!("file://{}", root.join("src/lib.kn").to_string_lossy());
+    let uri = file_path_to_uri_for_test(&root.join("src/lib.kn"));
 
     let mut state = initialized_state();
     let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
@@ -3136,10 +3138,12 @@ root = \"src/lib.kn\"
     assert_eq!(lenses[0]["data"]["command"], "kern.craft.buildPackage");
     assert_eq!(lenses[0]["data"]["arguments"][0]["targetKind"], "lib");
     assert!(
-        lenses[0]["data"]["arguments"][0]["manifestPath"]
-            .as_str()
-            .unwrap()
-            .ends_with("/Craft.toml"),
+        PathBuf::from(
+            lenses[0]["data"]["arguments"][0]["manifestPath"]
+                .as_str()
+                .unwrap()
+        )
+        .ends_with("Craft.toml"),
         "{}",
         lenses[0]["data"]["arguments"][0]
     );
@@ -3166,7 +3170,7 @@ root = \"src/lib.kn\"
     .unwrap();
     let source = "pub fn value() i32 { return 1; }\n";
     fs::write(root.join("src/lib.kn"), source).unwrap();
-    let uri = format!("file://{}", root.join("src/lib.kn").to_string_lossy());
+    let uri = file_path_to_uri_for_test(&root.join("src/lib.kn"));
 
     let mut state = initialized_state();
     let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
@@ -3467,7 +3471,7 @@ fn document_link_request_returns_external_module_targets() {
     fs::write(root.join("mod.kn"), "mod child;\nmod inline {}\n").unwrap();
     fs::write(root.join("child.kn"), "pub fn child() void {}\n").unwrap();
     let source = fs::read_to_string(root.join("mod.kn")).unwrap();
-    let uri = format!("file://{}", root.join("mod.kn").to_string_lossy());
+    let uri = file_path_to_uri_for_test(&root.join("mod.kn"));
 
     let mut state = initialized_state();
     let _ = dispatch_messages(&mut state, did_open_message(&uri, &source, 1));
@@ -3494,14 +3498,7 @@ fn document_link_request_returns_external_module_targets() {
         })
     );
     assert!(links[0].get("target").is_none(), "{links:#?}");
-    assert!(
-        links[0]["data"]["target"]
-            .as_str()
-            .unwrap()
-            .ends_with("/child.kn"),
-        "{}",
-        links[0]["data"]["target"]
-    );
+    assert_uri_path_ends_with(links[0]["data"]["target"].as_str().unwrap(), "child.kn");
 }
 
 #[test]
@@ -3561,7 +3558,7 @@ dep = {{ path = \"../dep\" }}
     )
     .unwrap();
     let source = fs::read_to_string(app_dir.join("lib.kn")).unwrap();
-    let uri = format!("file://{}", app_dir.join("lib.kn").to_string_lossy());
+    let uri = file_path_to_uri_for_test(&app_dir.join("lib.kn"));
 
     let mut state = initialized_state();
     let _ = dispatch_messages(&mut state, did_open_message(&uri, &source, 1));
@@ -3588,12 +3585,7 @@ dep = {{ path = \"../dep\" }}
         })
     );
     assert!(links[0].get("target").is_none(), "{links:#?}");
-    assert!(
-        links[0]["data"]["target"]
-            .as_str()
-            .unwrap()
-            .ends_with("/child.kn")
-    );
+    assert_uri_path_ends_with(links[0]["data"]["target"].as_str().unwrap(), "child.kn");
 }
 
 #[test]
@@ -3653,7 +3645,7 @@ dep = {{ path = \"../dep\" }}
     )
     .unwrap();
     let source = fs::read_to_string(app_dir.join("lib.kn")).unwrap();
-    let uri = format!("file://{}", app_dir.join("lib.kn").to_string_lossy());
+    let uri = file_path_to_uri_for_test(&app_dir.join("lib.kn"));
 
     let mut state = initialized_state();
     let _ = dispatch_messages(&mut state, did_open_message(&uri, &source, 1));
@@ -3682,14 +3674,7 @@ dep = {{ path = \"../dep\" }}
 
     assert_eq!(response["id"], json!(334));
     assert!(response["result"].get("data").is_none());
-    assert!(
-        response["result"]["target"]
-            .as_str()
-            .unwrap()
-            .ends_with("/child.kn"),
-        "{}",
-        response["result"]["target"]
-    );
+    assert_uri_path_ends_with(response["result"]["target"].as_str().unwrap(), "child.kn");
 }
 
 #[test]
@@ -3734,7 +3719,7 @@ dep = {{ path = \"../dep\" }}
     );
     fs::write(root.join("app/Craft.toml"), &manifest_source).unwrap();
     fs::write(root.join("app/src/lib.kn"), "pub fn app() void {}\n").unwrap();
-    let uri = format!("file://{}", root.join("app/Craft.toml").to_string_lossy());
+    let uri = file_path_to_uri_for_test(&root.join("app/Craft.toml"));
 
     let mut state = initialized_state();
     let _ = dispatch_messages(&mut state, did_open_message(&uri, &manifest_source, 1));
@@ -3761,13 +3746,9 @@ dep = {{ path = \"../dep\" }}
         })
     );
     assert!(links[0].get("target").is_none(), "{links:#?}");
-    assert!(
-        links[0]["data"]["target"]
-            .as_str()
-            .unwrap()
-            .ends_with("/dep/Craft.toml"),
-        "{}",
-        links[0]["data"]["target"]
+    assert_uri_path_ends_with(
+        links[0]["data"]["target"].as_str().unwrap(),
+        "dep/Craft.toml",
     );
 }
 

@@ -216,9 +216,9 @@ fn protocol_stress_phase14_advanced_facts_remain_stable_across_requests() {
     fs::write(&call_path, call_source).unwrap();
     fs::write(&import_path, import_source).unwrap();
     fs::write(&trait_path, trait_source).unwrap();
-    let call_uri = format!("file://{}", call_path.to_string_lossy());
-    let import_uri = format!("file://{}", import_path.to_string_lossy());
-    let trait_uri = format!("file://{}", trait_path.to_string_lossy());
+    let call_uri = file_path_to_uri_for_test(&call_path);
+    let import_uri = file_path_to_uri_for_test(&import_path);
+    let trait_uri = file_path_to_uri_for_test(&trait_path);
 
     let _ = dispatch_messages(&mut state, did_open_message(&call_uri, call_source, 1));
     let _ = dispatch_messages(&mut state, did_open_message(&import_uri, import_source, 1));
@@ -477,7 +477,7 @@ root = "src/lib.kn"
     let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
     let source_path = src.join("lib.kn");
     fs::write(&source_path, source).unwrap();
-    let uri = format!("file://{}", source_path.to_string_lossy());
+    let uri = file_path_to_uri_for_test(&source_path);
     state.workspace_roots = vec![root];
 
     let mut output = Vec::new();
@@ -585,8 +585,8 @@ root = "src/lib.kn"
     let source = "fn main() i32 { return 0; }\n";
     let source_path = src.join("lib.kn");
     fs::write(&source_path, source).unwrap();
-    let uri = format!("file://{}", source_path.to_string_lossy());
-    let manifest_uri = format!("file://{}", manifest_path.to_string_lossy());
+    let uri = file_path_to_uri_for_test(&source_path);
+    let manifest_uri = file_path_to_uri_for_test(&manifest_path);
     let mut state = initialized_state();
     state.workspace_roots = vec![root];
     state.trace = super::super::lifecycle::TraceValue::Verbose;

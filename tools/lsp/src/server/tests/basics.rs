@@ -428,14 +428,6 @@ fn initialize_records_all_workspace_folders() {
     }));
 }
 
-fn file_path_to_uri_for_test(path: &PathBuf) -> String {
-    let mut rendered = path.to_string_lossy().replace('\\', "/");
-    if !rendered.starts_with('/') {
-        rendered.insert(0, '/');
-    }
-    format!("file://{rendered}")
-}
-
 #[test]
 fn rejects_requests_before_initialize() {
     let mut state = ServerState::new();

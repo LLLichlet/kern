@@ -1248,8 +1248,10 @@ roots = [\"tests/smoke.kn\"]
     assert_eq!(lib_lenses[0].title, "Build lib");
     assert_eq!(lib_lenses[0].command, "kern.craft.buildPackage");
     assert_eq!(
-        lib_lenses[0].arguments[0]["manifestPath"].as_str().unwrap(),
-        root.join("Craft.toml").to_string_lossy().as_ref()
+        normalize_path(&PathBuf::from(
+            lib_lenses[0].arguments[0]["manifestPath"].as_str().unwrap()
+        )),
+        normalize_path(&root.join("Craft.toml"))
     );
     assert_eq!(lib_lenses[0].arguments[0]["targetKind"], "lib");
 

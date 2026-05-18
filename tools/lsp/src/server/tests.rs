@@ -16,7 +16,7 @@ pub(super) use crate::transport::{MessageReader, MessageWriter};
 pub(super) use serde_json::{Value, json};
 pub(super) use std::fs;
 pub(super) use std::io::Cursor;
-pub(super) use std::path::PathBuf;
+pub(super) use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 pub(super) use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -129,7 +129,7 @@ pub(super) fn temp_file_uri(prefix: &str, initial_text: &str) -> String {
         fs::create_dir_all(parent).unwrap();
     }
     fs::write(&path, initial_text).unwrap();
-    format!("file://{}", path.to_string_lossy())
+    file_path_to_uri_for_test(&path)
 }
 
 pub(super) fn invalid_manifest_document_uri(prefix: &str, source: &str) -> String {
@@ -138,7 +138,7 @@ pub(super) fn invalid_manifest_document_uri(prefix: &str, source: &str) -> Strin
     fs::write(root.join("Craft.toml"), "not valid craft toml").unwrap();
     let source_path = root.join("src/main.kn");
     fs::write(&source_path, source).unwrap();
-    format!("file://{}", source_path.to_string_lossy())
+    file_path_to_uri_for_test(&source_path)
 }
 
 pub(super) fn unique_temp_dir(prefix: &str) -> PathBuf {
@@ -160,6 +160,27 @@ fn unique_temp_file_path(prefix: &str) -> PathBuf {
         nanos,
         counter
     ))
+}
+
+pub(super) fn file_path_to_uri_for_test(path: &Path) -> String {
+    let mut rendered = std::fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .replace('\\', "/");
+    if !rendered.starts_with('/') {
+        rendered.insert(0, '/');
+    }
+    format!("file://{rendered}")
+}
+
+pub(super) fn assert_uri_path_ends_with(uri: &str, suffix: impl AsRef<Path>) {
+    let path = crate::analysis::uri_to_file_path(uri)
+        .unwrap_or_else(|| panic!("expected file uri path, got {uri}"));
+    assert!(
+        path.ends_with(suffix.as_ref()),
+        "expected {path:?} to end with {:?}",
+        suffix.as_ref()
+    );
 }
 
 pub(super) fn read_single_response(output: &[u8]) -> Value {

@@ -9,12 +9,14 @@ experience for `.kn` source files.
 - Kern mark as the bundled language icon
 - stdio LSP connection to `kern-lsp`
 - diagnostics, hover, completion, rename, semantic tokens, code actions,
-  code lenses, document links, folding ranges, selection ranges, inlay hints,
-  and workspace symbols
+  formatting, code lenses, document links, folding ranges, selection ranges,
+  inlay hints, call hierarchy, and workspace symbols
 - a lightweight TextMate grammar and language configuration for editor basics
 - a `Kern: Restart Language Server` command
 - a `Kern: Show Language Server Output` command
 - a `Kern: Refresh Craft Analysis Context` command
+- Craft build/test code lenses that run in VS Code terminals with colored
+  output
 - starter snippets for common Kern declarations
 
 ## Development
@@ -65,6 +67,10 @@ binary.
 The language server currently advertises workspace folder support, semantic
 token delta support, deferred resolve for code lenses and document links, and
 workspace-wide search/navigation over every configured workspace root.
+
+Craft build and test code lenses execute `craft build` or `craft test` in a
+dedicated VS Code terminal. The terminal is kept open after completion so
+diagnostics and colored command output remain visible.
 
 `kern-lsp` resolves the official libraries relative to its own executable:
 installed toolchains use `lib/kern`, while repository builds use the repository
@@ -134,9 +140,16 @@ Craft Analysis Context`. The command executes `craft check` for workspace roots
 that contain `Craft.toml`, updates `.craft/analysis.toml`, and restarts the
 language server so diagnostics and navigation pick up the new plan immediately.
 
+The extension forwards supported `kern.project.*` settings to `kern-lsp`.
+Unsupported editor-only settings are ignored by the server.
+
 ## Release Posture
 
 - Marketplace name: `Kern`
 - Release packaging: ship editor integration only; use the installed Kern toolchain for `kern-lsp` and libraries
 - Local fallback behavior: configured path, configured toolchain, `PATH`, installed toolchain, workspace build
 - Current release check: `npm run check && npm run test && npm run package:vsix`
+- Manual release smoke should cover diagnostics, completion, hover, signature
+  help, navigation, references, rename, code actions, formatting, semantic
+  tokens, inlay hints, document links, code lenses, call hierarchy, workspace
+  refresh, and rapid typing while diagnostics or refresh work is queued

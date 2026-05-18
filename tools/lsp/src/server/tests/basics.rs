@@ -539,6 +539,69 @@ fn did_change_configuration_updates_analysis_settings_and_refreshes_workspace() 
 }
 
 #[test]
+fn did_change_configuration_accepts_wrapped_vscode_section_settings() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_configuration_wrapped", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        did_open_message(&uri, "fn main() void {}\n", 1),
+    )
+    .unwrap();
+    drain_scheduler_to_quiescence(&mut state, &mut writer);
+    drop(writer);
+    output.clear();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeConfiguration".to_string()),
+            params: Some(json!({
+                "settings": {
+                    "kern": {
+                        "project": {
+                            "features": ["simd"],
+                            "noDefaultFeatures": true
+                        }
+                    }
+                }
+            })),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        state.analysis.settings().compile_options.craft_features,
+        vec!["simd".to_string()]
+    );
+    assert!(
+        !state
+            .analysis
+            .settings()
+            .compile_options
+            .craft_default_features
+    );
+    drain_scheduler_to_quiescence(&mut state, &mut writer);
+    let messages = read_all_messages(&output);
+    assert!(
+        messages
+            .iter()
+            .all(|message| message["method"] != "window/logMessage")
+    );
+    assert!(messages.iter().any(|message| {
+        message["method"] == "textDocument/publishDiagnostics"
+            && message["params"]["uri"] == json!(uri)
+    }));
+}
+
+#[test]
 fn did_change_configuration_ignores_equal_settings_without_refresh() {
     let mut state = initialized_state();
     let mut output = Vec::new();

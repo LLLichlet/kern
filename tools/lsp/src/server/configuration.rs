@@ -79,9 +79,10 @@ fn parse_analysis_settings(
         });
     };
 
+    let (root, section) = settings_root(root);
     let project = match project_settings(root) {
         ProjectSettings::Missing => {
-            warn_unknown_root_keys(root, &mut warnings);
+            warn_unknown_root_keys(root, section, &mut warnings);
             return Ok(ConfigurationReport {
                 settings: None,
                 warnings,
@@ -90,8 +91,8 @@ fn parse_analysis_settings(
         ProjectSettings::Present(project) => project,
     };
 
-    warn_unknown_root_keys(root, &mut warnings);
-    warn_unknown_project_keys(project, &mut warnings);
+    warn_unknown_root_keys(root, section, &mut warnings);
+    warn_unknown_project_keys(project, section, &mut warnings);
 
     let mut compile_options = active.compile_options.clone();
     if let Some(value) = project.get("features") {
@@ -121,6 +122,13 @@ fn parse_analysis_settings(
 enum ProjectSettings<'a> {
     Present(&'a Map<String, Value>),
     Missing,
+}
+
+fn settings_root<'a>(root: &'a Map<String, Value>) -> (&'a Map<String, Value>, Option<&'static str>) {
+    match root.get("kern").and_then(Value::as_object) {
+        Some(kern) => (kern, Some("kern")),
+        None => (root, None),
+    }
 }
 
 fn project_settings(root: &Map<String, Value>) -> ProjectSettings<'_> {
@@ -192,17 +200,29 @@ fn parse_string_map(
     Ok(parsed)
 }
 
-fn warn_unknown_root_keys(root: &Map<String, Value>, warnings: &mut Vec<String>) {
+fn warn_unknown_root_keys(
+    root: &Map<String, Value>,
+    section: Option<&str>,
+    warnings: &mut Vec<String>,
+) {
     for key in root.keys() {
         if key != "project" {
+            let name = match section {
+                Some(section) => format!("{section}.{key}"),
+                None => key.clone(),
+            };
             warnings.push(format!(
-                "Ignoring unsupported workspace configuration key `{key}`."
+                "Ignoring unsupported workspace configuration key `{name}`."
             ));
         }
     }
 }
 
-fn warn_unknown_project_keys(project: &Map<String, Value>, warnings: &mut Vec<String>) {
+fn warn_unknown_project_keys(
+    project: &Map<String, Value>,
+    section: Option<&str>,
+    warnings: &mut Vec<String>,
+) {
     for key in project.keys() {
         if !matches!(
             key.as_str(),
@@ -212,8 +232,12 @@ fn warn_unknown_project_keys(project: &Map<String, Value>, warnings: &mut Vec<St
                 | "modulePaths"
                 | "moduleInterfacePaths"
         ) {
+            let name = match section {
+                Some(section) => format!("{section}.project.{key}"),
+                None => format!("kern.project.{key}"),
+            };
             warnings.push(format!(
-                "Ignoring unsupported workspace configuration key `kern.project.{key}`."
+                "Ignoring unsupported workspace configuration key `{name}`."
             ));
         }
     }
@@ -250,6 +274,37 @@ mod tests {
         assert_eq!(
             report.warnings,
             vec!["Ignoring unsupported workspace configuration key `editor`.".to_string()]
+        );
+    }
+
+    #[test]
+    fn parses_wrapped_vscode_configuration_section_shape() {
+        let active = AnalysisSettings::default();
+        let report = parse_analysis_settings(
+            &json!({
+                "kern": {
+                    "project": {
+                        "features": ["simd"],
+                        "noDefaultFeatures": true
+                    },
+                    "editor": {
+                        "autoSuggest": "keywords"
+                    }
+                }
+            }),
+            &active,
+        )
+        .unwrap();
+
+        let settings = report.settings.unwrap();
+        assert_eq!(
+            settings.compile_options.craft_features,
+            vec!["simd".to_string()]
+        );
+        assert!(!settings.compile_options.craft_default_features);
+        assert_eq!(
+            report.warnings,
+            vec!["Ignoring unsupported workspace configuration key `kern.editor`.".to_string()]
         );
     }
 

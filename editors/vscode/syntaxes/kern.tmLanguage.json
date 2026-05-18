@@ -222,7 +222,7 @@
           "match": "\\b(?:(?:pub|extern|const)\\s+)*(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
-              "name": "storage.type.function.kern"
+              "name": "keyword.control.kern"
             },
             "2": {
               "name": "entity.name.function.kern"
@@ -234,7 +234,7 @@
           "match": "\\b(type)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:(\\s*:)\\s*([A-Za-z_][A-Za-z0-9_]*))?",
           "captures": {
             "1": {
-              "name": "storage.type.definition.kern"
+              "name": "keyword.control.kern"
             },
             "2": {
               "name": "entity.name.type.kern"
@@ -384,12 +384,12 @@
           "match": "\\b[A-Z][A-Za-z0-9_]*\\b(?=\\s*\\[[^\\]]*\\]\\s*\\.\\{)"
         },
         {
-          "name": "storage.type.aggregate.kern",
+          "name": "keyword.control.kern",
           "match": "\\b(?:extern\\s+)?(?:struct|union|enum|trait)\\b(?=\\s*(?::\\s*[A-Za-z_][A-Za-z0-9_]*\\s*)?\\{)"
         },
         {
           "name": "support.type.primitive.constructor.kern",
-          "match": "\\b(?:i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64|bool|str|void)\\b(?=\\s*\\.\\{)"
+          "match": "\\b(?:i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64|bool|str)\\b(?=\\s*\\.\\{)"
         },
         {
           "name": "punctuation.definition.constructor.kern",
@@ -433,10 +433,10 @@
       "patterns": [
         {
           "name": "support.type.primitive.kern",
-          "match": "\\b(?:i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64|bool|str|void)\\b"
+          "match": "\\b(?:i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64|bool|str)\\b"
         },
         {
-          "name": "storage.modifier.pointer.kern",
+          "name": "keyword.operator.pointer.kern",
           "match": "\\*mut\\b|\\^mut\\b|\\*\\b|\\^\\b"
         },
         {
@@ -448,7 +448,7 @@
           "match": "\\[(?:_|\\d+(?:_\\d+)*)\\]"
         },
         {
-          "name": "support.type.fn-trait.kern",
+          "name": "keyword.control.kern",
           "match": "\\bFn\\b"
         },
         {
@@ -456,7 +456,7 @@
           "match": "\\b[A-Z][A-Za-z0-9_]*\\b(?=\\s*\\{)"
         },
         {
-          "name": "support.type.self.kern",
+          "name": "keyword.control.kern",
           "match": "\\bSelf\\b"
         },
         {
@@ -488,19 +488,19 @@
           "match": "\\b(?:use|pub|mod|extern)\\b"
         },
         {
-          "name": "storage.modifier.kern",
+          "name": "keyword.control.kern",
           "match": "\\b(?:let|mut|const|static)\\b"
         },
         {
-          "name": "storage.type.kern",
-          "match": "\\b(?:fn|type|struct|union|enum|trait)\\b"
+          "name": "keyword.control.kern",
+          "match": "\\b(?:fn|type|struct|union|enum|trait|void)\\b"
         },
         {
-          "name": "keyword.operator.logical.kern",
+          "name": "keyword.control.kern",
           "match": "\\b(?:and|or)\\b"
         },
         {
-          "name": "constant.language.kern",
+          "name": "keyword.control.kern",
           "match": "\\b(?:true|false|undef|self)\\b"
         }
       ]

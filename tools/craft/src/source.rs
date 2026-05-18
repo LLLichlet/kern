@@ -3,6 +3,7 @@ use crate::error::{Error, Result};
 use crate::graph::{PackageId, SourceId};
 use crate::local_state;
 use crate::manifest::{Manifest, ResourceSpec};
+use crate::operation_lock::CacheOperationLock;
 use crate::publish;
 use crate::resolver::{ExternalPackageId, ResolvedGraph};
 use std::fs;
@@ -343,6 +344,7 @@ fn prepare_git_dependency_root(
             "{:016x}",
             fnv1a64_update(0xcbf29ce484222325, git_locator.as_bytes())
         ));
+    let _cache_lock = CacheOperationLock::acquire(&cache_root, "git-source")?;
 
     if !cache_root.join(".git").is_dir() {
         if cache_root.exists() {
@@ -406,6 +408,7 @@ fn prepare_local_git_dependency_root(
             "{:016x}",
             fnv1a64_update(0xcbf29ce484222325, repo_root.to_string_lossy().as_bytes())
         ));
+    let _cache_lock = CacheOperationLock::acquire(&cache_root, "git-source")?;
 
     let head_revision = git_head_revision(&repo_root)?;
     validate_local_git_selector(&repo_root, &head_revision, rev, branch, tag)?;

@@ -29,8 +29,14 @@ extern fn start() ! {
     let heap_cb = &mut Fn(i32) i32.{ callback };
     _ = io.write(view as &[u8]);
     _ = heap_cb(anon.left + (flag as i32));
+    while (counter < 4) {
+        counter += 1;
+    }
     @unreachable();
 }
+
+pub/ mod internal;
+pub.. use .internal.Hidden as Hidden;
 
 trait Writer {
     fn write(bytes: &[u8]) i32;
@@ -43,6 +49,7 @@ pub enum Option[T] {
 
 struct SerialPort {
     port: u16 = 0x3F8,
+    pub.. irq: u8 = 4,
     buffer: [16]u8 = [16]u8.{ undef },
 };
 
@@ -51,6 +58,13 @@ trait Printable {
 };
 
 impl[T] &Option[T] : Printable {
+    pub const fn is_some() bool {
+        return match (self.*) {
+            .{ Some: _ } => true,
+            .None => false,
+        };
+    }
+
     pub fn render() void {
         _ = match (self.*) {
             .{ Some: value } => value,

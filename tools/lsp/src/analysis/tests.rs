@@ -410,18 +410,12 @@ fn assert_token_type(tokens: &[(Position, u32, u32, u32)], position: Position, e
     );
 }
 
-fn assert_no_token_type_at(
-    tokens: &[(Position, u32, u32, u32)],
-    position: Position,
-    unexpected_type: u32,
-) {
+fn assert_no_token_at(tokens: &[(Position, u32, u32, u32)], position: Position) {
     assert!(
-        tokens.iter().all(
-            |(token_position, _, token_type, _)| *token_position != position
-                || *token_type != unexpected_type
-        ),
-        "unexpected semantic token {:?} at {:?}",
-        unexpected_type,
+        tokens
+            .iter()
+            .all(|(token_position, _, _, _)| *token_position != position),
+        "unexpected semantic token at {:?}",
         position
     );
 }

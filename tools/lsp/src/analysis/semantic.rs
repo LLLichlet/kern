@@ -40,13 +40,7 @@ impl SemanticTokenTypes {
     pub(super) const PROPERTY: u32 = 8;
     pub(super) const FUNCTION: u32 = 9;
     pub(super) const METHOD: u32 = 10;
-    pub(super) const KEYWORD: u32 = 11;
-    #[allow(dead_code)]
-    pub(super) const STRING: u32 = 12;
-    #[allow(dead_code)]
-    pub(super) const NUMBER: u32 = 13;
-    #[allow(dead_code)]
-    pub(super) const OPERATOR: u32 = 14;
+    pub(super) const ENUM_MEMBER: u32 = 11;
 }
 
 pub(super) struct SemanticModifiers;
@@ -192,6 +186,7 @@ fn semantic_class_from_entry(entry: &AnalysisSemanticEntry) -> SemanticClass {
         }
         AnalysisSemanticKind::Struct => SemanticTokenTypes::STRUCT,
         AnalysisSemanticKind::Enum => SemanticTokenTypes::ENUM,
+        AnalysisSemanticKind::EnumMember => SemanticTokenTypes::ENUM_MEMBER,
         AnalysisSemanticKind::Interface => SemanticTokenTypes::INTERFACE,
         AnalysisSemanticKind::Type => SemanticTokenTypes::TYPE,
         AnalysisSemanticKind::TypeParameter => SemanticTokenTypes::TYPE_PARAMETER,
@@ -389,52 +384,6 @@ fn collect_semantic_token_entries_cancelable(
             TokenType::Identifier => parameter_declaration_class(&tokens, index)
                 .or_else(|| span_classes.get(&span_key(token.span)).copied())
                 .or_else(|| heuristic_identifier_class(&tokens, index)),
-            TokenType::StringLiteral | TokenType::CharLiteral | TokenType::ByteCharLiteral => None,
-            TokenType::DocCommentOuter | TokenType::DocCommentInner => None,
-            TokenType::IntLiteral | TokenType::FloatLiteral => None,
-            TokenType::Plus
-            | TokenType::Minus
-            | TokenType::Star
-            | TokenType::Slash
-            | TokenType::Percent
-            | TokenType::Hash
-            | TokenType::At
-            | TokenType::Question
-            | TokenType::Caret
-            | TokenType::Bang
-            | TokenType::Ampersand
-            | TokenType::Pipe
-            | TokenType::Tilde
-            | TokenType::EqualEqual
-            | TokenType::NotEqual
-            | TokenType::LessThan
-            | TokenType::LessEqual
-            | TokenType::GreaterThan
-            | TokenType::GreaterEqual
-            | TokenType::LShift
-            | TokenType::RShift
-            | TokenType::Assign
-            | TokenType::PlusAssign
-            | TokenType::MinusAssign
-            | TokenType::StarAssign
-            | TokenType::SlashAssign
-            | TokenType::PercentAssign
-            | TokenType::AmpersandAssign
-            | TokenType::PipeAssign
-            | TokenType::CaretAssign
-            | TokenType::LShiftAssign
-            | TokenType::RShiftAssign
-            | TokenType::Dot
-            | TokenType::DotDot
-            | TokenType::DotDotEqual
-            | TokenType::DotAmpersand
-            | TokenType::DotQuestion
-            | TokenType::DotStar
-            | TokenType::DotLBracket
-            | TokenType::DotLBrace
-            | TokenType::DotDotAmpersand
-            | TokenType::Ellipsis
-            | TokenType::Arrow => None,
             _ => None,
         };
 

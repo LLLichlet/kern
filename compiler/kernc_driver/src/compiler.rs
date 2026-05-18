@@ -184,6 +184,7 @@ pub enum AnalysisSemanticKind {
     Namespace,
     Struct,
     Enum,
+    EnumMember,
     Interface,
     Type,
     TypeParameter,

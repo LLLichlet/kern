@@ -35,9 +35,21 @@ fn semantic_tokens_for_dirty_documents_keep_semantic_classification() {
         Some(AnalysisTier::DirtySemantic)
     );
     assert!(
-        decoded
-            .iter()
-            .any(|token| token.2 != SemanticTokenTypes::KEYWORD),
+        decoded.iter().any(|token| matches!(
+            token.2,
+            SemanticTokenTypes::NAMESPACE
+                | SemanticTokenTypes::TYPE
+                | SemanticTokenTypes::STRUCT
+                | SemanticTokenTypes::ENUM
+                | SemanticTokenTypes::ENUM_MEMBER
+                | SemanticTokenTypes::INTERFACE
+                | SemanticTokenTypes::TYPE_PARAMETER
+                | SemanticTokenTypes::PARAMETER
+                | SemanticTokenTypes::VARIABLE
+                | SemanticTokenTypes::PROPERTY
+                | SemanticTokenTypes::FUNCTION
+                | SemanticTokenTypes::METHOD
+        )),
         "{decoded:?}"
     );
 }
@@ -111,11 +123,7 @@ fn semantic_tokens_classify_semantic_identifiers_without_lexical_tokens() {
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
 
-    assert_no_token_type_at(
-        &decoded,
-        position_of_nth(source, "struct", 0, 0),
-        SemanticTokenTypes::KEYWORD,
-    );
+    assert_no_token_at(&decoded, position_of_nth(source, "struct", 0, 0));
     assert_token_type(
         &decoded,
         position_of_nth(source, "Point", 0, 0),
@@ -141,11 +149,7 @@ fn semantic_tokens_classify_semantic_identifiers_without_lexical_tokens() {
         position_of_nth(source, "x", 1, 0),
         SemanticTokenTypes::PROPERTY,
     );
-    assert_no_token_type_at(
-        &decoded,
-        position_of_nth(source, "return", 0, 0),
-        SemanticTokenTypes::KEYWORD,
-    );
+    assert_no_token_at(&decoded, position_of_nth(source, "return", 0, 0));
 }
 
 #[test]
@@ -314,13 +318,13 @@ fn semantic_tokens_classify_enum_variant_references() {
     assert_token(
         &decoded,
         position_of_nth(source, "Ok", 1, 0),
-        SemanticTokenTypes::ENUM,
+        SemanticTokenTypes::ENUM_MEMBER,
         0,
     );
     assert_token(
         &decoded,
         position_of_nth(source, "Err", 1, 0),
-        SemanticTokenTypes::ENUM,
+        SemanticTokenTypes::ENUM_MEMBER,
         0,
     );
 }

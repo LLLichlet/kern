@@ -81,6 +81,23 @@ fn initialize_result_advertises_precise_capabilities() {
         result["capabilities"]["semanticTokensProvider"]["full"]["delta"],
         true
     );
+    assert_eq!(
+        result["capabilities"]["semanticTokensProvider"]["legend"]["tokenTypes"],
+        json!([
+            "namespace",
+            "type",
+            "struct",
+            "enum",
+            "interface",
+            "typeParameter",
+            "parameter",
+            "variable",
+            "property",
+            "function",
+            "method",
+            "enumMember"
+        ])
+    );
     assert_eq!(result["capabilities"]["inlayHintProvider"], true);
     assert_eq!(
         result["capabilities"]["workspace"]["workspaceFolders"]["supported"],

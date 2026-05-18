@@ -17,10 +17,7 @@ pub const SEMANTIC_TOKEN_TYPES: &[&str] = &[
     "property",
     "function",
     "method",
-    "keyword",
-    "string",
-    "number",
-    "operator",
+    "enumMember",
 ];
 pub const SEMANTIC_TOKEN_MODIFIERS: &[&str] = &["declaration", "readonly", "static"];
 

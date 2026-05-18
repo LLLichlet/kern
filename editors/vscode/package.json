@@ -70,6 +70,56 @@
         "path": "./syntaxes/kern.tmLanguage.json"
       }
     ],
+    "semanticTokenScopes": [
+      {
+        "language": "kern",
+        "scopes": {
+          "namespace": [
+            "entity.name.namespace.kern",
+            "variable.other.namespace.kern"
+          ],
+          "type": [
+            "entity.name.type.kern"
+          ],
+          "struct": [
+            "entity.name.type.kern",
+            "entity.name.type.constructor.kern"
+          ],
+          "enum": [
+            "entity.name.type.kern"
+          ],
+          "interface": [
+            "entity.name.type.kern",
+            "support.type.trait.kern"
+          ],
+          "typeParameter": [
+            "entity.name.type.parameter.kern"
+          ],
+          "parameter": [
+            "variable.parameter.kern"
+          ],
+          "variable": [
+            "variable.other.kern"
+          ],
+          "property": [
+            "variable.other.member.kern",
+            "variable.other.property.kern"
+          ],
+          "function": [
+            "entity.name.function.kern",
+            "entity.name.function.call.kern"
+          ],
+          "method": [
+            "entity.name.function.member.kern",
+            "entity.name.function.method.kern"
+          ],
+          "enumMember": [
+            "constant.other.enum-variant.kern",
+            "entity.name.type.enum-variant.kern"
+          ]
+        }
+      }
+    ],
     "snippets": [
       {
         "language": "kern",

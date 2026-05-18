@@ -52,10 +52,10 @@
       "include": "#functions"
     },
     {
-      "include": "#variables"
+      "include": "#keywords"
     },
     {
-      "include": "#keywords"
+      "include": "#variables"
     },
     {
       "include": "#operators"
@@ -177,7 +177,7 @@
       "patterns": [
         {
           "name": "meta.import.kern",
-          "begin": "\\b(?:pub\\s+use|use)\\b",
+          "begin": "\\buse\\b",
           "beginCaptures": {
             "0": {
               "name": "keyword.control.import.kern"
@@ -226,7 +226,7 @@
       "patterns": [
         {
           "name": "meta.function.definition.kern",
-          "match": "\\b(?:(?:pub|extern|const)\\s+)*(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
               "name": "keyword.control.kern"
@@ -492,7 +492,7 @@
       "patterns": [
         {
           "name": "variable.other.kern",
-          "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
+          "match": "\\b(?!(?:if|else|for|while|match|break|continue|return|defer|where|impl|as|use|pub|mod|extern|let|mut|const|static|fn|type|struct|union|enum|trait|void|and|or|true|false|undef|self)\\b)[a-z_][A-Za-z0-9_]*\\b"
         }
       ]
     },
@@ -500,11 +500,15 @@
       "patterns": [
         {
           "name": "keyword.control.kern",
-          "match": "\\b(?:if|else|for|match|break|continue|return|defer|where|impl|as)\\b"
+          "match": "\\b(?:if|else|for|while|match|break|continue|return|defer|where|impl|as)\\b"
         },
         {
           "name": "keyword.control.import-export.kern",
-          "match": "\\b(?:use|pub|mod|extern)\\b"
+          "match": "\\bpub(?:\\.\\.|/)?(?![A-Za-z0-9_])"
+        },
+        {
+          "name": "keyword.control.import-export.kern",
+          "match": "\\b(?:use|mod|extern)\\b"
         },
         {
           "name": "keyword.control.kern",

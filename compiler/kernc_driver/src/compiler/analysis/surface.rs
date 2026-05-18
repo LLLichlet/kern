@@ -518,7 +518,7 @@ impl CompilerDriver {
                             .or_insert(AnalysisSemanticEntry {
                                 span: variant.name_span,
                                 definition_span: variant.name_span,
-                                kind: AnalysisSemanticKind::Enum,
+                                kind: AnalysisSemanticKind::EnumMember,
                                 role: AnalysisSemanticRole::Definition,
                                 is_mut: false,
                                 is_pub: true,

@@ -1,106 +1,73 @@
-# Kern Maintenance Plan
+# Kern Security Maintenance Plan
 
-This plan replaces the temporary audit report that was kept outside the
-repository. It records the issues we have verified against the current tree and
-keeps speculative findings out of the active queue.
+This plan records the verified parts of the second external report. It keeps
+the report's speculative severity labels out of the active queue and tracks the
+small set of changes that are useful for Kern as a personal, actively maintained
+language project.
 
-## Current State
+## Priority 1: Shell API Documentation
 
-- `actions/checkout@v5` is valid and should not be downgraded.
-- `macos-15-intel` is a valid GitHub-hosted runner label and should not be
-  replaced with `macos-13`.
-- The local branch may contain unpushed maintenance commits. Pushes are handled
-  manually by the maintainer.
+`library/std/proc/shell.kn` exposes `shell_capture`, `shell_status`, and
+`shell_success` as shell-command helpers. Their implementations intentionally
+execute through the host shell:
 
-## Completed: Installer Integrity
+- Linux: `/bin/sh -lc` in `library/std/host/os/linux.kn`.
+- macOS: `popen` in `library/std/proc/shell.kn`.
+- Windows: `cmd.exe /d /c` in `library/std/host/os/windows.kn`.
 
-`install.sh` now validates SDK contents with the same basic manifest guarantees
-as `install.ps1`.
+This is dangerous for untrusted input, but it is not a remote vulnerability by
+itself: the API is explicitly a shell API, and current in-tree uses are tests or
+carefully quoted example commands.
 
-Completed work:
+Planned work:
 
-- Parse `manifest/sdk.json` with Python's structured JSON parser.
-- Validate required component records from the manifest when the toolchain is
-  bundled.
-- Check component existence, file size, and SHA-256 when present.
-- Keep local `--archive` installs working without requiring network access.
-- Add focused script-level validation in `scripts/tests/install-sh-manifest.sh`.
+- Add prominent documentation warnings to the public shell helpers.
+- State that callers must not pass untrusted input unless they fully understand
+  platform shell quoting.
+- Plan a future argv-style process API that executes a program with arguments
+  without invoking a shell.
 
-Why this matters:
+## Priority 2: Craft Git Source Hardening
 
-The Unix installer is a public entry point. It currently checks SDK shape and
-whether selected tools start, but it does not verify the manifest component
-checksums that release packages already carry.
+Craft already has release source policy checks for floating git references and
+`http://` sources. The report missed this existing policy, but the fetch path
+can still be made more explicit.
 
-## Completed: Build Script Invalidation
+Planned work:
 
-`compiler/kernc_codegen/build.rs` now registers the exact LLVM environment
-variables it consumes from `llvm-sys`.
+- Add explicit `-c http.sslVerify=true` to remote git clone/fetch calls.
+- Extend insecure transport classification beyond `http://` where appropriate,
+  especially `git://`.
+- Keep local path git dependencies working.
+- Add tests around policy classification and git command construction.
 
-Completed work:
+## Priority 3: Security Policy
 
-- Add `cargo:rerun-if-env-changed` coverage for the discovered
-  `DEP_LLVM_*_LIBDIR` and `DEP_LLVM_*_CONFIG_PATH` variables.
-- Avoid broad or invalid Cargo directives that only look correct.
-- Confirm `cargo check -p kernc_codegen` works.
+Add a lightweight `SECURITY.md` so vulnerability reports have a private path and
+do not default to public issues.
 
-## Completed: Small Robustness Fixes
+Planned work:
 
-Lossy `kernc_ty` internal ID casts have been replaced with explicit exhaustion
-checks.
-
-Completed work:
-
-- Update `kernc_ty` type and const-expression ID allocation from `as u32` casts
-  to checked conversion with clear panic messages.
-- Keep this narrow; do not redesign the ID representation.
-- Run `cargo test -p kernc_ty`.
-
-## Completed: Toolchain And Lint Policy
-
-The project intentionally tracks current stable Rust and does not pin local
-toolchains or CI lint gates during normal development.
-
-Policy decisions:
-
-- Do not add `rust-version` metadata for now.
-- Do not add `rust-toolchain.toml`; use latest stable Rust.
-- Do not add CI `cargo fmt`, `clippy`, `audit`, or `deny` gates yet.
-- Keep `cargo-deny` available as a manual policy check.
-- Treat clippy cleanup as release preparation work, with no broad `allow`
-  policy.
-
-## Completed: VS Code Extension Maintenance
-
-The VS Code extension has a small dependency surface, but its dev and packaging
-toolchain still pulls in the broader TypeScript ecosystem.
-
-Completed work:
-
-- Run `npm audit` against the real registry and update vulnerable transitive
-  dev dependencies in `package-lock.json`.
-- Confirm `npm audit` reports zero vulnerabilities after the lockfile update.
-- Keep the update narrow: no runtime dependency or major version changes.
-- Extract Craft command parsing and path helpers from the VS Code glue layer so
-  cross-platform behavior is unit-tested.
-- Add coverage for code lens command argument parsing, manifest parent
-  directory resolution, task environment filtering, and workspace path
-  containment on Unix and Windows.
-- Run `npm run check`, `npm run test`, and `npm run package:vsix`.
+- Keep commitments realistic for a personal project.
+- Support current `main` and the latest release only.
+- Ask reporters to avoid public disclosure until a fix is available.
+- Prefer GitHub private vulnerability reporting when available.
 
 ## Backlog
 
-- Improve selected LLVM wrapper safety documentation.
-- Review production-path LLVM wrapper panics as ICE quality work, not as a
-  quick `Result` conversion.
-- Reduce CI Unix/Windows duplication only when touching that area for functional
-  reasons.
-- Revisit JSON handling in shell scripts if installer manifest parsing grows
-  beyond simple validation.
+- Review deterministic compiler temporary object paths in
+  `compiler/kernc_driver/src/compiler/link.rs` and decide whether unique temp
+  names are worth the complexity.
+- Consider configurable LSP resource limits for open documents and cached
+  analysis state.
+- Treat broad `unwrap` and `panic!` cleanup as ICE quality work driven by real
+  crashes, not as a blanket security task.
 
-## Not Planned From The Report
+## Not Planned
 
-- Downgrade `actions/checkout@v5`.
-- Replace `macos-15-intel` with `macos-13`.
-- Add broad CI lint/audit gates without first checking the current repository
-  baseline.
+- Build tool sandboxing. Build scripts and tools execute with user privileges
+  by design, like other mainstream build systems.
+- Error path stripping. Absolute paths are useful compiler and build diagnostics
+  and are not currently worth a global redaction mode.
+- SDK code signing. Checksums already exist; release signing is a long-term
+  distribution infrastructure topic.

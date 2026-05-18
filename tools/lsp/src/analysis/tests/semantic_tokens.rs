@@ -407,6 +407,52 @@ fn semantic_tokens_reuse_artifact_warmed_by_full_diagnostics() {
 }
 
 #[test]
+fn semantic_tokens_reuse_artifact_warmed_by_navigation_prewarm() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
+    let uri = temp_file_uri("semantic_tokens_navigation_prewarm", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+    let snapshot = analysis.snapshot(Vec::new(), CancellationToken::new());
+    analysis
+        .prewarm_interactive_artifacts_in_snapshot(&snapshot, &uri)
+        .unwrap();
+
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 1);
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        1
+    );
+
+    analysis.clear_last_analysis_trace();
+    let tokens = analysis.semantic_tokens(&uri).unwrap();
+
+    assert!(!tokens.data.is_empty());
+    let trace = analysis.last_analysis_trace();
+    assert!(
+        trace.cache_events.iter().any(|event| {
+            event.kind.as_str() == "semantic-classification"
+                && format!("{:?}", event.outcome) == "Hit"
+        }),
+        "{trace:?}"
+    );
+    assert!(
+        trace.cache_events.iter().all(|event| {
+            event.kind.as_str() != "semantic-classification"
+                || format!("{:?}", event.outcome) != "Miss"
+        }),
+        "{trace:?}"
+    );
+}
+
+#[test]
 fn semantic_tokens_cache_is_invalidated_per_document() {
     let mut analysis = AnalysisEngine::default();
     let first_source = "fn first() i32 {\n    return 1;\n}\n";

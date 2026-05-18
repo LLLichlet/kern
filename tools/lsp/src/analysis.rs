@@ -67,7 +67,7 @@ use kernc_utils::DiagnosticCode;
 use kernc_utils::config::{
     CompileOptions, apply_configured_library_aliases, inject_driver_condition_defines,
 };
-use kernc_utils::{Session, SourceFile, Span};
+use kernc_utils::{FastHashMap, Session, SourceFile, Span};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -453,8 +453,8 @@ impl WorkspaceIndexTarget {
 #[derive(Default)]
 struct WorkspaceIndex {
     generation: u64,
-    symbol_indexes: BTreeMap<AnalysisCacheKey, Arc<SurfaceSymbolIndex>>,
-    targets: BTreeMap<AnalysisCacheKey, WorkspaceIndexTarget>,
+    symbol_indexes: FastHashMap<AnalysisCacheKey, Arc<SurfaceSymbolIndex>>,
+    targets: FastHashMap<AnalysisCacheKey, WorkspaceIndexTarget>,
     last_refresh: Option<WorkspaceIndexStats>,
 }
 
@@ -463,6 +463,11 @@ struct WorkspaceIndexStats {
     generation: u64,
     indexed_targets: usize,
     failed_targets: usize,
+}
+
+enum SemanticClassificationAnalysis {
+    Cached(Arc<AnalysisSemanticArtifact>),
+    Computed(AnalysisSemanticArtifact),
 }
 
 pub enum DocumentSyncAction {
@@ -606,18 +611,18 @@ impl AnalysisDriver {
 pub struct AnalysisEngine {
     documents: BTreeMap<String, OpenDocument>,
     settings: AnalysisSettings,
-    project_cache: Arc<Mutex<BTreeMap<PathBuf, Option<AnalysisProject>>>>,
-    driver_cache: Arc<Mutex<BTreeMap<IncrementalDriverKey, AnalysisDriver>>>,
-    parse_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<ParsedModuleArtifact>>>>,
-    surface_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisSurfaceArtifact>>>>,
-    structure_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<StructureArtifact>>>>,
-    artifact_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisArtifact>>>>,
-    navigation_cache: Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisNavigationArtifact>>>>,
+    project_cache: Arc<Mutex<FastHashMap<PathBuf, Option<AnalysisProject>>>>,
+    driver_cache: Arc<Mutex<FastHashMap<IncrementalDriverKey, AnalysisDriver>>>,
+    parse_cache: Arc<Mutex<FastHashMap<AnalysisCacheKey, Arc<ParsedModuleArtifact>>>>,
+    surface_cache: Arc<Mutex<FastHashMap<AnalysisCacheKey, Arc<AnalysisSurfaceArtifact>>>>,
+    structure_cache: Arc<Mutex<FastHashMap<AnalysisCacheKey, Arc<StructureArtifact>>>>,
+    artifact_cache: Arc<Mutex<FastHashMap<AnalysisCacheKey, Arc<AnalysisArtifact>>>>,
+    navigation_cache: Arc<Mutex<FastHashMap<AnalysisCacheKey, Arc<AnalysisNavigationArtifact>>>>,
     semantic_classification_cache:
-        Arc<Mutex<BTreeMap<AnalysisCacheKey, Arc<AnalysisSemanticArtifact>>>>,
+        Arc<Mutex<FastHashMap<AnalysisCacheKey, Arc<AnalysisSemanticArtifact>>>>,
     workspace_index: Arc<Mutex<WorkspaceIndex>>,
-    semantic_tokens_cache: Arc<Mutex<BTreeMap<SemanticTokensCacheKey, IdeSemanticTokens>>>,
-    lexical_cache: Arc<Mutex<BTreeMap<LexicalCacheKey, Arc<LexicalIndex>>>>,
+    semantic_tokens_cache: Arc<Mutex<FastHashMap<SemanticTokensCacheKey, IdeSemanticTokens>>>,
+    lexical_cache: Arc<Mutex<FastHashMap<LexicalCacheKey, Arc<LexicalIndex>>>>,
     dirty_documents_snapshot: Arc<Mutex<Option<Arc<DirtyDocumentsSnapshot>>>>,
     open_uri_by_path: Arc<Mutex<Option<Arc<BTreeMap<PathBuf, String>>>>>,
     last_analysis_tier: Arc<Mutex<Option<AnalysisTier>>>,
@@ -661,17 +666,17 @@ impl AnalysisEngine {
         Self {
             documents: BTreeMap::new(),
             settings,
-            project_cache: Arc::new(Mutex::new(BTreeMap::new())),
-            driver_cache: Arc::new(Mutex::new(BTreeMap::new())),
-            parse_cache: Arc::new(Mutex::new(BTreeMap::new())),
-            surface_cache: Arc::new(Mutex::new(BTreeMap::new())),
-            structure_cache: Arc::new(Mutex::new(BTreeMap::new())),
-            artifact_cache: Arc::new(Mutex::new(BTreeMap::new())),
-            navigation_cache: Arc::new(Mutex::new(BTreeMap::new())),
-            semantic_classification_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            project_cache: Arc::new(Mutex::new(FastHashMap::default())),
+            driver_cache: Arc::new(Mutex::new(FastHashMap::default())),
+            parse_cache: Arc::new(Mutex::new(FastHashMap::default())),
+            surface_cache: Arc::new(Mutex::new(FastHashMap::default())),
+            structure_cache: Arc::new(Mutex::new(FastHashMap::default())),
+            artifact_cache: Arc::new(Mutex::new(FastHashMap::default())),
+            navigation_cache: Arc::new(Mutex::new(FastHashMap::default())),
+            semantic_classification_cache: Arc::new(Mutex::new(FastHashMap::default())),
             workspace_index: Arc::new(Mutex::new(WorkspaceIndex::default())),
-            semantic_tokens_cache: Arc::new(Mutex::new(BTreeMap::new())),
-            lexical_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            semantic_tokens_cache: Arc::new(Mutex::new(FastHashMap::default())),
+            lexical_cache: Arc::new(Mutex::new(FastHashMap::default())),
             dirty_documents_snapshot: Arc::new(Mutex::new(None)),
             open_uri_by_path: Arc::new(Mutex::new(None)),
             last_analysis_tier: Arc::new(Mutex::new(None)),
@@ -1244,7 +1249,6 @@ impl AnalysisEngine {
         snapshot.check_canceled()?;
         let context = self.resolve_analysis_context_for_snapshot(snapshot, target_uri)?;
         let _ = self.analyze_interactive_navigation_artifact_for_context(&context)?;
-        let _ = self.analyze_interactive_semantic_classification_artifact_for_context(&context)?;
         Ok(())
     }
 
@@ -1462,6 +1466,27 @@ impl AnalysisEngine {
         self.record_cache_store(AnalysisCacheTraceKind::SemanticClassificationArtifact);
     }
 
+    fn store_derived_semantic_classification_artifact(
+        &self,
+        cache_key: &AnalysisCacheKey,
+        artifact: &Arc<AnalysisNavigationArtifact>,
+    ) {
+        let semantic = Arc::new(AnalysisSemanticArtifact {
+            session: artifact.session.clone(),
+            succeeded: artifact.succeeded,
+            symbols: artifact.symbols.clone(),
+            references: artifact.references.clone(),
+            hovers: artifact.hovers.clone(),
+            type_hints: artifact.type_hints.clone(),
+            semantic_entries: artifact.semantic_entries.clone(),
+        });
+        self.semantic_classification_cache
+            .lock()
+            .unwrap()
+            .insert(cache_key.clone(), semantic);
+        self.record_cache_store(AnalysisCacheTraceKind::SemanticClassificationArtifact);
+    }
+
     fn analyze_structure_artifact_for_context(
         &self,
         context: &AnalysisRequestContext,
@@ -1564,6 +1589,7 @@ impl AnalysisEngine {
             .unwrap()
             .insert(context.cache_key.clone(), Arc::clone(&artifact));
         self.record_cache_store(AnalysisCacheTraceKind::NavigationArtifact);
+        self.store_derived_semantic_classification_artifact(&context.cache_key, &artifact);
         Ok(artifact)
     }
 
@@ -1611,24 +1637,53 @@ impl AnalysisEngine {
         }
 
         context.check_canceled()?;
-        let artifact = Arc::new(if let Some(structure) = structure {
+        let analysis = if let Some(structure) = structure {
             context
                 .with_driver(|driver| {
+                    if let Some(artifact) = self
+                        .semantic_classification_cache
+                        .lock()
+                        .unwrap()
+                        .get(&context.cache_key)
+                    {
+                        self.record_cache_hit(
+                            AnalysisCacheTraceKind::SemanticClassificationArtifact,
+                        );
+                        return Ok(SemanticClassificationAnalysis::Cached(Arc::clone(artifact)));
+                    }
                     driver
                         .analyze_semantic_artifact_from_structure(&structure, &context.cancellation)
+                        .map(SemanticClassificationAnalysis::Computed)
                 })
                 .map_err(|_| "request was canceled".to_string())?
         } else {
             context
                 .with_driver(|driver| {
-                    driver.analyze_semantic_artifact(
-                        &context.resolved.input_file.to_string_lossy(),
-                        &context.dirty_documents.overrides,
-                        &context.cancellation,
-                    )
+                    if let Some(artifact) = self
+                        .semantic_classification_cache
+                        .lock()
+                        .unwrap()
+                        .get(&context.cache_key)
+                    {
+                        self.record_cache_hit(
+                            AnalysisCacheTraceKind::SemanticClassificationArtifact,
+                        );
+                        return Ok(SemanticClassificationAnalysis::Cached(Arc::clone(artifact)));
+                    }
+                    driver
+                        .analyze_semantic_artifact(
+                            &context.resolved.input_file.to_string_lossy(),
+                            &context.dirty_documents.overrides,
+                            &context.cancellation,
+                        )
+                        .map(SemanticClassificationAnalysis::Computed)
                 })
                 .map_err(|_| "request was canceled".to_string())?
-        });
+        };
+        let artifact = match analysis {
+            SemanticClassificationAnalysis::Cached(artifact) => return Ok(artifact),
+            SemanticClassificationAnalysis::Computed(artifact) => Arc::new(artifact),
+        };
         self.semantic_classification_cache
             .lock()
             .unwrap()
@@ -1747,8 +1802,9 @@ impl AnalysisEngine {
         self.navigation_cache
             .lock()
             .unwrap()
-            .insert(clean_key, Arc::clone(&artifact));
+            .insert(clean_key.clone(), Arc::clone(&artifact));
         self.record_cache_store(AnalysisCacheTraceKind::NavigationArtifact);
+        self.store_derived_semantic_classification_artifact(&clean_key, &artifact);
         Ok(artifact)
     }
 
@@ -1770,17 +1826,30 @@ impl AnalysisEngine {
         self.record_cache_miss(AnalysisCacheTraceKind::SemanticClassificationArtifact);
 
         context.check_canceled()?;
-        let artifact = Arc::new(
-            context
-                .with_driver(|driver| {
-                    driver.analyze_semantic_artifact(
+        let analysis = context
+            .with_driver(|driver| {
+                if let Some(artifact) = self
+                    .semantic_classification_cache
+                    .lock()
+                    .unwrap()
+                    .get(&clean_key)
+                {
+                    self.record_cache_hit(AnalysisCacheTraceKind::SemanticClassificationArtifact);
+                    return Ok(SemanticClassificationAnalysis::Cached(Arc::clone(artifact)));
+                }
+                driver
+                    .analyze_semantic_artifact(
                         &context.resolved.input_file.to_string_lossy(),
                         &SourceOverrides::new(),
                         &context.cancellation,
                     )
-                })
-                .map_err(|_| "request was canceled".to_string())?,
-        );
+                    .map(SemanticClassificationAnalysis::Computed)
+            })
+            .map_err(|_| "request was canceled".to_string())?;
+        let artifact = match analysis {
+            SemanticClassificationAnalysis::Cached(artifact) => return Ok(artifact),
+            SemanticClassificationAnalysis::Computed(artifact) => Arc::new(artifact),
+        };
         self.semantic_classification_cache
             .lock()
             .unwrap()

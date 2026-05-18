@@ -5,8 +5,7 @@ use kernc_driver::{
     AnalysisSemanticRole, AnalysisSymbol, AnalysisSymbolKind,
 };
 use kernc_lexer::{Token, TokenType, Tokenizer};
-use kernc_utils::{CancellationToken, FileId};
-use std::collections::BTreeMap;
+use kernc_utils::{CancellationToken, FastHashMap, FileId};
 use std::path::Path;
 
 type SpanKey = (usize, usize);
@@ -77,7 +76,8 @@ pub(super) fn lexical_semantic_tokens_cancelable(
     file: &kernc_utils::SourceFile,
     cancellation: &CancellationToken,
 ) -> Result<IdeSemanticTokens, String> {
-    let entries = collect_semantic_token_entries_cancelable(file, &BTreeMap::new(), cancellation)?;
+    let entries =
+        collect_semantic_token_entries_cancelable(file, &FastHashMap::default(), cancellation)?;
 
     Ok(IdeSemanticTokens {
         data: encode_semantic_tokens_cancelable(&entries, cancellation)?,
@@ -103,8 +103,8 @@ fn build_semantic_span_classes_cancelable(
     artifact: SemanticArtifactView<'_>,
     target_path: &Path,
     cancellation: &CancellationToken,
-) -> Result<BTreeMap<SpanKey, SemanticClass>, String> {
-    let mut definition_classes = BTreeMap::new();
+) -> Result<FastHashMap<SpanKey, SemanticClass>, String> {
+    let mut definition_classes = FastHashMap::default();
     for entry in artifact.semantic_entries {
         cancellation
             .check()
@@ -132,7 +132,7 @@ fn build_semantic_span_classes_cancelable(
         }
     }
 
-    let mut document_classes = BTreeMap::new();
+    let mut document_classes = FastHashMap::default();
     for (span, class) in &definition_classes {
         cancellation
             .check()
@@ -225,7 +225,7 @@ fn semantic_class_from_entry(entry: &AnalysisSemanticEntry) -> SemanticClass {
 
 fn collect_semantic_definition_classes_cancelable(
     symbol: &AnalysisSymbol,
-    classes: &mut BTreeMap<kernc_utils::Span, SemanticClass>,
+    classes: &mut FastHashMap<kernc_utils::Span, SemanticClass>,
     cancellation: &CancellationToken,
 ) -> Result<(), String> {
     cancellation
@@ -358,7 +358,7 @@ fn semantic_reference_class(class: SemanticClass) -> SemanticClass {
 
 fn collect_semantic_token_entries_cancelable(
     file: &kernc_utils::SourceFile,
-    span_classes: &BTreeMap<SpanKey, SemanticClass>,
+    span_classes: &FastHashMap<SpanKey, SemanticClass>,
     cancellation: &CancellationToken,
 ) -> Result<Vec<SemanticTokenEntry>, String> {
     let mut tokenizer = Tokenizer::new(&file.src, FileId(0));

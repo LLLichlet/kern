@@ -89,7 +89,7 @@ impl DirtyDocumentsSnapshot {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct AnalysisCacheKey {
     input_file: PathBuf,
     root_module_name: Option<String>,
@@ -100,7 +100,7 @@ pub(super) struct AnalysisCacheKey {
     source_overrides: Vec<(PathBuf, u64)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct AnalysisCacheFamilyKey {
     input_file: PathBuf,
     root_module_name: Option<String>,
@@ -110,14 +110,14 @@ pub(super) struct AnalysisCacheFamilyKey {
     module_interface_aliases: Vec<(String, String)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct SemanticTokensCacheKey {
     pub(super) analysis: AnalysisCacheKey,
     pub(super) target_path: PathBuf,
     pub(super) text_hash: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct LexicalCacheKey {
     pub(super) uri: String,
     pub(super) document_version: i64,

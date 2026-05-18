@@ -30,6 +30,63 @@ impl AnalysisEngine {
                     continue;
                 };
                 saw_project = true;
+
+                if !snapshot.documents.is_empty() {
+                    let mut targets = None;
+                    let mut indexed_keys = BTreeSet::new();
+                    for document in snapshot.documents.values() {
+                        snapshot.check_canceled()?;
+                        let mut resolved = document
+                            .path
+                            .starts_with(project.workspace_root())
+                            .then(|| {
+                                project.resolve_for_file(
+                                    &document.path,
+                                    &self.settings.compile_options,
+                                )
+                            });
+                        if resolved.as_ref().is_none_or(|resolved| {
+                            resolved_needs_workspace_target_metadata(resolved)
+                        }) {
+                            if targets.is_none() {
+                                targets =
+                                    Some(project.workspace_targets(&self.settings.compile_options).map_err(
+                                        |err| {
+                                            format!(
+                                                "workspace symbol project indexing failed for `{}`: {err}",
+                                                project.manifest_path().display()
+                                            )
+                                        },
+                                    )?);
+                            }
+                            let targets = targets.as_ref().expect("targets were just initialized");
+                            let document_path = normalize_path(&document.path);
+                            resolved = targets
+                                .iter()
+                                .find(|target| {
+                                    resolved_analysis_covers_path(target, &document_path)
+                                })
+                                .cloned()
+                                .or(resolved);
+                        }
+                        let Some(resolved) = resolved else { continue };
+                        let context = self.analysis_context_for_resolved_and_dirty(
+                            resolved,
+                            snapshot.dirty_documents(),
+                            snapshot.cancellation.clone(),
+                        )?;
+                        if !indexed_keys.insert(context.cache_key.clone()) {
+                            continue;
+                        }
+                        self.surface_symbol_index_for_context(
+                            &context,
+                            snapshot.uri_by_normalized_path(),
+                        )?;
+                        indexed_targets += 1;
+                    }
+                    continue;
+                }
+
                 let targets = project
                     .workspace_targets(&self.settings.compile_options)
                     .map_err(|err| {
@@ -1506,6 +1563,22 @@ impl AnalysisEngine {
                 })
         }))
     }
+}
+
+fn resolved_analysis_covers_path(resolved: &ResolvedAnalysis, path: &Path) -> bool {
+    normalize_path(&resolved.input_file) == path
+        || resolved
+            .source_path_aliases
+            .iter()
+            .any(|(source, generated)| {
+                normalize_path(source) == path || normalize_path(generated) == path
+            })
+}
+
+fn resolved_needs_workspace_target_metadata(resolved: &ResolvedAnalysis) -> bool {
+    resolved.target.as_ref().is_none_or(|target| {
+        target.target_kind != Some(craft::plan::TargetKind::Lib) && target.target_name.is_none()
+    })
 }
 
 fn code_action_with_resolve_data(

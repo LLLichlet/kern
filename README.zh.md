@@ -37,6 +37,9 @@ powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Ex
 
 安装器会把 SDK 放到 Unix 的 `~/.kern` 或 Windows 的 `%USERPROFILE%\.kern`，并检查 `kernc`、`craft`、`kern-lsp` 是否可以正常启动。
 
+如果你在使用 NixOS，或者通过 Nix 管理工具链，请优先阅读
+[Nix.md](./Nix.md)，不要走这里的 shell 安装流程。
+
 离线安装、源码构建、本地 SDK 归档和可复现性检查见 [Installing Kern](docs/install.md)。
 
 ## 快速开始

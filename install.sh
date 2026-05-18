@@ -54,6 +54,26 @@ detect_host_target() {
     esac
 }
 
+is_nixos_host() {
+    [ -e /etc/NIXOS ] && return 0
+
+    if [ -r /etc/os-release ] && grep -Eq '^ID=nixos$|^ID_LIKE=.*\bnixos\b' /etc/os-release; then
+        return 0
+    fi
+
+    return 1
+}
+
+warn_if_nixos_host() {
+    if ! is_nixos_host; then
+        return 0
+    fi
+
+    info "=> Detected NixOS."
+    info "=> If you manage your toolchain through Nix, prefer the flake/overlay flow documented in Nix.md."
+    info "=> This installer will continue with the regular ~/.kern SDK installation."
+}
+
 infer_version_from_archive_name() {
     name="$1"
     target="$2"
@@ -321,6 +341,7 @@ if [ -z "$TARGET" ]; then
     TARGET="$HOST_TARGET"
 fi
 [ "$TARGET" = "$HOST_TARGET" ] || fail "target \`$TARGET\` does not match the current host \`$HOST_TARGET\`"
+warn_if_nixos_host
 
 if [ -z "$DEST" ]; then
     DEST="${HOME:?HOME is not set}/.kern"

@@ -1,3 +1,9 @@
+//! Call lowering.
+//!
+//! This module lowers direct calls, method calls, dynamic dispatch, intrinsics,
+//! inline assembly, and call argument materialization into MAST call and
+//! dispatch forms suitable for monomorphization and MIR lowering.
+
 use super::Lowerer;
 use std::collections::HashMap;
 

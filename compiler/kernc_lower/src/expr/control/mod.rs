@@ -1,3 +1,9 @@
+//! Control-flow lowering.
+//!
+//! Structured AST control expressions lower into MAST blocks, branches, loops,
+//! switches, matches, closures, defers, and propagation forms. Submodules own
+//! pattern/match details so the main lowering path stays readable.
+
 use super::Lowerer;
 use std::collections::HashMap;
 

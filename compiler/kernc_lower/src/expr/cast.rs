@@ -1,4 +1,8 @@
-// compiler/kernc_lower/src/expr/cast.rs
+//! Cast and aggregate-rewrite lowering.
+//!
+//! Cast lowering preserves checked conversion semantics while making ABI-facing
+//! rewrites explicit: named/anonymous aggregate conversions, pointer/integer
+//! casts, enum backing conversions, and trait-object pointer casts.
 
 use super::Lowerer;
 use std::collections::HashMap;

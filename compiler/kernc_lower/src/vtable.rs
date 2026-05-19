@@ -1,3 +1,9 @@
+//! Trait object and vtable lowering.
+//!
+//! This module constructs vtable globals for concrete impl/trait pairs, resolves
+//! inherited trait views and associated-type bindings, and decides when an
+//! existing trait object can satisfy another required trait object.
+
 use super::Lowerer;
 use kernc_mast::*;
 use kernc_mono::MonoId;

@@ -1,3 +1,10 @@
+//! Expression lowering from checked AST to MAST.
+//!
+//! This module coordinates expression lowering after semantic checking has
+//! assigned concrete types. It preserves source spans for diagnostics, applies
+//! generic substitutions, and delegates access, calls, control flow, literals,
+//! casts, and operators to focused submodules.
+
 use super::Lowerer;
 use kernc_ast::{Expr, ExprKind};
 use kernc_mast::*;

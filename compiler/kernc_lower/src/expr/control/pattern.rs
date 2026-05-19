@@ -1,3 +1,9 @@
+//! Pattern lowering.
+//!
+//! Checked patterns lower to binding plans and runtime tests against MAST
+//! expressions. This module handles destructuring, ignored bindings, field
+//! projection ordering, and user-pattern lowering for match/let constructs.
+
 use super::*;
 
 struct UserPatternPlanInput<'a> {

@@ -1,3 +1,10 @@
+//! Monomorphization and item instantiation.
+//!
+//! Lowering creates concrete MAST functions, globals, structs, enum layouts, and
+//! vtables from semantic definitions plus generic arguments. This module owns
+//! the queues and caches that prevent duplicate instantiations and diagnose
+//! runaway specialization cycles.
+
 use super::Lowerer;
 use crate::ActiveFunctionInstantiation;
 use kernc_ast as ast;
@@ -512,12 +519,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.placeholder_function(id, format!("__ice_fn_{}", id.0));
             return id;
         };
-        // Safety: lowering reads semantic definition storage but does not mutate or reorder
+        // SAFETY: lowering reads semantic definition storage but does not mutate or reorder
         // `ctx.defs`, so the raw pointer stays valid for the duration of this instantiation.
         let fn_name = unsafe { self.ctx.resolve((*def_ptr).name).to_string() };
 
         let Some((subst_map, mangled_name, mast_params, conc_ret)) =
             self.measure_phase("    lower_fn_signature", |this| {
+                // SAFETY: same as above; the function definition stays pinned in `ctx.defs`.
                 let def = unsafe { &*def_ptr };
                 let subst_map =
                     this.build_generic_subst_map("function", &fn_name, &def.generics, args)?;
@@ -626,6 +634,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         });
 
         let body = self.measure_phase("    lower_fn_body", |this| {
+            // SAFETY: same as above; the function definition stays pinned in `ctx.defs`.
             let def = unsafe { &*def_ptr };
             if this.function_requires_runtime_body(def) {
                 let prev_scope = this.ctx.scopes.current_scope_id();
@@ -668,11 +677,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         });
 
         let uses_odr_linkage = {
+            // SAFETY: same as above; the function definition stays pinned in `ctx.defs`.
             let def = unsafe { &*def_ptr };
             !def.generics.is_empty() && body.is_some() && !def.is_extern
         };
 
         self.measure_phase("    lower_fn_finalize", |this| {
+            // SAFETY: same as above; the function definition stays pinned in `ctx.defs`.
             let def = unsafe { &*def_ptr };
             let mast_fn = MastFunction {
                 id,

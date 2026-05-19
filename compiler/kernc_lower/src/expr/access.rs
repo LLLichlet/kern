@@ -1,3 +1,10 @@
+//! Identifier, namespace, field, index, and slice lowering.
+//!
+//! Access lowering maps checked symbols to MAST locals/globals/functions,
+//! resolves module and type namespace projections, preserves pointer/reference
+//! operations, and emits explicit error/trap expressions for inconsistent
+//! semantic state.
+
 use super::Lowerer;
 use std::collections::HashMap;
 

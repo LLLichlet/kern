@@ -1,3 +1,9 @@
+//! Inline assembly call lowering.
+//!
+//! Checked `@asm` configuration structs are converted to MAST inline assembly
+//! nodes with constant string/bool metadata, clobbers, inputs, outputs, and
+//! optional control-flow target labels preserved for MIR lowering.
+
 use super::*;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {

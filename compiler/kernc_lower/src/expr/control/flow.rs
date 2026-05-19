@@ -1,3 +1,9 @@
+//! Block and statement lowering.
+//!
+//! Blocks maintain lowering-local scopes, defer stacks, local forwarding maps,
+//! and local statics. This module lowers statements and block results while
+//! restoring those stacks at block boundaries.
+
 use super::*;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {

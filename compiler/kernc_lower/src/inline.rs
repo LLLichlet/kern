@@ -1,3 +1,9 @@
+//! MAST inline expansion pass.
+//!
+//! Inline lowering collects function bodies marked for inline expansion and
+//! substitutes their parameters at call sites after monomorphization. Recursion
+//! guards keep accidental inline cycles from expanding forever.
+
 use super::Lowerer;
 use kernc_mast::*;
 use kernc_mono::MonoId;

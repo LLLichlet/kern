@@ -625,7 +625,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             return;
                         };
 
-                        // Safety: lowering does not mutate semantic definition storage.
+                        // SAFETY: lowering reads semantic definitions but does not mutate,
+                        // reorder, or remove entries from `ctx.defs`.
                         let global = unsafe { &*global_ptr };
                         this.lower_global(global);
                     })

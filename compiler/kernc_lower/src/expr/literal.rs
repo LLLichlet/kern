@@ -1,3 +1,9 @@
+//! Literal and aggregate lowering.
+//!
+//! This file turns checked scalar, array, struct, union, enum, and anonymous
+//! data literals into MAST expressions, applying generic substitutions and
+//! reordering named aggregate fields into their physical layout order.
+
 use super::Lowerer;
 use std::collections::HashMap;
 
@@ -487,6 +493,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let Some(init_f) = fields.iter().find(|f| f.name == f_def.name) {
                 ast_ordered_exprs.push(self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty)));
             } else {
+                let Some(default_value) = f_def.default_value.as_ref() else {
+                    ast_ordered_exprs.push(self.lower_error_expr(
+                        conc_f_ty,
+                        f_def.name_span,
+                        "Kern ICE (Lowering): missing default value for omitted struct field",
+                    ));
+                    continue;
+                };
                 // Field defaults are type-checked in the data type's own generic
                 // and module scope, so they must be lowered with that
                 // definition context rather than the caller's surrounding
@@ -495,11 +509,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 if let Some(owner_scope) = self.ctx.def_owner_scope(def_id) {
                     self.ctx.scopes.set_current_scope(owner_scope);
                 }
-                let lowered_default = self.lower_expr(
-                    f_def.default_value.as_ref().unwrap(),
-                    &struct_subst_map,
-                    Some(conc_f_ty),
-                );
+                let lowered_default =
+                    self.lower_expr(default_value, &struct_subst_map, Some(conc_f_ty));
                 if let Some(prev_scope) = prev_scope {
                     self.ctx.scopes.set_current_scope(prev_scope);
                 }

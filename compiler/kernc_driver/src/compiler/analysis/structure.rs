@@ -6,6 +6,21 @@
 
 use super::*;
 use crate::compiler::completion;
+use std::collections::HashMap;
+use std::sync::{Mutex, MutexGuard};
+
+fn recover_clean_reuse_artifacts_lock<'a, T>(
+    lock: &'a Mutex<HashMap<PathBuf, T>>,
+) -> MutexGuard<'a, HashMap<PathBuf, T>> {
+    // Clean analysis artifacts are a reusable performance layer for editor
+    // requests. If a previous analysis worker panicked while holding the cache,
+    // keep serving later requests from the recovered map instead of turning one
+    // failed worker into a permanently poisoned driver.
+    match lock.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
 
 impl CompilerDriver {
     pub(super) fn analyze_outline_from_structure(
@@ -496,9 +511,7 @@ impl CompilerDriver {
         input_file: &str,
     ) -> Option<StructureArtifact> {
         let normalized = normalize_driver_path(Path::new(input_file));
-        self.clean_structure_reuse_artifacts
-            .lock()
-            .unwrap()
+        recover_clean_reuse_artifacts_lock(&self.clean_structure_reuse_artifacts)
             .get(&normalized)
             .cloned()
     }
@@ -508,9 +521,7 @@ impl CompilerDriver {
         input_file: &str,
     ) -> Option<CollectedStructureArtifact> {
         let normalized = normalize_driver_path(Path::new(input_file));
-        self.clean_collected_reuse_artifacts
-            .lock()
-            .unwrap()
+        recover_clean_reuse_artifacts_lock(&self.clean_collected_reuse_artifacts)
             .get(&normalized)
             .cloned()
     }
@@ -520,9 +531,7 @@ impl CompilerDriver {
         input_file: &str,
     ) -> Option<ImportedStructureArtifact> {
         let normalized = normalize_driver_path(Path::new(input_file));
-        self.clean_imported_reuse_artifacts
-            .lock()
-            .unwrap()
+        recover_clean_reuse_artifacts_lock(&self.clean_imported_reuse_artifacts)
             .get(&normalized)
             .cloned()
     }
@@ -816,9 +825,7 @@ impl CompilerDriver {
     ) -> StructureArtifact {
         if source_overrides.is_empty() {
             let normalized = normalize_driver_path(Path::new(input_file));
-            self.clean_structure_reuse_artifacts
-                .lock()
-                .unwrap()
+            recover_clean_reuse_artifacts_lock(&self.clean_structure_reuse_artifacts)
                 .insert(normalized, structure.clone());
         }
         structure
@@ -893,9 +900,7 @@ impl CompilerDriver {
     ) -> CollectedStructureArtifact {
         if source_overrides.is_empty() {
             let normalized = normalize_driver_path(Path::new(input_file));
-            self.clean_collected_reuse_artifacts
-                .lock()
-                .unwrap()
+            recover_clean_reuse_artifacts_lock(&self.clean_collected_reuse_artifacts)
                 .insert(normalized, collected.clone());
         }
         collected
@@ -972,9 +977,7 @@ impl CompilerDriver {
     ) -> ImportedStructureArtifact {
         if source_overrides.is_empty() {
             let normalized = normalize_driver_path(Path::new(input_file));
-            self.clean_imported_reuse_artifacts
-                .lock()
-                .unwrap()
+            recover_clean_reuse_artifacts_lock(&self.clean_imported_reuse_artifacts)
                 .insert(normalized, imported.clone());
         }
         imported

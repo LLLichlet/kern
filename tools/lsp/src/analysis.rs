@@ -937,7 +937,7 @@ impl AnalysisEngine {
             self.record_dirty_fallback("targeted-missing-clean-structure");
             return Ok(None);
         };
-        let Some(clean_artifact) = self.artifact_cache.lock().unwrap().get(&clean_key).cloned()
+        let Some(clean_artifact) = recover_lock(&self.artifact_cache).get(&clean_key).cloned()
         else {
             self.record_dirty_fallback("targeted-missing-clean-artifact");
             return Ok(None);
@@ -1127,7 +1127,7 @@ impl AnalysisEngine {
         }
 
         let structure =
-            if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
+            if let Some(structure) = recover_lock(&self.structure_cache).get(&context.cache_key) {
                 self.record_cache_hit(AnalysisCacheTraceKind::StructureArtifact);
                 Some(Arc::clone(structure))
             } else {
@@ -1145,9 +1145,7 @@ impl AnalysisEngine {
             };
         self.prune_cache_family_for_insert(&context.cache_key);
         if let Some(structure) = &structure {
-            self.structure_cache
-                .lock()
-                .unwrap()
+            recover_lock(&self.structure_cache)
                 .insert(context.cache_key.clone(), Arc::clone(structure));
             self.record_cache_store(AnalysisCacheTraceKind::StructureArtifact);
         }
@@ -1450,7 +1448,7 @@ impl AnalysisEngine {
         context: &AnalysisRequestContext,
     ) -> Result<Arc<AnalysisArtifact>, String> {
         context.check_canceled()?;
-        if let Some(artifact) = self.artifact_cache.lock().unwrap().get(&context.cache_key) {
+        if let Some(artifact) = recover_lock(&self.artifact_cache).get(&context.cache_key) {
             self.record_cache_hit(AnalysisCacheTraceKind::SemanticArtifact);
             return Ok(Arc::clone(artifact));
         }
@@ -1458,7 +1456,7 @@ impl AnalysisEngine {
 
         context.check_canceled()?;
         let structure =
-            if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
+            if let Some(structure) = recover_lock(&self.structure_cache).get(&context.cache_key) {
                 self.record_cache_hit(AnalysisCacheTraceKind::StructureArtifact);
                 Some(Arc::clone(structure))
             } else {
@@ -1476,9 +1474,7 @@ impl AnalysisEngine {
             };
         self.prune_cache_family_for_insert(&context.cache_key);
         if let Some(structure) = &structure {
-            self.structure_cache
-                .lock()
-                .unwrap()
+            recover_lock(&self.structure_cache)
                 .insert(context.cache_key.clone(), Arc::clone(structure));
             self.record_cache_store(AnalysisCacheTraceKind::StructureArtifact);
         }
@@ -1501,10 +1497,7 @@ impl AnalysisEngine {
                 })
                 .map_err(|_| "request was canceled".to_string())?
         });
-        self.artifact_cache
-            .lock()
-            .unwrap()
-            .insert(context.cache_key.clone(), Arc::clone(&artifact));
+        recover_lock(&self.artifact_cache).insert(context.cache_key.clone(), Arc::clone(&artifact));
         self.record_cache_store(AnalysisCacheTraceKind::SemanticArtifact);
         self.store_derived_interactive_artifacts(&context.cache_key, &artifact);
         Ok(artifact)
@@ -1526,10 +1519,7 @@ impl AnalysisEngine {
             semantic_entries: artifact.semantic_entries.clone(),
             calls: artifact.calls.clone(),
         });
-        self.navigation_cache
-            .lock()
-            .unwrap()
-            .insert(cache_key.clone(), navigation);
+        recover_lock(&self.navigation_cache).insert(cache_key.clone(), navigation);
         self.record_cache_store(AnalysisCacheTraceKind::NavigationArtifact);
 
         let semantic = Arc::new(AnalysisSemanticArtifact {
@@ -1541,9 +1531,7 @@ impl AnalysisEngine {
             type_hints: artifact.type_hints.clone(),
             semantic_entries: artifact.semantic_entries.clone(),
         });
-        self.semantic_classification_cache
-            .lock()
-            .unwrap()
+        recover_lock(&self.semantic_classification_cache)
             .insert(cache_key.clone(), Arc::clone(&semantic));
         self.record_cache_store(AnalysisCacheTraceKind::SemanticClassificationArtifact);
         self.store_derived_semantic_token_artifact_from_semantic(cache_key, &semantic);
@@ -1563,9 +1551,7 @@ impl AnalysisEngine {
             type_hints: artifact.type_hints.clone(),
             semantic_entries: artifact.semantic_entries.clone(),
         });
-        self.semantic_classification_cache
-            .lock()
-            .unwrap()
+        recover_lock(&self.semantic_classification_cache)
             .insert(cache_key.clone(), Arc::clone(&semantic));
         self.record_cache_store(AnalysisCacheTraceKind::SemanticClassificationArtifact);
         self.store_derived_semantic_token_artifact_from_semantic(cache_key, &semantic);
@@ -1584,13 +1570,10 @@ impl AnalysisEngine {
             hovers: artifact.hovers.clone(),
             semantic_entries: artifact.semantic_entries.clone(),
         });
-        self.semantic_token_classification_cache
-            .lock()
-            .unwrap()
-            .insert(
-                SemanticTokenClassificationCacheKey::complete(cache_key.clone()),
-                token_artifact,
-            );
+        recover_lock(&self.semantic_token_classification_cache).insert(
+            SemanticTokenClassificationCacheKey::complete(cache_key.clone()),
+            token_artifact,
+        );
         self.record_cache_store(AnalysisCacheTraceKind::SemanticTokenClassificationArtifact);
     }
 
@@ -1602,7 +1585,7 @@ impl AnalysisEngine {
         let target_key =
             SemanticTokenClassificationCacheKey::for_target(cache_key.clone(), target_path);
         let complete_key = SemanticTokenClassificationCacheKey::complete(cache_key.clone());
-        let cache = self.semantic_token_classification_cache.lock().unwrap();
+        let cache = recover_lock(&self.semantic_token_classification_cache);
         cache
             .get(&target_key)
             .or_else(|| cache.get(&complete_key))
@@ -1615,13 +1598,10 @@ impl AnalysisEngine {
         target_path: &Path,
         artifact: Arc<AnalysisSemanticTokenArtifact>,
     ) {
-        self.semantic_token_classification_cache
-            .lock()
-            .unwrap()
-            .insert(
-                SemanticTokenClassificationCacheKey::for_target(cache_key, target_path),
-                artifact,
-            );
+        recover_lock(&self.semantic_token_classification_cache).insert(
+            SemanticTokenClassificationCacheKey::for_target(cache_key, target_path),
+            artifact,
+        );
         self.record_cache_store(AnalysisCacheTraceKind::SemanticTokenClassificationArtifact);
     }
 
@@ -1630,13 +1610,10 @@ impl AnalysisEngine {
         cache_key: AnalysisCacheKey,
         artifact: Arc<AnalysisSemanticTokenArtifact>,
     ) {
-        self.semantic_token_classification_cache
-            .lock()
-            .unwrap()
-            .insert(
-                SemanticTokenClassificationCacheKey::complete(cache_key),
-                artifact,
-            );
+        recover_lock(&self.semantic_token_classification_cache).insert(
+            SemanticTokenClassificationCacheKey::complete(cache_key),
+            artifact,
+        );
         self.record_cache_store(AnalysisCacheTraceKind::SemanticTokenClassificationArtifact);
     }
 
@@ -1646,7 +1623,7 @@ impl AnalysisEngine {
     ) -> Result<Option<Arc<StructureArtifact>>, String> {
         context.check_canceled()?;
         let structure =
-            if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
+            if let Some(structure) = recover_lock(&self.structure_cache).get(&context.cache_key) {
                 self.record_cache_hit(AnalysisCacheTraceKind::StructureArtifact);
                 Some(Arc::clone(structure))
             } else {
@@ -1664,9 +1641,7 @@ impl AnalysisEngine {
             };
         self.prune_cache_family_for_insert(&context.cache_key);
         if let Some(structure) = &structure {
-            self.structure_cache
-                .lock()
-                .unwrap()
+            recover_lock(&self.structure_cache)
                 .insert(context.cache_key.clone(), Arc::clone(structure));
             self.record_cache_store(AnalysisCacheTraceKind::StructureArtifact);
         }
@@ -1691,7 +1666,7 @@ impl AnalysisEngine {
 
         context.check_canceled()?;
         let structure =
-            if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
+            if let Some(structure) = recover_lock(&self.structure_cache).get(&context.cache_key) {
                 self.record_cache_hit(AnalysisCacheTraceKind::StructureArtifact);
                 Some(Arc::clone(structure))
             } else {
@@ -1709,9 +1684,7 @@ impl AnalysisEngine {
             };
         self.prune_cache_family_for_insert(&context.cache_key);
         if let Some(structure) = &structure {
-            self.structure_cache
-                .lock()
-                .unwrap()
+            recover_lock(&self.structure_cache)
                 .insert(context.cache_key.clone(), Arc::clone(structure));
             self.record_cache_store(AnalysisCacheTraceKind::StructureArtifact);
         }
@@ -1737,9 +1710,7 @@ impl AnalysisEngine {
                 })
                 .map_err(|_| "request was canceled".to_string())?
         });
-        self.navigation_cache
-            .lock()
-            .unwrap()
+        recover_lock(&self.navigation_cache)
             .insert(context.cache_key.clone(), Arc::clone(&artifact));
         self.record_cache_store(AnalysisCacheTraceKind::NavigationArtifact);
         self.store_derived_semantic_classification_artifact(&context.cache_key, &artifact);
@@ -1764,7 +1735,7 @@ impl AnalysisEngine {
 
         context.check_canceled()?;
         let structure =
-            if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
+            if let Some(structure) = recover_lock(&self.structure_cache).get(&context.cache_key) {
                 self.record_cache_hit(AnalysisCacheTraceKind::StructureArtifact);
                 Some(Arc::clone(structure))
             } else {
@@ -1782,9 +1753,7 @@ impl AnalysisEngine {
             };
         self.prune_cache_family_for_insert(&context.cache_key);
         if let Some(structure) = &structure {
-            self.structure_cache
-                .lock()
-                .unwrap()
+            recover_lock(&self.structure_cache)
                 .insert(context.cache_key.clone(), Arc::clone(structure));
             self.record_cache_store(AnalysisCacheTraceKind::StructureArtifact);
         }
@@ -1837,9 +1806,7 @@ impl AnalysisEngine {
             SemanticClassificationAnalysis::Cached(artifact) => return Ok(artifact),
             SemanticClassificationAnalysis::Computed(artifact) => Arc::new(artifact),
         };
-        self.semantic_classification_cache
-            .lock()
-            .unwrap()
+        recover_lock(&self.semantic_classification_cache)
             .insert(context.cache_key.clone(), Arc::clone(&artifact));
         self.record_cache_store(AnalysisCacheTraceKind::SemanticClassificationArtifact);
         self.store_derived_semantic_token_artifact_from_semantic(&context.cache_key, &artifact);
@@ -1884,7 +1851,7 @@ impl AnalysisEngine {
 
         context.check_canceled()?;
         let structure =
-            if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
+            if let Some(structure) = recover_lock(&self.structure_cache).get(&context.cache_key) {
                 self.record_cache_hit(AnalysisCacheTraceKind::StructureArtifact);
                 Some(Arc::clone(structure))
             } else {
@@ -1902,9 +1869,7 @@ impl AnalysisEngine {
             };
         self.prune_cache_family_for_insert(&context.cache_key);
         if let Some(structure) = &structure {
-            self.structure_cache
-                .lock()
-                .unwrap()
+            recover_lock(&self.structure_cache)
                 .insert(context.cache_key.clone(), Arc::clone(structure));
             self.record_cache_store(AnalysisCacheTraceKind::StructureArtifact);
         }
@@ -1969,7 +1934,7 @@ impl AnalysisEngine {
         context: &AnalysisRequestContext,
     ) -> Result<Option<Arc<AnalysisSurfaceArtifact>>, String> {
         context.check_canceled()?;
-        if let Some(surface) = self.surface_cache.lock().unwrap().get(&context.cache_key) {
+        if let Some(surface) = recover_lock(&self.surface_cache).get(&context.cache_key) {
             self.record_cache_hit(AnalysisCacheTraceKind::SurfaceArtifact);
             return Ok(Some(Arc::clone(surface)));
         }
@@ -1990,10 +1955,7 @@ impl AnalysisEngine {
             None => return Ok(None),
         };
         self.prune_cache_family_for_insert(&context.cache_key);
-        self.surface_cache
-            .lock()
-            .unwrap()
-            .insert(context.cache_key.clone(), Arc::clone(&surface));
+        recover_lock(&self.surface_cache).insert(context.cache_key.clone(), Arc::clone(&surface));
         self.record_cache_store(AnalysisCacheTraceKind::SurfaceArtifact);
         Ok(Some(surface))
     }
@@ -2021,7 +1983,7 @@ impl AnalysisEngine {
     ) -> Result<Arc<AnalysisArtifact>, String> {
         context.check_canceled()?;
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
-        if let Some(artifact) = self.artifact_cache.lock().unwrap().get(&clean_key) {
+        if let Some(artifact) = recover_lock(&self.artifact_cache).get(&clean_key) {
             self.record_cache_hit(AnalysisCacheTraceKind::SemanticArtifact);
             return Ok(Arc::clone(artifact));
         }
@@ -2039,10 +2001,7 @@ impl AnalysisEngine {
                 })
                 .map_err(|_| "request was canceled".to_string())?,
         );
-        self.artifact_cache
-            .lock()
-            .unwrap()
-            .insert(clean_key, Arc::clone(&artifact));
+        recover_lock(&self.artifact_cache).insert(clean_key, Arc::clone(&artifact));
         self.record_cache_store(AnalysisCacheTraceKind::SemanticArtifact);
         Ok(artifact)
     }
@@ -2053,7 +2012,7 @@ impl AnalysisEngine {
     ) -> Result<Arc<AnalysisNavigationArtifact>, String> {
         context.check_canceled()?;
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
-        if let Some(artifact) = self.navigation_cache.lock().unwrap().get(&clean_key) {
+        if let Some(artifact) = recover_lock(&self.navigation_cache).get(&clean_key) {
             self.record_cache_hit(AnalysisCacheTraceKind::NavigationArtifact);
             return Ok(Arc::clone(artifact));
         }
@@ -2071,10 +2030,7 @@ impl AnalysisEngine {
                 })
                 .map_err(|_| "request was canceled".to_string())?,
         );
-        self.navigation_cache
-            .lock()
-            .unwrap()
-            .insert(clean_key.clone(), Arc::clone(&artifact));
+        recover_lock(&self.navigation_cache).insert(clean_key.clone(), Arc::clone(&artifact));
         self.record_cache_store(AnalysisCacheTraceKind::NavigationArtifact);
         self.store_derived_semantic_classification_artifact(&clean_key, &artifact);
         Ok(artifact)
@@ -2122,9 +2078,7 @@ impl AnalysisEngine {
             SemanticClassificationAnalysis::Cached(artifact) => return Ok(artifact),
             SemanticClassificationAnalysis::Computed(artifact) => Arc::new(artifact),
         };
-        self.semantic_classification_cache
-            .lock()
-            .unwrap()
+        recover_lock(&self.semantic_classification_cache)
             .insert(clean_key.clone(), Arc::clone(&artifact));
         self.record_cache_store(AnalysisCacheTraceKind::SemanticClassificationArtifact);
         self.store_derived_semantic_token_artifact_from_semantic(&clean_key, &artifact);
@@ -2200,7 +2154,7 @@ impl AnalysisEngine {
     ) -> Result<Option<Arc<AnalysisSurfaceArtifact>>, String> {
         context.check_canceled()?;
         let clean_key = AnalysisCacheKey::clean(&context.resolved);
-        if let Some(surface) = self.surface_cache.lock().unwrap().get(&clean_key) {
+        if let Some(surface) = recover_lock(&self.surface_cache).get(&clean_key) {
             self.record_cache_hit(AnalysisCacheTraceKind::SurfaceArtifact);
             return Ok(Some(Arc::clone(surface)));
         }
@@ -2220,10 +2174,7 @@ impl AnalysisEngine {
             Some(surface) => Arc::new(surface),
             None => return Ok(None),
         };
-        self.surface_cache
-            .lock()
-            .unwrap()
-            .insert(clean_key, Arc::clone(&surface));
+        recover_lock(&self.surface_cache).insert(clean_key, Arc::clone(&surface));
         self.record_cache_store(AnalysisCacheTraceKind::SurfaceArtifact);
         Ok(Some(surface))
     }
@@ -2233,7 +2184,7 @@ impl AnalysisEngine {
         context: &AnalysisRequestContext,
     ) -> Result<Arc<ParsedModuleArtifact>, String> {
         context.check_canceled()?;
-        if let Some(parsed) = self.parse_cache.lock().unwrap().get(&context.cache_key) {
+        if let Some(parsed) = recover_lock(&self.parse_cache).get(&context.cache_key) {
             self.record_cache_hit(AnalysisCacheTraceKind::ParseArtifact);
             return Ok(Arc::clone(parsed));
         }
@@ -2253,10 +2204,7 @@ impl AnalysisEngine {
             return Err("parse analysis failed".to_string());
         };
         self.prune_cache_family_for_insert(&context.cache_key);
-        self.parse_cache
-            .lock()
-            .unwrap()
-            .insert(context.cache_key.clone(), Arc::clone(&parsed));
+        recover_lock(&self.parse_cache).insert(context.cache_key.clone(), Arc::clone(&parsed));
         self.record_cache_store(AnalysisCacheTraceKind::ParseArtifact);
         Ok(parsed)
     }
@@ -2330,17 +2278,14 @@ impl AnalysisEngine {
 
     fn driver_for_resolved(&self, resolved: &ResolvedAnalysis) -> AnalysisDriver {
         let family = IncrementalDriverKey::from_options(&resolved.compile_options);
-        if let Some(driver) = self.driver_cache.lock().unwrap().get(&family) {
+        if let Some(driver) = recover_lock(&self.driver_cache).get(&family) {
             self.record_cache_hit(AnalysisCacheTraceKind::Driver);
             return driver.clone();
         }
         self.record_cache_miss(AnalysisCacheTraceKind::Driver);
 
         let driver = AnalysisDriver::new(resolved.compile_options.clone());
-        self.driver_cache
-            .lock()
-            .unwrap()
-            .insert(family, driver.clone());
+        recover_lock(&self.driver_cache).insert(family, driver.clone());
         self.record_cache_store(AnalysisCacheTraceKind::Driver);
         driver
     }
@@ -2429,7 +2374,7 @@ impl AnalysisEngine {
             }
         };
 
-        if let Some(project) = self.project_cache.lock().unwrap().get(&manifest_path) {
+        if let Some(project) = recover_lock(&self.project_cache).get(&manifest_path) {
             self.record_cache_hit(AnalysisCacheTraceKind::ProjectResolution);
             return Ok(project.clone());
         }
@@ -2443,10 +2388,7 @@ impl AnalysisEngine {
                     manifest_path.display()
                 )
             })?;
-        self.project_cache
-            .lock()
-            .unwrap()
-            .insert(manifest_path, project.clone());
+        recover_lock(&self.project_cache).insert(manifest_path, project.clone());
         self.record_cache_store(AnalysisCacheTraceKind::ProjectResolution);
         Ok(project)
     }
@@ -2523,57 +2465,43 @@ impl AnalysisEngine {
     }
 
     fn invalidate_artifact_cache(&self) {
-        self.parse_cache.lock().unwrap().clear();
-        self.surface_cache.lock().unwrap().clear();
-        self.structure_cache.lock().unwrap().clear();
-        self.artifact_cache.lock().unwrap().clear();
-        self.navigation_cache.lock().unwrap().clear();
-        self.semantic_classification_cache.lock().unwrap().clear();
-        self.semantic_token_classification_cache
-            .lock()
-            .unwrap()
-            .clear();
+        recover_lock(&self.parse_cache).clear();
+        recover_lock(&self.surface_cache).clear();
+        recover_lock(&self.structure_cache).clear();
+        recover_lock(&self.artifact_cache).clear();
+        recover_lock(&self.navigation_cache).clear();
+        recover_lock(&self.semantic_classification_cache).clear();
+        recover_lock(&self.semantic_token_classification_cache).clear();
         self.invalidate_workspace_index();
     }
 
     fn invalidate_dirty_document_snapshot(&self) {
-        self.dirty_documents_snapshot.lock().unwrap().take();
+        recover_lock(&self.dirty_documents_snapshot).take();
     }
 
     fn invalidate_open_path_index(&self) {
-        self.open_uri_by_path.lock().unwrap().take();
+        recover_lock(&self.open_uri_by_path).take();
     }
 
     fn invalidate_render_caches(&self) {
-        self.semantic_tokens_cache.lock().unwrap().clear();
-        self.lexical_cache.lock().unwrap().clear();
+        recover_lock(&self.semantic_tokens_cache).clear();
+        recover_lock(&self.lexical_cache).clear();
     }
 
     fn invalidate_render_caches_for_document(&self, uri: &str, path: &Path) {
         let target_path = normalize_path(path);
-        self.semantic_tokens_cache
-            .lock()
-            .unwrap()
-            .retain(|key, _| key.target_path != target_path);
-        self.lexical_cache
-            .lock()
-            .unwrap()
-            .retain(|key, _| key.uri != uri);
+        recover_lock(&self.semantic_tokens_cache).retain(|key, _| key.target_path != target_path);
+        recover_lock(&self.lexical_cache).retain(|key, _| key.uri != uri);
     }
 
     fn retain_semantic_tokens_for_document_text(&self, path: &Path, text_hash: u64) {
         let target_path = normalize_path(path);
-        self.semantic_tokens_cache
-            .lock()
-            .unwrap()
+        recover_lock(&self.semantic_tokens_cache)
             .retain(|key, _| key.target_path != target_path || key.text_hash == text_hash);
     }
 
     fn invalidate_lexical_cache_for_document(&self, uri: &str) {
-        self.lexical_cache
-            .lock()
-            .unwrap()
-            .retain(|key, _| key.uri != uri);
+        recover_lock(&self.lexical_cache).retain(|key, _| key.uri != uri);
     }
 
     fn lexical_index_for_document(&self, uri: &str, document: &OpenDocument) -> Arc<LexicalIndex> {
@@ -2582,52 +2510,35 @@ impl AnalysisEngine {
             document_version: document.version,
             text_hash: document.text_hash,
         };
-        if let Some(index) = self.lexical_cache.lock().unwrap().get(&key) {
+        if let Some(index) = recover_lock(&self.lexical_cache).get(&key) {
             self.record_cache_hit(AnalysisCacheTraceKind::LexicalIndex);
             return Arc::clone(index);
         }
         self.record_cache_miss(AnalysisCacheTraceKind::LexicalIndex);
 
         let index = Arc::new(LexicalIndex::new(&document.text));
-        self.lexical_cache
-            .lock()
-            .unwrap()
-            .insert(key, Arc::clone(&index));
+        recover_lock(&self.lexical_cache).insert(key, Arc::clone(&index));
         self.record_cache_store(AnalysisCacheTraceKind::LexicalIndex);
         index
     }
 
     fn prune_cache_family_for_insert(&self, keep: &AnalysisCacheKey) {
         let family = keep.family();
-        self.parse_cache
-            .lock()
-            .unwrap()
+        recover_lock(&self.parse_cache)
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
-        self.surface_cache
-            .lock()
-            .unwrap()
+        recover_lock(&self.surface_cache)
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
-        self.structure_cache
-            .lock()
-            .unwrap()
+        recover_lock(&self.structure_cache)
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
-        self.artifact_cache
-            .lock()
-            .unwrap()
+        recover_lock(&self.artifact_cache)
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
-        self.navigation_cache
-            .lock()
-            .unwrap()
+        recover_lock(&self.navigation_cache)
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
-        self.semantic_classification_cache
-            .lock()
-            .unwrap()
+        recover_lock(&self.semantic_classification_cache)
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
-        self.semantic_token_classification_cache
-            .lock()
-            .unwrap()
+        recover_lock(&self.semantic_token_classification_cache)
             .retain(|key, _| key.family() != family || key.analysis == *keep || key.is_clean());
-        let mut workspace_index = self.workspace_index.lock().unwrap();
+        let mut workspace_index = recover_lock(&self.workspace_index);
         workspace_index
             .targets
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
@@ -2637,7 +2548,7 @@ impl AnalysisEngine {
     }
 
     fn invalidate_workspace_index(&self) {
-        let mut index = self.workspace_index.lock().unwrap();
+        let mut index = recover_lock(&self.workspace_index);
         index.generation = index.generation.saturating_add(1);
         index.symbol_indexes.clear();
         index.targets.clear();
@@ -2649,7 +2560,7 @@ impl AnalysisEngine {
         indexed_targets: usize,
         failed_targets: usize,
     ) -> WorkspaceIndexStats {
-        let mut index = self.workspace_index.lock().unwrap();
+        let mut index = recover_lock(&self.workspace_index);
         index.generation = index.generation.saturating_add(1);
         let stats = WorkspaceIndexStats {
             generation: index.generation,
@@ -2662,29 +2573,27 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     fn cached_driver_count(&self) -> usize {
-        self.driver_cache.lock().unwrap().len()
+        recover_lock(&self.driver_cache).len()
     }
 
     #[cfg(test)]
     fn cached_project_count(&self) -> usize {
-        self.project_cache.lock().unwrap().len()
+        recover_lock(&self.project_cache).len()
     }
 
     #[cfg(test)]
     pub(crate) fn cached_workspace_symbol_index_count(&self) -> usize {
-        self.workspace_index.lock().unwrap().symbol_indexes.len()
+        recover_lock(&self.workspace_index).symbol_indexes.len()
     }
 
     #[cfg(test)]
     pub(crate) fn cached_workspace_index_target_count(&self) -> usize {
-        self.workspace_index.lock().unwrap().targets.len()
+        recover_lock(&self.workspace_index).targets.len()
     }
 
     #[cfg(test)]
     fn cached_workspace_index_targets(&self) -> Vec<WorkspaceIndexTarget> {
-        self.workspace_index
-            .lock()
-            .unwrap()
+        recover_lock(&self.workspace_index)
             .targets
             .values()
             .cloned()
@@ -2693,7 +2602,7 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub(crate) fn cached_document_symbol_index_count(&self) -> usize {
-        self.workspace_index.lock().unwrap().symbol_indexes.len()
+        recover_lock(&self.workspace_index).symbol_indexes.len()
     }
 
     fn document_differs_from_disk(path: &Path, text: &str) -> bool {

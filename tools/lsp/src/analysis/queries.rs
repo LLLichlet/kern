@@ -235,7 +235,7 @@ impl AnalysisEngine {
     ) -> Result<Arc<SurfaceSymbolIndex>, String> {
         context.check_canceled()?;
         {
-            let mut workspace_index = self.workspace_index.lock().unwrap();
+            let mut workspace_index = recover_lock(&self.workspace_index);
             if let Some(index) = workspace_index
                 .symbol_indexes
                 .get(&context.cache_key)
@@ -257,7 +257,7 @@ impl AnalysisEngine {
                 workspace_symbols: Arc::new(Vec::new()),
             });
             self.prune_cache_family_for_insert(&context.cache_key);
-            let mut workspace_index = self.workspace_index.lock().unwrap();
+            let mut workspace_index = recover_lock(&self.workspace_index);
             workspace_index
                 .symbol_indexes
                 .insert(context.cache_key.clone(), Arc::clone(&index));
@@ -274,7 +274,7 @@ impl AnalysisEngine {
             &context.cancellation,
         )?);
         self.prune_cache_family_for_insert(&context.cache_key);
-        let mut workspace_index = self.workspace_index.lock().unwrap();
+        let mut workspace_index = recover_lock(&self.workspace_index);
         workspace_index
             .symbol_indexes
             .insert(context.cache_key.clone(), Arc::clone(&index));
@@ -347,7 +347,7 @@ impl AnalysisEngine {
         };
         let target_path = normalize_path(&target_doc.path);
         let index = {
-            let mut workspace_index = self.workspace_index.lock().unwrap();
+            let mut workspace_index = recover_lock(&self.workspace_index);
             if let Some(index) = workspace_index
                 .symbol_indexes
                 .get(&symbol_analysis_key)
@@ -366,7 +366,7 @@ impl AnalysisEngine {
                     &snapshot.cancellation,
                 )?);
                 self.prune_cache_family_for_insert(&symbol_analysis_key);
-                let mut workspace_index = self.workspace_index.lock().unwrap();
+                let mut workspace_index = recover_lock(&self.workspace_index);
                 workspace_index
                     .symbol_indexes
                     .insert(symbol_analysis_key.clone(), Arc::clone(&index));
@@ -1247,7 +1247,7 @@ impl AnalysisEngine {
             target_path: target_path.clone(),
             text_hash: target_doc.text_hash,
         };
-        if let Some(tokens) = self.semantic_tokens_cache.lock().unwrap().get(&token_key) {
+        if let Some(tokens) = recover_lock(&self.semantic_tokens_cache).get(&token_key) {
             self.record_cache_hit(AnalysisCacheTraceKind::SemanticTokens);
             self.record_analysis_tier(semantic_tokens_analysis_tier(&context, &target_path));
             return Ok(tokens.clone());
@@ -1308,10 +1308,7 @@ impl AnalysisEngine {
                 &snapshot.cancellation,
             )?
         };
-        self.semantic_tokens_cache
-            .lock()
-            .unwrap()
-            .insert(token_key, tokens.clone());
+        recover_lock(&self.semantic_tokens_cache).insert(token_key, tokens.clone());
         self.record_cache_store(AnalysisCacheTraceKind::SemanticTokens);
         Ok(tokens)
     }

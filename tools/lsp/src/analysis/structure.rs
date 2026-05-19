@@ -123,7 +123,7 @@ impl AnalysisEngine {
         let target_path = normalize_path(&target_doc.path);
 
         let structure =
-            if let Some(structure) = self.structure_cache.lock().unwrap().get(&context.cache_key) {
+            if let Some(structure) = recover_lock(&self.structure_cache).get(&context.cache_key) {
                 Arc::clone(structure)
             } else {
                 let Some(structure) = context
@@ -140,9 +140,7 @@ impl AnalysisEngine {
                 };
                 let structure = Arc::new(structure);
                 self.prune_cache_family_for_insert(&context.cache_key);
-                self.structure_cache
-                    .lock()
-                    .unwrap()
+                recover_lock(&self.structure_cache)
                     .insert(context.cache_key.clone(), Arc::clone(&structure));
                 structure
             };

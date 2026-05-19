@@ -142,7 +142,7 @@ impl AnalysisEngine {
         doc.is_dirty = is_dirty;
         self.invalidate_dirty_document_snapshot();
         if was_dirty && !is_dirty {
-            self.driver_cache.lock().unwrap().clear();
+            recover_lock(&self.driver_cache).clear();
             self.invalidate_artifact_cache();
         }
 
@@ -159,8 +159,8 @@ impl AnalysisEngine {
 
     #[cfg(test)]
     pub fn reload_project_metadata_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
-        self.project_cache.lock().unwrap().clear();
-        self.driver_cache.lock().unwrap().clear();
+        recover_lock(&self.project_cache).clear();
+        recover_lock(&self.driver_cache).clear();
         self.refresh_workspace_targets()
     }
 
@@ -169,14 +169,14 @@ impl AnalysisEngine {
         workspace_roots: Vec<PathBuf>,
         cancellation: CancellationToken,
     ) -> Result<WorkspaceIndexRefresh, String> {
-        self.project_cache.lock().unwrap().clear();
-        self.driver_cache.lock().unwrap().clear();
+        recover_lock(&self.project_cache).clear();
+        recover_lock(&self.driver_cache).clear();
         self.refresh_workspace_index_cancelable(workspace_roots, cancellation)
     }
 
     #[cfg(test)]
     pub fn refresh_workspace_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
-        self.driver_cache.lock().unwrap().clear();
+        recover_lock(&self.driver_cache).clear();
         self.invalidate_artifact_cache();
         self.invalidate_render_caches();
         self.workspace_refresh_targets()
@@ -187,7 +187,7 @@ impl AnalysisEngine {
         workspace_roots: Vec<PathBuf>,
         cancellation: CancellationToken,
     ) -> Result<WorkspaceIndexRefresh, String> {
-        self.driver_cache.lock().unwrap().clear();
+        recover_lock(&self.driver_cache).clear();
         self.invalidate_artifact_cache();
         self.invalidate_render_caches();
         if cancellation.is_canceled() {

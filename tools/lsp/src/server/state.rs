@@ -10,7 +10,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{
-    Arc,
+    Arc, Mutex, MutexGuard,
     atomic::{AtomicBool, Ordering},
     mpsc,
 };
@@ -844,14 +844,14 @@ fn spawn_worker_threads(
     let (background_task_tx, background_task_rx) =
         mpsc::sync_channel::<BackgroundWorkerTask>(worker_count.max(1) * 2);
 
-    let interactive_task_rx = std::sync::Arc::new(std::sync::Mutex::new(interactive_task_rx));
+    let interactive_task_rx = Arc::new(Mutex::new(interactive_task_rx));
     for _ in 0..worker_count.max(1) {
         let interactive_task_rx = interactive_task_rx.clone();
         let document_request_results_tx = document_request_results_tx.clone();
         thread::spawn(move || {
             loop {
                 let task = {
-                    let task_rx = interactive_task_rx.lock().unwrap();
+                    let task_rx = recover_worker_queue_lock(&interactive_task_rx);
                     task_rx.recv()
                 };
                 let Ok(task) = task else {
@@ -867,7 +867,7 @@ fn spawn_worker_threads(
         });
     }
 
-    let background_task_rx = std::sync::Arc::new(std::sync::Mutex::new(background_task_rx));
+    let background_task_rx = Arc::new(Mutex::new(background_task_rx));
     for _ in 0..worker_count.max(1) {
         let background_task_rx = background_task_rx.clone();
         let diagnostics_results_tx = diagnostics_results_tx.clone();
@@ -876,7 +876,7 @@ fn spawn_worker_threads(
         thread::spawn(move || {
             loop {
                 let task = {
-                    let task_rx = background_task_rx.lock().unwrap();
+                    let task_rx = recover_worker_queue_lock(&background_task_rx);
                     task_rx.recv()
                 };
                 let Ok(task) = task else {
@@ -901,4 +901,13 @@ fn spawn_worker_threads(
     }
 
     (interactive_task_tx, background_task_tx)
+}
+
+fn recover_worker_queue_lock<'a, T>(lock: &'a Mutex<T>) -> MutexGuard<'a, T> {
+    // A worker panic while holding the queue lock should not permanently kill
+    // the shared worker pool; the channel itself remains the source of truth.
+    match lock.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
 }

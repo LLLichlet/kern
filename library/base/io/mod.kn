@@ -38,4 +38,5 @@ pub use .writers.{
 pub use .readers.{
     SliceReader,
     LimitReader,
+    BufReader,
 };

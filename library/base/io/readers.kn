@@ -17,6 +17,14 @@ pub/ struct LimitReader {
     remaining: usize,
 };
 
+/// Buffers reads from another reader using caller-provided scratch storage.
+pub/ struct BufReader {
+    inner: &mut Read,
+    buffer: &mut [u8],
+    start: usize = 0,
+    end: usize = 0,
+};
+
 impl &mut SliceReader : Read {
     pub fn read(buf: &mut [u8]) usize {
         if (buf.@len() == 0 or self.pos >= self.data.@len()) {
@@ -45,6 +53,28 @@ impl &mut LimitReader : Read {
     }
 }
 
+impl &mut BufReader : Read {
+    pub fn read(buf: &mut [u8]) usize {
+        if (buf.@len() == 0) {
+            return 0;
+        }
+
+        let buffered = self.buffered_len();
+        if (buffered > 0) {
+            return self.copy_buffered(buf);
+        }
+
+        if (self.buffer.@len() == 0 or buf.@len() >= self.buffer.@len()) {
+            return self.inner.read(buf);
+        }
+
+        if (!self.refill()) {
+            return 0;
+        }
+        return self.copy_buffered(buf);
+    }
+}
+
 impl &SliceReader {
     /// Returns the unread suffix.
     pub fn remaining_slice() &[u8] {
@@ -59,6 +89,43 @@ impl &SliceReader {
     /// Returns `true` when all bytes have been consumed.
     pub fn is_empty() bool {
         return self.pos >= self.data.@len();
+    }
+}
+
+impl &BufReader {
+    /// Returns how many bytes are currently buffered.
+    pub fn buffered_len() usize {
+        return self.end - self.start;
+    }
+
+    /// Returns the configured buffer capacity.
+    pub fn capacity() usize {
+        return self.buffer.@len();
+    }
+
+    /// Returns `true` when the internal buffer is empty.
+    pub fn is_buffer_empty() bool {
+        return self.start == self.end;
+    }
+}
+
+impl &mut BufReader {
+    fn refill() bool {
+        self.start = 0;
+        self.end = self.inner.read(self.buffer);
+        return self.end != 0;
+    }
+
+    fn copy_buffered(out: &mut [u8]) usize {
+        let count = out.@len().min(self.buffered_len());
+        let target = out..&[0...count];
+        _ = target.copy_from(self.buffer.&[self.start...self.start + count]);
+        self.start += count;
+        if (self.start == self.end) {
+            self.start = 0;
+            self.end = 0;
+        }
+        return count;
     }
 }
 
@@ -80,6 +147,11 @@ impl &mut Read {
     /// Creates a reader that stops after `limit` bytes from this reader.
     pub fn limit(limit: usize) LimitReader {
         return .{ inner: self, remaining: limit };
+    }
+
+    /// Creates a buffered reader that uses caller-provided scratch storage.
+    pub fn buffered(buffer: &mut [u8]) BufReader {
+        return .{ inner: self, buffer: buffer };
     }
 
     /// Reads exactly `buf.@len()` bytes unless the reader reaches EOF first.

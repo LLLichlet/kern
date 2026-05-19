@@ -141,6 +141,37 @@ fn check_readers[T](t: &mut Report[T]) void
     defer bytes.deinit(gpa);
     bytes.as_slice().should().eq("kern-io").sum(@loc(), t);
     reader2_obj.skip(1).should().eq(0usize).sum(@loc(), t);
+
+    let mut buffered_source = "abcdefghij".reader();
+    let buffered_source_obj = (buffered_source..& as &mut Read);
+    let mut read_buffer: [4]u8 = undef;
+    let mut buffered = buffered_source_obj.buffered(read_buffer..&[0...4]);
+    let buffered_reader = (buffered..& as &mut Read);
+
+    let mut first: [2]u8 = undef;
+    buffered_reader.read(first..&[0...2]).should().eq(2usize).sum(@loc(), t);
+    first.&[0...2].should().eq("ab").sum(@loc(), t);
+    buffered..&.buffered_len().should().eq(2usize).sum(@loc(), t);
+
+    let mut second: [3]u8 = undef;
+    buffered_reader.read_exact(second..&[0...3]).should().sum(@loc(), t);
+    second.&[0...3].should().eq("cde").sum(@loc(), t);
+    buffered..&.buffered_len().should().eq(3usize).sum(@loc(), t);
+
+    let mut rest: [5]u8 = undef;
+    buffered_reader.read_exact(rest..&[0...5]).should().sum(@loc(), t);
+    rest.&[0...5].should().eq("fghij").sum(@loc(), t);
+    buffered..&.is_buffer_empty().should().sum(@loc(), t);
+
+    let mut direct_source = "0123456789".reader();
+    let direct_source_obj = (direct_source..& as &mut Read);
+    let mut tiny_buffer: [2]u8 = undef;
+    let mut direct = direct_source_obj.buffered(tiny_buffer..&[0...2]);
+    let direct_reader = (direct..& as &mut Read);
+    let mut large: [5]u8 = undef;
+    direct_reader.read(large..&[0...5]).should().eq(5usize).sum(@loc(), t);
+    large.&[0...5].should().eq("01234").sum(@loc(), t);
+    direct..&.is_buffer_empty().should().sum(@loc(), t);
 }
 
 fn check_copy_adapters[T](t: &mut Report[T]) void

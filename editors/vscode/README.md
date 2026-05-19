@@ -90,6 +90,8 @@ npm run package:vsix
 This packages the extension entrypoint, grammar, snippets, icons, and runtime
 JavaScript dependencies. It intentionally excludes `server/` and does not embed
 `kern-lsp` or the official libraries, so the VSIX is platform-independent.
+Release CI therefore publishes one `kern-vscode-<version>.vsix` artifact rather
+than one VSIX per Kern host target.
 
 ## Icons
 

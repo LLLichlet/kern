@@ -6,15 +6,25 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const extensionRoot = path.resolve(scriptDir, "..");
 const repoRoot = path.resolve(extensionRoot, "..", "..");
 
-const sourceLightSvg = path.join(repoRoot, "assets", "brand", "kern-mark-light.svg");
-const sourceDarkSvg = path.join(repoRoot, "assets", "brand", "kern-mark-dark.svg");
+const sourceLightSvg = path.join(
+    repoRoot,
+    "assets",
+    "file-icons",
+    "kern-file-icon-light-theme.svg",
+);
+const sourceDarkSvg = path.join(
+    repoRoot,
+    "assets",
+    "file-icons",
+    "kern-file-icon-dark-theme.svg",
+);
 const sourcePng = path.join(repoRoot, "assets", "brand", "kern-mark.png");
 const targetLightSvg = path.join(extensionRoot, "icons", "kern-light.svg");
 const targetDarkSvg = path.join(extensionRoot, "icons", "kern-dark.svg");
 const targetPng = path.join(extensionRoot, "icons", "kern.png");
 
-syncText(sourceLightSvg, targetLightSvg, "../../assets/brand/kern-mark-light.svg");
-syncText(sourceDarkSvg, targetDarkSvg, "../../assets/brand/kern-mark-dark.svg");
+syncText(sourceLightSvg, targetLightSvg, "../../assets/file-icons/kern-file-icon-light-theme.svg");
+syncText(sourceDarkSvg, targetDarkSvg, "../../assets/file-icons/kern-file-icon-dark-theme.svg");
 syncPng();
 
 function syncText(sourcePath, targetPath, label) {

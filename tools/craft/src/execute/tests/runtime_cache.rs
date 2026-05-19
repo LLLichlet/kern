@@ -283,17 +283,10 @@ fn runtime_packages_preserve_multi_object_outputs_for_release_codegen_units() {
         .join("entry")
         .join("rt_entry_freestanding.o");
     assert!(rt_entry.is_file());
-    if cfg!(windows) || cfg!(target_os = "macos") {
-        assert!(
-            !super::has_llvm_bitcode_magic(&rt_entry),
-            "expected platform rt entry shim to remain a concrete object file"
-        );
-    } else {
-        assert!(
-            super::has_llvm_bitcode_magic(&rt_entry),
-            "expected ELF rt entry shim to follow the profile ThinLTO input flavor"
-        );
-    }
+    assert!(
+        !super::has_llvm_bitcode_magic(&rt_entry),
+        "expected platform rt entry shim to remain a concrete object file"
+    );
 
     let _ = fs::remove_dir_all(cache_root);
     let _ = fs::remove_dir_all(root);

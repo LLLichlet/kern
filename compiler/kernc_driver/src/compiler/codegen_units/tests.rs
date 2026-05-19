@@ -6,7 +6,6 @@
 use super::materialize_codegen_unit;
 use super::plan::{plan_codegen_units, plan_codegen_units_with_report};
 use super::plan_codegen_units_with_mir_summary;
-use crate::CodegenPlanFallback;
 use kernc_mast::{
     MastAsmBlock, MastBlock, MastExpr, MastExprKind, MastFunction, MastGlobal, MastInlineHint,
     MastLinkage, MastModule, MastParam, MastStmt,
@@ -600,7 +599,7 @@ fn summary_planner_skips_inline_imports_that_exceed_unit_budget() {
 }
 
 #[test]
-fn summary_planner_disables_thin_partitioning_for_control_flow_asm_bodies() {
+fn summary_planner_isolates_control_flow_asm_bodies() {
     let asm_root = function(
         1,
         "_start",
@@ -626,11 +625,56 @@ fn summary_planner_disables_thin_partitioning_for_control_flow_asm_bodies() {
     let mir_report = kernc_mir_lower::build_from_mast(&module);
     let outcome = plan_codegen_units_with_mir_summary(&module, &mir_report.summary, 2);
 
-    assert!(outcome.units.is_empty());
-    assert_eq!(
-        outcome.report.fallback_reason,
-        Some(CodegenPlanFallback::ContainsControlFlowAsm {
-            function_name: "_start".to_string(),
-        })
+    assert_eq!(outcome.report.fallback_reason, None);
+    assert_eq!(outcome.units.len(), 2);
+    let asm_unit = outcome
+        .units
+        .iter()
+        .find(|unit| unit.function_ids.contains(&MonoId(1)))
+        .expect("control-flow asm root should be materialized");
+    assert!(!asm_unit.function_ids.contains(&MonoId(2)));
+    let helper_unit = outcome
+        .units
+        .iter()
+        .find(|unit| unit.function_ids.contains(&MonoId(2)))
+        .expect("ordinary helper root should still be partitioned");
+    assert!(!helper_unit.function_ids.contains(&MonoId(1)));
+}
+
+#[test]
+fn summary_planner_keeps_internal_control_flow_asm_helpers_owned() {
+    let root_a = function(1, "a", MastLinkage::External, vec![call(10)]);
+    let root_b = function(2, "b", MastLinkage::External, Vec::new());
+    let asm_helper = function(
+        10,
+        "asm_helper",
+        MastLinkage::Internal,
+        vec![void_expr(MastExprKind::Asm(MastAsmBlock {
+            asm_template: "call hidden_target".to_string(),
+            constraints: "~{memory}".to_string(),
+            input_args: Vec::new(),
+            output_ptrs: Vec::new(),
+            output_tys: Vec::new(),
+            is_volatile: true,
+        }))],
     );
+    let module = MastModule {
+        name: "demo".to_string(),
+        structs: Vec::new(),
+        globals: Vec::new(),
+        functions: vec![root_a, root_b, asm_helper],
+        mono: MonoModuleMetadata::default(),
+    };
+
+    let mir_report = kernc_mir_lower::build_from_mast(&module);
+    let outcome = plan_codegen_units_with_mir_summary(&module, &mir_report.summary, 2);
+
+    assert_eq!(outcome.report.fallback_reason, None);
+    assert_eq!(outcome.units.len(), 2);
+    let owner = outcome
+        .units
+        .iter()
+        .find(|unit| unit.function_ids.contains(&MonoId(10)))
+        .expect("internal control-flow asm helper should remain owned");
+    assert!(owner.function_ids.contains(&MonoId(1)));
 }

@@ -1,3 +1,9 @@
+//! SIMD and atomic MIR builder tests.
+//!
+//! SIMD lowering has dedicated instruction/rvalue forms for vector loads,
+//! stores, gathers, scatters, reductions, masks, and atomics; these tests assert
+//! that each frontend shape maps to the intended MIR operation.
+
 use super::*;
 
 #[test]

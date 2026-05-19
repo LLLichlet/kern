@@ -1,3 +1,8 @@
+//! Scalar MIR builder tests.
+//!
+//! These cases cover arithmetic, casts, loads/stores, memory intrinsics, calls,
+//! and basic expression-to-rvalue lowering without relying on frontend parsing.
+
 use super::*;
 
 #[test]

@@ -1,3 +1,9 @@
+//! MAST-to-MIR function and module builder.
+//!
+//! The builder lowers monomorphized AST items into typed MIR, allocating dense
+//! locals/blocks, translating linkage/attributes, and validating the finished
+//! module before optional MIR optimization passes run.
+
 mod control;
 mod expr;
 mod static_init;

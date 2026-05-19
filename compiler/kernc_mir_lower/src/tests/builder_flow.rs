@@ -1,3 +1,8 @@
+//! Control-flow MIR builder tests.
+//!
+//! These tests cover block, branch, switch, loop-like flow, early termination,
+//! and value-producing control constructs by inspecting the produced MIR graph.
+
 use super::*;
 
 #[test]

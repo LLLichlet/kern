@@ -1,3 +1,9 @@
+//! MIR lowering pipeline tests.
+//!
+//! These cases exercise the full MAST-to-MIR path plus the default MIR cleanup
+//! pipeline, checking that optimization reports and rewritten bodies remain
+//! structurally valid.
+
 use super::*;
 
 #[test]

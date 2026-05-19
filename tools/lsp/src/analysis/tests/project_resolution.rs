@@ -1,3 +1,5 @@
+//! Craft project resolution tests for LSP analysis.
+
 use super::*;
 use craft::project::AnalysisProject;
 

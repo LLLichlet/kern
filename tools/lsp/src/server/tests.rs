@@ -1,3 +1,5 @@
+//! Shared server test harness and fixtures.
+
 mod basics;
 mod completion;
 mod diagnostics;

@@ -1,3 +1,8 @@
+//! Formatting query integration for LSP requests.
+//!
+//! Formatting delegates to Craft's formatter and converts whole-document or
+//! range-limited edits into IDE text edits.
+
 use super::*;
 use craft::fmt::{FormatConfig, format_source_text_with_config};
 use craft::manifest::Manifest;

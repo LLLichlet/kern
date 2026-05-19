@@ -1,3 +1,5 @@
+//! Help text for the `kern-lsp` command-line interface.
+
 use shared_cli::{ColorChoice, HelpDoc, HelpSection};
 
 pub fn render_help(color: ColorChoice) -> String {

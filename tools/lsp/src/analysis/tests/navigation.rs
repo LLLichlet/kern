@@ -1,3 +1,5 @@
+//! Navigation, hover, references, rename, and symbol analysis tests.
+
 use super::*;
 
 #[test]

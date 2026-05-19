@@ -1,3 +1,8 @@
+//! Kern language-server binary entry point.
+//!
+//! The binary parses command-line options, initializes the JSON-RPC transport,
+//! and runs the LSP server loop over stdin/stdout.
+
 mod analysis;
 mod defaults;
 mod help;

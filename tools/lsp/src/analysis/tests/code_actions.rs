@@ -1,3 +1,5 @@
+//! Code-action analysis tests.
+
 use super::*;
 
 fn resolve_deferred_action(

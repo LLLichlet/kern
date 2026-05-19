@@ -1,3 +1,8 @@
+//! Framed JSON-RPC transport helpers for LSP stdin/stdout.
+//!
+//! The reader and writer implement `Content-Length` framing and UTF-8 JSON
+//! serialization used by the language server process.
+
 use serde::Serialize;
 use std::io::{self, BufRead, Write};
 

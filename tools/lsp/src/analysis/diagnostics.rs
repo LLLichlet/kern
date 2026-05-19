@@ -1,3 +1,9 @@
+//! Diagnostic conversion helpers.
+//!
+//! This module converts compiler diagnostics into LSP-facing diagnostics,
+//! preserves target diagnostics across dirty fast paths, and computes diagnostic
+//! clears for stale publications.
+
 use super::IdeRange;
 use super::OpenDocument;
 use super::ide::{

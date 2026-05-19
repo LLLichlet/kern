@@ -1,3 +1,9 @@
+//! Public query methods on `AnalysisEngine`.
+//!
+//! Query methods choose the cheapest usable analysis tier, consult shared
+//! caches, and convert compiler artifacts into IDE results for completion,
+//! navigation, code actions, semantic tokens, and formatting.
+
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 

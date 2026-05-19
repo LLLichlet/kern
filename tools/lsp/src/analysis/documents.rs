@@ -1,3 +1,8 @@
+//! Open-document state transitions for the analysis engine.
+//!
+//! Document sync updates overlay text, invalidates derived caches, and returns
+//! scheduler actions for diagnostics publication.
+
 use super::*;
 use std::path::Path;
 

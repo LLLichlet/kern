@@ -1,3 +1,8 @@
+//! Text, URI, and position conversion helpers for LSP analysis.
+//!
+//! Helpers normalize paths, translate UTF-16 positions to byte offsets, scan
+//! lexical contexts, and convert spans/ranges between compiler and IDE shapes.
+
 use super::{AnalysisOutcome, IdePosition, IdeRange, IdeTextDocumentChange};
 use kernc_lexer::{LexemeType, Token, TokenType, Tokenizer};
 use kernc_utils::FileId;

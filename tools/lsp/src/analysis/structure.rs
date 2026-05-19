@@ -1,3 +1,9 @@
+//! Lightweight structure queries.
+//!
+//! Structure queries derive document links, folding ranges, selection ranges,
+//! and code lenses from parse/structure artifacts without requiring full
+//! semantic navigation.
+
 use super::*;
 use kernc_lexer::{LexemeType, TokenType, Tokenizer};
 use kernc_utils::{FileId, SourceFile};

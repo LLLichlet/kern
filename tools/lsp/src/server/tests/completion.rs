@@ -1,3 +1,5 @@
+//! Server-level completion request tests.
+
 use super::*;
 
 #[test]

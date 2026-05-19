@@ -1,3 +1,5 @@
+//! Dirty-document cache and fast-path analysis tests.
+
 use super::*;
 use std::sync::Arc;
 

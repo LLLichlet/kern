@@ -1,3 +1,5 @@
+//! Analysis completion tests.
+
 use super::*;
 
 #[test]

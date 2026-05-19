@@ -1,3 +1,9 @@
+//! Mutable server state shared by dispatch and scheduler code.
+//!
+//! `ServerState` records lifecycle flags, client capabilities, pending work,
+//! cancellation handles, worker channels, diagnostics generations, and published
+//! diagnostic ownership.
+
 use super::lifecycle::TraceValue;
 use crate::analysis::{AnalysisEngine, AnalysisOutcome, AnalysisTier, AnalysisTrace};
 use serde_json::Value;

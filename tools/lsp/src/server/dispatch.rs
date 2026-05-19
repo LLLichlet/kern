@@ -1,3 +1,9 @@
+//! Request and notification dispatch for JSON-RPC messages.
+//!
+//! Dispatch validates protocol parameters, routes each method to analysis or
+//! lifecycle handlers, and decides when pending scheduler work should be
+//! flushed.
+
 use super::configuration::{ConfigurationChange, handle_configuration_change};
 use super::lifecycle::{
     TraceValue, emit_initialize_followups, emit_trace, ensure_utf16_position_encoding,

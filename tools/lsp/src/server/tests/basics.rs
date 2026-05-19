@@ -1,3 +1,5 @@
+//! Server lifecycle, initialization, trace, and run-loop tests.
+
 use super::super::lifecycle::{TraceValue, emit_trace};
 use super::super::*;
 use super::*;

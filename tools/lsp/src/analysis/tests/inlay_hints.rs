@@ -1,3 +1,5 @@
+//! Inlay hint analysis tests.
+
 use super::*;
 
 fn inlay_position_of_nth(

@@ -1,3 +1,8 @@
+//! Minimal LSP protocol data model used by the server.
+//!
+//! Types in this module mirror the JSON-RPC/LSP payloads that `kern-lsp`
+//! decodes and encodes without depending on a large protocol crate.
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;

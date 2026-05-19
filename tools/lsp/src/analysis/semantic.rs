@@ -1,3 +1,9 @@
+//! Semantic-token classification and encoding.
+//!
+//! Semantic token helpers combine compiler symbol facts with lexical fallback
+//! ranges to produce stable LSP semantic-token streams for clean and dirty
+//! documents.
+
 use super::ide::IdeSemanticTokens;
 use super::{IdePosition, IdeRange};
 use kernc_driver::{

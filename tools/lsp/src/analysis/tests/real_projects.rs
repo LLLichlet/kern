@@ -1,3 +1,5 @@
+//! Analysis tests against real repository example projects.
+
 use super::*;
 use std::time::Instant;
 

@@ -1,3 +1,8 @@
+//! Completion item construction and ranking.
+//!
+//! This module maps compiler completion entries and language keywords into IDE
+//! completion items with stable sort keys and snippets.
+
 use super::ide::{IdeCompletionItem, IdeCompletionKind};
 use super::text::CompletionContext;
 use kernc_driver::{AnalysisCompletionItem, AnalysisCompletionKind};

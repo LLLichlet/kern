@@ -1,3 +1,5 @@
+//! Analysis-engine unit and integration test modules.
+
 mod code_actions;
 mod completion;
 mod diagnostics;

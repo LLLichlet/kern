@@ -1,3 +1,9 @@
+//! Scheduler for diagnostics, prewarm, workspace refresh, and request workers.
+//!
+//! The scheduler keeps interactive requests responsive while diagnostics and
+//! workspace index updates run under bounded budgets and cancellation-aware
+//! worker queues.
+
 use super::state::RequestBudgetKind;
 use super::{
     AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, DiagnosticsTaskResult,

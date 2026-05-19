@@ -1,3 +1,5 @@
+//! Protocol stress tests for concurrent edits, requests, and workspace refreshes.
+
 use super::super::dispatch::handle_message_nonblocking;
 use super::super::scheduler::{
     execute_document_request, flush_workspace_refresh_results, schedule_workspace_refresh,

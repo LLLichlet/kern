@@ -1,3 +1,8 @@
+//! Cache keys and dirty-document snapshots for LSP analysis.
+//!
+//! Cache keys hash compile options, source overrides, target roots, and document
+//! versions so editor requests can reuse compiler artifacts safely.
+
 use craft::project::ResolvedAnalysis;
 use kernc_driver::SourceOverrides;
 use std::collections::hash_map::DefaultHasher;

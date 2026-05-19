@@ -1,3 +1,5 @@
+//! Scheduler behavior tests for diagnostics, requests, cancellation, and worker pools.
+
 use super::super::scheduler::{
     drain_scheduler, execute_document_diagnostics, execute_document_request,
     execute_optional_document_request, flush_diagnostics_lane, flush_document_request_results,

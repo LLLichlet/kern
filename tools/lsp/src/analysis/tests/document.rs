@@ -1,3 +1,5 @@
+//! Open document, URI, and incremental sync tests.
+
 use super::*;
 use std::sync::Arc;
 

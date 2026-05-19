@@ -1,3 +1,8 @@
+//! Runtime configuration parsing and application for the LSP server.
+//!
+//! Configuration changes translate VS Code or raw LSP settings into analysis
+//! compile options and trigger workspace refreshes when behavior changes.
+
 use super::lifecycle::emit_trace;
 use super::{ServerError, ServerState};
 use crate::analysis::AnalysisSettings;

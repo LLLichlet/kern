@@ -1,3 +1,8 @@
+//! Code-action and quick-fix construction.
+//!
+//! Code actions turn structured diagnostics into immediate or deferred edits for
+//! imports, let-mut fixes, dead-store cleanup, trait stubs, and syntax repairs.
+
 use super::ide::{IdeCodeAction, IdeDiagnostic, IdeTextEdit, IdeWorkspaceEdit};
 use super::{IdePosition, IdeRange};
 use kernc_driver::{

@@ -1,3 +1,8 @@
+//! Internal IDE-facing data structures.
+//!
+//! These types are independent from wire protocol structs so analysis code can
+//! stay ergonomic and convert to LSP JSON only at the server boundary.
+
 use crate::protocol::{
     CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, CodeAction,
     CodeActionResolveData, CodeLens, CodeLensResolveData, CompletionItem, CompletionResolveData,

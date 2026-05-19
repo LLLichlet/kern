@@ -1,3 +1,9 @@
+//! JSON-RPC server state and dispatch surface for Kern LSP.
+//!
+//! The server layer owns protocol lifecycle, request scheduling, diagnostics
+//! publication, configuration, and worker-thread coordination around the shared
+//! analysis engine.
+
 mod configuration;
 mod dispatch;
 mod lifecycle;

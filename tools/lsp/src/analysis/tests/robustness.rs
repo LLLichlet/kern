@@ -1,3 +1,5 @@
+//! Robustness and fuzz-style tests for analysis behavior.
+
 use super::*;
 
 #[test]

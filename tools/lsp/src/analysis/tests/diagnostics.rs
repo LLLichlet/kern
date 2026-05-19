@@ -1,3 +1,5 @@
+//! Diagnostic conversion and dirty-analysis tests.
+
 use super::*;
 
 #[test]

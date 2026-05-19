@@ -1,3 +1,5 @@
+//! Semantic-token analysis tests.
+
 use super::*;
 
 #[test]

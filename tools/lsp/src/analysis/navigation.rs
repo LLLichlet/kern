@@ -1,3 +1,9 @@
+//! Semantic navigation and symbol query helpers.
+//!
+//! Navigation converts compiler analysis artifacts into LSP-facing definitions,
+//! references, hovers, rename edits, call hierarchy entries, document symbols,
+//! workspace symbols, and inlay hints.
+
 use super::ide::{
     IdeCallHierarchyIncomingCall, IdeCallHierarchyItem, IdeCallHierarchyOutgoingCall,
     IdeCompletionItem, IdeCompletionKind, IdeDocumentHighlight, IdeDocumentHighlightKind,

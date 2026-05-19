@@ -1,3 +1,8 @@
+//! LSP lifecycle helpers.
+//!
+//! Lifecycle code handles initialize/shutdown state, capability negotiation,
+//! tracing, and work-done progress messages.
+
 use super::{INVALID_REQUEST, ServerError, ServerState};
 use crate::protocol::{
     ClientCapabilities, InitializeParams, InitializeResultOptions, WorkspaceFolder, error_response,

@@ -1,3 +1,5 @@
+//! Server-level request/response tests for language features.
+
 use super::*;
 
 fn apply_single_lsp_text_edit(source: &str, edit: &Value) -> String {

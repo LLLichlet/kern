@@ -1,3 +1,5 @@
+//! Server-level diagnostics publication and scheduling tests.
+
 use super::*;
 
 #[test]

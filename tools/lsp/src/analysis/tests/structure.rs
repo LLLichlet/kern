@@ -1,3 +1,5 @@
+//! Structure-query analysis tests.
+
 use super::*;
 
 #[test]

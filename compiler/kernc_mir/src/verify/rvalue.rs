@@ -1,3 +1,9 @@
+//! MIR rvalue verifier helpers.
+//!
+//! Rvalues and memory intrinsics may contain operands, places, call targets, and
+//! slice bases. This module recursively checks those embedded references against
+//! the local table for the enclosing function body.
+
 use super::MirVerifyError;
 use super::refs::{verify_operand, verify_place, verify_slice_base};
 use crate::{MirCallTarget, MirFunction, MirMemoryIntrinsic, MirRvalue};

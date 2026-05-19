@@ -1,3 +1,9 @@
+//! Local copy-propagation pass.
+//!
+//! This pass replaces immutable locals initialized from a simple operand when
+//! doing so cannot change place semantics. It then drops now-dead let
+//! instructions and reports both operand rewrites and removals.
+
 mod analysis;
 mod rewrite;
 mod uses;

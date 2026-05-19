@@ -1,3 +1,8 @@
+//! Unit tests for MIR summaries, verification, and cleanup passes.
+//!
+//! These tests build compact synthetic MIR modules so pass behavior can be
+//! asserted without going through the full frontend/lowering pipeline.
+
 use crate::{
     MirBlock, MirBlockId, MirBody, MirCallTarget, MirConst, MirDirectCalleeCallsiteCount,
     MirFunction, MirGlobal, MirInlineHint, MirInstruction, MirInstructionData, MirItemBodyRole,

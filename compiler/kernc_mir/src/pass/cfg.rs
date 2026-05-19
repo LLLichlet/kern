@@ -1,3 +1,9 @@
+//! Control-flow graph cleanup passes.
+//!
+//! CFG cleanup threads empty goto chains, folds constant branches/switches, and
+//! removes unreachable blocks. Block ids are remapped after pruning so the MIR
+//! verifier's dense-slot invariant remains true.
+
 use super::MirPassReport;
 use crate::{MirBlockId, MirBody, MirConst, MirModule, MirOperand, MirRvalue, MirTerminator};
 use std::collections::{HashMap, HashSet};
@@ -226,6 +232,8 @@ fn prune_unreachable_blocks(body: &mut MirBody) -> usize {
     for block in &mut new_blocks {
         remap_terminator_targets(&mut block.terminator.kind, &remap);
     }
+    // The entry block seeds reachability, so it must always be retained when
+    // pruning succeeds.
     body.entry = *remap
         .get(&body.entry)
         .expect("entry block must remain reachable");

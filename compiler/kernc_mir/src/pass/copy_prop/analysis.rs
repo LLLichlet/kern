@@ -1,3 +1,9 @@
+//! Copy-propagation candidate analysis.
+//!
+//! Candidate locals must be immutable, initialized exactly by a simple `Use`,
+//! never assigned after initialization, and not used as rooted places where
+//! replacing the local would change address/projection semantics.
+
 use super::uses::collect_rooted_place_uses_in_rvalue;
 use crate::{MirBody, MirInstruction, MirLocalId, MirOperand, MirPlace, MirRvalue};
 use std::collections::{HashMap, HashSet};

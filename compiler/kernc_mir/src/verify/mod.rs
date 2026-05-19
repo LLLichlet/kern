@@ -1,3 +1,9 @@
+//! MIR structural verifier.
+//!
+//! The verifier checks that dense block/local slots match their ids, all
+//! references stay in range, and rvalues/terminators are structurally valid.
+//! Passes and tests use this as a cheap guard after MIR rewrites.
+
 mod refs;
 mod rvalue;
 

@@ -18,15 +18,17 @@ Keep it until the whole round is finished, then delete it in a cleanup commit.
 
 - [x] Audit current `String`, path, and byte-buffer APIs for clone/copy pressure.
 - [x] Decide which types should own internal borrowed/static/owned states.
-- [ ] Keep the common API surface unified; avoid making users choose between
+- [x] Keep the common API surface unified; avoid making users choose between
       owned and COW variants in normal code.
+- [ ] Do not add implicit borrowed storage to owned `String` until lifetime or
+      ownership contracts can prove borrowed input outlives the result.
 - [ ] Preserve transparent mutation semantics by materializing borrowed/static
       storage only on write.
 - [x] Keep `List[T]` as a simple owned contiguous container unless a real need
       appears.
-- [ ] Add tests for borrowed-to-owned materialization, static string reuse, and
-      mutation after borrowing.
-- [ ] Document the performance model in the type/module comments.
+- [ ] Add borrowed-to-owned materialization tests only after such a storage
+      state is soundly expressible.
+- [ ] Document the current performance model in the type/module comments.
 
 Audit note:
 `String` currently exposes owned semantics and `deinit(alloc)`. Returning a
@@ -39,13 +41,19 @@ borrowed view APIs where the return value is explicitly tied to the input.
 
 ## 3. Synchronous concurrency foundation
 
-- [ ] Review existing atomic and sync support.
+- [x] Review existing atomic and sync support.
 - [ ] Design small cross-platform primitives: thread, mutex, rwlock, condvar,
       once, and maybe channel.
 - [ ] Keep the base layer freestanding where possible; place hosted OS bindings
       in `std`.
-- [ ] Add tests for basic synchronization and poisoning/non-poisoning policy if
+- [x] Add tests for basic synchronization and poisoning/non-poisoning policy if
       applicable.
+
+Audit note:
+`base.sync` currently provides freestanding atomics, `SpinLock`, and `Once`.
+They busy-wait and do not model hosted blocking, poisoning, thread joining, or
+condition variables. Add hosted primitives in `std` only after the platform
+surface and failure policy are explicit.
 
 ## 4. OS event and polling boundary
 

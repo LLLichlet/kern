@@ -53,6 +53,17 @@ fn check_atomics[W](t: &mut Report[W]) void
     counter..&.fetch_and[ACQ_REL](7).should().eq(15usize).sum(@loc(), t);
     counter..&.fetch_xor[ACQ_REL](2).should().eq(7usize).sum(@loc(), t);
     counter..&.load[ACQUIRE]().should().eq(5usize).sum(@loc(), t);
+    counter..&.fetch_nand[ACQ_REL](3usize).should().eq(5usize).sum(@loc(), t);
+    counter..&.load[ACQUIRE]().should().eq(~(5usize & 3usize)).sum(@loc(), t);
+    counter..&.exchange[SEQ_CST](20usize).should().eq(~(5usize & 3usize)).sum(@loc(), t);
+    counter..&.fetch_max[ACQ_REL](10usize).should().eq(20usize).sum(@loc(), t);
+    counter..&.load[ACQUIRE]().should().eq(20usize).sum(@loc(), t);
+    counter..&.fetch_min[ACQ_REL](7usize).should().eq(20usize).sum(@loc(), t);
+    counter..&.load[ACQUIRE]().should().eq(7usize).sum(@loc(), t);
+    counter..&.fetch_umax[ACQ_REL](12usize).should().eq(7usize).sum(@loc(), t);
+    counter..&.load[ACQUIRE]().should().eq(12usize).sum(@loc(), t);
+    counter..&.fetch_umin[ACQ_REL](9usize).should().eq(12usize).sum(@loc(), t);
+    counter..&.load[ACQUIRE]().should().eq(9usize).sum(@loc(), t);
 
     let mut left = 1usize;
     let mut right = 2usize;

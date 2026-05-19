@@ -253,11 +253,13 @@ impl Drop for ProgressDisplay {
 }
 
 fn format_package_label(manifest: &Manifest) -> String {
-    manifest
-        .package
-        .as_ref()
-        .map(|package| format!("{} {}", package.name, package.version))
-        .unwrap_or_else(|| "<workspace>".to_string())
+    if let Some(package) = &manifest.package {
+        return format!("{} {}", package.name, package.version);
+    }
+    if let Some(workspace) = &manifest.workspace {
+        return format!("workspace {}", workspace.name);
+    }
+    "manifest".to_string()
 }
 
 pub(super) fn format_yes_no(value: bool) -> &'static str {

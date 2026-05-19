@@ -723,11 +723,13 @@ fn find_token_outside_string(line: &str, token: &str) -> Option<usize> {
 }
 
 fn package_label(manifest: &Manifest) -> String {
-    manifest
-        .package
-        .as_ref()
-        .map(|package| format!("{} {}", package.name, package.version))
-        .unwrap_or_else(|| "<workspace>".to_string())
+    if let Some(package) = &manifest.package {
+        return format!("{} {}", package.name, package.version);
+    }
+    if let Some(workspace) = &manifest.workspace {
+        return format!("workspace {}", workspace.name);
+    }
+    "manifest".to_string()
 }
 
 fn ratio(numerator: usize, denominator: usize) -> f64 {
@@ -754,7 +756,7 @@ mod tests {
     use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    const TEST_KERN_VERSION: &str = "0.7.6";
+    const TEST_KERN_VERSION: &str = "0.7.7";
 
     fn temp_dir(prefix: &str) -> std::path::PathBuf {
         let nanos = SystemTime::now()
@@ -1041,7 +1043,7 @@ fn demo() void {
             collect_workspace_style_metrics(&root.join("Craft.toml"), &manifest, &members).unwrap();
         let workspace_summary = summaries
             .iter()
-            .find(|summary| summary.label == "<workspace>")
+            .find(|summary| summary.label == "workspace workspace")
             .unwrap();
         let member_summary = summaries
             .iter()

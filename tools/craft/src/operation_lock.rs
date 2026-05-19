@@ -234,22 +234,46 @@ fn sanitize_lock_component(value: &str) -> String {
 }
 
 fn reclaim_stale_lock(path: &Path) -> Result<bool> {
-    match read_lock_owner(path)? {
+    let owner = match read_lock_owner(path) {
+        Ok(owner) => owner,
+        Err(err) if lock_file_may_be_busy_on_windows(&err) => return Ok(false),
+        Err(err) => return Err(err),
+    };
+
+    match owner {
         Some(owner) if lock_owner_is_alive(owner) => {
             return Ok(false);
         }
         Some(_) => {}
-        None if !invalid_lock_metadata_is_stale(path)? => {
-            return Ok(false);
+        None => {
+            let stale = match invalid_lock_metadata_is_stale(path) {
+                Ok(stale) => stale,
+                Err(err) if lock_file_may_be_busy_on_windows(&err) => return Ok(false),
+                Err(err) => return Err(err),
+            };
+            if !stale {
+                return Ok(false);
+            }
         }
-        None => {}
     }
 
     match fs::remove_file(path) {
         Ok(()) => Ok(true),
         Err(err) if err.kind() == ErrorKind::NotFound => Ok(true),
+        Err(err) if transient_windows_lock_error(&err) => Ok(false),
         Err(err) => Err(Error::from_io(path, err)),
     }
+}
+
+fn lock_file_may_be_busy_on_windows(err: &Error) -> bool {
+    matches!(
+        err,
+        Error::Io { source, .. } if transient_windows_lock_error(source)
+    )
+}
+
+fn transient_windows_lock_error(err: &std::io::Error) -> bool {
+    cfg!(windows) && err.kind() == ErrorKind::PermissionDenied
 }
 
 fn invalid_lock_metadata_is_stale(path: &Path) -> Result<bool> {
@@ -363,7 +387,11 @@ fn report_lock_wait(
         return Ok(());
     }
 
-    let owner = read_lock_owner(path)?;
+    let owner = match read_lock_owner(path) {
+        Ok(owner) => owner,
+        Err(err) if lock_file_may_be_busy_on_windows(&err) => None,
+        Err(err) => return Err(err),
+    };
     let owner_text = owner
         .map(|owner| format!(" held by pid {}", owner.pid))
         .unwrap_or_default();

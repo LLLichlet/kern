@@ -1,3 +1,5 @@
+//! Standard tree collection tests.
+
 use super::*;
 
 #[test]

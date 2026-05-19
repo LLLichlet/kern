@@ -1,3 +1,5 @@
+//! Standard-library bundle and metadata tests.
+
 use super::*;
 
 fn copy_dir_recursive(source: &std::path::Path, destination: &std::path::Path) {

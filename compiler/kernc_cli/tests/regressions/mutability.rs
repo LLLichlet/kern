@@ -1,3 +1,5 @@
+//! Mutability regression tests.
+
 use super::*;
 
 #[test]

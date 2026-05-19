@@ -1,3 +1,5 @@
+//! CLI integration tests for anonymous aggregate syntax and lowering.
+
 use kernc_cli::test_support::{assert_success, build_and_run, compile_source_with_args};
 
 fn compile_source(source: &str) -> std::process::Output {

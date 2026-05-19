@@ -1,3 +1,5 @@
+//! Package, metadata, and import regression tests.
+
 use super::*;
 
 #[test]

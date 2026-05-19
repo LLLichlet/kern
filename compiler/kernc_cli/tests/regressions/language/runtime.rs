@@ -1,3 +1,5 @@
+//! Runtime-facing language regression tests.
+
 use super::*;
 #[test]
 fn rejects_returning_capturing_closure_as_fn_pointer() {

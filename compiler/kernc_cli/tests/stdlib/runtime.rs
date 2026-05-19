@@ -1,3 +1,5 @@
+//! Standard-library runtime integration tests.
+
 use super::*;
 
 fn nm_defines_global_symbol(symbols: &str, expected: &str) -> bool {

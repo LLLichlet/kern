@@ -1,3 +1,5 @@
+//! CLI integration tests for destructuring patterns.
+
 use std::process::Output;
 
 use kernc_cli::test_support::{build_and_run, compile_source_with_args};

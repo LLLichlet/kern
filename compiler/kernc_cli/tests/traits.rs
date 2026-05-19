@@ -1,3 +1,5 @@
+//! CLI integration tests for trait solving, impls, and diagnostics.
+
 use kernc_cli::test_support::{build_and_run, compile_source_with_args};
 
 fn compile_source(source: &str) -> std::process::Output {

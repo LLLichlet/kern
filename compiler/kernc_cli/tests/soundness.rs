@@ -1,3 +1,8 @@
+//! CLI soundness and robustness integration tests.
+//!
+//! These tests compile and sometimes run programs intended to catch aliasing,
+//! lifetime, recursion, and runtime-safety regressions at the process boundary.
+
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};

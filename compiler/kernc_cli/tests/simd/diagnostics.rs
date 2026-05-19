@@ -1,3 +1,5 @@
+//! SIMD diagnostic tests.
+
 use super::*;
 
 #[test]

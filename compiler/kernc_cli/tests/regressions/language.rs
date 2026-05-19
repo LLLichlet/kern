@@ -1,3 +1,5 @@
+//! Language regression submodules.
+
 pub(crate) use super::*;
 
 #[path = "language/const_generics.rs"]

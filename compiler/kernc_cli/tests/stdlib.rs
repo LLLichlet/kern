@@ -1,3 +1,5 @@
+//! CLI integration tests for bundled standard-library behavior.
+
 use std::fs;
 use std::process::Command;
 

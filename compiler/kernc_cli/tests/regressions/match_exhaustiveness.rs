@@ -1,3 +1,5 @@
+//! Match exhaustiveness regression tests.
+
 use super::*;
 
 #[test]

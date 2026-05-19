@@ -1,3 +1,5 @@
+//! Paterson-condition and trait-cycle regression tests.
+
 use super::*;
 
 #[test]

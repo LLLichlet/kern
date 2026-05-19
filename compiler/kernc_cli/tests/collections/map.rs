@@ -1,3 +1,5 @@
+//! Standard map collection tests.
+
 use super::*;
 
 #[test]

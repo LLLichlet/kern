@@ -1,3 +1,5 @@
+//! Malformed-source robustness regression tests.
+
 use super::*;
 
 #[test]

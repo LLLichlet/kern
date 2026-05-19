@@ -1,3 +1,8 @@
+//! CLI help text rendering.
+//!
+//! Help output is structured through `shared_cli` so overview and full help can
+//! share sections, color handling, usage strings, and package version text.
+
 use shared_cli::{ColorChoice, HelpDoc, HelpSection};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,3 +1,5 @@
+//! SIMD runtime behavior tests.
+
 use super::*;
 
 #[test]

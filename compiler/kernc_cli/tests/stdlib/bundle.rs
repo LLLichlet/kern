@@ -92,6 +92,35 @@ fn main() i32 {
 }
 
 #[test]
+fn public_generic_std_method_can_call_private_helper_without_invalid_linkage() {
+    let output = compile_source_with_args(
+        "kernc_std_private_helper_from_generic",
+        r#"
+use std.sync;
+use std.mem.Page;
+use base.mem.alloc.gpa;
+
+fn main() i32 {
+    let page = Page.{}..&;
+    let alloc = gpa().on(page)..&;
+    defer alloc.deinit();
+
+    let mut ch = sync.channel[i32]();
+    if (ch..&.send(alloc, 1i32).is_err()) return 1;
+    let value = ch..&.recv(alloc);
+    ch..&.deinit(alloc);
+    return match (value) {
+        .{ Some: item } => item - 1i32,
+        .None => 2,
+    };
+}
+"#,
+        &["--library-bundle", "std"],
+    );
+    assert_success(&output, "kernc");
+}
+
+#[test]
 fn base_bundle_exposes_freestanding_io_helpers() {
     let output = compile_source_with_args(
         "kernc_base_io_helpers",

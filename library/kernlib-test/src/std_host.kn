@@ -6,7 +6,7 @@ use base.mem.alloc.gpa;
 use base.test.{Report, report};
 use std.mem.Page;
 use std.proc;
-use std.sync.{ACQUIRE, SEQ_CST, atomic, once};
+use std.sync.{ACQUIRE, SEQ_CST, atomic, channel, mutex, once, rwlock};
 use std.term;
 use std.time;
 
@@ -104,6 +104,41 @@ fn check_std_sync_reexports[W](t: &mut Report[W]) void
     value..&.load[ACQUIRE]().should().eq(3usize).sum(@loc(), t);
 }
 
+fn check_std_sync_blocking_primitives[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let mut lock = mutex();
+    let mut guarded = 1i32;
+    lock..&.with_lock[i32]([guarded = guarded..&]() i32 {
+        guarded.* += 4;
+        return guarded.*;
+    }).should().eq(5i32).sum(@loc(), t);
+    guarded.should().eq(5i32).sum(@loc(), t);
+    lock..&.try_lock().should().sum(@loc(), t);
+    lock..&.unlock();
+
+    let mut rw = rwlock();
+    rw..&.read_lock();
+    rw..&.read_unlock();
+    rw..&.write_lock();
+    guarded += 2;
+    rw..&.write_unlock();
+    guarded.should().eq(7i32).sum(@loc(), t);
+
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let mut ch = channel[i32]();
+    ch..&.send(gpa, 10i32).should_ok().eq(true).sum(@loc(), t);
+    ch..&.send(gpa, 20i32).should_ok().eq(true).sum(@loc(), t);
+    ch..&.recv(gpa).should_some().eq(10i32).sum(@loc(), t);
+    ch..&.recv(gpa).should_some().eq(20i32).sum(@loc(), t);
+    ch..&.close();
+    ch..&.recv(gpa).should_none().sum(@loc(), t);
+    defer ch..&.deinit(gpa);
+}
+
 #[test]
 fn hosted_std_helpers() i32 {
     let t = report(io.discard())..&;
@@ -111,5 +146,6 @@ fn hosted_std_helpers() i32 {
     check_time(t);
     check_term(t);
     check_std_sync_reexports(t);
+    check_std_sync_blocking_primitives(t);
     return 0;
 }

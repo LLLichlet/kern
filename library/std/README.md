@@ -17,13 +17,13 @@ terminal, testing, and time facilities on top of `base`.
 `base.sync` owns freestanding atomics, `SpinLock`, and `Once`. These primitives
 busy-wait and stay usable for kernels, boot code, and other no-host contexts.
 
-`std.sync` is the hosted synchronization namespace. It currently re-exports the
-freestanding primitives and deliberately does not expose `Thread`, blocking
-`Mutex`, `RwLock`, `Condvar`, or channel APIs until Kern has explicit
-cross-platform handle, cancellation, and error contracts. Future hosted
-blocking primitives should be non-poisoning by default: a panic or abort policy
-belongs to the language/runtime boundary, not to a lock silently changing
-semantic state.
+`std.sync` is the hosted synchronization namespace. It re-exports the
+freestanding primitives and provides no-libc blocking `Mutex`, `RwLock`,
+`Condvar`, and `Channel` primitives on top of direct OS wait/wake facilities.
+These primitives are non-poisoning: a panic or abort policy belongs to the
+language/runtime boundary, not to a lock silently changing semantic state.
+Joinable OS threads remain a separate runtime/ABI task because they require
+explicit stack, TLS, entry, and exit contracts.
 
 `std` does not currently expose a cross-platform `Poller`. Readiness and
 completion APIs are different enough across epoll, kqueue, IOCP, io_uring, and

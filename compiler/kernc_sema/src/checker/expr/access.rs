@@ -1,3 +1,10 @@
+//! Expression access, binding, and namespace resolution.
+//!
+//! This module owns identifier lookup, local `let` pattern binding, namespace
+//! expressions, field/index/slice access, enum variant access, and the late
+//! recovery paths that infer global values when a referenced symbol still has an
+//! unknown type.
+
 use super::ExprChecker;
 use crate::checker::ConstEvaluator;
 use crate::def::{Def, DefId};
@@ -309,8 +316,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return;
         };
 
+        let Some(scope) = self.ctx.scopes.current_scope_id() else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Typeck): missing current scope while checking a pattern type annotation",
+            );
+            return;
+        };
         let mut resolver = TypeResolver::new(self.ctx);
-        let scope = resolver.current_scope_id().unwrap();
         let explicit_ty = resolver.resolve_type(explicit_ty_ast, scope);
 
         let actual_ty = self.resolve_tv(actual_ty);
@@ -340,7 +353,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         match self.ctx.type_registry.get(norm_target).clone() {
             TypeKind::Enum(def_id, generic_args) => {
                 let adt_def = self.match_enum_def(def_id, span, "inspect a pattern variant")?;
-                // Safety: semantic defs are immutable while type checking expressions.
+                // SAFETY: semantic defs are immutable while type checking expressions.
                 let adt_def = unsafe { &*adt_def };
                 let generic_map =
                     self.positional_generic_subst_map(&adt_def.generics, &generic_args);
@@ -712,20 +725,45 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.ctx.def_owner_scope(def_id)
     }
 
+    fn symbol_def_id_or_ice(
+        &mut self,
+        info: &SymbolInfo,
+        span: Span,
+        context: &str,
+    ) -> Option<DefId> {
+        if let Some(def_id) = info.def_id {
+            return Some(def_id);
+        }
+
+        self.ctx.emit_ice(
+            span,
+            format!(
+                "Kern ICE (Typeck): {:?} symbol is missing a DefId while {}",
+                info.kind, context
+            ),
+        );
+        None
+    }
+
     fn resolved_symbol_type(&mut self, info: &SymbolInfo, span: Span) -> TypeId {
         self.ctx.record_identifier_reference(span, info.span);
 
         if info.kind == SymbolKind::Function {
+            let Some(def_id) = self.symbol_def_id_or_ice(info, span, "resolving a function symbol")
+            else {
+                return TypeId::ERROR;
+            };
             return self
                 .ctx
                 .type_registry
-                .intern(TypeKind::FnDef(info.def_id.unwrap(), vec![]));
+                .intern(TypeKind::FnDef(def_id, vec![]));
         }
         if info.kind == SymbolKind::Module {
-            return self
-                .ctx
-                .type_registry
-                .intern(TypeKind::Module(info.def_id.unwrap()));
+            let Some(def_id) = self.symbol_def_id_or_ice(info, span, "resolving a module symbol")
+            else {
+                return TypeId::ERROR;
+            };
+            return self.ctx.type_registry.intern(TypeKind::Module(def_id));
         }
         if let Some(def_id) = info.def_id {
             match info.kind {
@@ -773,6 +811,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             };
 
             if let Some(g_expr_ptr) = global_expr_ptr {
+                // SAFETY: expression storage inside semantic defs is immutable during type
+                // checking; borrowing via raw pointer avoids cloning large ASTs.
                 let g_expr = unsafe { &*g_expr_ptr };
                 if let Some(actual_ty) = self.ctx.node_type(g_expr.id) {
                     return actual_ty;
@@ -1217,7 +1257,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         match self.ctx.type_registry.get(norm_target).clone() {
             TypeKind::Enum(def_id, _) => {
                 let adt_def = self.match_enum_def(def_id, span, "access an enum variant")?;
-                // Safety: semantic defs are immutable while type checking expressions.
+                // SAFETY: semantic defs are immutable while type checking expressions.
                 let adt_def = unsafe { &*adt_def };
                 let Some(variant) = adt_def
                     .variants
@@ -1392,13 +1432,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let target_def_id = target_info.def_id;
                 let target_type_id = target_info.type_id;
                 let real_ty = if target_kind == SymbolKind::Function {
+                    let Some(def_id) = self.symbol_def_id_or_ice(
+                        &target_info,
+                        span,
+                        "resolving a function member",
+                    ) else {
+                        return TypeId::ERROR;
+                    };
                     self.ctx
                         .type_registry
-                        .intern(TypeKind::FnDef(target_def_id.unwrap(), vec![]))
+                        .intern(TypeKind::FnDef(def_id, vec![]))
                 } else if target_kind == SymbolKind::Module {
-                    self.ctx
-                        .type_registry
-                        .intern(TypeKind::Module(target_def_id.unwrap()))
+                    let Some(def_id) =
+                        self.symbol_def_id_or_ice(&target_info, span, "resolving a module member")
+                    else {
+                        return TypeId::ERROR;
+                    };
+                    self.ctx.type_registry.intern(TypeKind::Module(def_id))
                 } else if target_type_id == TypeId::ERROR {
                     if let Some(def_id) = target_def_id {
                         let global_expr_ptr =
@@ -1409,7 +1459,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             };
 
                         if let Some(g_expr) = global_expr_ptr {
-                            // Safety: expression storage inside semantic defs is immutable during
+                            // SAFETY: expression storage inside semantic defs is immutable during
                             // type checking; borrowing via raw pointer avoids cloning large ASTs.
                             let g_expr = unsafe { &*g_expr };
                             if let Some(actual_ty) = self.ctx.node_type(g_expr.id) {

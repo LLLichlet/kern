@@ -1,3 +1,10 @@
+//! Control-flow expression checking.
+//!
+//! Blocks, `if`, `while`, `for`, `match`, `return`, `defer`, and pattern
+//! exhaustiveness live here. The match checker builds constructor/scalar
+//! coverage state so diagnostics can distinguish unreachable arms from missing
+//! cases.
+
 use super::ExprChecker;
 use crate::LayoutEngine;
 use crate::checker::{ConstEvaluator, ConstValue};
@@ -445,7 +452,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             TypeKind::Enum(def_id, generic_args) => {
                 let adt_def =
                     self.match_enum_def(def_id, Span::default(), "inspect enum coverage")?;
-                // Safety: semantic defs are immutable while type checking expressions.
+                // SAFETY: semantic defs are immutable while type checking expressions.
                 let adt_def = unsafe { &*adt_def }.clone();
                 if adt_def.is_extern {
                     return None;
@@ -537,7 +544,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                 let ctor = self.coverage_struct_constructor(norm_target)?;
                 let CoverageConstructorKind::Struct(field_names) = ctor.kind.clone() else {
-                    unreachable!("struct constructor expected for struct coverage lowering");
+                    self.ctx.emit_ice(
+                        pattern.span,
+                        "Kern ICE (Typeck): expected struct constructor while lowering match coverage",
+                    );
+                    return None;
                 };
 
                 let mut args = Vec::with_capacity(field_names.len());
@@ -608,7 +619,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                 let ctor = self.coverage_struct_constructor(norm_target)?;
                 let CoverageConstructorKind::Struct(field_names) = ctor.kind.clone() else {
-                    unreachable!("struct constructor expected for struct value-pattern coverage");
+                    self.ctx.emit_ice(
+                        expr.span,
+                        "Kern ICE (Typeck): expected struct constructor while lowering value-pattern coverage",
+                    );
+                    return None;
                 };
 
                 let mut args = Vec::with_capacity(field_names.len());

@@ -1,3 +1,9 @@
+//! SIMD intrinsic constant helpers.
+//!
+//! These routines evaluate lane counts, shift amounts, shuffle masks, and
+//! immediate arguments used by SIMD intrinsics after the high-level call checker
+//! has established the expected vector shape.
+
 use super::*;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {

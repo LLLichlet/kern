@@ -1,3 +1,9 @@
+//! Trait-object coercion and obligation matching.
+//!
+//! Trait-object upcasts compare required and available trait views, preserve
+//! explicitly requested associated-type bindings, and match candidate impl heads
+//! without mutating rigid generic parameters from the caller's obligation.
+
 use super::*;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {

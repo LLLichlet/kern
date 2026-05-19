@@ -1,3 +1,9 @@
+//! Implicit coercion checks.
+//!
+//! Coercions cover type-variable unification, named/anonymous aggregate decay,
+//! enum backing conversions, pointer conversions, closure/interface decay, and
+//! trait-object upcasts. Explicit `as` casts are handled separately.
+
 use super::ExprChecker;
 use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;

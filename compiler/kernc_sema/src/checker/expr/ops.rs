@@ -1,3 +1,9 @@
+//! Unary, binary, assignment, and operator-trait checking.
+//!
+//! Builtin operators are checked first with numeric inference support. When no
+//! builtin rule applies, the checker searches the relevant trait operation and
+//! reports diagnostics that distinguish missing traits from plain type mismatch.
+
 use super::{ExprChecker, NumericInferenceKind};
 use crate::def::Def;
 use crate::ty::{TypeId, TypeKind};

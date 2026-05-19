@@ -1,3 +1,9 @@
+//! Literal and aggregate expression checking.
+//!
+//! This module handles scalar literals, anonymous and named aggregate literals,
+//! array/repeat literals, enum payload construction, default field initializers,
+//! and generic substitution needed to validate aggregate fields.
+
 use super::{ExprChecker, NumericInferenceKind};
 use crate::checker::ConstEvaluator;
 use crate::def::Def;

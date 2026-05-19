@@ -1,3 +1,10 @@
+//! Callable signature deduction and generic argument inference.
+//!
+//! This module resolves function, method, closure, and fn-def signatures after a
+//! callee has been chosen. It infers missing generic arguments from receiver and
+//! argument types, validates where-bounds, and substitutes the final callable
+//! parameter/return types.
+
 use super::{ExprChecker, SignatureDeductionInput};
 use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
@@ -800,6 +807,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let def_id = *def_id;
             let explicit_args_ptr = std::ptr::from_ref(explicit_args.as_slice());
             let explicit_args_len = explicit_args.len();
+            // SAFETY: the type registry is append-only during checking. The raw slice remains
+            // valid while we borrow `ctx` mutably to inspect the function definition and infer
+            // missing generic arguments.
             let explicit_args = unsafe { &*explicit_args_ptr };
             let Some(function_ptr) =
                 self.ctx
@@ -820,6 +830,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 );
                 return (TypeId::ERROR, None, None);
             };
+            // SAFETY: semantic definitions are not moved or removed during expression checking.
             let function = unsafe { &*function_ptr };
             let Some(raw_sig) = function.resolved_sig else {
                 self.ctx.emit_ice(
@@ -923,6 +934,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return (TypeId::ERROR, None, None);
                 }
             };
+            // SAFETY: `raw_sig` is an interned function type. Interned type payloads are stable
+            // while the checker mutates inference state and diagnostics.
             let raw_params = unsafe { &*raw_params_ptr };
             let raw_param_count = raw_params.len();
             if raw_param_count == 0 && is_method {
@@ -1454,6 +1467,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             Def::Trait(t) => std::ptr::from_ref(t.where_clauses.as_slice()),
             _ => return,
         };
+        // SAFETY: where-clause vectors live inside immutable semantic definitions while this
+        // routine temporarily mutably borrows `ctx` for substitution and bound solving.
         let where_clauses = unsafe { &*where_clauses_ptr };
 
         let mut map = FastHashMap::default();

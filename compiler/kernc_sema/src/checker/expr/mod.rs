@@ -1,3 +1,9 @@
+//! Expression type checker and shared expression-state machinery.
+//!
+//! `ExprChecker` owns local inference variables, numeric literal inference,
+//! trait-obligation recursion guards, pointer escape tracking, and per-expression
+//! timing counters. Specialized syntax families live in sibling modules.
+
 use crate::context::SemaContext;
 use crate::def::DefId;
 use crate::passes::TypeResolver;
@@ -1250,7 +1256,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             | TypeKind::Error
             | TypeKind::Module(_)
             | TypeKind::TypeVar(_) => false,
-            TypeKind::Alias(..) => unreachable!("aliases are removed by resolve_tv"),
+            TypeKind::Alias(..) => {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    "Kern ICE (Typeck): alias type survived resolve_tv during generic occurrence checking",
+                );
+                false
+            }
             TypeKind::Param(name) => {
                 if name == needle {
                     return true;
@@ -2340,7 +2352,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         })),
                 )
             }
-            None => unreachable!("non-builtin return enum was rejected above"),
+            None => {
+                self.ctx.emit_ice(
+                    span,
+                    "Kern ICE (Typeck): non-builtin return enum reached propagation lowering",
+                );
+                return TypeId::ERROR;
+            }
         };
 
         let operand_ty = self.check_expr(operand, operand_expected);

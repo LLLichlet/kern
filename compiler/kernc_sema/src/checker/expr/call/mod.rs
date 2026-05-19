@@ -1,3 +1,10 @@
+//! Function, method, closure, and intrinsic call checking.
+//!
+//! This module chooses the callable target, deduces generic arguments from the
+//! receiver and actual arguments, checks arity/coercions, handles method lookup
+//! fallbacks, and delegates special call forms to the asm/intrinsic/signature
+//! submodules.
+
 use super::ExprChecker;
 use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
@@ -271,6 +278,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return TypeId::ERROR;
             }
         };
+        // SAFETY: `params_ptr` points into the immutable interned type registry for the duration
+        // of this call. The checker may mutate diagnostics and inference state, but it does not
+        // remove or move interned type payloads.
         let params = unsafe { &*params_ptr };
 
         self.check_call_arity(args.len(), params.len(), is_method, is_variadic, span);
@@ -428,11 +438,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let resolution = match resolution {
             Some(resolution) if resolution.candidate.type_id != TypeId::ERROR => resolution,
-            Some(_) if args.is_some() => {
+            Some(_) if let Some(args) = args => {
                 let candidate = match self.resolve_method_with_call_arguments(
                     receiver_ty,
                     *field,
-                    args.unwrap(),
+                    args,
                     callee.span,
                 ) {
                     Ok(Some(candidate)) => candidate,
@@ -474,8 +484,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     callee.span,
                 );
             }
-            None if args.is_some() => {
-                return self.check_method_callee_expr_with_arguments(callee, args.unwrap());
+            None if let Some(args) = args => {
+                return self.check_method_callee_expr_with_arguments(callee, args);
             }
             None => return None,
         };

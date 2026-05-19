@@ -1,3 +1,9 @@
+//! Pointer coercion helpers.
+//!
+//! Pointer conversion rules are centralized here so mutability, volatility,
+//! closure-interface pointers, and trait-object pointer upcasts are checked
+//! consistently across assignments and argument passing.
+
 use super::*;
 use crate::ty::GenericArg;
 

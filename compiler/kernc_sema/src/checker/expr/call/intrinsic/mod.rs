@@ -1,3 +1,9 @@
+//! Builtin intrinsic call typing.
+//!
+//! Intrinsics are type-checked outside normal function lookup. This module owns
+//! common helpers and dispatch for source-location, layout, SIMD, atomic, and
+//! low-level pointer/value intrinsics.
+
 use super::ExprChecker;
 use crate::LayoutEngine;
 use crate::checker::{ConstEvaluator, ConstValue};

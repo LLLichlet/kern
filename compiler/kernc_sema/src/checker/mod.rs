@@ -1,3 +1,10 @@
+//! Semantic type-checking driver.
+//!
+//! The checker runs after collection and type resolution. It resolves global
+//! initializer cycles with speculative retries, checks function and impl bodies
+//! in their owning scopes, records timing data for the LSP/driver, and exposes
+//! cancelable entry points for editor workloads.
+
 mod constexpr;
 pub(crate) mod expr;
 
@@ -176,6 +183,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     fn bind_generics_into_scope(&mut self, generics: &[ast::GenericParam], scope: ScopeId) {
         self.ctx.scopes.set_current_scope(scope);
         for param in generics {
+            // Body checking needs generic parameters in the value/type namespace and in semantic
+            // symbol tables so diagnostics, hovers, and references agree on the same binding.
             let (kind, param_ty, semantic_kind) = match &param.kind {
                 ast::GenericParamKind::Type => (
                     SymbolKind::TypeParam,
@@ -230,6 +239,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     pub fn check_all(&mut self) {
         let (globals, body_worklist) = self.worklists();
 
+        // Phase 1: infer globals to a fixed point. Globals can depend on each other, so failed
+        // attempts are rolled back and retried after more initializer types become known.
         let mut changed = true;
         let mut max_iters = 100; // Prevent real dependency cycles from looping forever.
         let mut resolved_globals = std::collections::HashSet::new();
@@ -243,7 +254,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     continue; // Skip globals already inferred successfully.
                 }
 
-                let Some(g) = self.global_def_ptr(item_id, "infer a global initializer") else {
+                let Some(global) = self.global_def_snapshot(item_id, "infer a global initializer")
+                else {
                     continue;
                 };
 
@@ -254,13 +266,13 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
                 // Try to infer the initializer type.
                 self.ctx.scopes.set_current_scope(scope_id);
-                let annotated_ty = if let Some(type_node) = unsafe { &(*g).type_node } {
+                let annotated_ty = if let Some(type_node) = &global.type_node {
                     let mut resolver = TypeResolver::new(self.ctx);
                     Some(resolver.resolve_type(type_node, scope_id))
                 } else {
                     None
                 };
-                let init_ty = if let Some(value) = unsafe { &(*g).value } {
+                let init_ty = if let Some(value) = &global.value {
                     let mut checker =
                         ExprChecker::with_cancellation(self.ctx, None, self.cancellation.clone());
                     let init_ty = checker.check_expr(value, annotated_ty);
@@ -271,11 +283,11 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     } else {
                         init_ty
                     }
-                } else if unsafe { (*g).is_extern } {
+                } else if global.is_extern {
                     annotated_ty.unwrap_or(TypeId::ERROR)
                 } else {
                     self.ctx.emit_error(
-                        unsafe { (*g).span },
+                        global.span,
                         "static declarations without an initializer must be `extern`",
                     );
                     TypeId::ERROR
@@ -287,14 +299,9 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     changed = true;
                     let had_type_errors = self.ctx.sess.error_count > old_err_cnt;
 
-                    if self
-                        .ctx
-                        .scopes
-                        .resolve_local(unsafe { (*g).name })
-                        .is_some()
-                    {
+                    if self.ctx.scopes.resolve_local(global.name).is_some() {
                         self.ctx.scopes.update_type_in_namespace(
-                            unsafe { (*g).name },
+                            global.name,
                             SymbolNamespace::Value,
                             init_ty,
                         );
@@ -305,8 +312,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         continue;
                     }
 
-                    if !unsafe { (*g).is_extern }
-                        && let Some(value) = unsafe { &(*g).value }
+                    if !global.is_extern
+                        && let Some(value) = &global.value
                     {
                         let mut evaluator = ConstEvaluator::new(self.ctx);
                         let _ = evaluator.eval_inner(value, 0);
@@ -324,14 +331,15 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         if resolved_globals.len() < globals.len() {
             for &(item_id, scope_id) in &globals {
                 if !resolved_globals.contains(&item_id) {
-                    let Some(g) = self.global_def_ptr(item_id, "re-check an unresolved global")
+                    let Some(global) =
+                        self.global_def_snapshot(item_id, "re-check an unresolved global")
                     else {
                         continue;
                     };
 
                     let old_err_cnt = self.ctx.sess.error_count;
                     self.ctx.scopes.set_current_scope(scope_id);
-                    if let Some(value) = unsafe { &(*g).value } {
+                    if let Some(value) = &global.value {
                         let mut checker = ExprChecker::with_cancellation(
                             self.ctx,
                             None,
@@ -344,7 +352,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         continue;
                     }
 
-                    self.ctx.struct_error(unsafe { (*g).span }, format!("cannot resolve global constant `{}`", self.ctx.resolve(unsafe { (*g).name })))
+                    self.ctx.struct_error(global.span, format!("cannot resolve global constant `{}`", self.ctx.resolve(global.name)))
                         .with_hint("this is usually caused by a circular dependency (e.g., A depends on B, and B depends on A) or an undefined variable")
                         .emit();
                 }
@@ -393,7 +401,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         continue;
                     }
 
-                    let Some(global) = self.global_def_ptr(item_id, "infer a global initializer")
+                    let Some(global) =
+                        self.global_def_snapshot(item_id, "infer a global initializer")
                     else {
                         continue;
                     };
@@ -401,21 +410,16 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     let old_err_cnt = self.ctx.sess.error_count;
                     let old_diag_len = self.ctx.sess.diagnostics.len();
                     let old_node_types = self.ctx.node_types_snapshot();
-                    let init_ty = self.check_global_initializer(scope_id, unsafe { &*global });
+                    let init_ty = self.check_global_initializer(scope_id, &global);
 
                     if init_ty != TypeId::ERROR {
                         resolved_globals.insert(item_id);
                         changed = true;
                         let had_type_errors = self.ctx.sess.error_count > old_err_cnt;
 
-                        if self
-                            .ctx
-                            .scopes
-                            .resolve_local(unsafe { (*global).name })
-                            .is_some()
-                        {
+                        if self.ctx.scopes.resolve_local(global.name).is_some() {
                             self.ctx.scopes.update_type_in_namespace(
-                                unsafe { (*global).name },
+                                global.name,
                                 SymbolNamespace::Value,
                                 init_ty,
                             );
@@ -425,8 +429,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                             continue;
                         }
 
-                        if !unsafe { (*global).is_extern }
-                            && let Some(value) = unsafe { &(*global).value }
+                        if !global.is_extern
+                            && let Some(value) = &global.value
                         {
                             let mut evaluator = ConstEvaluator::new(self.ctx);
                             let _ = evaluator.eval_inner(value, 0);
@@ -444,13 +448,13 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     self.check_canceled()?;
                     if !resolved_globals.contains(&item_id) {
                         let Some(global) =
-                            self.global_def_ptr(item_id, "re-check an unresolved global")
+                            self.global_def_snapshot(item_id, "re-check an unresolved global")
                         else {
                             continue;
                         };
 
                         let old_err_cnt = self.ctx.sess.error_count;
-                        let _ = self.check_global_initializer(scope_id, unsafe { &*global });
+                        let _ = self.check_global_initializer(scope_id, &global);
 
                         if self.ctx.sess.error_count > old_err_cnt {
                             continue;
@@ -458,10 +462,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
                         self.ctx
                             .struct_error(
-                                unsafe { (*global).span },
+                                global.span,
                                 format!(
                                     "cannot resolve global constant `{}`",
-                                    self.ctx.resolve(unsafe { (*global).name })
+                                    self.ctx.resolve(global.name)
                                 ),
                             )
                             .with_hint("this is usually caused by a circular dependency (e.g., A depends on B, and B depends on A) or an undefined variable")
@@ -610,7 +614,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             return;
         };
 
-        // Safety: type checking mutates inference state, scopes, and diagnostics, but it does not
+        // SAFETY: type checking mutates inference state, scopes, and diagnostics, but it does not
         // mutate `ctx.defs`. These raw pointers therefore remain valid for the duration of the
         // dispatch below while avoiding cloning whole AST-backed definitions.
         unsafe {
@@ -659,6 +663,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             else {
                 continue;
             };
+            // SAFETY: `method_def` points into immutable `ctx.defs`; checking the body mutates
+            // analysis state but does not move or delete definitions.
             unsafe {
                 if let Def::Function(f) = &*method_def {
                     self.check_function(f, trait_scope, FunctionBodyKind::TraitDefaultMethod);
@@ -747,27 +753,32 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
     }
 
-    fn global_def_ptr(
+    fn global_def_snapshot(
         &mut self,
         def_id: crate::def::DefId,
         context: &str,
-    ) -> Option<*const crate::def::GlobalDef> {
-        let def = self.def_ptr(def_id, context)?;
-        // Safety: same reasoning as `def_ptr`; semantic definition storage is immutable during
-        // type checking.
-        unsafe {
-            match &*def {
-                Def::Global(global) => Some(std::ptr::from_ref(global)),
-                other => {
-                    self.ctx.emit_ice(
-                        Span::default(),
-                        format!(
-                            "Kern ICE (Typeck): Expected global definition while trying to {}, found {:?}.",
-                            context, other
-                        ),
-                    );
-                    None
-                }
+    ) -> Option<crate::def::GlobalDef> {
+        match self.ctx.defs.get(def_id.0 as usize).cloned() {
+            Some(Def::Global(global)) => Some(global),
+            Some(other) => {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Typeck): Expected global definition while trying to {}, found {:?}.",
+                        context, other
+                    ),
+                );
+                None
+            }
+            None => {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Typeck): Missing DefId {} while trying to {}.",
+                        def_id.0, context
+                    ),
+                );
+                None
             }
         }
     }
@@ -1378,7 +1389,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             let Some(method_def) = self.def_ptr(method_id, "type-check an impl method body") else {
                 continue;
             };
-            // Safety: same as `check_item`; method definitions live in immutable `ctx.defs`
+            // SAFETY: same as `check_item`; method definitions live in immutable `ctx.defs`
             // during type checking.
             unsafe {
                 if let Def::Function(f) = &*method_def {

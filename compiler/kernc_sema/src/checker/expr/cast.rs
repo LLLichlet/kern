@@ -1,3 +1,10 @@
+//! Explicit `as` cast checking.
+//!
+//! Casts are intentionally narrower than coercions: this file checks the
+//! operand expectation for numeric casts, validates permitted pointer/integer
+//! and enum conversions, and enriches trait-object pointer casts when a proof is
+//! available.
+
 use super::ExprChecker;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::Expr;

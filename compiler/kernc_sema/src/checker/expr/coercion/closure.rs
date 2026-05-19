@@ -1,3 +1,9 @@
+//! Closure and function-interface coercions.
+//!
+//! This file handles non-capturing closure decay to function values, function
+//! and fn-def coercion to closure interfaces, and validation that captured
+//! closure environments cannot be stored behind raw function pointers.
+
 use super::*;
 
 use crate::ty::{ConstGeneric, GenericArg};

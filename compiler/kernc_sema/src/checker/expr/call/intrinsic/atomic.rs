@@ -1,3 +1,9 @@
+//! Atomic intrinsic validation.
+//!
+//! Atomic orderings are compile-time enum/integer values. This file evaluates
+//! and validates those order arguments, keeping target-specific atomic type
+//! checks in the shared intrinsic dispatcher.
+
 use super::*;
 use crate::def::Def;
 use crate::scope::SymbolKind;

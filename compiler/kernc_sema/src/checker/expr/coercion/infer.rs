@@ -1,3 +1,9 @@
+//! Lvalue and mutability inference for assignment/coercion.
+//!
+//! These helpers decide whether an expression denotes a mutable storage place,
+//! following bindings, pointer dereferences, field accesses, and aggregate
+//! projections without doing the full place-analysis used by const evaluation.
+
 use super::*;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {

@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use kernc_ast as ast;
@@ -43,6 +43,19 @@ impl FrontendLoadTimings {
         self.parse += other.parse;
         self.prune += other.prune;
         self.rebind += other.rebind;
+    }
+}
+
+fn recover_known_override_paths_lock<'a>(
+    lock: &'a Mutex<HashSet<PathBuf>>,
+) -> MutexGuard<'a, HashSet<PathBuf>> {
+    // A panic while synchronizing editor source overrides should not leave the
+    // compiler frontend permanently unusable. The protected set is only a
+    // best-effort index for override existence checks; recovering the poisoned
+    // value is safer than panicking on every later request.
+    match lock.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
     }
 }
 
@@ -157,7 +170,7 @@ impl FrontendDatabase {
             .map(|(path, text)| (normalize_path(path), Arc::<str>::from(text.as_str())))
             .collect::<HashMap<_, _>>();
 
-        let mut known = self.known_override_paths.lock().unwrap();
+        let mut known = recover_known_override_paths_lock(&self.known_override_paths);
         let stale = known
             .iter()
             .filter(|path| !normalized.contains_key(*path))
@@ -180,7 +193,7 @@ impl FrontendDatabase {
             return true;
         }
 
-        let known = self.known_override_paths.lock().unwrap();
+        let known = recover_known_override_paths_lock(&self.known_override_paths);
         if known.contains(path) {
             return true;
         }

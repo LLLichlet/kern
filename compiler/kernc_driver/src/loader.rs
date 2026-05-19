@@ -55,7 +55,7 @@ pub struct ModuleLoader<'a, 'ctx> {
     frontend: &'a FrontendDatabase,
     timings: ModuleLoadTimings,
     collect_docs: bool,
-    cancellation: Option<&'a CancellationToken>,
+    cancellation: CancellationToken,
 }
 
 impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
@@ -93,7 +93,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             frontend,
             timings: ModuleLoadTimings::default(),
             collect_docs,
-            cancellation: None,
+            cancellation: CancellationToken::new(),
         }
     }
 
@@ -104,7 +104,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         cancellation: &'a CancellationToken,
     ) -> Self {
         let mut loader = Self::new(ctx, frontend, collect_docs);
-        loader.cancellation = Some(cancellation);
+        loader.cancellation = cancellation.clone();
         loader
     }
 
@@ -1106,8 +1106,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 self.ctx.sess,
                 &abs_path,
                 self.collect_docs,
-                self.cancellation
-                    .expect("cancelable module loader must carry a cancellation token"),
+                &self.cancellation,
             ) {
             Ok(Ok(Some((parsed, timings)))) => {
                 self.timings.frontend_read_source += timings.read_source;
@@ -1324,11 +1323,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
     }
 
     fn check_canceled(&self) -> Result<(), Canceled> {
-        if let Some(cancellation) = self.cancellation {
-            cancellation.check()
-        } else {
-            Ok(())
-        }
+        self.cancellation.check()
     }
 
     fn module_child_anchor_dir(

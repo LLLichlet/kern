@@ -31,7 +31,7 @@ use crate::workspace::{self};
 use kernc_utils::config::{CompileOptions, apply_configured_library_aliases};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Debug, Clone)]
 pub struct AnalysisProject {
@@ -554,7 +554,7 @@ impl AnalysisProject {
     fn build_plan_for_analysis(&self, compile_options: &CompileOptions) -> Result<BuildPlan> {
         let cache_key = AnalysisBuildPlanKey::from_compile_options(compile_options);
         {
-            let cache = self.build_plan_cache.lock().unwrap();
+            let cache = recover_build_plan_cache_lock(&self.build_plan_cache);
             if let Some(plan) = cache.get(&cache_key) {
                 return Ok(plan.clone());
             }
@@ -583,16 +583,25 @@ impl AnalysisProject {
                 include_examples: true,
             },
         )?;
-        self.build_plan_cache
-            .lock()
-            .unwrap()
-            .insert(cache_key, plan.clone());
+        recover_build_plan_cache_lock(&self.build_plan_cache).insert(cache_key, plan.clone());
         Ok(plan)
     }
 
     #[cfg(test)]
     fn cached_build_plan_count(&self) -> usize {
-        self.build_plan_cache.lock().unwrap().len()
+        recover_build_plan_cache_lock(&self.build_plan_cache).len()
+    }
+}
+
+fn recover_build_plan_cache_lock(
+    lock: &Mutex<BTreeMap<AnalysisBuildPlanKey, BuildPlan>>,
+) -> MutexGuard<'_, BTreeMap<AnalysisBuildPlanKey, BuildPlan>> {
+    // The cache only avoids repeated elaboration during editor analysis. If a
+    // previous request panicked while updating it, keep the recovered map rather
+    // than making every later project resolution fail on a poisoned mutex.
+    match lock.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
     }
 }
 

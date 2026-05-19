@@ -613,7 +613,9 @@ fn top_level_boolean_operators(input: &str) -> Vec<(usize, &'static str, usize)>
     let mut scanner = Scanner::default();
     let mut index = 0usize;
     while index < input.len() {
-        let ch = input[index..].chars().next().expect("valid char boundary");
+        let Some(ch) = input[index..].chars().next() else {
+            break;
+        };
         if !scanner.scan(index, ch) {
             index += ch.len_utf8();
             continue;

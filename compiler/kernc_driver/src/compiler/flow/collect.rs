@@ -407,11 +407,12 @@ impl FlowModel {
                             &computed_reaching,
                             cancellation,
                         )?;
-                        // `computed_liveness` is stored just above so consumers can inspect the
-                        // raw fixed-point result; the materialized form uses the same value.
+                        // Keep the raw fixed-point result for later consumers, but materialize
+                        // the public view from the local value so this path does not depend on a
+                        // just-written cache slot.
                         owner.liveness = materialize_liveness_cancelable(
                             &owner.cfg,
-                            owner.computed_liveness.as_ref().unwrap(),
+                            &computed_liveness,
                             cancellation,
                         )?;
                         owner.use_defs = use_defs;
@@ -512,7 +513,7 @@ impl FlowModel {
                         )?;
                         owner.liveness = materialize_liveness_cancelable(
                             &owner.cfg,
-                            owner.computed_liveness.as_ref().unwrap(),
+                            &computed_liveness,
                             cancellation,
                         )?;
                         owner.use_defs = use_defs;

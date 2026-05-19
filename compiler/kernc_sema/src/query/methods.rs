@@ -355,10 +355,76 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         None
     }
 
+    pub(super) fn resolve_named_inherent_impl_method(
+        &mut self,
+        receiver_norm: TypeId,
+        member_name: SymbolId,
+        diagnostic_span: Option<Span>,
+    ) -> Option<MemberCandidate> {
+        let receiver_norm = self.ctx.type_registry.normalize(receiver_norm);
+        let candidates = self.collect_specificity_maximal_impl_method_candidates_with_filter(
+            receiver_norm,
+            member_name,
+            |impl_def| impl_def.trait_type.is_none(),
+        )?;
+        if candidates.len() > 1 {
+            if let Some(span) = diagnostic_span {
+                self.emit_ambiguous_impl_method_diagnostic(
+                    span,
+                    receiver_norm,
+                    member_name,
+                    &candidates,
+                );
+            }
+
+            let first = &candidates[0];
+            return Some(MemberCandidate {
+                name: member_name,
+                kind: SymbolKind::Function,
+                type_id: TypeId::ERROR,
+                def_id: Some(first.method_id),
+                definition_span: first.method_span,
+                is_mut: false,
+            });
+        }
+
+        candidates.into_iter().next().map(
+            |ApplicableImplMethodCandidate {
+                 method_id,
+                 method_span,
+                 impl_args,
+                 ..
+             }| MemberCandidate {
+                name: member_name,
+                kind: SymbolKind::Function,
+                type_id: self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::FnDef(method_id, impl_args)),
+                def_id: Some(method_id),
+                definition_span: method_span,
+                is_mut: false,
+            },
+        )
+    }
+
     fn collect_specificity_maximal_impl_method_candidates(
         &mut self,
         receiver_norm: TypeId,
         member_name: SymbolId,
+    ) -> Option<Vec<ApplicableImplMethodCandidate>> {
+        self.collect_specificity_maximal_impl_method_candidates_with_filter(
+            receiver_norm,
+            member_name,
+            |_| true,
+        )
+    }
+
+    fn collect_specificity_maximal_impl_method_candidates_with_filter(
+        &mut self,
+        receiver_norm: TypeId,
+        member_name: SymbolId,
+        mut include_impl: impl FnMut(&ImplDef) -> bool,
     ) -> Option<Vec<ApplicableImplMethodCandidate>> {
         let methods = self.ctx.impl_methods_named(member_name);
         if methods.is_empty() {
@@ -366,6 +432,12 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
         let mut applicable = Vec::new();
         for method in methods {
+            let Some(Def::Impl(impl_def)) = self.ctx.defs.get(method.impl_id.0 as usize) else {
+                continue;
+            };
+            if !include_impl(impl_def) {
+                continue;
+            }
             let Some(impl_args) = self.resolve_impl_applicability(receiver_norm, method.impl_id)
             else {
                 continue;

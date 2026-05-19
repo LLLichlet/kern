@@ -354,6 +354,23 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
 
         let started = self.ctx.collects_timings().then(Instant::now);
+        let resolution = self
+            .resolve_named_inherent_impl_method(search_norm, member_name, diagnostic_span)
+            .map(|candidate| MemberResolution {
+                candidate,
+                owner_trait_ty: None,
+            });
+        if let Some(started) = started {
+            self.ctx.analysis.expr_timing_stats.access_field_query_impl += started.elapsed();
+        }
+        if resolution.is_some() {
+            return resolution;
+        }
+
+        // Concrete receiver methods should not be shadowed by active trait
+        // bounds. Trait-object receivers still return above so dynamic dispatch
+        // remains explicit and predictable.
+        let started = self.ctx.collects_timings().then(Instant::now);
         if let Some(resolution) =
             self.resolve_bound_member(search_norm, receiver_ty, member_name, env, diagnostic_span)
         {

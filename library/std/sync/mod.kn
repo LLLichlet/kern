@@ -5,6 +5,12 @@
 //! today and leaves room for future OS-backed thread, mutex, rwlock, condvar,
 //! and channel APIs. Those future primitives should live here only after their
 //! platform handles, failure modes, and non-poisoning policy are explicit.
+//!
+//! Design policy:
+//! do not expose a blocking hosted primitive until every supported platform can
+//! describe the same ownership and failure contract. A lock should not become
+//! poisoned by hidden runtime state; callers that need panic recovery should
+//! build that policy above the primitive.
 
 pub use base.sync.{
     Atomic,

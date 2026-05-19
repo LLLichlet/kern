@@ -391,15 +391,23 @@ impl CompilerDriver {
     }
 
     pub(super) fn codegen_asm_dialect(&self) -> InlineAsmDialect {
-        match self
-            .options
-            .asm_dialect
-            .effective_for_target(&self.options.target)
-        {
+        Self::inline_asm_dialect_from_effective(
+            self.options
+                .asm_dialect
+                .effective_for_target(&self.options.target),
+        )
+    }
+
+    pub(super) fn inline_asm_dialect_from_effective(dialect: AsmDialect) -> InlineAsmDialect {
+        match dialect {
             AsmDialect::Intel => InlineAsmDialect::Intel,
             AsmDialect::Att => InlineAsmDialect::ATT,
-            // `effective_for_target` resolves Auto before this conversion.
-            AsmDialect::Auto => unreachable!("effective_for_target must resolve `auto`"),
+            AsmDialect::Auto => {
+                // `effective_for_target` should resolve Auto before this
+                // conversion. ATT is the conservative fallback for non-x86
+                // targets if that contract changes.
+                InlineAsmDialect::ATT
+            }
         }
     }
 

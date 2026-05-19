@@ -14,7 +14,7 @@
 //! callers that need panic recovery should build that policy above the
 //! primitive.
 
-use base.mem.null_mut_ptr;
+use base.mem.{Layout, null_mut_ptr};
 use base.mem.alloc.{AllocError, Allocator};
 
 mod thread;
@@ -59,6 +59,7 @@ pub enum Error {
 
 /// Minimum stack size accepted by `spawn`.
 pub const THREAD_MIN_STACK_SIZE = 16384usize;
+const THREAD_STACK_ALIGN = 16usize;
 
 /// Function entry accepted by `Thread`.
 ///
@@ -73,6 +74,7 @@ pub struct Thread {
     control: &mut ThreadControl,
     stack: &mut u8,
     stack_size: usize,
+    stack_align: usize,
     joined: bool = false,
 };
 
@@ -156,18 +158,15 @@ pub fn spawn(
     };
     control.* = .{ entry: entry, arg: arg };
 
-    let .{ Ok: stack } = alloc.try_alloc_array[u8](stack_size) else {
-        .{ Err: err } => {
-            alloc.free_one[ThreadControl](control);
-            return .{ Err: match (err) {
-                .OutOfMemory => Error.OutOfMemory,
-                .CapacityOverflow => Error.CapacityOverflow,
-            } };
-        },
+    let stack_layout = Layout.{ size: stack_size, align: THREAD_STACK_ALIGN };
+    let .{ Some: stack } = alloc.alloc(stack_layout) else {
+        alloc.free_one[ThreadControl](control);
+        return .{ Err: .OutOfMemory };
     };
+    let stack_items = stack..&[0...stack_size];
 
-    let .{ Some: handle } = thread.spawn(control, stack) else {
-        alloc.free_array[u8](stack);
+    let .{ Some: handle } = thread.spawn(control, stack_items) else {
+        alloc.free(stack, stack_layout);
         alloc.free_one[ThreadControl](control);
         return .{ Err: .SpawnFailed };
     };
@@ -176,8 +175,9 @@ pub fn spawn(
         Ok: .{
             handle: handle,
             control: control,
-            stack: stack.[0]..&,
+            stack: stack,
             stack_size: stack_size,
+            stack_align: THREAD_STACK_ALIGN,
         },
     };
 }
@@ -209,7 +209,7 @@ impl &mut Thread {
         self.joined = true;
 
         let result = self.control.result;
-        alloc.free_array[u8](self.stack..&[0...self.stack_size]);
+        alloc.free(self.stack, Layout.{ size: self.stack_size, align: self.stack_align });
         alloc.free_one[ThreadControl](self.control);
         return .{ Ok: result };
     }

@@ -34,13 +34,30 @@ const LINUX_THREAD_FLAGS =
 #[if(os == "darwin")]
 extern {
     // Darwin's stable user-facing thread creation path is exposed through
-    // libSystem. Keep it isolated here until the project validates a stricter
-    // no-libc kernel entry strategy on actual Darwin CI/hardware.
+    // libSystem. Keep the fallback isolated and make the stack contract
+    // explicit through pthread attributes.
+    #[export_name("pthread_attr_init")]
+    fn pthread_attr_init(attr: &mut DarwinPthreadAttr) i32;
+    #[export_name("pthread_attr_destroy")]
+    fn pthread_attr_destroy(attr: &mut DarwinPthreadAttr) i32;
+    #[export_name("pthread_attr_setstack")]
+    fn pthread_attr_setstack(attr: &mut DarwinPthreadAttr, stack_addr: &mut void, stack_size: usize) i32;
     #[export_name("pthread_create")]
-    fn pthread_create(thread: &mut usize, attr: &mut void, start: &fn(&mut void) &mut void, arg: &mut void) i32;
+    fn pthread_create(
+        thread: &mut usize,
+        attr: &mut DarwinPthreadAttr,
+        start: &fn(&mut void) &mut void,
+        arg: &mut void,
+    ) i32;
     #[export_name("pthread_join")]
     fn pthread_join(thread: usize, value: &mut &mut void) i32;
 }
+
+#[if(os == "darwin")]
+extern struct DarwinPthreadAttr {
+    __sig: isize,
+    __opaque: [56]i8,
+};
 
 #[if(os == "windows")]
 extern {
@@ -136,10 +153,21 @@ pub/ fn spawn(control: &mut ThreadControl, stack: &mut [u8]) ?usize {
     }
 
     #[if(os == "darwin")] {
-        let mut thread = 0usize;
-        if (pthread_create(thread..&, null_mut_ptr[void](), darwin_entry, control as &mut void) != 0) {
+        let mut attr: DarwinPthreadAttr = undef;
+        if (pthread_attr_init(attr..&) != 0) {
             return .None;
         }
+        if (pthread_attr_setstack(attr..&, stack.[0]..& as &mut void, stack.@len()) != 0) {
+            _ = pthread_attr_destroy(attr..&);
+            return .None;
+        }
+
+        let mut thread = 0usize;
+        if (pthread_create(thread..&, attr..&, darwin_entry, control as &mut void) != 0) {
+            _ = pthread_attr_destroy(attr..&);
+            return .None;
+        }
+        _ = pthread_attr_destroy(attr..&);
         return .{ Some: thread };
     }
 

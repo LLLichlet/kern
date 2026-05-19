@@ -67,7 +67,16 @@ fn compile_cross_target_std_object(prefix: &str, target: &str) -> std::process::
         prefix,
         r#"
 use std.env;
+use std.mem.Page;
 use std.proc;
+use std.sync;
+use base.mem.alloc.gpa;
+
+fn thread_entry(arg: &mut void) usize {
+    let value = arg as &mut usize;
+    value.* += 1usize;
+    return value.*;
+}
 
 fn main(argc: i32, argv: &&u8) i32 {
     let args = proc.args(argc, argv);
@@ -87,6 +96,22 @@ fn main(argc: i32, argv: &&u8) i32 {
     });
     let _ = visited;
     let _ = saw_entry;
+
+    let page = Page.{}..&;
+    let alloc = gpa().on(page)..&;
+    defer alloc.deinit();
+
+    let mut thread_value = 0usize;
+    let .{ Ok: thread_result } = sync.spawn(alloc, sync.THREAD_MIN_STACK_SIZE, thread_entry, thread_value..& as &mut void) else {
+        .{ Err: _ } => return 3,
+    };
+    let mut thread = thread_result;
+    let .{ Ok: joined } = thread..&.join(alloc) else {
+        .{ Err: _ } => return 4,
+    };
+    if (joined != 1usize or thread_value != 1usize) {
+        return 2;
+    }
     return 0;
 }
 "#,

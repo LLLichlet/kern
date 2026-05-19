@@ -38,6 +38,11 @@ impl &mut String {
         return self.raw..&.try_reserve(alloc, additional);
     }
 
+    /// Reserves exact space when the final byte length is already known.
+    pub fn try_reserve_exact(alloc: &mut Allocator, additional: usize) void!AllocError {
+        return self.raw..&.try_reserve_exact(alloc, additional);
+    }
+
     /// Appends one byte or returns a structured allocation error.
     pub fn try_push_char(alloc: &mut Allocator, c: u8) void!AllocError {
         return self.raw..&.try_push(alloc, c);

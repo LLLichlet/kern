@@ -5,10 +5,23 @@
 
 use base.mem.alloc.{AllocError, Allocator};
 use base.coll.{String, List};
+use base.num.USIZE_MAX;
 use ..types.{Error, Path};
 
 fn wrap_alloc_error(_: AllocError) Error {
     return .OutOfMemory;
+}
+
+fn checked_add_len(lhs: usize, rhs: usize) usize!Error {
+    if (lhs > USIZE_MAX - rhs) {
+        return .{ Err: .OutOfMemory };
+    }
+    return .{ Ok: lhs + rhs };
+}
+
+fn reserve_exact(out: &mut String, alloc: &mut Allocator, len: usize) void!Error {
+    out.try_reserve_exact(alloc, len).map_err(wrap_alloc_error).?;
+    return .{ Ok: {} };
 }
 
 /// Returns `true` when `byte` is treated as a path separator on the current platform.
@@ -130,9 +143,12 @@ pub/ fn build_child_path(
 ) String!Error {
     let mut out = String.{};
     let sep = preferred_separator_byte(base);
+    let needs_sep = base.@len() > 0 and !is_path_separator(base.[base.@len() - 1]);
+    let with_sep = checked_add_len(base.@len(), if (needs_sep) 1usize else 0usize).?;
+    reserve_exact(out..&, alloc, checked_add_len(with_sep, name.@len()).?).?;
     out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).?;
 
-    if (base.@len() > 0 and !is_path_separator(base.[base.@len() - 1])) {
+    if (needs_sep) {
         if (out..&.try_push_char(alloc, sep).is_err()) {
             out..&.deinit(alloc);
             return .{ Err: .OutOfMemory };
@@ -258,18 +274,21 @@ pub/ fn join(
 ) String!Error {
     if (root_prefix_len(child) > 0) {
         let mut out = String.{};
+        reserve_exact(out..&, alloc, child.@len()).?;
         out..&.try_push_str(alloc, child).map_err(wrap_alloc_error).?;
         return .{ Ok: out };
     }
 
     if (base.@len() == 0) {
         let mut out = String.{};
+        reserve_exact(out..&, alloc, child.@len()).?;
         out..&.try_push_str(alloc, child).map_err(wrap_alloc_error).?;
         return .{ Ok: out };
     }
 
     if (child.@len() == 0) {
         let mut out = String.{};
+        reserve_exact(out..&, alloc, base.@len()).?;
         out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).?;
         return .{ Ok: out };
     }
@@ -323,6 +342,7 @@ pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
     }
 
     let mut out = String.{};
+    reserve_exact(out..&, alloc, path.@len().max(1usize)).?;
     if (prefix_len > 0) {
         out..&.try_push_str(alloc, path.&[0...prefix_len]).map_err(wrap_alloc_error).?;
     }
@@ -387,23 +407,38 @@ pub/ fn with_extension(
 ) String!Error {
     let stem = file_stem(path).ok_or(.InvalidPath).?;
 
-    let mut new_name = String.{};
-    new_name..&.try_push_str(alloc, stem).map_err(wrap_alloc_error).?;
+    let trimmed = trim_trailing_separators(path);
+    let parent_len = match (parent(trimmed)) {
+        .{ Some: dir } => dir.@len(),
+        .None => 0usize,
+    };
+    let needs_parent_sep = parent_len > 0
+        and !is_path_separator(trimmed.[parent_len - 1])
+        and stem.@len() > 0;
+    let ext_part_len = if (ext.@len() > 0) checked_add_len(1usize, ext.@len()).? else 0usize;
+    let name_len = checked_add_len(stem.@len(), ext_part_len).?;
+    let parent_part_len = checked_add_len(parent_len, if (needs_parent_sep) 1usize else 0usize).?;
 
-    if (ext.@len() > 0) {
-        if (new_name..&.try_push_char(alloc, b'.').is_err()) {
-            new_name..&.deinit(alloc);
-            return .{ Err: .OutOfMemory };
-        }
-        if (new_name..&.try_push_str(alloc, ext).is_err()) {
-            new_name..&.deinit(alloc);
-            return .{ Err: .OutOfMemory };
-        }
+    let mut out = String.{};
+    reserve_exact(out..&, alloc, checked_add_len(parent_part_len, name_len).?).?;
+
+    match (parent(trimmed)) {
+        .{ Some: dir } => {
+            out..&.try_push_str(alloc, dir).map_err(wrap_alloc_error).?;
+            if (needs_parent_sep) {
+                out..&.try_push_char(alloc, preferred_separator_byte(trimmed)).map_err(wrap_alloc_error).?;
+            }
+        },
+        .None => {},
     }
 
-    let result = with_file_name(alloc, path, new_name.&.as_str());
-    new_name..&.deinit(alloc);
-    return result;
+    out..&.try_push_str(alloc, stem).map_err(wrap_alloc_error).?;
+    if (ext.@len() > 0) {
+        out..&.try_push_char(alloc, b'.').map_err(wrap_alloc_error).?;
+        out..&.try_push_str(alloc, ext).map_err(wrap_alloc_error).?;
+    }
+
+    return .{ Ok: out };
 }
 
 impl Path {

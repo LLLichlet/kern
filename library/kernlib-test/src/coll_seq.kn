@@ -150,6 +150,13 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
     text.strip_prefix("kern-").should_some().eq("lang").sum(@loc(), t);
     text.strip_suffix("-lang").should_some().eq("kern").sum(@loc(), t);
 
+    let exact = string()..&;
+    defer exact.deinit(gpa);
+    exact.try_reserve_exact(gpa, 3).should_ok().sum(@loc(), t);
+    exact.capacity().should().eq(3usize).sum(@loc(), t);
+    exact.try_push_str(gpa, "abc").should_ok().sum(@loc(), t);
+    exact.as_str().should().eq("abc").sum(@loc(), t);
+
     let shaped = string()..&;
     defer shaped.deinit(gpa);
     shaped.try_clone_from_string(gpa, text).should_ok().sum(@loc(), t);

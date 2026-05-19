@@ -16,17 +16,26 @@ Keep it until the whole round is finished, then delete it in a cleanup commit.
 
 ## 2. Internal COW for value-like stdlib types
 
-- [ ] Audit current `String`, path, and byte-buffer APIs for clone/copy pressure.
-- [ ] Decide which types should own internal borrowed/static/owned states.
+- [x] Audit current `String`, path, and byte-buffer APIs for clone/copy pressure.
+- [x] Decide which types should own internal borrowed/static/owned states.
 - [ ] Keep the common API surface unified; avoid making users choose between
       owned and COW variants in normal code.
 - [ ] Preserve transparent mutation semantics by materializing borrowed/static
       storage only on write.
-- [ ] Keep `List[T]` as a simple owned contiguous container unless a real need
+- [x] Keep `List[T]` as a simple owned contiguous container unless a real need
       appears.
 - [ ] Add tests for borrowed-to-owned materialization, static string reuse, and
       mutation after borrowing.
 - [ ] Document the performance model in the type/module comments.
+
+Audit note:
+`String` currently exposes owned semantics and `deinit(alloc)`. Returning a
+general `String` that secretly borrows arbitrary input slices would make APIs
+such as `std.fs.join` vulnerable to dangling references once the caller drops
+the input buffer. Do not add implicit borrowed storage to `String` until Kern
+has a lifetime/ownership contract that can express the borrow. Prefer concrete
+copy-pressure fixes first: exact reserves, fewer intermediate strings, and
+borrowed view APIs where the return value is explicitly tied to the input.
 
 ## 3. Synchronous concurrency foundation
 

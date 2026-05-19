@@ -38,6 +38,7 @@ fn check_allocating_paths[W](t: &mut Report[W]) void
     let joined = fs.join(gpa, "/tmp/kern", "src/main.kn").should_ok().sum(@loc(), t)..&;
     defer joined.deinit(gpa);
     joined.as_str().should().eq("/tmp/kern/src/main.kn").sum(@loc(), t);
+    joined.capacity().should().eq(joined.len()).sum(@loc(), t);
 
     let bare = fs.join(gpa, "", "note.txt").should_ok().sum(@loc(), t)..&;
     defer bare.deinit(gpa);
@@ -50,6 +51,7 @@ fn check_allocating_paths[W](t: &mut Report[W]) void
     let normalized = fs.normalize(gpa, "/tmp/./kern//src/../out/file.txt").should_ok().sum(@loc(), t)..&;
     defer normalized.deinit(gpa);
     normalized.as_str().should().eq("/tmp/kern/out/file.txt").sum(@loc(), t);
+    (normalized.capacity() <= "/tmp/./kern//src/../out/file.txt".@len()).should().sum(@loc(), t);
 
     let relative = fs.normalize(gpa, "alpha/./beta/../gamma").should_ok().sum(@loc(), t)..&;
     defer relative.deinit(gpa);
@@ -74,6 +76,7 @@ fn check_allocating_paths[W](t: &mut Report[W]) void
     let reext = fs.with_extension(gpa, "/tmp/kern/main.kn", "ll").should_ok().sum(@loc(), t)..&;
     defer reext.deinit(gpa);
     reext.as_str().should().eq("/tmp/kern/main.ll").sum(@loc(), t);
+    reext.capacity().should().eq(reext.len()).sum(@loc(), t);
 
     let stripped = fs.with_extension(gpa, "archive.tar", "").should_ok().sum(@loc(), t)..&;
     defer stripped.deinit(gpa);

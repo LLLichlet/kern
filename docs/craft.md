@@ -79,7 +79,7 @@ For a minimal freestanding package, keep startup ownership explicit in
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [runtime]
 entry = "none"
@@ -358,7 +358,7 @@ Example:
 [package]
 name = "http"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [runtime]
 entry = "rt"
@@ -455,7 +455,7 @@ json = { member = "json" }
 
 [workspace.package]
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 description = "JSON parsing and document utilities for Kern"
 license = "MIT"
 authors = ["Example <dev@example.com>"]

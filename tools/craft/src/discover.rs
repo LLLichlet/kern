@@ -241,7 +241,7 @@ mod tests {
         .unwrap();
         fs::write(
             member.join("Craft.toml"),
-            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nkern = \"0.7.6\"\n",
+            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nkern = \"0.7.7\"\n",
         )
         .unwrap();
 
@@ -270,7 +270,7 @@ mod tests {
         .unwrap();
         fs::write(
             member.join("Craft.toml"),
-            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nkern = \"0.7.6\"\n",
+            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nkern = \"0.7.7\"\n",
         )
         .unwrap();
 

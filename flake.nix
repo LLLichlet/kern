@@ -103,7 +103,7 @@
             }:
             rustPlatform.buildRustPackage {
               inherit pname;
-              version = "0.7.6";
+              version = "0.7.7";
               src = ./.;
               cargoLock.lockFile = ./Cargo.lock;
 

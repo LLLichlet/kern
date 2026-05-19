@@ -104,7 +104,7 @@ When a project owns startup, turn off runtime entry:
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [runtime]
 entry = "none"

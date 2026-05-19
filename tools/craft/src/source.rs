@@ -1034,7 +1034,7 @@ mod tests {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [dependencies]
 log = { path = "vendor/log", version = "1" }
@@ -1047,7 +1047,7 @@ log = { path = "vendor/log", version = "1" }
 [package]
 name = "log"
 version = "1"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [lib]
 root = "src/lib.kn"
@@ -1098,7 +1098,7 @@ root = "src/lib.kn"
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [[bin]]
 name = "kernel"
@@ -1150,7 +1150,7 @@ limine = { path = "vendor/limine" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [[bin]]
 name = "app"
@@ -1204,7 +1204,7 @@ limine = { path = "vendor/limine" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [[bin]]
 name = "app"
@@ -1253,7 +1253,7 @@ limine = { path = "vendor/limine" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [dependencies]
 log = { path = "vendor/log", version = "1" }
@@ -1266,7 +1266,7 @@ log = { path = "vendor/log", version = "1" }
 [package]
 name = "log"
 version = "1"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [lib]
 root = "src/lib.kn"
@@ -1317,7 +1317,7 @@ root = "src/lib.kn"
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [dependencies]
 log = {{ git = "{}", branch = "main", version = "1" }}
@@ -1390,7 +1390,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [dependencies]
 log = {{ git = "{}", branch = "main", version = "1" }}
@@ -1437,7 +1437,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [dependencies]
 log = {{ git = "{}", branch = "main", version = "1" }}
@@ -1481,7 +1481,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [[bin]]
 name = "kernel"
@@ -1534,7 +1534,7 @@ limine = {{ git = "{}", branch = "main" }}
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [[bin]]
 name = "kernel"
@@ -1589,7 +1589,7 @@ limine = {{ git = "{}", tag = "v1.0.0" }}
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.7.7"
 
 [dependencies]
 log = {{ git = "{}", rev = "{}", version = "1" }}
@@ -1644,7 +1644,7 @@ log = {{ git = "{}", rev = "{}", version = "1" }}
 [package]
 name = "log"
 version = "1"
-kern = "0.7.6"
+kern = "0.7.7"
 description = "Log package"
 license = "MIT"
 authors = ["Craft Tests <craft-tests@example.invalid>"]

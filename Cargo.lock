@@ -20,7 +20,7 @@ dependencies = [
 
 [[package]]
 name = "craft"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kern-shared-cli",
  "kernc_driver",
@@ -44,7 +44,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "kern-lsp"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "craft",
  "kern-shared-cli",
@@ -58,11 +58,11 @@ dependencies = [
 
 [[package]]
 name = "kern-shared-cli"
-version = "0.7.6"
+version = "0.7.7"
 
 [[package]]
 name = "kern-shared-ops"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -70,14 +70,14 @@ dependencies = [
 
 [[package]]
 name = "kernc_ast"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kernc_utils",
 ]
 
 [[package]]
 name = "kernc_cli"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kern-shared-cli",
  "kernc_driver",
@@ -86,7 +86,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_codegen"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "cc",
  "kernc_ast",
@@ -100,11 +100,11 @@ dependencies = [
 
 [[package]]
 name = "kernc_db"
-version = "0.7.6"
+version = "0.7.7"
 
 [[package]]
 name = "kernc_driver"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kernc_ast",
  "kernc_codegen",
@@ -122,7 +122,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_flow"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kernc_middle",
  "kernc_ty",
@@ -131,14 +131,14 @@ dependencies = [
 
 [[package]]
 name = "kernc_lexer"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kernc_utils",
 ]
 
 [[package]]
 name = "kernc_lower"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kernc_ast",
  "kernc_flow",
@@ -150,7 +150,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_mast"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kernc_ast",
  "kernc_mono",
@@ -160,7 +160,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_middle"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kernc_ty",
  "kernc_utils",
@@ -168,7 +168,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_mir"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kernc_ast",
  "kernc_mono",
@@ -178,7 +178,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_mir_lower"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kernc_ast",
  "kernc_mast",
@@ -190,14 +190,14 @@ dependencies = [
 
 [[package]]
 name = "kernc_mono"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kernc_ty",
 ]
 
 [[package]]
 name = "kernc_parser"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kernc_ast",
  "kernc_lexer",
@@ -206,7 +206,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_sema"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kernc_ast",
  "kernc_middle",
@@ -217,21 +217,21 @@ dependencies = [
 
 [[package]]
 name = "kernc_ty"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kernc_utils",
 ]
 
 [[package]]
 name = "kernc_utils"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "target-lexicon",
 ]
 
 [[package]]
 name = "kernup"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kern-shared-cli",
  "kern-shared-ops",
@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "kernworker"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "kern-shared-cli",
  "kern-shared-ops",

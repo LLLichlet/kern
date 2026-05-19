@@ -44,6 +44,7 @@ primary source for user-facing guide or tutorial copy.
 - [`compiler/kernc_mir_lower/README.md`](../compiler/kernc_mir_lower/README.md): staged MAST -> MIR lowering boundary
 - [`compiler/kernc_flow/README.md`](../compiler/kernc_flow/README.md): shared flow-analysis contracts
 - [`compiler/kernc_mono/README.md`](../compiler/kernc_mono/README.md): monomorphization identities and metadata
+- [`formal/README.md`](../formal/README.md): Lean models for small soundness-critical compiler invariants, including fake-reflection/projection safety and method lookup
 
 ## Tool Docs
 

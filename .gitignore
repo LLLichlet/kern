@@ -1,4 +1,5 @@
 target/
+formal/.lake/
 .craft/
 .codex
 __pycache__/

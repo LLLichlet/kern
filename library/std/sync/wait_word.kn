@@ -75,6 +75,11 @@ pub/ fn wait_linux_shared(addr: &mut i32, expected: i32) void {
             0,
             0,
         );
+    }
+
+    #[if(os != "linux")] {
+        _ = addr;
+        _ = expected;
     };
 }
 

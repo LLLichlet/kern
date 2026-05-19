@@ -1,3 +1,9 @@
+//! Method lookup across impls, trait objects, and active generic bounds.
+//!
+//! This module performs the receiver-oriented part of member query resolution:
+//! it finds applicable impl methods, inherited/default trait methods, operator
+//! trait methods, and bound-provided methods, then filters them by specificity.
+
 use super::*;
 use crate::ty::GenericArg;
 
@@ -762,6 +768,9 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 continue;
             };
 
+            // SAFETY: semantic definition storage is not mutated while this
+            // member query is active.  The raw pointer only avoids holding an
+            // immutable borrow across calls that need `&mut self.ctx`.
             let impl_def = unsafe { &*impl_ptr };
             if self
                 .ctx
@@ -839,6 +848,9 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 return None;
             };
 
+            // SAFETY: `checker.ctx.defs` is stable for the duration of this
+            // query; using a pointer avoids borrowing the definition table
+            // while applicability matching mutates query/checker state.
             let impl_def = unsafe { &*impl_ptr };
             let impl_target_ty = checker.ctx.node_type_or_error(impl_def.target_type.id);
 
@@ -1013,7 +1025,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         else {
             return;
         };
-        // Safety: trait definitions are immutable during semantic member queries.
+        // SAFETY: trait definitions are immutable during semantic member queries.
         let trait_def = unsafe { &*trait_ptr };
         let trait_arg_map = if trait_def.generics.is_empty() || trait_args.is_empty() {
             None
@@ -1155,7 +1167,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 Def::Trait(trait_def) => Some(std::ptr::from_ref(trait_def)),
                 _ => None,
             })?;
-        // Safety: trait definitions are immutable during member resolution.
+        // SAFETY: trait definitions are immutable during member resolution.
         let trait_def = unsafe { &*trait_ptr };
         let trait_arg_map = if trait_def.generics.is_empty() || trait_args.is_empty() {
             None

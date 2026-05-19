@@ -1,3 +1,9 @@
+//! Structural semantic snapshot used by cached analysis and rollback.
+//!
+//! The snapshot owns graph-shaped state that can be restored exactly.  It does
+//! not include transient query caches, timing counters, active recursion stacks,
+//! or pending escape checks; `SemaContext::restore_structure` rebuilds those.
+
 use super::semantic_index::SemanticIndexState;
 use super::*;
 

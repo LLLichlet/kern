@@ -1,3 +1,8 @@
+//! Field lookup for named and anonymous aggregate types.
+//!
+//! This file resolves struct/union fields, anonymous aggregate fields, and
+//! range pseudo-fields while applying visibility and generic substitution.
+
 use super::*;
 
 impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
@@ -12,7 +17,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return;
         };
 
-        // Safety: member queries do not mutate `ctx.defs`; using raw pointers here avoids
+        // SAFETY: member queries do not mutate `ctx.defs`; using raw pointers here avoids
         // cloning whole AST-backed definitions on every field lookup.
         unsafe {
             match &*def_ptr {
@@ -110,7 +115,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             .get(def_id.0 as usize)
             .map(std::ptr::from_ref)?;
 
-        // Safety: semantic definition storage is immutable while member queries run.
+        // SAFETY: semantic definition storage is immutable while member queries run.
         unsafe {
             match &*def_ptr {
                 Def::Struct(struct_def) => {

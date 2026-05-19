@@ -1,3 +1,9 @@
+//! Mutable analysis state and query caches carried by `SemaContext`.
+//!
+//! These structures are separate from the core definition/type/scope tables so
+//! snapshots can rewind the semantic graph while clearing derived caches,
+//! active proof stacks, timings, and escape-analysis work queues.
+
 use super::ownership::ModuleOwnershipState;
 use super::semantic_index::SemanticIndexState;
 use super::*;
@@ -54,6 +60,8 @@ impl SemaQueryCacheState {
     }
 
     pub(crate) fn clear_active_bound_caches(&mut self) {
+        // Active generic bounds affect member lookup and impl applicability, but
+        // not field substitution or structural recursive-report state.
         self.bound_trait_match_cache.clear();
         self.impl_applicability_cache.clear();
         self.impl_method_query_cache.clear();

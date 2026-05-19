@@ -1,3 +1,9 @@
+//! Module member lookup.
+//!
+//! Module queries read the target module's scope directly, apply visibility from
+//! the access site, and adapt functions/modules into the type shapes expected by
+//! member access and completion.
+
 use super::*;
 
 impl<'a, 'ctx> MemberQuery<'a, 'ctx> {

@@ -1,3 +1,9 @@
+//! Impl-requirement recursion and Paterson-style boundedness checks.
+//!
+//! Trait impls may depend on where-clause obligations.  This module detects
+//! direct and indirect self-recursive obligations, then applies a boundedness
+//! measure so proof search does not accept impl chains that can grow forever.
+
 use super::*;
 
 #[derive(Clone)]

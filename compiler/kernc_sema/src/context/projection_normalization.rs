@@ -1,3 +1,10 @@
+//! Normalization of associated-type projections.
+//!
+//! Projection types such as `T.Iterator.Item` may resolve through explicit
+//! associated bindings, selected impls, or nested projections.  This module
+//! reduces those projections while detecting recursive projection cycles and
+//! preserving diagnostics for the original source span where possible.
+
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

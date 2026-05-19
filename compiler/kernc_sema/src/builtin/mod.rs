@@ -1,3 +1,11 @@
+//! Builtin semantic definitions injected before user analysis.
+//!
+//! Builtins are represented as ordinary definitions wherever possible:
+//! primitive marker traits, operator traits, primitive impls, intrinsic
+//! functions, and CLI `--define` constants all enter the same scope/definition
+//! machinery used by source items.  This keeps later type checking and lookup
+//! paths from needing special cases for most language-provided symbols.
+
 use crate::SemaContext;
 use crate::def::*;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
@@ -218,6 +226,9 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.inject_bool_operator_impls();
 
         // 3. Register builtin intrinsic functions.
+        // Intrinsics are declared as function definitions with pre-resolved
+        // signatures.  The expression checker and lowering recognize the names
+        // for special validation/codegen after normal overload resolution.
         self.inject_size_of();
         self.inject_align_of();
         self.inject_unreachable();

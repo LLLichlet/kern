@@ -188,6 +188,8 @@ pub(crate) struct ApplicableTraitImplHeadCandidate {
 }
 
 pub struct MemberQuery<'a, 'ctx> {
+    /// Mutable because lookup may instantiate types, update caches, and emit
+    /// targeted ambiguity diagnostics.
     ctx: &'a mut SemaContext<'ctx>,
 }
 
@@ -220,6 +222,8 @@ impl SearchTypes {
         }
 
         if let Some(slot) = self.values.get_mut(self.len) {
+            // Search sets are intentionally tiny: receiver, normalized receiver,
+            // and possibly immutable/shared view.
             *slot = ty;
             self.len += 1;
         }
@@ -1196,6 +1200,9 @@ fn resolve_trait_impl_obligation_inner(
             _ => None,
         })?;
 
+    // SAFETY: semantic definition storage is stable during this obligation
+    // query.  A raw pointer avoids holding an immutable borrow of `defs` while
+    // `ExprChecker` mutates inference and query caches through `ctx`.
     let impl_def = unsafe { &*impl_ptr };
     let Some(impl_trait_node) = &impl_def.trait_type else {
         return None;

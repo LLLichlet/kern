@@ -1,3 +1,10 @@
+//! Semantic definition table.
+//!
+//! The collect pass lowers AST declarations into stable `DefId` records.  These
+//! records preserve enough source AST to finish type resolution and checking,
+//! while giving later phases a compact, uniform handle for modules, items,
+//! traits, impls, globals, and associated types.
+
 use crate::scope::ScopeId;
 use crate::ty::TypeId;
 use kernc_ast as ast;
@@ -72,6 +79,8 @@ impl DefTable {
 
     pub fn add(&mut self, def: Def) -> DefId {
         let id = self.next_id();
+        // DefIds are dense indices.  Enforce that callers use `add_def_with`
+        // or otherwise construct the record with the exact next ID.
         assert_eq!(
             def.id(),
             id,
@@ -266,6 +275,7 @@ pub struct AssociatedTypeDef {
     pub name_span: Span,
     pub parent_trait: Option<DefId>,
     pub parent_impl: Option<DefId>,
+    /// Trait associated type this impl item satisfies, when known.
     pub implemented_trait_assoc: Option<DefId>,
     pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
@@ -302,7 +312,7 @@ pub struct ImplDef {
     pub trait_type: Option<ast::TypeNode>,
     pub resolved_trait_ty: Option<TypeId>,
     pub assoc_types: Vec<DefId>,
-    // Methods collected under this impl block.
+    /// Methods collected under this impl block.
     pub methods: Vec<DefId>,
     pub span: Span,
 }

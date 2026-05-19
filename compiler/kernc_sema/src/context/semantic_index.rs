@@ -1,3 +1,8 @@
+//! Lightweight semantic index for editor-facing references and definitions.
+//!
+//! The index records only valid source spans so downstream tools do not need to
+//! filter synthetic builtin spans, recovery placeholders, or unloaded files.
+
 use super::*;
 use std::collections::BTreeMap;
 
@@ -16,6 +21,8 @@ impl<'a> SemaContext<'a> {
                 .get_file(reference_span.file)
                 .is_none()
         {
+            // Builtins and synthesized nodes often have default spans.  Skip
+            // them so reference queries stay source-backed.
             return;
         }
 
@@ -40,6 +47,8 @@ impl<'a> SemaContext<'a> {
             return;
         }
 
+        // Keep the first definition recorded for a span.  Multiple semantic
+        // passes can observe the same source binding from different angles.
         self.analysis
             .semantic_index
             .semantic_definitions

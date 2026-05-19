@@ -1,3 +1,9 @@
+//! Builtin trait declarations and operator trait shapes.
+//!
+//! Operator traits are modeled with associated `Out` types so overload
+//! resolution can express result-type-dependent operators without a separate
+//! hardcoded table in the expression checker.
+
 use super::*;
 
 impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
@@ -83,6 +89,8 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let rhs = self.new_builtin_param("Rhs");
         let rhs_ty = self.ctx.type_registry.intern(TypeKind::Param(rhs.name));
         let out_assoc_id = DefId(def_id.0 + 1);
+        // The associated type is inserted immediately after the trait and is
+        // referenced from the synthetic method signature before insertion.
         let out_ty = self
             .ctx
             .type_registry

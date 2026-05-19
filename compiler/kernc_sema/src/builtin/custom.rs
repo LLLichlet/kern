@@ -1,3 +1,8 @@
+//! Injection of CLI-provided compile-time defines.
+//!
+//! Custom defines behave like imported constants in the builtin root scope so
+//! conditional compilation and ordinary semantic lookup can share one path.
+
 use super::*;
 
 impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
@@ -15,6 +20,8 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
 
         for (name, value) in defines {
             if !is_valid_define_identifier(&name) {
+                // Invalid identifiers are ignored rather than injected under an
+                // unusable symbol; CLI validation owns user-facing reporting.
                 continue;
             }
 

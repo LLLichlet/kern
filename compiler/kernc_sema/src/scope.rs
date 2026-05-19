@@ -1,3 +1,10 @@
+//! Lexical symbol scopes and namespace-aware name lookup.
+//!
+//! Kern keeps value, type, and module names in separate namespaces.  The symbol
+//! table stores all scopes in an arena, uses parent links for outward lookup,
+//! and maintains a current-scope cursor while collection and checking traverse
+//! modules, blocks, functions, and impls.
+
 use crate::def::DefId;
 use crate::ty::TypeId;
 use kernc_ast::Visibility;
@@ -176,6 +183,9 @@ impl SymbolTable {
     }
 
     fn namespace_priority() -> [SymbolNamespace; 3] {
+        // Unqualified lookup prefers values first so local bindings shadow type
+        // names in expression position.  Type-specific callers use explicit
+        // namespace lookup instead.
         [
             SymbolNamespace::Value,
             SymbolNamespace::Type,
@@ -184,6 +194,8 @@ impl SymbolTable {
     }
 
     fn namespace_priority_for_namespaces() -> [SymbolNamespace; 2] {
+        // Path qualification should prefer real modules, but type namespaces
+        // such as associated constructors remain available as a fallback.
         [SymbolNamespace::Module, SymbolNamespace::Type]
     }
 
@@ -336,6 +348,8 @@ impl SymbolTable {
         &self,
         scope_id: ScopeId,
     ) -> impl Iterator<Item = (SymbolId, &SymbolInfo)> + '_ {
+        // Namespace is intentionally hidden from this iterator because member
+        // completion surfaces merged names and reads the kind from `SymbolInfo`.
         self.scopes[scope_id.0]
             .symbols
             .iter()
@@ -346,6 +360,8 @@ impl SymbolTable {
         let mut curr = Some(scope_id);
         let mut distance = 0;
 
+        // Used by visibility and ownership checks where lexical containment is
+        // cheaper and less ambiguous than comparing source paths.
         while let Some(id) = curr {
             if id == ancestor {
                 return Some(distance);

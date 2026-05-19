@@ -1,3 +1,11 @@
+//! Central semantic-analysis context.
+//!
+//! `SemaContext` owns the mutable semantic graph for one compilation: type
+//! interning, definition tables, scopes, impl indexes, module ownership, query
+//! caches, and sparse per-node facts.  Most sema submodules take `&mut
+//! SemaContext` so they can share diagnostics and keep cross-phase invariants in
+//! one place.
+
 use kernc_utils::AtomicOrdering;
 use kernc_utils::config::RuntimeEntry;
 use kernc_utils::{DiagnosticBuilder, FastHashMap, FastHashSet, NodeId, Session, Span, SymbolId};
@@ -136,6 +144,9 @@ impl<'a> SemaContext<'a> {
 
     pub fn add_def(&mut self, def: Def) -> DefId {
         let id = self.defs.add(def);
+        // Collection assigns parent modules later for some synthesized and
+        // imported definitions.  Track unowned definitions explicitly so module
+        // ownership checks can report missing links instead of guessing.
         self.resolution
             .module_ownership
             .defs_without_parent_module
@@ -157,6 +168,8 @@ impl<'a> SemaContext<'a> {
     }
 
     pub fn structure_snapshot(&self) -> SemaStructureSnapshot {
+        // Snapshots are structural only: they intentionally exclude traversal
+        // stacks and transient timers.
         SemaStructureSnapshot {
             type_registry: self.type_registry.clone(),
             facts: self.facts.clone(),
@@ -419,6 +432,8 @@ impl<'a> SemaContext<'a> {
 
     pub fn trait_impl_ids_for_trait(&self, trait_def_id: DefId) -> Vec<DefId> {
         if self.impl_index.trait_impls_by_trait_key.is_empty() {
+            // During early collection the grouped index may not exist yet; fall
+            // back to the full list so validation can still run.
             return self.impl_index.trait_impls.clone();
         }
 

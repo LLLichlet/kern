@@ -1,3 +1,10 @@
+//! In-memory analysis engine for Kern LSP requests.
+//!
+//! The engine tracks open documents, Craft project resolution, compiler-driver
+//! reuse, semantic/navigation caches, workspace symbol indexes, and diagnostic
+//! snapshots. LSP requests run concurrently, so shared cache locks are recovered
+//! after poisoning where the cached state can be safely reused or cleared.
+
 mod cache;
 mod code_actions;
 mod completion;
@@ -72,9 +79,8 @@ use kernc_utils::{FastHashMap, Session, SourceFile, Span};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalysisSettings {
@@ -597,6 +603,16 @@ impl AnalysisRequestContext {
     }
 }
 
+fn recover_lock<'a, T>(lock: &'a Mutex<T>) -> MutexGuard<'a, T> {
+    // These locks guard derived LSP analysis state. Recovering poisoned cache
+    // state keeps one failed request from forcing a full language-server
+    // restart before the editor can continue serving later requests.
+    match lock.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 #[derive(Clone)]
 struct AnalysisDriver {
     driver: Arc<CompilerDriver>,
@@ -612,7 +628,7 @@ impl AnalysisDriver {
     }
 
     fn with<T>(&self, f: impl FnOnce(&CompilerDriver) -> T) -> T {
-        let _query_lock = self.query_lock.lock().unwrap();
+        let _query_lock = recover_lock(&self.query_lock);
         f(&self.driver)
     }
 }
@@ -708,15 +724,15 @@ impl AnalysisEngine {
             return false;
         }
         self.settings = settings;
-        self.project_cache.lock().unwrap().clear();
-        self.driver_cache.lock().unwrap().clear();
+        recover_lock(&self.project_cache).clear();
+        recover_lock(&self.driver_cache).clear();
         self.invalidate_artifact_cache();
         self.invalidate_render_caches();
         true
     }
 
     fn record_analysis_tier(&self, tier: AnalysisTier) {
-        self.last_analysis_tier.lock().unwrap().replace(tier);
+        recover_lock(&self.last_analysis_tier).replace(tier);
     }
 
     fn record_cache_hit(&self, kind: AnalysisCacheTraceKind) {
@@ -732,24 +748,20 @@ impl AnalysisEngine {
     }
 
     fn record_cache_event(&self, kind: AnalysisCacheTraceKind, outcome: AnalysisCacheTraceOutcome) {
-        self.last_analysis_trace
-            .lock()
-            .unwrap()
+        recover_lock(&self.last_analysis_trace)
             .cache_events
             .push(AnalysisCacheTraceEvent { kind, outcome });
     }
 
     fn record_dirty_fallback(&self, fallback: &'static str) {
-        self.last_analysis_trace
-            .lock()
-            .unwrap()
+        recover_lock(&self.last_analysis_trace)
             .dirty_fallbacks
             .push(fallback);
     }
 
     pub(crate) fn start_analysis_trace(&self) -> u64 {
         let generation = self.next_snapshot_generation.fetch_add(1, Ordering::SeqCst) + 1;
-        *self.last_analysis_trace.lock().unwrap() = AnalysisTrace {
+        *recover_lock(&self.last_analysis_trace) = AnalysisTrace {
             snapshot_generation: Some(generation),
             ..AnalysisTrace::default()
         };
@@ -757,15 +769,15 @@ impl AnalysisEngine {
     }
 
     pub(crate) fn clear_last_analysis_tier(&self) {
-        self.last_analysis_tier.lock().unwrap().take();
+        recover_lock(&self.last_analysis_tier).take();
     }
 
     pub(crate) fn clear_last_analysis_trace(&self) {
-        *self.last_analysis_trace.lock().unwrap() = AnalysisTrace::default();
+        *recover_lock(&self.last_analysis_trace) = AnalysisTrace::default();
     }
 
     pub(crate) fn last_analysis_trace(&self) -> AnalysisTrace {
-        self.last_analysis_trace.lock().unwrap().clone()
+        recover_lock(&self.last_analysis_trace).clone()
     }
 
     pub(crate) fn snapshot(
@@ -1057,7 +1069,7 @@ impl AnalysisEngine {
     }
 
     pub(crate) fn last_analysis_tier(&self) -> Option<AnalysisTier> {
-        *self.last_analysis_tier.lock().unwrap()
+        *recover_lock(&self.last_analysis_tier)
     }
 
     pub(crate) fn document_version(&self, uri: &str) -> Option<i64> {
@@ -1065,7 +1077,7 @@ impl AnalysisEngine {
     }
 
     fn dirty_documents_snapshot(&self) -> Arc<DirtyDocumentsSnapshot> {
-        if let Some(snapshot) = self.dirty_documents_snapshot.lock().unwrap().as_ref() {
+        if let Some(snapshot) = recover_lock(&self.dirty_documents_snapshot).as_ref() {
             return Arc::clone(snapshot);
         }
 
@@ -1085,15 +1097,12 @@ impl AnalysisEngine {
             overrides,
             hashed_overrides,
         });
-        self.dirty_documents_snapshot
-            .lock()
-            .unwrap()
-            .replace(Arc::clone(&snapshot));
+        recover_lock(&self.dirty_documents_snapshot).replace(Arc::clone(&snapshot));
         snapshot
     }
 
     fn open_uri_by_normalized_path(&self) -> Arc<BTreeMap<PathBuf, String>> {
-        if let Some(uri_by_path) = self.open_uri_by_path.lock().unwrap().as_ref() {
+        if let Some(uri_by_path) = recover_lock(&self.open_uri_by_path).as_ref() {
             return Arc::clone(uri_by_path);
         }
 
@@ -1103,10 +1112,7 @@ impl AnalysisEngine {
                 .map(|(uri, doc)| (normalize_path(&doc.path), uri.clone()))
                 .collect(),
         );
-        self.open_uri_by_path
-            .lock()
-            .unwrap()
-            .replace(Arc::clone(&uri_by_path));
+        recover_lock(&self.open_uri_by_path).replace(Arc::clone(&uri_by_path));
         uri_by_path
     }
 

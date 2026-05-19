@@ -20,24 +20,25 @@ Keep it until the whole round is finished, then delete it in a cleanup commit.
 - [x] Decide which types should own internal borrowed/static/owned states.
 - [x] Keep the common API surface unified; avoid making users choose between
       owned and COW variants in normal code.
-- [ ] Do not add implicit borrowed storage to owned `String` until lifetime or
+- [x] Do not add implicit borrowed storage to owned `String` until lifetime or
       ownership contracts can prove borrowed input outlives the result.
-- [ ] Preserve transparent mutation semantics by materializing borrowed/static
+- [x] Add explicit `CowString` for borrowed `&[u8]` / owned `String`.
+- [x] Preserve transparent mutation semantics by materializing borrowed/static
       storage only on write.
 - [x] Keep `List[T]` as a simple owned contiguous container unless a real need
       appears.
-- [ ] Add borrowed-to-owned materialization tests only after such a storage
+- [x] Add borrowed-to-owned materialization tests only after such a storage
       state is soundly expressible.
-- [ ] Document the current performance model in the type/module comments.
+- [x] Document the current performance model in the type/module comments.
 
 Audit note:
 `String` currently exposes owned semantics and `deinit(alloc)`. Returning a
 general `String` that secretly borrows arbitrary input slices would make APIs
 such as `std.fs.join` vulnerable to dangling references once the caller drops
 the input buffer. Do not add implicit borrowed storage to `String` until Kern
-has a lifetime/ownership contract that can express the borrow. Prefer concrete
-copy-pressure fixes first: exact reserves, fewer intermediate strings, and
-borrowed view APIs where the return value is explicitly tied to the input.
+has a lifetime/ownership contract that can express the borrow. `CowString`
+keeps the mixed borrowed/owned contract visible in the type instead of changing
+plain `String` semantics.
 
 ## 3. Synchronous concurrency foundation
 

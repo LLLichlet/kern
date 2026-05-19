@@ -5,7 +5,9 @@ use base.coll.{
     Iterator,
     List,
     String,
+    borrowed_string,
     list,
+    owned_string,
     string,
 };
 use base.cmp.{GREATER, LESS, EQUAL, Ordering};
@@ -169,6 +171,30 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
         return byte != b'_';
     });
     (shaped.* == "kernstd-").should().sum(@loc(), t);
+
+    let mut borrowed = borrowed_string("borrowed");
+    borrowed.is_borrowed().should().sum(@loc(), t);
+    borrowed.as_str().should().eq("borrowed").sum(@loc(), t);
+    borrowed.len().should().eq(8usize).sum(@loc(), t);
+    let borrowed_mut = borrowed..&.try_make_mut(gpa).should_ok().sum(@loc(), t);
+    borrowed_mut.try_push_str(gpa, "-owned").should_ok().sum(@loc(), t);
+    borrowed.is_owned().should().sum(@loc(), t);
+    borrowed.as_str().should().eq("borrowed-owned").sum(@loc(), t);
+    defer borrowed..&.deinit(gpa);
+
+    let cow_static = borrowed_string("static");
+    cow_static.is_borrowed().should().sum(@loc(), t);
+    cow_static.as_bytes().should().eq("static").sum(@loc(), t);
+
+    let owned_source = string()..&;
+    owned_source.try_push_str(gpa, "owned").should_ok().sum(@loc(), t);
+    let mut owned_cow = owned_string(owned_source.*);
+    owned_cow.is_owned().should().sum(@loc(), t);
+    owned_cow.as_str().should().eq("owned").sum(@loc(), t);
+    let owned_mut = owned_cow..&.try_make_mut(gpa).should_ok().sum(@loc(), t);
+    owned_mut.try_push_char(gpa, b'!').should_ok().sum(@loc(), t);
+    owned_cow.as_str().should().eq("owned!").sum(@loc(), t);
+    defer owned_cow..&.deinit(gpa);
 }
 
 fn check_numeric_and_sorting[W](t: &mut Report[W]) void

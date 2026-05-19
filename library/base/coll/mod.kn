@@ -9,6 +9,7 @@ mod iter;
 mod ranges;
 mod slice;
 mod string_impl;
+mod cow_string;
 mod tree_impl;
 
 use base.cmp.Ord;
@@ -37,6 +38,11 @@ pub use .slice.{
     is_ascii_alnum,
 };
 pub use .string_impl.String;
+pub use .cow_string.{
+    CowString,
+    borrowed_string,
+    owned_string,
+};
 pub use .tree_impl.Tree;
 
 /// Creates an empty growable list.

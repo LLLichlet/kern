@@ -276,16 +276,20 @@ fn plan_codegen_units_impl(
         .collect::<Vec<_>>();
 
     for cluster in clusters {
-        let (unit_idx, _) = units
-            .iter()
-            .enumerate()
-            .min_by(|(_, lhs), (_, rhs)| {
-                lhs.workload
-                    .cmp(&rhs.workload)
-                    .then_with(|| lhs.name.cmp(&rhs.name))
-            })
-            // Unit allocation always creates at least one bucket before clusters are assigned.
-            .expect("at least one codegen unit must exist");
+        let Some((unit_idx, _)) = units.iter().enumerate().min_by(|(_, lhs), (_, rhs)| {
+            lhs.workload
+                .cmp(&rhs.workload)
+                .then_with(|| lhs.name.cmp(&rhs.name))
+        }) else {
+            // This should be unreachable after the target-unit guard above, but
+            // preserving a normal fallback keeps planning robust if the unit
+            // allocation rules change independently later.
+            report.fallback_reason = Some(CodegenPlanFallback::TooFewTargetUnits);
+            return CodegenPlanOutcome {
+                units: Vec::new(),
+                report,
+            };
+        };
         let unit = &mut units[unit_idx];
         unit.root_keys.extend(cluster.root_keys);
         unit.function_ids.extend(cluster.function_ids);

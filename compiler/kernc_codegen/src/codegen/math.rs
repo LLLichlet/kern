@@ -147,11 +147,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
         };
 
-        self.builder
+        let call_site = self
+            .builder
             .build_call(helper, &[lhs.into(), rhs.into()], "i128_divrem")
-            .unwrap()
-            .try_as_basic_value()
-            .unwrap_basic()
+            .unwrap();
+        self.expect_call_result(
+            call_site,
+            lhs.get_type().into(),
+            Span::default(),
+            "i128 div/rem helper",
+        )
     }
 
     fn ensure_i128_unsigned_divrem_helper(
@@ -382,17 +387,31 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .build_int_sub(rhs_xor, rhs_mask, "rhs_abs")
             .unwrap();
 
-        let unsigned_result = self
+        let unsigned_call_site = self
             .builder
             .build_call(
                 unsigned_helper,
                 &[lhs_abs.into(), rhs_abs.into()],
                 "unsigned_i128_divrem",
             )
-            .unwrap()
-            .try_as_basic_value()
-            .unwrap_basic()
-            .into_int_value();
+            .unwrap();
+        let unsigned_result = self.expect_call_result(
+            unsigned_call_site,
+            i128_ty.into(),
+            Span::default(),
+            "signed i128 div/rem helper",
+        );
+        let Some(unsigned_result) = self.expect_int_value(
+            unsigned_result,
+            Span::default(),
+            "signed i128 helper result",
+        ) else {
+            self.builder
+                .build_return(Some(&i128_ty.const_zero()))
+                .unwrap();
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
 
         let result_mask = if return_remainder {
             lhs_mask

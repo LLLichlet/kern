@@ -143,11 +143,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         ) else {
             return self.get_undef_val(result_llvm_ty);
         };
-        self.builder
+        let call_site = self
+            .builder
             .build_call(decl, &[operand_val], "simd_float_intrinsic")
-            .unwrap()
-            .try_as_basic_value()
-            .unwrap_basic()
+            .unwrap();
+        self.expect_call_result(
+            call_site,
+            result_llvm_ty,
+            Span::default(),
+            "SIMD floating-point intrinsic",
+        )
     }
 
     pub(crate) fn compile_simd_scalar_cast_value(

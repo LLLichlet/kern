@@ -116,7 +116,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 } else if return_ty == TypeId::VOID || return_ty == TypeId::ERROR {
                     self.context.i8_type().const_zero().into()
                 } else {
-                    call_site.try_as_basic_value().unwrap_basic()
+                    self.expect_call_result(
+                        call_site,
+                        llvm_ty,
+                        Span::default(),
+                        "MIR function call",
+                    )
                 }
             }
             MirRvalue::Aggregate { ty, kind, fields } => {
@@ -1040,7 +1045,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .build_call(decl, &[value, is_zero_poison.into()], "mir_lz_tz")
                 .unwrap()
         };
-        call.try_as_basic_value().unwrap_basic()
+        self.expect_call_result(call, llvm_ty, Span::default(), "MIR bit intrinsic")
     }
 
     pub(super) fn compile_mir_atomic_load(

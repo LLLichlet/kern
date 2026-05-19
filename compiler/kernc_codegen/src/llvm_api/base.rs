@@ -1273,6 +1273,10 @@ pub struct CallSiteTryAsValue<'ctx> {
 }
 
 impl<'ctx> CallSiteTryAsValue<'ctx> {
+    pub fn basic(self) -> Option<BasicValueEnum<'ctx>> {
+        self.value
+    }
+
     pub fn unwrap_basic(self) -> BasicValueEnum<'ctx> {
         self.value
             .expect("Kern ICE (LLVM): expected non-void call result")

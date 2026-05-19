@@ -6,8 +6,8 @@
 use super::CodeGenerator;
 use crate::intrinsics::Intrinsic;
 use crate::llvm_api::{
-    BasicTypeEnum, BasicValueEnum, FloatType, FloatValue, FunctionValue, IntType, IntValue,
-    PointerType, PointerValue, StructType, StructValue, VectorValue,
+    BasicTypeEnum, BasicValueEnum, CallSiteValue, FloatType, FloatValue, FunctionValue, IntType,
+    IntValue, PointerType, PointerValue, StructType, StructValue, VectorValue,
 };
 use kernc_utils::Span;
 
@@ -152,6 +152,27 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 None
             }
         }
+    }
+
+    pub(crate) fn expect_call_result(
+        &mut self,
+        call_site: CallSiteValue<'ctx>,
+        expected_ty: BasicTypeEnum<'ctx>,
+        span: Span,
+        context: &str,
+    ) -> BasicValueEnum<'ctx> {
+        if let Some(value) = call_site.try_as_basic_value().basic() {
+            return value;
+        }
+
+        self.sess.emit_ice(
+            span,
+            format!(
+                "Kern ICE (Codegen): expected non-void LLVM call result while compiling {}.",
+                context
+            ),
+        );
+        self.get_undef_val(expected_ty)
     }
 
     pub(crate) fn expect_int_type(

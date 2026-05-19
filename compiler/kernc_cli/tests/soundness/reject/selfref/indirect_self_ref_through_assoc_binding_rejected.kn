@@ -1,0 +1,30 @@
+// class: selfref-trait-proof
+// source: indirect proof cycles must preserve associated-type bindings while detecting the recursive proof path
+// stderr: impl requirement participates in a cyclic proof
+// stderr: proof cycle: Carrier[T]: Forge
+
+trait Pre {
+    type Out;
+};
+
+trait Forge {
+    type Out;
+};
+
+struct Carrier[T] {};
+
+impl[T] Carrier[T]: Pre
+    where Carrier[T]: Forge[Out = T],
+{
+    type Out = T;
+}
+
+impl[T] Carrier[T]: Forge
+    where Carrier[T]: Pre[Out = T],
+{
+    type Out = T;
+}
+
+fn main() i32 {
+    return 0;
+}

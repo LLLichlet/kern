@@ -8,6 +8,7 @@ use super::CodeGenerator;
 use crate::llvm_api::AsTypeRef;
 use crate::types::BasicTypeEnum;
 use crate::values::BasicValueEnum;
+use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn scalar_bit_width_of_type(&self, ty: BasicTypeEnum<'ctx>) -> Option<u64> {
@@ -64,7 +65,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         array_ty: crate::types::ArrayType<'ctx>,
         value: BasicValueEnum<'ctx>,
     ) -> Option<BasicValueEnum<'ctx>> {
-        let elem_ty = array_ty.get_element_type().into_int_type();
+        let elem_ty = self.expect_int_type(
+            array_ty.get_element_type(),
+            Span::default(),
+            "union storage array element type",
+        )?;
         let mut array_val = array_ty.get_undef();
 
         match value {
@@ -79,11 +84,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .build_extract_value(struct_val, idx, "union_field")
                         .ok()?;
                     let chunk = self.pack_union_storage_chunk(field_val, elem_ty, "union_chunk")?;
-                    array_val = self
+                    let inserted = self
                         .builder
                         .build_insert_value(array_val, chunk, idx, "union_array")
-                        .ok()?
-                        .into_array_value();
+                        .ok()?;
+                    array_val =
+                        self.expect_array_value(inserted, Span::default(), "union struct packing")?;
                 }
                 Some(array_val.into())
             }
@@ -98,21 +104,23 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .build_extract_value(array_val_in, idx, "union_elem")
                         .ok()?;
                     let chunk = self.pack_union_storage_chunk(elem_val, elem_ty, "union_chunk")?;
-                    array_val = self
+                    let inserted = self
                         .builder
                         .build_insert_value(array_val, chunk, idx, "union_array")
-                        .ok()?
-                        .into_array_value();
+                        .ok()?;
+                    array_val =
+                        self.expect_array_value(inserted, Span::default(), "union array packing")?;
                 }
                 Some(array_val.into())
             }
             value => {
                 let chunk = self.pack_union_storage_chunk(value, elem_ty, "union_chunk")?;
+                let inserted = self
+                    .builder
+                    .build_insert_value(array_val, chunk, 0, "union_array")
+                    .ok()?;
                 Some(
-                    self.builder
-                        .build_insert_value(array_val, chunk, 0, "union_array")
-                        .ok()?
-                        .into_array_value()
+                    self.expect_array_value(inserted, Span::default(), "union scalar packing")?
                         .into(),
                 )
             }
@@ -136,20 +144,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 _ => return None,
             };
 
+            let inserted = self
+                .builder
+                .build_insert_value(union_llvm_ty.get_undef(), storage_value, 0, "union_insert")
+                .ok()?;
             return Some(
-                self.builder
-                    .build_insert_value(union_llvm_ty.get_undef(), storage_value, 0, "union_insert")
-                    .ok()?
-                    .into_struct_value()
+                self.expect_struct_value(inserted, Span::default(), "packed union storage")?
                     .into(),
             );
         }
 
+        let inserted = self
+            .builder
+            .build_insert_value(union_llvm_ty.get_undef(), value, 0, "union_insert")
+            .ok()?;
         Some(
-            self.builder
-                .build_insert_value(union_llvm_ty.get_undef(), value, 0, "union_insert")
-                .ok()?
-                .into_struct_value()
+            self.expect_struct_value(inserted, Span::default(), "direct union storage")?
                 .into(),
         )
     }

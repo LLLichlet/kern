@@ -6,8 +6,8 @@
 use super::CodeGenerator;
 use crate::intrinsics::Intrinsic;
 use crate::llvm_api::{
-    BasicTypeEnum, BasicValueEnum, CallSiteValue, FloatType, FloatValue, FunctionValue, IntType,
-    IntValue, PointerType, PointerValue, StructType, StructValue, VectorValue,
+    ArrayValue, BasicTypeEnum, BasicValueEnum, CallSiteValue, FloatType, FloatValue, FunctionValue,
+    IntType, IntValue, PointerType, PointerValue, StructType, StructValue, VectorValue,
 };
 use kernc_utils::Span;
 
@@ -123,6 +123,28 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     span,
                     format!(
                         "Kern ICE (Codegen): expected struct LLVM value while compiling {}, found {:?}.",
+                        context,
+                        other.get_type()
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    pub(crate) fn expect_array_value(
+        &mut self,
+        value: BasicValueEnum<'ctx>,
+        span: Span,
+        context: &str,
+    ) -> Option<ArrayValue<'ctx>> {
+        match value {
+            BasicValueEnum::ArrayValue(value) => Some(value),
+            other => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): expected array LLVM value while compiling {}, found {:?}.",
                         context,
                         other.get_type()
                     ),

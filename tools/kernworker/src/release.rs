@@ -39,7 +39,7 @@ pub fn package_release(args: ReleasePackageArgs) -> OpsResult<()> {
     let bundled_toolchain = resolve_bundled_toolchain(&host, args.toolchain_prefix.as_deref())?;
 
     if !args.skip_build {
-        build_release_binaries(&host)?;
+        build_release_binaries(&host, args.skip_kernup)?;
     }
 
     let dist_name = format!("kern-{version}-{}", host.archive_target);
@@ -55,6 +55,9 @@ pub fn package_release(args: ReleasePackageArgs) -> OpsResult<()> {
     remove_path_if_exists(&archive_path)?;
     create_archive(&root, &dist_dir, &archive_path, &host)?;
     println!("Successfully packaged: {}", archive_path.display());
+    if !args.skip_kernup {
+        package_kernup_bootstrap(&root, &host, version.as_str())?;
+    }
     Ok(())
 }
 
@@ -97,13 +100,17 @@ fn ensure_host_native_target(target: &str, host: &shared_ops::HostTarget) -> Ops
     )))
 }
 
-fn build_release_binaries(host: &shared_ops::HostTarget) -> OpsResult<()> {
+fn build_release_binaries(host: &shared_ops::HostTarget, skip_kernup: bool) -> OpsResult<()> {
     println!("Building release binaries...");
-    for (package, bin) in [
+    let mut packages = vec![
         ("kernc_cli", Some("kernc")),
         ("craft", None),
         ("kern-lsp", None),
-    ] {
+    ];
+    if !skip_kernup {
+        packages.push(("kernup", None));
+    }
+    for (package, bin) in packages {
         let mut cmd = vec![
             OsString::from("cargo"),
             OsString::from("build"),
@@ -132,6 +139,46 @@ fn build_release_binaries(host: &shared_ops::HostTarget) -> OpsResult<()> {
             run_command(&cmd, None)?;
         }
     }
+    Ok(())
+}
+
+fn package_kernup_bootstrap(
+    root: &Path,
+    host: &shared_ops::HostTarget,
+    version: &str,
+) -> OpsResult<()> {
+    let dist_name = format!("kernup-{version}-{}", host.archive_target);
+    let dist_dir = root.join(&dist_name);
+    let archive_path = root.join(format!("{dist_name}.{}", host.archive_extension));
+    prepare_kernup_dist_dir(root, &dist_dir, host)?;
+    remove_path_if_exists(&archive_path)?;
+    create_archive(root, &dist_dir, &archive_path, host)?;
+    println!("Successfully packaged: {}", archive_path.display());
+    Ok(())
+}
+
+fn prepare_kernup_dist_dir(
+    root: &Path,
+    dist_dir: &Path,
+    host: &shared_ops::HostTarget,
+) -> OpsResult<()> {
+    remove_path_if_exists(dist_dir)?;
+    fs::create_dir_all(dist_dir)?;
+    let binary_dir = if let Some(target) = &host.cargo_target {
+        root.join("target").join(target).join("release")
+    } else {
+        root.join("target").join("release")
+    };
+    let source = binary_dir.join(format!("kernup{}", host.exe_suffix));
+    if !source.is_file() {
+        return Err(OpsError::new(format!(
+            "expected kernup release binary `{}`",
+            source.display()
+        )));
+    }
+    let binary_name = path_file_name(&source, "kernup release binary")?;
+    copy_path(&source, &dist_dir.join(binary_name))?;
+    copy_path(&root.join("LICENSE"), &dist_dir.join("LICENSE"))?;
     Ok(())
 }
 

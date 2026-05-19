@@ -1,7 +1,7 @@
 # Unix Distribution Guide
 
 This document describes the Linux and macOS host-tool distribution policy for
-the current 0.7.6 toolchain.
+the current 0.7.7 toolchain.
 
 It keeps three concerns separate:
 
@@ -170,15 +170,15 @@ distribution compatibility.
 For release-quality host-native Unix archives:
 
 ```bash
-cargo run -q -p kernworker -- release package --version v0.7.6 --target <host-target>
+cargo run -q -p kernworker -- release package --version v0.7.7 --target <host-target>
 ```
 
 Examples:
 
 ```bash
-cargo run -q -p kernworker -- release package --version v0.7.6 --target x86_64-linux-gnu
-cargo run -q -p kernworker -- release package --version v0.7.6 --target x86_64-apple-darwin
-cargo run -q -p kernworker -- release package --version v0.7.6 --target aarch64-apple-darwin
+cargo run -q -p kernworker -- release package --version v0.7.7 --target x86_64-linux-gnu
+cargo run -q -p kernworker -- release package --version v0.7.7 --target x86_64-apple-darwin
+cargo run -q -p kernworker -- release package --version v0.7.7 --target aarch64-apple-darwin
 ```
 
 The important policy point is that `<host-target>` is a host label, not a free
@@ -191,7 +191,7 @@ The Rust repository worker is the canonical packaging entry
 point:
 
 ```bash
-cargo run -q -p kernworker -- release package --version v0.7.6 --target <host-target>
+cargo run -q -p kernworker -- release package --version v0.7.7 --target <host-target>
 ```
 
 The command should enforce the important Unix-specific rules:
@@ -204,14 +204,15 @@ The command should enforce the important Unix-specific rules:
 ## Installation Model
 
 The user-facing Unix installer is the repository root [install.sh](../install.sh)
-entrypoint. It should perform installation directly instead of depending on
-repository maintenance tooling.
+entrypoint. It should remain a thin bootstrapper: download the host-native
+`kernup` release artifact, then execute `kernup install` with the user's
+selected options.
 
 The installed SDK layout, ordinary install commands, offline install commands,
 and reproducibility checks are centralized in [Installing Kern](./install.md).
 
-The important rule is that extraction alone is not enough. The installer must
-run:
+The important rule is that extraction alone is not enough. The canonical
+`kernup install` implementation must run:
 
 - `kernc --version`
 - `craft --version`
@@ -219,8 +220,9 @@ run:
 
 before it claims success.
 
-The Rust `kernworker` and `kernup` entrypoints are the repository engineering
-surface, but they are not the user-install contract on Unix.
+`kernworker` is repository/release engineering surface. `kernup` is the shared
+SDK installation implementation used by both the bootstrap script and direct
+Rust/Cargo-oriented flows.
 
 If startup fails, the installer should stop and print the most likely host-side
 remediation instead of silently leaving the user with a broken installation.

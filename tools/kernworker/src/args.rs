@@ -90,6 +90,7 @@ pub struct ReleasePackageArgs {
     pub version: Option<String>,
     pub target: Option<String>,
     pub skip_build: bool,
+    pub skip_kernup: bool,
     pub toolchain_prefix: Option<PathBuf>,
 }
 
@@ -194,6 +195,7 @@ fn parse_release_package_args(args: &[String]) -> OpsResult<ReleasePackageArgs> 
                 );
             }
             "--skip-build" => parsed.skip_build = true,
+            "--skip-kernup" => parsed.skip_kernup = true,
             "--toolchain-prefix" => {
                 index += 1;
                 parsed.toolchain_prefix =
@@ -545,7 +547,7 @@ pub fn help() -> HelpDoc {
             "run craft release policy fixtures",
         )
         .example(
-            "kernworker release package --version v0.7.6",
+            "kernworker release package --version v0.7.7",
             "build a host-native SDK archive",
         )
 }
@@ -617,6 +619,7 @@ fn release_package_help() -> HelpDoc {
                     "archive target label; defaults to current host",
                 )
                 .entry("--skip-build", "reuse existing release binaries")
+                .entry("--skip-kernup", "do not package the kernup bootstrapper")
                 .entry(
                     "--toolchain-prefix <path>",
                     "LLVM toolchain prefix to bundle",
@@ -727,7 +730,7 @@ mod tests {
             "release".to_string(),
             "package".to_string(),
             "--version".to_string(),
-            "v0.7.6".to_string(),
+            "v0.7.7".to_string(),
             "--target".to_string(),
             "x86_64-linux-gnu".to_string(),
             "--skip-build".to_string(),
@@ -738,7 +741,7 @@ mod tests {
         let Command::Release(ReleaseCommand::Package(args)) = command else {
             panic!("expected release package command");
         };
-        assert_eq!(args.version.as_deref(), Some("v0.7.6"));
+        assert_eq!(args.version.as_deref(), Some("v0.7.7"));
         assert_eq!(args.target.as_deref(), Some("x86_64-linux-gnu"));
         assert!(args.skip_build);
         assert_eq!(

@@ -15,7 +15,7 @@
   <a href="#documentation">Documentation</a>
 </p>
 
-> Status: v0.7.6, experimental. Kern is pre-1.0 and deliberately removes
+> Status: v0.7.7, experimental. Kern is pre-1.0 and deliberately removes
 > historical syntax or toolchain baggage when the current design becomes clear.
 
 Kern is designed for low-level software that still wants modern language
@@ -41,9 +41,9 @@ Windows PowerShell:
 powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/kern-project/kern/main/install.ps1 -UseBasicParsing).Content"
 ```
 
-The installer places the SDK under `~/.kern` on Unix and
-`%USERPROFILE%\.kern` on Windows, then verifies that `kernc`, `craft`, and
-`kern-lsp` start successfully.
+The installer bootstraps `kernup`, which installs the SDK under `~/.kern` on
+Unix and `%USERPROFILE%\.kern` on Windows, then verifies that `kernc`, `craft`,
+and `kern-lsp` start successfully.
 
 If you are using NixOS or otherwise manage your toolchain through Nix, see
 [docs/nix.md](./docs/nix.md) instead of the shell installer flow.
@@ -225,8 +225,8 @@ cargo run -p kernworker -- ci kernc-tests --mode smoke
 ```
 
 Windows source builds require a full LLVM 21 development prefix, not only the
-installed end-user SDK. `kernup` currently installs SDK archives; it does not
-build Kern from source or add the LLVM development libraries required by
+installed end-user SDK. `kernup` installs SDK archives; it does not build Kern
+from source or add the LLVM development libraries required by
 `cargo build`. If `cargo build` reports missing LLVM libraries such as
 `libxml2.lib` or `libxml2s.lib`, follow the Windows source-build setup in
 [Windows Distribution](docs/windows-distribution.md#local-development-build).

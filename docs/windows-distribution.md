@@ -1,7 +1,7 @@
 # Windows Distribution Guide
 
 This document describes the Windows host-tool distribution policy for the
-current 0.7.6 toolchain.
+current 0.7.7 toolchain.
 
 It keeps three concerns separate:
 
@@ -97,7 +97,7 @@ needs a complete LLVM development prefix. The installed end-user Kern SDK is not
 enough for this because it intentionally omits `llvm-config.exe`, LLVM headers,
 LLVM libraries, `clang++.exe`, and other source-build assets.
 
-Install or unpack the LLVM 21 toolchain first. The current 0.7.6 source tree
+Install or unpack the LLVM 21 toolchain first. The current 0.7.7 source tree
 uses `llvm-sys = "211.0.0"`, so the expected LLVM major version is 21. CI uses
 LLVM 21.1.8.
 
@@ -179,7 +179,7 @@ The Rust repository worker is the canonical Windows packaging
 entry point:
 
 ```powershell
-cargo run -q -p kernworker -- release package --version v0.7.6 --target x86_64-windows-msvc
+cargo run -q -p kernworker -- release package --version v0.7.7 --target x86_64-windows-msvc
 ```
 
 The command currently enforces the important Windows-specific rules:
@@ -213,8 +213,9 @@ prefix components such as `clangxx`, `llvm_ar`, `llvm_config`, `lib_dir`, and
 ## Installation Model
 
 The user-facing Windows installer is the repository root [install.ps1](../install.ps1)
-entrypoint. It should perform installation directly instead of depending on
-repository maintenance tooling.
+entrypoint. It should remain a thin bootstrapper: download the host-native
+`kernup.exe` release artifact, then execute `kernup install` with the user's
+selected options.
 
 The installed SDK layout, ordinary install commands, offline install commands,
 and reproducibility checks are centralized in [Installing Kern](./install.md).
@@ -230,11 +231,12 @@ standalone development toolchain archive. Installer UX still matters:
   defaulting straight to `Invoke-WebRequest`
 - expect first-install download and extraction to take noticeable time on
   slower links or machines with aggressive antivirus scanning
-- keep the `-Archive <path>` offline-install path available so one download can
-  be reused across repeated installs
+- keep the `-Kernup <path>` and `-Archive <path>` local-install path available
+  so the bootstrapper and SDK archive can be reused across repeated installs
 
-The Rust `kernworker` and `kernup` entrypoints are the repository engineering
-surface, but they are not the user-install contract on Windows.
+`kernworker` is repository/release engineering surface. `kernup` is the shared
+SDK installation implementation used by both the bootstrap script and direct
+Rust/Cargo-oriented flows.
 
 ## Common Windows Footguns
 

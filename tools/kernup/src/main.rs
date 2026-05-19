@@ -245,7 +245,7 @@ fn resolve_install_archive(
                 .ok()
                 .flatten()
         })
-        .unwrap_or_else(|| "v0.7.6".to_string());
+        .unwrap_or_else(|| "v0.7.7".to_string());
     let archive_name = format!("kern-{version}-{target}.{}", host.archive_extension);
     let archive = temp_root.join(&archive_name);
     let url = format!(
@@ -279,11 +279,11 @@ fn help() -> HelpDoc {
                 .entry("help", "Show this help text"),
         )
         .example(
-            "kernup install --archive ./kern-v0.7.6-x86_64-linux-gnu.tar.gz",
+            "kernup install --archive ./kern-v0.7.7-x86_64-linux-gnu.tar.gz",
             "install a local SDK archive",
         )
         .example(
-            "kernup install --version v0.7.6",
+            "kernup install --version v0.7.7",
             "download and install a release SDK",
         )
         .example("kernup doctor", "verify the default installation")

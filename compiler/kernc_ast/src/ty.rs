@@ -21,7 +21,7 @@ pub enum TypeKind {
     Error,
 
     /// Segmented type path or projection chain such as `i32`, `std.io.File`,
-    /// `Map[K, V]`, or `T.Add[U].Out`.
+    /// `Map[K, V]`, `T.Add[U].Out`, or `Self.Trait.Assoc`.
     Path {
         anchor: Option<PathAnchor>,
         segments: Vec<TypePathSegment>,

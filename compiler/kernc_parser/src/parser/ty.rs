@@ -226,11 +226,21 @@ impl<'a> Parser<'a> {
                 span: start_token.span,
                 kind: TypeKind::Infer,
             }),
-            TokenType::SelfType => Ok(TypeNode {
-                id: self.new_id(),
-                span: start_token.span,
-                kind: TypeKind::SelfType,
-            }),
+            TokenType::SelfType => {
+                if self.check(TokenType::Dot) {
+                    // In type position, `Self` is normally a standalone type.
+                    // `Self.Trait.Assoc` is the explicit projection form used
+                    // by trait and impl signatures; later path segments still
+                    // require ordinary identifiers, so `A.Self` stays invalid.
+                    self.parse_path_type_from_consumed(start_token)
+                } else {
+                    Ok(TypeNode {
+                        id: self.new_id(),
+                        span: start_token.span,
+                        kind: TypeKind::SelfType,
+                    })
+                }
+            }
             TokenType::Extern => {
                 if self.check(TokenType::Struct) {
                     let struct_token = self.advance();

@@ -185,6 +185,11 @@ fn run_build_pass_cases(paths: &[PathBuf]) {
             String::from_utf8_lossy(&output.stderr)
         );
         assert_no_internal_failure(path, &String::from_utf8_lossy(&output.stderr));
+        assert_stderr_absent(
+            path,
+            &String::from_utf8_lossy(&output.stderr),
+            &case.stderr_absent_substrings,
+        );
     }
 }
 

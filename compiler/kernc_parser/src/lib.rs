@@ -955,6 +955,44 @@ impl Vec2: Add[i32] {
     }
 
     #[test]
+    fn parses_self_headed_associated_projection_type() {
+        let source = r#"
+trait TypeIs[T] {
+    type Is;
+}
+
+trait Lift[T]: TypeIs[T] {
+    fn make() Self.TypeIs[T].Is;
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+
+        let ast::DeclKind::Trait { methods, .. } = &module.decls[1].kind else {
+            panic!("expected trait declaration");
+        };
+        let ast::TypeKind::Function { ret, .. } = &methods[0].signature.type_node.kind else {
+            panic!("expected trait method signature");
+        };
+        let ret = ret.as_ref().expect("expected return type");
+        let ast::TypeKind::Path { segments, .. } = &ret.kind else {
+            panic!("expected Self projection path");
+        };
+
+        let names = segments
+            .iter()
+            .map(|segment| session.resolve(segment.name))
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["Self", "TypeIs", "Is"]);
+        assert_eq!(segments[1].args.len(), 1);
+    }
+
+    #[test]
     fn optional_binds_tighter_than_result_and_grouping_overrides_it() {
         let source = r#"
 type A = ?i32!&[u8];

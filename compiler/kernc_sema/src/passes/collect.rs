@@ -704,7 +704,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
         let default_trait_method = spec.parent_trait.map(|trait_id| TraitDefaultMethodInfo {
             trait_id,
-            self_param: self.ctx.intern("__Self"),
+            self_param: self.trait_default_self_param(),
         });
         let generics = self.function_generics_with_trait_default_self(
             spec.generics,
@@ -818,7 +818,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
         let default_trait_method = parent_trait.map(|trait_id| TraitDefaultMethodInfo {
             trait_id,
-            self_param: self.ctx.intern("__Self"),
+            self_param: self.trait_default_self_param(),
         });
         let generics =
             self.function_generics_with_trait_default_self(&generics, parent_trait, span);
@@ -1808,7 +1808,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         let mut out = generics.to_vec();
         if parent_trait.is_some() {
             out.push(ast::GenericParam {
-                name: self.ctx.intern("__Self"),
+                name: self.trait_default_self_param(),
                 span,
                 kind: ast::GenericParamKind::Type,
             });
@@ -1865,7 +1865,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         };
         let trait_name = trait_def.name;
         let trait_generics = trait_def.generics.clone();
-        let self_param = self.ctx.intern("__Self");
+        let self_param = self.trait_default_self_param();
         let target_ty = self.simple_type_path(self_param, span);
         let args = trait_generics
             .iter()
@@ -1889,6 +1889,13 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             bounds: vec![trait_bound],
         });
         out
+    }
+
+    fn trait_default_self_param(&mut self) -> SymbolId {
+        // This hidden generic represents the unknown implementor when a trait
+        // default method is checked.  Keep the symbol unlexable so user code
+        // such as `struct __Self {}` or `trait T[__Self]` cannot collide with it.
+        self.ctx.intern(TRAIT_DEFAULT_SELF_PARAM_NAME)
     }
 
     fn current_owner_scope(&self) -> Option<crate::scope::ScopeId> {

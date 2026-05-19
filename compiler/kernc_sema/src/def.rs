@@ -15,6 +15,8 @@ use std::collections::HashMap;
 use std::ops::{Deref, Index, IndexMut};
 use std::path::PathBuf;
 
+pub const TRAIT_DEFAULT_SELF_PARAM_NAME: &str = "\0kern.trait.default.Self";
+
 /// Unified representation for every top-level semantic definition.
 /// The collect pass lowers AST declarations into these records.
 #[derive(Debug, Clone)]

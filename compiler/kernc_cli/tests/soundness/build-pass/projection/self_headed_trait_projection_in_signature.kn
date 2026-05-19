@@ -1,0 +1,29 @@
+// class: projection-normalization
+// source: trait and impl signatures may name an associated type through the current Self receiver
+// compile-args: --library-bundle none
+// exit: 0
+// stderr-not: __Self
+
+trait TypeIs[T] {
+    type Is;
+};
+
+trait Lift[T]: TypeIs[T] {
+    fn make() Self.TypeIs[T].Is;
+};
+
+struct Proof {};
+
+impl Proof: TypeIs[i32] {
+    type Is = i32;
+}
+
+impl Proof: Lift[i32] {
+    fn make() Self.TypeIs[i32].Is {
+        return 7;
+    }
+}
+
+fn main() i32 {
+    return Proof.{}.make() - 7;
+}

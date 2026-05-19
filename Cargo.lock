@@ -22,11 +22,11 @@ dependencies = [
 name = "craft"
 version = "0.7.6"
 dependencies = [
+ "kern-shared-cli",
  "kernc_driver",
  "kernc_sema",
  "kernc_utils",
  "libc",
- "shared_cli",
  "windows-sys",
 ]
 
@@ -47,13 +47,25 @@ name = "kern-lsp"
 version = "0.7.6"
 dependencies = [
  "craft",
+ "kern-shared-cli",
  "kernc_driver",
  "kernc_lexer",
  "kernc_parser",
  "kernc_utils",
  "serde",
  "serde_json",
- "shared_cli",
+]
+
+[[package]]
+name = "kern-shared-cli"
+version = "0.7.6"
+
+[[package]]
+name = "kern-shared-ops"
+version = "0.7.6"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -67,9 +79,9 @@ dependencies = [
 name = "kernc_cli"
 version = "0.7.6"
 dependencies = [
+ "kern-shared-cli",
  "kernc_driver",
  "kernc_utils",
- "shared_cli",
 ]
 
 [[package]]
@@ -221,17 +233,17 @@ dependencies = [
 name = "kernup"
 version = "0.7.6"
 dependencies = [
- "shared_cli",
- "shared_ops",
+ "kern-shared-cli",
+ "kern-shared-ops",
 ]
 
 [[package]]
 name = "kernworker"
 version = "0.7.6"
 dependencies = [
+ "kern-shared-cli",
+ "kern-shared-ops",
  "serde_json",
- "shared_cli",
- "shared_ops",
 ]
 
 [[package]]
@@ -337,18 +349,6 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
-]
-
-[[package]]
-name = "shared_cli"
-version = "0.7.6"
-
-[[package]]
-name = "shared_ops"
-version = "0.7.6"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]

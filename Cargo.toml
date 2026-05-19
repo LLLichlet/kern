@@ -32,8 +32,8 @@ kernc_mir_lower = { path = "compiler/kernc_mir_lower" }
 kernc_lower = { path = "compiler/kernc_lower" }
 kernc_codegen = { path = "compiler/kernc_codegen" }
 kernc_driver = { path = "compiler/kernc_driver" }
-shared_cli = { path = "shared/cli" }
-shared_ops = { path = "shared/ops" }
+shared_cli = { package = "kern-shared-cli", path = "shared/cli", version = "=0.7.6" }
+shared_ops = { package = "kern-shared-ops", path = "shared/ops", version = "=0.7.6" }
 
 # deps
 llvm-sys = "211.0.0"

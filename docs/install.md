@@ -58,9 +58,14 @@ Windows PowerShell:
 powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/kern-project/kern/main/install.ps1 -UseBasicParsing).Content"
 ```
 
-The installer downloads the host-native release archive, installs it into the
-default SDK root, configures PATH, and verifies that `kernc`, `craft`, and
-`kern-lsp` start successfully.
+The installer bootstraps the host-native `kernup` binary and delegates the
+installation to `kernup install`. `kernup` then downloads the host-native SDK
+release archive, installs it into the default SDK root, configures PATH, and
+verifies that `kernc`, `craft`, and `kern-lsp` start successfully.
+
+The shell and PowerShell scripts are intentionally thin bootstrap entry points.
+They should not grow separate SDK installation semantics; the cross-platform
+install contract lives in `kernup`.
 
 ## Installer Options
 
@@ -80,6 +85,8 @@ The common options are:
 
 - `--version <tag>` / `-Version <tag>`: install a specific release tag
 - `--target <target>` / `-Target <target>`: select the host archive label
+- `--kernup <path>` / `-Kernup <path>`: use a local `kernup` binary instead of
+  downloading the bootstrapper
 - `--archive <path>` / `-Archive <path>`: install from a local SDK archive
 - `--dest <path>` / `-Dest <path>`: install into a custom directory
 - `--no-path` / `-NoPath`: skip PATH mutation
@@ -89,18 +96,32 @@ The target option is not a cross-install knob. It must match the current host.
 
 ## Offline Installs
 
-Download the SDK archive once, then pass it to the installer.
+The bootstrap scripts normally download a small host-native `kernup` archive
+first, then `kernup` installs the SDK. For a fully offline install, download or
+copy both artifacts once:
+
+- the `kernup-<version>-<host-target>.<tar.gz|zip>` bootstrap archive, extracted
+  to a local `kernup` binary
+- the `kern-<version>-<host-target>.<tar.gz|zip>` SDK archive
+
+Then pass both local paths to the installer. The script still only starts
+`kernup`; extraction, validation, PATH configuration, and health checks remain
+inside `kernup install`.
 
 Unix:
 
 ```sh
-sh ./install.sh --archive ./kern-v0.7.6-x86_64-linux-gnu.tar.gz
+sh ./install.sh \
+  --kernup ./kernup \
+  --archive ./kern-v0.7.6-x86_64-linux-gnu.tar.gz
 ```
 
 Windows:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.6-x86_64-windows-msvc.zip
+powershell -ExecutionPolicy Bypass -File .\install.ps1 `
+  -Kernup .\kernup.exe `
+  -Archive .\kern-v0.7.6-x86_64-windows-msvc.zip
 ```
 
 If the archive filename does not contain the release tag, pass it explicitly.
@@ -108,23 +129,47 @@ If the archive filename does not contain the release tag, pass it explicitly.
 Unix:
 
 ```sh
-sh ./install.sh --version v0.7.6 --archive ./kern.tar.gz
+sh ./install.sh --kernup ./kernup --version v0.7.6 --archive ./kern.tar.gz
 ```
 
 Windows:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.7.6 -Archive .\kern.zip
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Kernup .\kernup.exe -Version v0.7.6 -Archive .\kern.zip
 ```
+
+If network access is available and only the SDK archive should be reused, omit
+`--kernup` / `-Kernup`; the script will download the matching `kernup`
+bootstrapper and then pass the local SDK archive to it.
 
 ## Rust Installer Entry Point
 
-`kernup` is the Rust SDK installer entry point. It is useful when working from a
-source checkout because it can install the same SDK archives as the shell and
-PowerShell installers.
+`kernup` is the SDK installer and toolchain-manager entry point. Release builds
+publish it as a small host-native binary, so ordinary users do not need Rust to
+run it. The `cargo run` commands below are source-checkout equivalents for
+maintainers and local development.
 
 `kernup` does not currently build Kern from source. It installs an already-built
 SDK archive from a release download or from a local archive path.
+
+Maintainers can also publish `kernup` to crates.io so Rust users may install the
+bootstrap command with:
+
+```sh
+cargo install kernup
+```
+
+The crates.io publish order is:
+
+```sh
+cargo publish -p kern-shared-cli
+cargo publish -p kern-shared-ops
+cargo publish -p kernup
+```
+
+The first two crates are small internal support crates used by `kernup` and
+other repository tools. They are published with `kern-` prefixes so `kernup`
+can depend on stable registry packages without exposing generic crate names.
 
 Install a release archive directly:
 
@@ -150,8 +195,9 @@ Validate the default installation:
 cargo run -p kernup -- doctor
 ```
 
-The repository-root shell and PowerShell installers remain the user-facing
-contract. `kernup` is the repository engineering surface for SDK installs.
+The repository-root shell and PowerShell installers remain the zero-dependency
+bootstrap entry points. `kernup` is the authoritative SDK install
+implementation they execute.
 
 ## Building From Source
 
@@ -176,8 +222,8 @@ development prefix required by `llvm-sys`.
 
 Windows source builds require a complete LLVM 21 development prefix, Visual
 Studio Build Tools for the MSVC target, and the LLVM-side `libxml2` dependency.
-Installing the end-user SDK with `kernup` or `install.ps1` does not provide
-those source-build assets. See
+Installing the end-user SDK with `kernup` or the platform bootstrap installer
+does not provide those source-build assets. See
 [Windows Distribution](./windows-distribution.md#local-development-build) for
 the exact setup.
 
@@ -202,6 +248,16 @@ cargo run -q -p kernworker -- release package --version v0.7.6 --target x86_64-w
 ```
 
 Then install the archive with either the platform installer or `kernup`.
+
+The same release packaging command also emits a small bootstrap archive named:
+
+```text
+kernup-<version>-<host-target>.<tar.gz|zip>
+```
+
+The repository-root installers should download this bootstrapper first and then
+invoke `kernup install`. Keeping SDK install logic in `kernup` prevents the Unix
+script, Windows script, and Rust installer from drifting apart.
 
 The packaging command is intentionally host-native for the current release
 model. The archive label must match the current host and the binaries copied

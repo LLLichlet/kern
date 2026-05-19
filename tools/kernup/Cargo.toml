@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+description = "Kern SDK installer and toolchain manager bootstrap command."
+repository = "https://github.com/kern-project/kern"
+homepage = "https://github.com/kern-project/kern"
+readme = "../../docs/install.md"
+keywords = ["kern", "sdk", "installer", "toolchain"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 shared_cli = { workspace = true }

@@ -36,6 +36,9 @@ struct EmissionTargetMachine {
 
 impl Drop for EmissionTargetMachine {
     fn drop(&mut self) {
+        // SAFETY: Both pointers are owned by this RAII wrapper and were
+        // returned by LLVM creation APIs. LLVM permits disposing null pointers
+        // to be skipped; each non-null pointer is disposed exactly once here.
         unsafe {
             if !self.target_data.is_null() {
                 LLVMDisposeTargetData(self.target_data);
@@ -144,6 +147,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         output.push(0);
         let mut err = ptr::null_mut();
         let backend_started = Instant::now();
+        // SAFETY: `resources.machine` and `self.module` are live LLVM handles.
+        // `output` is explicitly NUL-terminated and remains alive for the call;
+        // `err` is an out-parameter consumed through `take_llvm_message` on
+        // failure.
         let emit_result = unsafe {
             LLVMTargetMachineEmitToFile(
                 resources.machine,
@@ -222,6 +229,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         })?;
         let setup_started = Instant::now();
         let machine = create_target_machine(&triple, opt_level, code_model)?;
+        // SAFETY: `machine` is a live target machine returned by LLVM. The
+        // returned data layout is owned by `EmissionTargetMachine` and the
+        // module/triple pointers remain valid for the duration of these calls.
         let target_data = unsafe { LLVMCreateTargetDataLayout(machine) };
         unsafe {
             LLVMSetModuleDataLayout(self.module.as_mut_ptr(), target_data);
@@ -292,6 +302,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let mut err = ptr::null_mut();
 
         let target_lookup_started = Instant::now();
+        // SAFETY: `triple` is a valid NUL-terminated string and `target`/`err`
+        // are initialized out-parameters. On failure, LLVM transfers the error
+        // message to us and `take_llvm_message` disposes it.
         unsafe {
             if LLVMGetTargetFromTriple(triple.as_ptr(), &mut target, &mut err) != 0 {
                 return Err(take_llvm_message(err));
@@ -306,6 +319,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let target_machine = create_target_machine_from_parts(
             target, &triple, &cpu, &features, opt_level, code_model,
         )?;
+        // SAFETY: `target_machine` is live and owned by the resources wrapper;
+        // the module and triple pointers are valid during the calls.
         let target_data = unsafe { LLVMCreateTargetDataLayout(target_machine) };
         unsafe {
             LLVMSetModuleDataLayout(self.module.as_mut_ptr(), target_data);
@@ -336,6 +351,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let mut output = output_path.as_bytes().to_vec();
             output.push(0);
             let backend_started = Instant::now();
+            // SAFETY: Same contract as the non-Windows file emission path. This
+            // direct path is only used for ASCII paths so LLVM's narrow C API can
+            // address the destination.
             let direct_result = unsafe {
                 LLVMTargetMachineEmitToFile(
                     resources.machine,
@@ -360,6 +378,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         let mut mem_buf = ptr::null_mut();
         let backend_started = Instant::now();
+        // SAFETY: The target machine and module handles are live. On success,
+        // LLVM initializes `mem_buf`, which is later disposed with
+        // `LLVMDisposeMemoryBuffer`; on failure, `err` is disposed by
+        // `take_llvm_message`.
         let result = unsafe {
             LLVMTargetMachineEmitToMemoryBuffer(
                 resources.machine,
@@ -378,6 +400,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return Err(take_llvm_message(err));
         }
 
+        // SAFETY: `mem_buf` is a non-null buffer returned by LLVM on the
+        // successful path above. The byte slice is used only before the buffer is
+        // disposed below.
         let write_result = unsafe {
             let bytes = std::slice::from_raw_parts(
                 LLVMGetBufferStart(mem_buf) as *const u8,
@@ -393,6 +418,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
         .map_err(|e| format!("Failed to write object file `{}`: {}", output_path, e));
 
+        // SAFETY: `mem_buf` is the owned memory buffer returned by
+        // `LLVMTargetMachineEmitToMemoryBuffer` on the successful path.
         unsafe {
             LLVMDisposeMemoryBuffer(mem_buf);
         }
@@ -425,7 +452,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         target_machine: LLVMTargetMachineRef,
         pass_pipeline: &CString,
     ) -> Result<(), String> {
+        // SAFETY: Creates an owned LLVM pass-builder options handle, disposed
+        // on every exit path below.
         let options = unsafe { LLVMCreatePassBuilderOptions() };
+        // SAFETY: The module, target machine and pass pipeline C string are
+        // valid for the call. `options` is the owned pass-builder options handle
+        // created immediately above and disposed on every exit path.
         let err = unsafe {
             LLVMRunPasses(
                 self.module.as_mut_ptr(),
@@ -435,9 +467,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             )
         };
         if !err.is_null() {
+            // SAFETY: `options` is the owned options handle created for this
+            // pass run and has not yet been disposed.
             unsafe { LLVMDisposePassBuilderOptions(options) };
             return Err(take_llvm_error(err));
         }
+        // SAFETY: `options` is the owned options handle created for this pass
+        // run and has not yet been disposed.
         unsafe { LLVMDisposePassBuilderOptions(options) };
         Ok(())
     }
@@ -476,6 +512,8 @@ fn llvm_thin_lto_prelink_pipeline(opt_level: OptLevel) -> CString {
 
 fn initialize_llvm_targets() {
     static INIT: std::sync::Once = std::sync::Once::new();
+    // SAFETY: LLVM target initialization is process-global and idempotent under
+    // this `Once`; the functions take no Rust-managed pointers.
     INIT.call_once(|| unsafe {
         let _ = LLVM_InitializeNativeTarget();
         let _ = LLVM_InitializeNativeAsmPrinter();
@@ -498,6 +536,9 @@ fn create_target_machine(
 
     let mut target = ptr::null_mut();
     let mut err = ptr::null_mut();
+    // SAFETY: `triple` is a valid NUL-terminated string and `target`/`err` are
+    // initialized out-parameters. On failure, `take_llvm_message` consumes the
+    // LLVM-owned error message.
     unsafe {
         if LLVMGetTargetFromTriple(triple.as_ptr(), &mut target, &mut err) != 0 {
             return Err(take_llvm_message(err));
@@ -515,6 +556,8 @@ fn create_target_machine_from_parts(
     opt_level: OptLevel,
     code_model: CodeModel,
 ) -> Result<LLVMTargetMachineRef, String> {
+    // SAFETY: `target` was returned by LLVM for `triple`; the C strings are
+    // NUL-terminated and live for the duration of the call.
     let target_machine = unsafe {
         LLVMCreateTargetMachine(
             target,
@@ -548,6 +591,8 @@ fn take_llvm_message(message: *mut std::ffi::c_char) -> String {
         return "Unknown LLVM error".to_string();
     }
 
+    // SAFETY: Non-null LLVM error messages are NUL-terminated and owned by
+    // LLVM. We copy the text before disposing the message.
     unsafe {
         let text = CStr::from_ptr(message).to_string_lossy().into_owned();
         LLVMDisposeMessage(message);
@@ -560,6 +605,8 @@ fn take_llvm_error(error: LLVMErrorRef) -> String {
         return "Unknown LLVM error".to_string();
     }
 
+    // SAFETY: `error` is an LLVM error handle. `LLVMGetErrorMessage` returns an
+    // optional LLVM-owned C string which is copied before disposal.
     unsafe {
         let message = LLVMGetErrorMessage(error);
         let text = if message.is_null() {

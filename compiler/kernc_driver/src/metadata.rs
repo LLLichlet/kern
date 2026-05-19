@@ -342,6 +342,8 @@ fn process_exists(pid: u32) -> bool {
         fn kill(pid: c_int, sig: c_int) -> c_int;
     }
 
+    // SAFETY: `kill(pid, 0)` does not send a signal; it only asks the kernel
+    // whether the process exists and whether it is visible to the caller.
     let result = unsafe { kill(pid as c_int, 0) };
     if result == 0 {
         return true;

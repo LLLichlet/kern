@@ -525,6 +525,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             return self.null_ptr();
                         };
                         let elem_ty = self.get_llvm_type(*elem);
+                        // SAFETY: `ptr_val` is the data pointer extracted from
+                        // a MIR slice whose element type is `elem`; the single
+                        // index is the lowered MIR slice index.
                         unsafe {
                             self.builder
                                 .build_gep(elem_ty, ptr_val, &[idx_val], "mir_slice_idx")
@@ -539,6 +542,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             return self.null_ptr();
                         };
                         let elem_ty = self.get_llvm_type(*elem);
+                        // SAFETY: `ptr_val` comes from a MIR pointer place with
+                        // pointee type `elem`; the single index is the lowered
+                        // MIR pointer index.
                         unsafe {
                             self.builder
                                 .build_gep(elem_ty, ptr_val, &[idx_val], "mir_ptr_idx")
@@ -549,6 +555,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         let array_ptr = self.compile_mir_place_ptr(body, base, span);
                         let zero = self.context.i64_type().const_zero();
                         let array_llvm_ty = self.get_llvm_type(norm_base_ty);
+                        // SAFETY: `array_ptr` points at a MIR array place with
+                        // LLVM type `array_llvm_ty`; the leading zero enters the
+                        // array aggregate and `idx_val` selects the element.
                         unsafe {
                             self.builder
                                 .build_gep(

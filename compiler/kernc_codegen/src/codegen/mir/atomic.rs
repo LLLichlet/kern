@@ -64,6 +64,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .unwrap();
         }
         let llvm_elem_ty = self.get_llvm_type(elem_ty);
+        // SAFETY: `base_ptr` and `elem_ty` were recovered by
+        // `compile_mir_slice_base_parts`, which ties the pointer to the element
+        // type. `start_val` is the lowered MIR slice start index.
         let slice_ptr = unsafe {
             self.builder
                 .build_gep(llvm_elem_ty, base_ptr, &[start_val], "mir_slice_ptr")
@@ -236,6 +239,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 );
                 return self.get_undef_val(llvm_ty);
             };
+            // SAFETY: `cas_inst` is the LLVM instruction produced by the
+            // immediately preceding cmpxchg builder call; setting the weak bit
+            // mutates that instruction in place.
             unsafe { LLVMSetWeak(cas_inst.as_value_ref(), 1) };
         }
 

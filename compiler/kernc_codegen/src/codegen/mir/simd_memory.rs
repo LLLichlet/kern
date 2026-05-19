@@ -140,6 +140,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .unwrap();
             self.builder.position_at_end(then_bb);
             let lane_offset = self.context.i64_type().const_int(lane as u64, false);
+            // SAFETY: `base_ptr` points to contiguous SIMD elements of
+            // `elem_llvm_ty`; `lane_offset` is bounded by the vector lane count.
             let lane_ptr = unsafe {
                 self.builder
                     .build_gep(
@@ -252,6 +254,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .unwrap();
             self.builder.position_at_end(then_bb);
             let lane_offset = self.context.i64_type().const_int(lane as u64, false);
+            // SAFETY: `base_ptr` points to contiguous SIMD elements of
+            // `elem_llvm_ty`; `lane_offset` is bounded by the vector lane count.
             let lane_ptr = unsafe {
                 self.builder
                     .build_gep(
@@ -322,6 +326,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         };
         for lane in 0..lanes {
             let lane_offset = self.context.i64_type().const_int(lane as u64, false);
+            // SAFETY: `indices_ptr` points to the contiguous usize index array
+            // consumed by this gather; `lane_offset` is bounded by `lanes`.
             let lane_index_ptr = unsafe {
                 self.builder
                     .build_gep(
@@ -343,6 +349,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             ) else {
                 return self.get_undef_val(result_llvm_ty);
             };
+            // SAFETY: `base_ptr` points to elements of `elem_llvm_ty`; the
+            // gathered index value is the MIR-provided element index.
             let lane_ptr = unsafe {
                 self.builder
                     .build_gep(
@@ -420,6 +428,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         };
         for lane in 0..lanes {
             let lane_offset = self.context.i64_type().const_int(lane as u64, false);
+            // SAFETY: `indices_ptr` points to the contiguous usize index array
+            // consumed by this scatter; `lane_offset` is bounded by `lanes`.
             let lane_index_ptr = unsafe {
                 self.builder
                     .build_gep(
@@ -441,6 +451,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             ) else {
                 return;
             };
+            // SAFETY: `base_ptr` points to elements of `elem_llvm_ty`; the
+            // scattered index value is the MIR-provided element index.
             let lane_ptr = unsafe {
                 self.builder
                     .build_gep(
@@ -542,6 +554,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .unwrap();
             self.builder.position_at_end(then_bb);
             let lane_offset = self.context.i64_type().const_int(lane as u64, false);
+            // SAFETY: `indices_ptr` points to the contiguous usize index array
+            // consumed by this masked gather; `lane_offset` is bounded by
+            // `lanes`.
             let lane_index_ptr = unsafe {
                 self.builder
                     .build_gep(
@@ -563,6 +578,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             ) else {
                 return self.get_undef_val(result_llvm_ty);
             };
+            // SAFETY: `base_ptr` points to elements of `elem_llvm_ty`; the
+            // gathered index value is the MIR-provided element index.
             let lane_ptr = unsafe {
                 self.builder
                     .build_gep(
@@ -684,6 +701,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .unwrap();
             self.builder.position_at_end(then_bb);
             let lane_offset = self.context.i64_type().const_int(lane as u64, false);
+            // SAFETY: `indices_ptr` points to the contiguous usize index array
+            // consumed by this masked scatter; `lane_offset` is bounded by
+            // `lanes`.
             let lane_index_ptr = unsafe {
                 self.builder
                     .build_gep(
@@ -705,6 +725,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             ) else {
                 return;
             };
+            // SAFETY: `base_ptr` points to elements of `elem_llvm_ty`; the
+            // scattered index value is the MIR-provided element index.
             let lane_ptr = unsafe {
                 self.builder
                     .build_gep(

@@ -1,4 +1,5 @@
 use super::CodeGenerator;
+use crate::basic_block::BasicBlock;
 use crate::values::{BasicValueEnum, FloatValue, IntValue};
 use crate::{FloatPredicate, IntPredicate};
 use kernc_ast::BinaryOperator;
@@ -8,6 +9,14 @@ use kernc_utils::Span;
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub(crate) fn zero_i8_value(&self) -> BasicValueEnum<'ctx> {
         self.context.i8_type().const_zero().into()
+    }
+
+    fn restore_insert_block(&self, saved_insert_block: Option<BasicBlock<'ctx>>) {
+        if let Some(block) = saved_insert_block {
+            self.builder.position_at_end(block);
+        } else {
+            self.builder.clear_insertion_position();
+        }
     }
 
     fn ptr_elem_llvm_type(
@@ -168,8 +177,30 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let exit_bb = self.context.append_basic_block(func, "exit");
 
         self.builder.position_at_end(entry_bb);
-        let dividend = func.get_nth_param(0).unwrap().into_int_value();
-        let divisor = func.get_nth_param(1).unwrap().into_int_value();
+        let Some(dividend) = self.function_param_value(func, 0, name) else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
+        let Some(divisor) = self.function_param_value(func, 1, name) else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
+        let Some(dividend) = self.expect_int_value(
+            dividend,
+            Span::default(),
+            "i128 unsigned division helper dividend",
+        ) else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
+        let Some(divisor) = self.expect_int_value(
+            divisor,
+            Span::default(),
+            "i128 unsigned division helper divisor",
+        ) else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
         let zero = i128_ty.const_zero();
         let one = i128_ty.const_int(1, false);
         let high_bit = i128_ty.const_int(127, false);
@@ -273,9 +304,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         };
         self.builder.build_return(Some(&result)).unwrap();
 
-        if let Some(block) = saved_insert_block {
-            self.builder.position_at_end(block);
-        }
+        self.restore_insert_block(saved_insert_block);
 
         func
     }
@@ -304,8 +333,26 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let entry_bb = self.context.append_basic_block(func, "entry");
         self.builder.position_at_end(entry_bb);
 
-        let lhs = func.get_nth_param(0).unwrap().into_int_value();
-        let rhs = func.get_nth_param(1).unwrap().into_int_value();
+        let Some(lhs) = self.function_param_value(func, 0, name) else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
+        let Some(rhs) = self.function_param_value(func, 1, name) else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
+        let Some(lhs) =
+            self.expect_int_value(lhs, Span::default(), "i128 signed division helper lhs")
+        else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
+        let Some(rhs) =
+            self.expect_int_value(rhs, Span::default(), "i128 signed division helper rhs")
+        else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
         let zero = i128_ty.const_zero();
         let sign_shift = i128_ty.const_int(127, false);
 
@@ -359,9 +406,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         self.builder.build_return(Some(&signed_result)).unwrap();
 
-        if let Some(block) = saved_insert_block {
-            self.builder.position_at_end(block);
-        }
+        self.restore_insert_block(saved_insert_block);
 
         let _ = zero;
         func

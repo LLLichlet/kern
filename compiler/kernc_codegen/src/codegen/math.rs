@@ -450,33 +450,27 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         match op {
             Add => {
                 let (ptr_val, int_val, ptr_ty, int_ty) = if l_val.is_pointer_value() {
-                    if !r_val.is_int_value() {
-                        self.sess.emit_ice(
-                            span,
-                            "Kern ICE (Codegen): expected integer for RHS of pointer addition.",
-                        );
+                    let Some(ptr_val) =
+                        self.expect_pointer_value(l_val, span, "pointer addition lhs")
+                    else {
                         return self.zero_i8_value();
-                    }
-                    (
-                        l_val.into_pointer_value(),
-                        r_val.into_int_value(),
-                        lhs_ty,
-                        rhs_ty,
-                    )
+                    };
+                    let Some(int_val) = self.expect_int_value(r_val, span, "pointer addition rhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
+                    (ptr_val, int_val, lhs_ty, rhs_ty)
                 } else {
-                    if !l_val.is_int_value() {
-                        self.sess.emit_ice(
-                            span,
-                            "Kern ICE (Codegen): expected integer for LHS of pointer addition.",
-                        );
+                    let Some(ptr_val) =
+                        self.expect_pointer_value(r_val, span, "pointer addition rhs")
+                    else {
                         return self.zero_i8_value();
-                    }
-                    (
-                        r_val.into_pointer_value(),
-                        l_val.into_int_value(),
-                        rhs_ty,
-                        lhs_ty,
-                    )
+                    };
+                    let Some(int_val) = self.expect_int_value(l_val, span, "pointer addition lhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
+                    (ptr_val, int_val, rhs_ty, lhs_ty)
                 };
 
                 if self.is_address_pointer_type(ptr_ty) {
@@ -488,6 +482,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     return self.zero_i8_value();
                 };
 
+                // SAFETY: `ptr_val` is the pointer operand selected above and
+                // `elem_llvm_ty` is recovered from its Kern pointee type; the
+                // index is the lowered integer offset.
                 unsafe {
                     self.builder
                         .build_gep(elem_llvm_ty, ptr_val, &[int_val], "ptr_add")
@@ -497,8 +494,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             Subtract => {
                 if l_val.is_pointer_value() && r_val.is_pointer_value() {
-                    let l_ptr = l_val.into_pointer_value();
-                    let r_ptr = r_val.into_pointer_value();
+                    let Some(l_ptr) =
+                        self.expect_pointer_value(l_val, span, "pointer subtraction lhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
+                    let Some(r_ptr) =
+                        self.expect_pointer_value(r_val, span, "pointer subtraction rhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
                     if self.is_address_pointer_type(lhs_ty) {
                         let addr_ty = self.context.i64_type();
                         let l_addr = self
@@ -534,8 +539,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .unwrap()
                         .into()
                 } else {
-                    let ptr_val = l_val.into_pointer_value();
-                    let int_val = r_val.into_int_value();
+                    let Some(ptr_val) =
+                        self.expect_pointer_value(l_val, span, "pointer subtraction lhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
+                    let Some(int_val) =
+                        self.expect_int_value(r_val, span, "pointer subtraction rhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
                     if self.is_address_pointer_type(lhs_ty) {
                         return self.compile_address_ptr_offset(ptr_val, int_val, rhs_ty, true);
                     }
@@ -546,6 +559,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         return self.zero_i8_value();
                     };
 
+                    // SAFETY: `ptr_val` is the pointer lhs and
+                    // `elem_llvm_ty` is recovered from its Kern pointee type;
+                    // `neg_int` is the negated lowered integer offset.
                     unsafe {
                         self.builder
                             .build_gep(elem_llvm_ty, ptr_val, &[neg_int], "ptr_sub")
@@ -556,27 +572,37 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             Equal | NotEqual | LessThan | LessOrEqual | GreaterThan | GreaterOrEqual => {
                 let l_int = if l_val.is_pointer_value() {
+                    let Some(l_ptr) =
+                        self.expect_pointer_value(l_val, span, "pointer comparison lhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
                     self.builder
-                        .build_ptr_to_int(
-                            l_val.into_pointer_value(),
-                            self.context.i64_type(),
-                            "p2i_l",
-                        )
+                        .build_ptr_to_int(l_ptr, self.context.i64_type(), "p2i_l")
                         .unwrap()
                 } else {
-                    l_val.into_int_value()
+                    let Some(l_int) = self.expect_int_value(l_val, span, "pointer comparison lhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
+                    l_int
                 };
 
                 let r_int = if r_val.is_pointer_value() {
+                    let Some(r_ptr) =
+                        self.expect_pointer_value(r_val, span, "pointer comparison rhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
                     self.builder
-                        .build_ptr_to_int(
-                            r_val.into_pointer_value(),
-                            self.context.i64_type(),
-                            "p2i_r",
-                        )
+                        .build_ptr_to_int(r_ptr, self.context.i64_type(), "p2i_r")
                         .unwrap()
                 } else {
-                    r_val.into_int_value()
+                    let Some(r_int) = self.expect_int_value(r_val, span, "pointer comparison rhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
+                    r_int
                 };
 
                 let Some(pred) = Self::pointer_compare_pred(op) else {

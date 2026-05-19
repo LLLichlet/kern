@@ -1,5 +1,4 @@
 use super::CodeGenerator;
-use crate::intrinsics::Intrinsic;
 use crate::llvm_api::const_vector;
 use crate::types::BasicTypeEnum;
 use crate::values::BasicValueEnum;
@@ -127,14 +126,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     pub(crate) fn compile_simd_float_intrinsic_call(
         &mut self,
-        intrinsic_name: &str,
+        intrinsic_name: &'static str,
         operand_val: BasicValueEnum<'ctx>,
         result_llvm_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let intrinsic = Intrinsic::find(intrinsic_name).unwrap();
-        let decl = intrinsic
-            .get_declaration(&self.module, &[result_llvm_ty])
-            .unwrap();
+        let Some(decl) = self.lookup_intrinsic_declaration(
+            intrinsic_name,
+            &[result_llvm_ty],
+            Span::default(),
+            "SIMD floating-point intrinsic",
+        ) else {
+            return self.get_undef_val(result_llvm_ty);
+        };
         self.builder
             .build_call(decl, &[operand_val], "simd_float_intrinsic")
             .unwrap()
@@ -159,7 +162,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let dst_is_float = self.type_registry.is_float(dst_elem);
 
         if src_is_int && dst_is_int {
-            let src_int = value.into_int_value();
+            let Some(src_int) =
+                self.expect_int_value(value, Span::default(), "SIMD scalar int-to-int cast")
+            else {
+                return self.get_undef_val(dst_llvm_ty);
+            };
             let src_bits = src_int.get_type().bit_width();
             let dst_int_ty = dst_llvm_ty.into_int_type();
             let dst_bits = dst_int_ty.bit_width();
@@ -184,7 +191,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         if src_is_int && dst_is_float {
-            let src_int = value.into_int_value();
+            let Some(src_int) =
+                self.expect_int_value(value, Span::default(), "SIMD scalar int-to-float cast")
+            else {
+                return self.get_undef_val(dst_llvm_ty);
+            };
             let dst_float_ty = dst_llvm_ty.into_float_type();
             return if src_elem == TypeId::BOOL || !self.is_signed_int(src_elem) {
                 self.builder
@@ -200,7 +211,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         if src_is_float && dst_is_int {
-            let src_float = value.into_float_value();
+            let Some(src_float) =
+                self.expect_float_value(value, Span::default(), "SIMD scalar float-to-int cast")
+            else {
+                return self.get_undef_val(dst_llvm_ty);
+            };
             let dst_int_ty = dst_llvm_ty.into_int_type();
             return if self.is_signed_int(dst_elem) {
                 self.builder
@@ -216,7 +231,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         if src_is_float && dst_is_float {
-            let src_float = value.into_float_value();
+            let Some(src_float) =
+                self.expect_float_value(value, Span::default(), "SIMD scalar float-to-float cast")
+            else {
+                return self.get_undef_val(dst_llvm_ty);
+            };
             let src_bits = if src_elem == TypeId::F32 { 32 } else { 64 };
             let dst_float_ty = dst_llvm_ty.into_float_type();
             let dst_bits = if dst_elem == TypeId::F32 { 32 } else { 64 };

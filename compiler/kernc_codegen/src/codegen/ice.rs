@@ -2,6 +2,7 @@ use super::CodeGenerator;
 use crate::intrinsics::Intrinsic;
 use crate::llvm_api::{
     BasicTypeEnum, BasicValueEnum, FloatValue, FunctionValue, IntValue, PointerValue, StructValue,
+    VectorValue,
 };
 use kernc_utils::Span;
 
@@ -117,6 +118,28 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     span,
                     format!(
                         "Kern ICE (Codegen): expected struct LLVM value while compiling {}, found {:?}.",
+                        context,
+                        other.get_type()
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    pub(crate) fn expect_vector_value(
+        &mut self,
+        value: BasicValueEnum<'ctx>,
+        span: Span,
+        context: &str,
+    ) -> Option<VectorValue<'ctx>> {
+        match value {
+            BasicValueEnum::VectorValue(value) => Some(value),
+            other => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): expected vector LLVM value while compiling {}, found {:?}.",
                         context,
                         other.get_type()
                     ),

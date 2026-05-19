@@ -243,11 +243,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return self.get_undef_val(result_llvm_ty);
         };
         let elem_norm = self.type_registry.normalize(elem_ty);
+        let Some(vector_val) =
+            self.expect_vector_value(vector_val, Span::default(), "MIR SIMD reduction operand")
+        else {
+            return self.get_undef_val(result_llvm_ty);
+        };
 
         let mut acc = self
             .builder
             .build_extract_element(
-                vector_val.into_vector_value(),
+                vector_val,
                 self.context.i32_type().const_int(0, false),
                 "mir_simd_reduce_init",
             )
@@ -257,15 +262,27 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let lane_val = self
                 .builder
                 .build_extract_element(
-                    vector_val.into_vector_value(),
+                    vector_val,
                     self.context.i32_type().const_int(lane as u64, false),
                     "mir_simd_reduce_lane",
                 )
                 .unwrap();
 
             acc = if self.type_registry.is_float(elem_norm) {
-                let acc_f = acc.into_float_value();
-                let lane_f = lane_val.into_float_value();
+                let Some(acc_f) = self.expect_float_value(
+                    acc,
+                    Span::default(),
+                    "MIR SIMD float reduction accumulator",
+                ) else {
+                    return self.get_undef_val(result_llvm_ty);
+                };
+                let Some(lane_f) = self.expect_float_value(
+                    lane_val,
+                    Span::default(),
+                    "MIR SIMD float reduction lane",
+                ) else {
+                    return self.get_undef_val(result_llvm_ty);
+                };
                 match kind {
                     MirSimdReduceKind::Add => self
                         .builder
@@ -324,8 +341,20 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     }
                 }
             } else {
-                let acc_i = acc.into_int_value();
-                let lane_i = lane_val.into_int_value();
+                let Some(acc_i) = self.expect_int_value(
+                    acc,
+                    Span::default(),
+                    "MIR SIMD integer reduction accumulator",
+                ) else {
+                    return self.get_undef_val(result_llvm_ty);
+                };
+                let Some(lane_i) = self.expect_int_value(
+                    lane_val,
+                    Span::default(),
+                    "MIR SIMD integer reduction lane",
+                ) else {
+                    return self.get_undef_val(result_llvm_ty);
+                };
                 match kind {
                     MirSimdReduceKind::Add => self
                         .builder
@@ -416,6 +445,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             );
             return self.zero_i8_value();
         };
+        let Some(vector_val) = self.expect_vector_value(
+            vector_val,
+            Span::default(),
+            "MIR SIMD mask reduction operand",
+        ) else {
+            return self.zero_i8_value();
+        };
 
         let mut acc = self
             .context
@@ -425,13 +461,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let lane_idx = self.context.i32_type().const_int(lane as u64, false);
             let lane_val = self
                 .builder
-                .build_extract_element(
-                    vector_val.into_vector_value(),
-                    lane_idx,
-                    "mir_simd_reduce_lane",
-                )
-                .unwrap()
-                .into_int_value();
+                .build_extract_element(vector_val, lane_idx, "mir_simd_reduce_lane")
+                .unwrap();
+            let Some(lane_val) =
+                self.expect_int_value(lane_val, Span::default(), "MIR SIMD mask reduction lane")
+            else {
+                return self.zero_i8_value();
+            };
             acc = if use_and {
                 self.builder
                     .build_and(acc, lane_val, "mir_simd_all")
@@ -478,8 +514,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let packed = self
                 .builder
                 .build_bit_cast(vector_val, packed_ty, "mir_simd_bitmask_pack")
-                .unwrap()
-                .into_int_value();
+                .unwrap();
+            let Some(packed) =
+                self.expect_int_value(packed, Span::default(), "MIR SIMD bitmask packed value")
+            else {
+                return result_ty.const_zero().into();
+            };
             if packed_ty.bit_width() == result_ty.bit_width() {
                 return packed.into();
             }
@@ -491,17 +531,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         let mut bits = result_ty.const_zero();
+        let Some(vector_val) =
+            self.expect_vector_value(vector_val, Span::default(), "MIR SIMD bitmask operand")
+        else {
+            return result_ty.const_zero().into();
+        };
         for lane in 0..lanes {
             let lane_idx = self.context.i32_type().const_int(lane as u64, false);
             let lane_val = self
                 .builder
-                .build_extract_element(
-                    vector_val.into_vector_value(),
-                    lane_idx,
-                    "mir_simd_bitmask_lane",
-                )
-                .unwrap()
-                .into_int_value();
+                .build_extract_element(vector_val, lane_idx, "mir_simd_bitmask_lane")
+                .unwrap();
+            let Some(lane_val) =
+                self.expect_int_value(lane_val, Span::default(), "MIR SIMD bitmask lane")
+            else {
+                return result_ty.const_zero().into();
+            };
             let lane_ext = self
                 .builder
                 .build_int_z_extend(lane_val, result_ty, "mir_simd_bitmask_lane_zext")
@@ -552,11 +597,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         };
         for lane in 0..lanes {
             let idx = self.context.i32_type().const_int(lane as u64, false);
-            result = self
+            let result_value = self
                 .builder
                 .build_insert_element(result, scalar_val, idx, "mir_simd_splat")
-                .unwrap()
-                .into_vector_value();
+                .unwrap();
+            let Some(next_result) =
+                self.expect_vector_value(result_value, Span::default(), "MIR SIMD splat result")
+            else {
+                return self.get_undef_val(result_llvm_ty);
+            };
+            result = next_result;
         }
         result.into()
     }
@@ -608,7 +658,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 return self.get_undef_val(result_llvm_ty);
             }
         };
-        let src_vec = src_val.into_vector_value();
+        let Some(src_vec) =
+            self.expect_vector_value(src_val, Span::default(), "MIR SIMD cast source value")
+        else {
+            return self.get_undef_val(result_llvm_ty);
+        };
         for lane in 0..src_lanes {
             let idx = self.context.i32_type().const_int(lane as u64, false);
             let lane_val = self
@@ -616,11 +670,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .build_extract_element(src_vec, idx, "mir_simd_cast_lane")
                 .unwrap();
             let cast_lane = self.compile_simd_scalar_cast_value(lane_val, src_elem, dst_elem);
-            result = self
+            let result_value = self
                 .builder
                 .build_insert_element(result, cast_lane, idx, "mir_simd_cast_insert")
-                .unwrap()
-                .into_vector_value();
+                .unwrap();
+            let Some(next_result) = self.expect_vector_value(
+                result_value,
+                Span::default(),
+                "MIR SIMD cast result vector",
+            ) else {
+                return self.get_undef_val(result_llvm_ty);
+            };
+            result = next_result;
         }
         result.into()
     }
@@ -693,13 +754,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .map(|&idx| self.context.i32_type().const_int(idx as u64, false).into())
             .collect::<Vec<BasicValueEnum<'ctx>>>();
         let mask = crate::llvm_api::const_vector(&mask_vals);
+        let Some(lhs_vec) =
+            self.expect_vector_value(lhs_val, Span::default(), "MIR SIMD shuffle lhs")
+        else {
+            return self.get_undef_val(lhs_ty);
+        };
+        let Some(rhs_vec) =
+            self.expect_vector_value(rhs_val, Span::default(), "MIR SIMD shuffle rhs")
+        else {
+            return self.get_undef_val(lhs_ty);
+        };
         self.builder
-            .build_shuffle_vector(
-                lhs_val.into_vector_value(),
-                rhs_val.into_vector_value(),
-                mask,
-                "mir_simd_shuffle",
-            )
+            .build_shuffle_vector(lhs_vec, rhs_vec, mask, "mir_simd_shuffle")
             .unwrap()
     }
 
@@ -742,8 +808,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             );
             return self.get_undef_val(result_llvm_ty);
         }
-        let mut result = base_val.into_vector_value();
-        let half_vec = half_val.into_vector_value();
+        let Some(mut result) =
+            self.expect_vector_value(base_val, Span::default(), "MIR SIMD half insertion base")
+        else {
+            return self.get_undef_val(result_llvm_ty);
+        };
+        let Some(half_vec) =
+            self.expect_vector_value(half_val, Span::default(), "MIR SIMD half insertion half")
+        else {
+            return self.get_undef_val(result_llvm_ty);
+        };
         let base_lane = if high_half { half_lanes } else { 0 };
         for lane in 0..half_lanes {
             let src_idx = self.context.i32_type().const_int(lane as u64, false);
@@ -755,11 +829,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .builder
                 .build_extract_element(half_vec, src_idx, "mir_simd_insert_half_lane")
                 .unwrap();
-            result = self
+            let result_value = self
                 .builder
                 .build_insert_element(result, lane_val, dst_idx, "mir_simd_insert_half")
-                .unwrap()
-                .into_vector_value();
+                .unwrap();
+            let Some(next_result) = self.expect_vector_value(
+                result_value,
+                Span::default(),
+                "MIR SIMD half insertion result",
+            ) else {
+                return self.get_undef_val(result_llvm_ty);
+            };
+            result = next_result;
         }
         result.into()
     }

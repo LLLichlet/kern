@@ -1,3 +1,9 @@
+//! Runtime math intrinsic fallbacks.
+//!
+//! These functions provide the small `libm` surface currently needed by
+//! freestanding runtime builds. The bit conversions below reinterpret local
+//! scalar temporaries only; they do not expose references into caller storage.
+
 const F32_SIGN_MASK = 0x80000000u32;
 const U32_MASK_ALL = 0xFFFFFFFFu32;
 const F64_SIGN_MASK = 0x8000000000000000u64;
@@ -6,24 +12,28 @@ const U64_MASK_ALL = 0xFFFFFFFFFFFFFFFFu64;
 #[inline]
 fn f32_to_bits(x: f32) u32 {
     let value = x;
+    // Bit reinterpretation is confined to this stack copy.
     return (value.& as &u32).*;
 }
 
 #[inline]
 fn f32_from_bits(bits: u32) f32 {
     let value = bits;
+    // `bits` is a plain integer payload and every bit pattern is accepted here.
     return (value.& as &f32).*;
 }
 
 #[inline]
 fn f64_to_bits(x: f64) u64 {
     let value = x;
+    // Bit reinterpretation is confined to this stack copy.
     return (value.& as &u64).*;
 }
 
 #[inline]
 fn f64_from_bits(bits: u64) f64 {
     let value = bits;
+    // `bits` is a plain integer payload and every bit pattern is accepted here.
     return (value.& as &f64).*;
 }
 

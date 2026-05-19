@@ -1,3 +1,10 @@
+//! Runtime memory intrinsic fallbacks.
+//!
+//! These definitions are exported with the C ABI names expected by LLVM and
+//! platform linkers when libc is not providing them. Their safety contract is
+//! the same as the corresponding C routines: callers must pass valid memory
+//! ranges for the requested length, with overlap allowed only for `memmove`.
+
 const WORD_BYTES = @sizeOf[usize]();
 const WORD_MASK = WORD_BYTES - 1usize;
 
@@ -64,6 +71,14 @@ fn can_copy_words(
 }
 
 #[inline]
+fn ranges_overlap_with_dest_inside_source(dest_addr: usize, src_addr: usize, len: usize) bool {
+    if (dest_addr <= src_addr) {
+        return false;
+    }
+    return dest_addr - src_addr < len;
+}
+
+#[inline]
 fn forward_prefix(dest_addr: usize) usize {
     let offset = dest_addr & WORD_MASK;
     return if (offset == 0) 0usize else WORD_BYTES - offset;
@@ -71,7 +86,7 @@ fn forward_prefix(dest_addr: usize) usize {
 
 #[inline]
 fn backward_suffix(dest_addr: usize, len: usize) usize {
-    return (dest_addr + len) & WORD_MASK;
+    return ((dest_addr & WORD_MASK) + (len & WORD_MASK)) & WORD_MASK;
 }
 
 #[inline]
@@ -237,7 +252,7 @@ extern fn memmove(dest: &mut u8, src: &u8, len: usize) &mut u8 {
     let dest_addr = dest as usize;
     let src_addr = src as usize;
 
-    if (dest_addr > src_addr and dest_addr < (src_addr + len)) {
+    if (ranges_overlap_with_dest_inside_source(dest_addr, src_addr, len)) {
         if (!can_copy_words(dest_addr, src_addr, len)) {
             copy_backward_bytes(dest, src, len);
             return dest;

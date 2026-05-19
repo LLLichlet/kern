@@ -4,24 +4,41 @@
 //! keep raw-address to pointer conversion centralized in one module and expose
 //! explicit `usize` conversion methods so address-heavy code stays readable
 //! without duplicating the cast API.
+//!
+//! Safety:
+//! these helpers do not validate provenance, alignment, or liveness. They are
+//! intended for allocator, runtime, and FFI code that has already established
+//! those invariants by construction.
 
 impl usize {
     /// Reinterprets this address as `&T`.
+    ///
+    /// Safety:
+    /// the address must name a live, properly aligned `T`.
     pub fn as_ptr[T]() &T {
         return self as &T;
     }
 
     /// Reinterprets this address as `&mut T`.
+    ///
+    /// Safety:
+    /// the address must name a uniquely accessible, live, properly aligned `T`.
     pub fn as_mut_ptr[T]() &mut T {
         return self as &mut T;
     }
 
     /// Reinterprets this address as `^T`.
+    ///
+    /// Safety:
+    /// the address is not checked for validity before conversion.
     pub fn as_addr_ptr[T]() ^T {
         return self as ^T;
     }
 
     /// Reinterprets this address as `^mut T`.
+    ///
+    /// Safety:
+    /// the address is not checked for validity before conversion.
     pub fn as_mut_addr_ptr[T]() ^mut T {
         return self as ^mut T;
     }
@@ -52,10 +69,19 @@ impl[T] &T {
         return (self as usize) == 0;
     }
 
+    /// Returns a pointer advanced by `offset` bytes.
+    ///
+    /// Safety:
+    /// callers must ensure the resulting address is in-bounds and aligned for `T`.
     pub fn byte_add(offset: usize) &T {
         return ((self as usize) + offset).as_ptr[T]();
     }
 
+    /// Returns a pointer moved back by `offset` bytes.
+    ///
+    /// Safety:
+    /// callers must ensure the subtraction does not underflow and the resulting
+    /// address is in-bounds and aligned for `T`.
     pub fn byte_sub(offset: usize) &T {
         return ((self as usize) - offset).as_ptr[T]();
     }
@@ -66,10 +92,20 @@ impl[T] &mut T {
         return (self as usize) == 0;
     }
 
+    /// Returns a mutable pointer advanced by `offset` bytes.
+    ///
+    /// Safety:
+    /// callers must ensure the resulting address is uniquely accessible,
+    /// in-bounds, and aligned for `T`.
     pub fn byte_add(offset: usize) &mut T {
         return ((self as usize) + offset).as_mut_ptr[T]();
     }
 
+    /// Returns a mutable pointer moved back by `offset` bytes.
+    ///
+    /// Safety:
+    /// callers must ensure the subtraction does not underflow and the resulting
+    /// address is uniquely accessible, in-bounds, and aligned for `T`.
     pub fn byte_sub(offset: usize) &mut T {
         return ((self as usize) - offset).as_mut_ptr[T]();
     }

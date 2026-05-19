@@ -252,16 +252,15 @@ impl[T] &mut List[T] {
         }
 
         let old_len = self.len;
-        let .{ Ok: _ } = self.try_reserve(alloc, additional) else {
-            .{ Err: err } => {
-                match (err) {
-                    .CapacityOverflow => return .{ Err: .CapacityOverflow },
-                    .OutOfMemory => return .{ Err: .OutOfMemory },
-                }
-            },
-        };
-
         if (self.is_zst()) {
+            let .{ Ok: _ } = self.try_reserve(alloc, additional) else {
+                .{ Err: err } => {
+                    match (err) {
+                        .CapacityOverflow => return .{ Err: .CapacityOverflow },
+                        .OutOfMemory => return .{ Err: .OutOfMemory },
+                    }
+                },
+            };
             self.len = old_len + additional;
             return .{ Ok: {} };
         }
@@ -270,13 +269,12 @@ impl[T] &mut List[T] {
         let mut src_ptr = slice.[0].& as &T;
         let mut temp_ptr = null_mut_ptr[u8]();
         let mut temp_layout = Layout.{ size: 0, align: 1 };
-
         let base_addr = self.ptr as usize;
         let end_addr = (self.ptr + old_len) as usize;
         let src_addr = src_ptr as usize;
         if (src_addr >= base_addr and src_addr < end_addr) {
-            // `slice` aliases the current list storage. Reserve may move the
-            // buffer, so materialize the source range before shifting data.
+            // `slice` aliases current list storage. Materialize it before reserve can
+            // relocate and free the backing buffer.
             let .{ Some: layout } = self.buffer_layout(additional)
                 else return .{ Err: .CapacityOverflow };
             temp_layout = layout;
@@ -289,6 +287,15 @@ impl[T] &mut List[T] {
             if ((temp_ptr as usize) != 0) {
                 alloc.free(temp_ptr, temp_layout);
             }
+        };
+
+        let .{ Ok: _ } = self.try_reserve(alloc, additional) else {
+            .{ Err: err } => {
+                match (err) {
+                    .CapacityOverflow => return .{ Err: .CapacityOverflow },
+                    .OutOfMemory => return .{ Err: .OutOfMemory },
+                }
+            },
         };
 
         let moved = old_len - index;
@@ -386,6 +393,7 @@ impl[T] &mut List[T] {
         slice: &[T],
         old_len: usize,
         additional: usize,
+        alias_offset: ?usize,
     ) void {
         if (self.is_zst()) {
             self.len = old_len + additional;
@@ -393,20 +401,34 @@ impl[T] &mut List[T] {
         }
 
         let mut src_ptr = slice.[0].& as &T;
-        let base_addr = self.ptr as usize;
-        let end_addr = (self.ptr + old_len) as usize;
-        let src_addr = src_ptr as usize;
-        if (src_addr >= base_addr and src_addr < end_addr) {
-            // Reserve may relocate the backing store, so remap aliasing slices
-            // into the new buffer before copying.
-            let src_offset = (src_addr - base_addr) / self.elem_size();
-            src_ptr = self.ptr + src_offset;
-        }
+        match (alias_offset) {
+            .{ Some: offset } => {
+                // `try_reserve` may have moved the backing allocation. When the
+                // source slice originally pointed into this list, remap it into
+                // the post-reserve buffer before copying.
+                src_ptr = self.ptr + offset;
+            }
+            .None => {},
+        };
 
         let target_ptr = self.ptr + old_len;
         let copy_bytes = additional * self.elem_size();
         _ = memmove(target_ptr as &mut u8, src_ptr as &u8, copy_bytes);
         self.len = old_len + additional;
+    }
+
+    fn slice_alias_offset(slice: &[T], old_len: usize) ?usize {
+        if (self.is_zst() or old_len == 0 or slice.@len() == 0) {
+            return .None;
+        }
+
+        let base_addr = self.ptr as usize;
+        let end_addr = (self.ptr + old_len) as usize;
+        let src_addr = slice.[0].& as &T as usize;
+        if (src_addr >= base_addr and src_addr < end_addr) {
+            return .{ Some: (src_addr - base_addr) / self.elem_size() };
+        }
+        return .None;
     }
 
     /// Appends every element from `slice` or returns a structured allocation error.
@@ -415,8 +437,9 @@ impl[T] &mut List[T] {
         if (additional == 0) return .{ Ok: {} };
 
         let old_len = self.len;
+        let alias_offset = self.slice_alias_offset(slice, old_len);
         self.try_reserve(alloc, additional).?;
-        self.append_slice_reserved(slice, old_len, additional);
+        self.append_slice_reserved(slice, old_len, additional, alias_offset);
         return .{ Ok: {} };
     }
 
@@ -426,8 +449,9 @@ impl[T] &mut List[T] {
         if (additional == 0) return .{ Ok: {} };
 
         let old_len = self.len;
+        let alias_offset = self.slice_alias_offset(slice, old_len);
         self.try_reserve_exact(alloc, additional).?;
-        self.append_slice_reserved(slice, old_len, additional);
+        self.append_slice_reserved(slice, old_len, additional, alias_offset);
         return .{ Ok: {} };
     }
 

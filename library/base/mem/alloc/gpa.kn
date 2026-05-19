@@ -216,6 +216,8 @@ impl &mut GPA : Allocator {
         match (prev) {
             .{ Some: prev } => {
                 if (((prev as usize) + prev.size) == (block as usize)) {
+                    // Coalescing with the previous block consumes `block`;
+                    // callers must not inspect `block` after insertion returns.
                     prev.size += block.size;
                     prev.next = block.next;
                 }
@@ -234,13 +236,15 @@ impl &mut GPA : Allocator {
                 while (true) {
             let .{ Some: current } = curr else break;
             if (self.free_block_overlaps_active(current)) {
+                // Defensive corruption guard: an allocatable free block must
+                // never overlap a still-active block. Drop stale metadata before
+                // it can be reused.
                 let next = current.next;
                 match (prev) {
                     .None => self.free_list = next,
                     .{ Some: prev } => prev.next = next,
                 };
                 curr = next;
-                curr = current.next;
                 continue;
             }
 

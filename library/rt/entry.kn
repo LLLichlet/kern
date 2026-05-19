@@ -188,6 +188,9 @@ fn build_windows_utf8_argv(argc: usize, argv_wide: &mut &mut u16) i32 {
         let arg_start = out_len;
         let arg_wide = (argv_wide + utf8_argc).*;
         let arg_len = utf16_z_len(arg_wide);
+        // The final byte of WINDOWS_ARG_BUF is reserved for the zero terminator
+        // written below, so conversion only receives the `[out_len, 32767)`
+        // window. Oversized argv is truncated rather than writing past statics.
         let written = wide_to_utf8_into(
             arg_wide.&[0...arg_len],
             WINDOWS_ARG_BUF..&[out_len...32767]

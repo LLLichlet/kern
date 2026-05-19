@@ -228,6 +228,9 @@ impl &mut Arena : Allocator {
         let .{ Some: current } = self.current else return false;
 
         if (current != target) {
+            // Chunks are linked newest-to-oldest. Cut the chain immediately
+            // before the target, release the newer prefix, then restore target
+            // as the current allocation frontier.
             let mut newer_tail = self.current;
                         while (true) {
                 let .{ Some: tail } = newer_tail else return false;

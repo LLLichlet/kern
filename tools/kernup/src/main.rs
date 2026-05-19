@@ -1,3 +1,8 @@
+//! `kernup` installer entry point.
+//!
+//! The binary downloads or installs a Kern SDK archive, validates the resulting
+//! toolchain, and optionally wires the installed tools into the user's PATH.
+
 use shared_cli::{ColorChoice, ErrorReport, HelpDoc, HelpSection};
 use shared_ops::{
     OpsError, OpsResult, archive_kind_from_path, configure_path, copy_sdk_contents,

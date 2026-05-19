@@ -1,5 +1,11 @@
 #![doc = include_str!("../README.md")]
 
+//! Mid-level intermediate representation and validation passes.
+//!
+//! MIR is the compiler's control-flow-oriented representation between MAST
+//! lowering and LLVM codegen.  This crate exposes the IR, summary indexes,
+//! verification helpers, and the default optimization/pass pipeline.
+
 mod ids;
 mod ir;
 mod pass;

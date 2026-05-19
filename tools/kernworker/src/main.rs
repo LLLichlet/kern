@@ -1,3 +1,8 @@
+//! `kernworker` maintenance command entry point.
+//!
+//! The binary collects release packaging and CI-only maintenance operations
+//! behind a stable CLI so workflow files can stay small and auditable.
+
 mod args;
 mod ci;
 mod release;

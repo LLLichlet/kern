@@ -1,3 +1,8 @@
+//! Runtime dependency discovery used while packaging SDK toolchains.
+//!
+//! The release bundler uses these helpers to locate platform runtime libraries
+//! that must travel with the compiled Kern binaries.
+
 use super::util::{
     canonical_or_self, direct_files, files_with_extension, find_program_local, push_unique,
 };

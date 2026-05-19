@@ -1,3 +1,8 @@
+//! Filesystem bundling logic for release directories.
+//!
+//! This module copies host tools, official libraries, metadata manifests, and
+//! runtime dependencies into the staging layout that archive creation consumes.
+
 use super::deps::{
     external_runtime_libdirs_for_bundled_tools, linux_collect_bundled_runtime_libs,
     macos_collect_external_runtime_libs, macos_collect_runtime_libs,

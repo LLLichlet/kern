@@ -1,3 +1,9 @@
+//! Release packaging orchestration for host tools and SDK toolchains.
+//!
+//! This module validates requested targets, builds or collects release assets,
+//! prepares distribution directories, and delegates archive/checksum details to
+//! focused submodules.
+
 mod archive;
 mod bundle;
 mod checksum;

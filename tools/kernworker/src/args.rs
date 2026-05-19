@@ -1,3 +1,8 @@
+//! Argument parsing and help text for `kernworker`.
+//!
+//! Parsing is intentionally hand-written so CI/release commands can reject
+//! ambiguous options with precise messages and keep the shipped binary light.
+
 use shared_cli::{ColorChoice, HelpDoc, HelpSection};
 use shared_ops::{OpsError, OpsResult};
 use std::path::PathBuf;

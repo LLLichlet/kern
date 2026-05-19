@@ -1,5 +1,12 @@
 #![doc = include_str!("../README.md")]
 
+//! Lowers checked semantic definitions into the monomorphized AST.
+//!
+//! This crate owns the transition from typed source-level definitions to MAST:
+//! it schedules generic instantiations, materializes globals, records
+//! monomorphization metadata, and keeps lowering cache statistics for
+//! incremental analysis.
+
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 

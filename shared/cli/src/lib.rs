@@ -1,3 +1,9 @@
+//! Minimal terminal rendering helpers shared by first-party command-line tools.
+//!
+//! The types here intentionally avoid command-specific policy.  Callers build
+//! structured help or error reports, and this module handles color selection and
+//! deterministic text layout.
+
 use std::io::IsTerminal;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

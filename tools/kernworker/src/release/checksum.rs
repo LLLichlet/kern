@@ -1,3 +1,8 @@
+//! Checksum manifest generation for release artifacts.
+//!
+//! The file list is normalized before hashing so repeated release runs produce
+//! stable checksum records independent of path spelling.
+
 use super::util::{canonical_or_self, path_relative_to, push_unique};
 use shared_ops::{OpsResult, file_size, sha256_file, write_json_value};
 use std::fs;

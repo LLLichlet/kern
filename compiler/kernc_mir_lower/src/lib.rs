@@ -1,5 +1,11 @@
 #![doc = include_str!("../README.md")]
 
+//! Converts monomorphized AST into validated MIR modules.
+//!
+//! The public entry points offer optimized and unoptimized builds.  Both routes
+//! preserve a `MirBuildReport` so callers can inspect workload stats, summaries,
+//! and pass-pipeline effects without reaching into the builder internals.
+
 mod builder;
 #[cfg(test)]
 mod tests;

@@ -1,3 +1,8 @@
+//! CI maintenance commands implemented for the `kernworker` binary.
+//!
+//! These routines encode repository-specific checks, toolchain activation, and
+//! archive verification that would otherwise be duplicated in workflow YAML.
+
 use crate::args::{
     ActivateToolchainArgs, PackagedToolchainInstallArgs, PackagedToolchainVerifyArgs, TestMode,
     ToolchainArchiveArgs, ToolchainSpecArgs, VsixVerifyArgs,

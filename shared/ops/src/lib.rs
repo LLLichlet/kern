@@ -1,3 +1,9 @@
+//! Shared host-side operations used by release, installer, and CI helper tools.
+//!
+//! This crate keeps filesystem, archive, SDK, and process helpers out of the
+//! small command binaries so each tool can share the same path handling and
+//! user-facing error formatting.
+
 use serde::Deserialize;
 use std::env;
 use std::ffi::OsString;

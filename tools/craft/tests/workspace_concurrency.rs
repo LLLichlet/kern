@@ -1,3 +1,8 @@
+//! Integration stress test for concurrent craft invocations in one workspace.
+//!
+//! The test launches separate craft processes against the same manifest so the
+//! operation lock and build-state paths are exercised through the real binary.
+
 use std::env;
 use std::fmt::Write;
 use std::fs;

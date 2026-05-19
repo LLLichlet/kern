@@ -1,5 +1,11 @@
 #![doc = include_str!("../README.md")]
 
+//! Shared middle-end facts produced by semantic analysis and consumed downstream.
+//!
+//! This crate is deliberately small: it contains cross-stage data that does not
+//! belong to the AST, semantic context, or final MIR, but still needs a stable
+//! representation between compiler phases.
+
 use kernc_ty::TypeId;
 use kernc_utils::{AtomicOrdering, FastHashMap, NodeId};
 

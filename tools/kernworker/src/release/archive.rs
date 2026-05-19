@@ -1,3 +1,9 @@
+//! Archive creation helpers for release distributions.
+//!
+//! The implementation selects the platform archive format and delegates to
+//! system tools with deterministic paths so produced SDK archives are easy to
+//! verify and publish.
+
 use super::util::powershell_quote;
 use shared_ops::{OpsError, OpsResult, run_command};
 use std::ffi::OsString;

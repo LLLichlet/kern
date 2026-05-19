@@ -1,5 +1,12 @@
 #![doc = include_str!("../README.md")]
 
+//! High-level compiler driver API used by the CLI, tools, and language server.
+//!
+//! The driver coordinates parsing, semantic analysis, lowering, MIR, codegen,
+//! documentation metadata, and analysis artifacts.  Most public exports here
+//! are stable data shapes consumed by external tooling rather than phase-local
+//! implementation details.
+
 mod compiler;
 mod doc;
 mod frontend;

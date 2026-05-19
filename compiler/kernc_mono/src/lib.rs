@@ -1,5 +1,11 @@
 #![doc = include_str!("../README.md")]
 
+//! Shared identifiers and metadata for monomorphized compiler items.
+//!
+//! Lowering assigns compact `MonoId`s to concrete generic instantiations and
+//! backend-visible aggregate forms.  Later MIR and codegen stages use this crate
+//! to agree on those ids without depending on lowering internals.
+
 use kernc_ty::{DefId, GenericArg, TypeId};
 use std::collections::HashMap;
 

@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 pub type QueryResult<T> = Result<T, Cycle>;
 
@@ -54,6 +54,19 @@ impl fmt::Display for Cycle {
 
 impl std::error::Error for Cycle {}
 
+fn query_db_ice(args: fmt::Arguments<'_>) -> ! {
+    panic!("Kern ICE (Query DB): {args}");
+}
+
+fn lock_or_ice<'a, T>(lock: &'a Mutex<T>, label: &'static str) -> MutexGuard<'a, T> {
+    match lock.lock() {
+        Ok(guard) => guard,
+        Err(_) => query_db_ice(format_args!(
+            "{label} mutex was poisoned by an earlier panic"
+        )),
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Database {
     runtime: Arc<Mutex<RuntimeState>>,
@@ -65,24 +78,24 @@ impl Database {
     }
 
     pub fn revision(&self) -> Revision {
-        self.runtime.lock().unwrap().current_revision
+        lock_or_ice(&self.runtime, "database runtime").current_revision
     }
 
     fn allocate_token(&self) -> DependencyToken {
-        let mut runtime = self.runtime.lock().unwrap();
+        let mut runtime = lock_or_ice(&self.runtime, "database runtime");
         let token = DependencyToken(runtime.next_token);
         runtime.next_token += 1;
         token
     }
 
     fn bump_revision(&self) -> Revision {
-        let mut runtime = self.runtime.lock().unwrap();
+        let mut runtime = lock_or_ice(&self.runtime, "database runtime");
         runtime.current_revision = Revision(runtime.current_revision.0 + 1);
         runtime.current_revision
     }
 
     fn record_dependency(&self, dep: Box<dyn DependencyEdge>) {
-        let mut runtime = self.runtime.lock().unwrap();
+        let mut runtime = lock_or_ice(&self.runtime, "database runtime");
         let Some(frame) = runtime.stack.last_mut() else {
             // Reads outside an active query are allowed; they simply do not
             // contribute to a cached dependency set.
@@ -108,7 +121,7 @@ impl Database {
         F: FnOnce() -> QueryResult<T>,
     {
         {
-            let mut runtime = self.runtime.lock().unwrap();
+            let mut runtime = lock_or_ice(&self.runtime, "database runtime");
             // The frame stays on the stack for the whole computation so nested
             // query reads can register dependencies and cycles can report the
             // active participant chain.
@@ -122,11 +135,13 @@ impl Database {
         let result = f();
 
         let frame = {
-            let mut runtime = self.runtime.lock().unwrap();
-            runtime
-                .stack
-                .pop()
-                .expect("active query frame must exist while executing")
+            let mut runtime = lock_or_ice(&self.runtime, "database runtime");
+            match runtime.stack.pop() {
+                Some(frame) => frame,
+                None => query_db_ice(format_args!(
+                    "active query frame `{name}` disappeared while executing"
+                )),
+            }
         };
 
         result.map(|value| (value, frame.deps))
@@ -142,7 +157,7 @@ impl Database {
         F: FnOnce() -> Result<QueryResult<T>, E>,
     {
         {
-            let mut runtime = self.runtime.lock().unwrap();
+            let mut runtime = lock_or_ice(&self.runtime, "database runtime");
             runtime.stack.push(ActiveFrame {
                 token,
                 name,
@@ -153,18 +168,20 @@ impl Database {
         let result = f();
 
         let frame = {
-            let mut runtime = self.runtime.lock().unwrap();
-            runtime
-                .stack
-                .pop()
-                .expect("active query frame must exist while executing")
+            let mut runtime = lock_or_ice(&self.runtime, "database runtime");
+            match runtime.stack.pop() {
+                Some(frame) => frame,
+                None => query_db_ice(format_args!(
+                    "active fallible query frame `{name}` disappeared while executing"
+                )),
+            }
         };
 
         result.map(|query_result| query_result.map(|value| (value, frame.deps)))
     }
 
     fn cycle_for(&self, token: DependencyToken, name: &'static str) -> Cycle {
-        let runtime = self.runtime.lock().unwrap();
+        let runtime = lock_or_ice(&self.runtime, "database runtime");
         let start = runtime
             .stack
             .iter()
@@ -249,7 +266,7 @@ where
     }
 
     fn set_optional(&self, db: &Database, key: K, value: Option<V>) -> bool {
-        let mut entries = self.inner.entries.lock().unwrap();
+        let mut entries = lock_or_ice(&self.inner.entries, "input entries");
         let entry = entries.entry(key).or_insert_with(|| InputEntry {
             token: db.allocate_token(),
             value: None,
@@ -292,7 +309,7 @@ where
         db: &Database,
         key: K,
     ) -> (DependencyToken, Option<V>, Revision) {
-        let mut entries = self.entries.lock().unwrap();
+        let mut entries = lock_or_ice(&self.entries, "input entries");
         let entry = entries.entry(key).or_insert_with(|| InputEntry {
             token: db.allocate_token(),
             value: None,
@@ -319,6 +336,60 @@ pub struct Memo<K, V> {
 }
 
 type QueryCompute<K, V> = dyn Fn(&Database, &K) -> QueryResult<V> + Send + Sync;
+
+fn ready_value_or_ice<V: Clone>(
+    value: &Option<V>,
+    name: &'static str,
+    operation: &'static str,
+) -> V {
+    match value {
+        Some(value) => value.clone(),
+        None => query_db_ice(format_args!(
+            "{name} entry was marked ready without a cached value while {operation}"
+        )),
+    }
+}
+
+fn query_entry_mut_or_ice<'a, K, V>(
+    entries: &'a mut HashMap<K, QueryEntry<V>>,
+    key: &K,
+    name: &'static str,
+    operation: &'static str,
+) -> &'a mut QueryEntry<V>
+where
+    K: Eq + Hash,
+{
+    match entries.get_mut(key) {
+        Some(entry) => entry,
+        None => query_db_ice(format_args!("{name} entry disappeared while {operation}")),
+    }
+}
+
+fn query_entry_or_ice<'a, K, V>(
+    entries: &'a HashMap<K, QueryEntry<V>>,
+    key: &K,
+    name: &'static str,
+    operation: &'static str,
+) -> &'a QueryEntry<V>
+where
+    K: Eq + Hash,
+{
+    match entries.get(key) {
+        Some(entry) => entry,
+        None => query_db_ice(format_args!("{name} entry disappeared while {operation}")),
+    }
+}
+
+fn restore_entry_from_snapshot<V: Clone>(
+    entry: &mut QueryEntry<V>,
+    snapshot: &QueryEntrySnapshot<V>,
+) {
+    entry.state = snapshot.state;
+    entry.value = snapshot.value.clone();
+    entry.changed_at = snapshot.changed_at;
+    entry.verified_at = snapshot.verified_at;
+    entry.deps = snapshot.deps.clone();
+}
 
 impl<K, V> Query<K, V>
 where
@@ -350,10 +421,11 @@ where
             if snapshot.value.is_some() && snapshot.verified_at == current_revision {
                 // Fast path: another read already validated this entry in the
                 // current revision, so the dependency list is known fresh.
-                let value = snapshot
-                    .value
-                    .clone()
-                    .expect("ready query entry must have a cached value");
+                let value = ready_value_or_ice(
+                    &snapshot.value,
+                    self.inner.name,
+                    "serving a current-revision query value",
+                );
                 db.record_dependency(Box::new(QueryDependency {
                     query: self.clone(),
                     key,
@@ -368,16 +440,20 @@ where
                 // The value may have been computed in an older revision, but
                 // all recorded dependencies are still valid.  Refresh only the
                 // verification timestamp instead of running the query again.
-                let mut entries = self.inner.entries.lock().unwrap();
-                let entry = entries
-                    .get_mut(&key)
-                    .expect("query entry must exist while refreshing verification");
+                let mut entries = lock_or_ice(&self.inner.entries, "query entries");
+                let entry = query_entry_mut_or_ice(
+                    &mut entries,
+                    &key,
+                    self.inner.name,
+                    "refreshing query verification",
+                );
                 if entry.state == QueryState::Ready {
                     entry.verified_at = current_revision;
-                    let value = entry
-                        .value
-                        .clone()
-                        .expect("ready query entry must have a cached value");
+                    let value = ready_value_or_ice(
+                        &entry.value,
+                        self.inner.name,
+                        "refreshing query verification",
+                    );
                     drop(entries);
                     db.record_dependency(Box::new(QueryDependency {
                         query: self.clone(),
@@ -390,10 +466,13 @@ where
             }
 
             {
-                let mut entries = self.inner.entries.lock().unwrap();
-                let entry = entries
-                    .get_mut(&key)
-                    .expect("query entry must exist before computing");
+                let mut entries = lock_or_ice(&self.inner.entries, "query entries");
+                let entry = query_entry_mut_or_ice(
+                    &mut entries,
+                    &key,
+                    self.inner.name,
+                    "marking query as evaluating",
+                );
                 if entry.state == QueryState::Evaluating {
                     return Err(db.cycle_for(snapshot.token, self.inner.name));
                 }
@@ -417,10 +496,13 @@ where
                         current_revision
                     };
 
-                    let mut entries = self.inner.entries.lock().unwrap();
-                    let entry = entries
-                        .get_mut(&key)
-                        .expect("query entry must exist after computing");
+                    let mut entries = lock_or_ice(&self.inner.entries, "query entries");
+                    let entry = query_entry_mut_or_ice(
+                        &mut entries,
+                        &key,
+                        self.inner.name,
+                        "storing computed query value",
+                    );
                     entry.value = Some(value.clone());
                     entry.changed_at = changed_at;
                     entry.verified_at = current_revision;
@@ -436,17 +518,16 @@ where
                     return Ok(value);
                 }
                 Err(err) => {
-                    let mut entries = self.inner.entries.lock().unwrap();
-                    let entry = entries
-                        .get_mut(&key)
-                        .expect("query entry must exist after failed computation");
-                    entry.state = snapshot.state;
+                    let mut entries = lock_or_ice(&self.inner.entries, "query entries");
+                    let entry = query_entry_mut_or_ice(
+                        &mut entries,
+                        &key,
+                        self.inner.name,
+                        "rolling back failed query computation",
+                    );
                     // Failed query execution must not poison the cache.  Roll
                     // the entry back to the last known-good snapshot.
-                    entry.value = snapshot.value.clone();
-                    entry.changed_at = snapshot.changed_at;
-                    entry.verified_at = snapshot.verified_at;
-                    entry.deps = snapshot.deps.clone();
+                    restore_entry_from_snapshot(entry, &snapshot);
                     return Err(err);
                 }
             }
@@ -473,10 +554,13 @@ where
 
     fn refresh(&self, db: &Database, key: K) -> QueryResult<Revision> {
         let _ = self.get(db, key.clone())?;
-        let entries = self.inner.entries.lock().unwrap();
-        let entry = entries
-            .get(&key)
-            .expect("query entry must exist after refresh");
+        let entries = lock_or_ice(&self.inner.entries, "query entries");
+        let entry = query_entry_or_ice(
+            &entries,
+            &key,
+            self.inner.name,
+            "reading query change revision",
+        );
         Ok(entry.changed_at)
     }
 }
@@ -497,7 +581,7 @@ where
     V: Clone,
 {
     fn ensure_entry_snapshot(&self, db: &Database, key: K) -> QueryEntrySnapshot<V> {
-        let mut entries = self.entries.lock().unwrap();
+        let mut entries = lock_or_ice(&self.entries, "query entries");
         let entry = entries.entry(key).or_insert_with(|| QueryEntry {
             token: db.allocate_token(),
             state: QueryState::Ready,
@@ -552,34 +636,38 @@ where
             if snapshot.value.is_some() && snapshot.verified_at == current_revision {
                 // Memos are manually named computations; unlike `Query`, they
                 // do not record a dependency edge for the caller themselves.
-                return Ok(snapshot
-                    .value
-                    .clone()
-                    .expect("ready memo entry must have a cached value"));
+                return Ok(ready_value_or_ice(
+                    &snapshot.value,
+                    name,
+                    "serving a current-revision memo value",
+                ));
             }
 
             if snapshot.value.is_some()
                 && !dependencies_changed_since(db, &snapshot.deps, snapshot.verified_at)?
             {
-                let mut entries = self.inner.entries.lock().unwrap();
-                let entry = entries
-                    .get_mut(&key)
-                    .expect("memo entry must exist while refreshing verification");
+                let mut entries = lock_or_ice(&self.inner.entries, "memo entries");
+                let entry = query_entry_mut_or_ice(
+                    &mut entries,
+                    &key,
+                    name,
+                    "refreshing memo verification",
+                );
                 if entry.state == QueryState::Ready {
                     entry.verified_at = current_revision;
-                    return Ok(entry
-                        .value
-                        .clone()
-                        .expect("ready memo entry must have a cached value"));
+                    return Ok(ready_value_or_ice(
+                        &entry.value,
+                        name,
+                        "refreshing memo verification",
+                    ));
                 }
                 continue;
             }
 
             {
-                let mut entries = self.inner.entries.lock().unwrap();
-                let entry = entries
-                    .get_mut(&key)
-                    .expect("memo entry must exist before computing");
+                let mut entries = lock_or_ice(&self.inner.entries, "memo entries");
+                let entry =
+                    query_entry_mut_or_ice(&mut entries, &key, name, "marking memo as evaluating");
                 if entry.state == QueryState::Evaluating {
                     return Err(db.cycle_for(snapshot.token, name));
                 }
@@ -590,10 +678,13 @@ where
 
             match computed {
                 Ok((value, deps)) => {
-                    let mut entries = self.inner.entries.lock().unwrap();
-                    let entry = entries
-                        .get_mut(&key)
-                        .expect("memo entry must exist after computing");
+                    let mut entries = lock_or_ice(&self.inner.entries, "memo entries");
+                    let entry = query_entry_mut_or_ice(
+                        &mut entries,
+                        &key,
+                        name,
+                        "storing computed memo value",
+                    );
                     entry.value = Some(value.clone());
                     entry.changed_at = current_revision;
                     entry.verified_at = current_revision;
@@ -602,15 +693,14 @@ where
                     return Ok(value);
                 }
                 Err(err) => {
-                    let mut entries = self.inner.entries.lock().unwrap();
-                    let entry = entries
-                        .get_mut(&key)
-                        .expect("memo entry must exist after failed computation");
-                    entry.state = snapshot.state;
-                    entry.value = snapshot.value.clone();
-                    entry.changed_at = snapshot.changed_at;
-                    entry.verified_at = snapshot.verified_at;
-                    entry.deps = snapshot.deps.clone();
+                    let mut entries = lock_or_ice(&self.inner.entries, "memo entries");
+                    let entry = query_entry_mut_or_ice(
+                        &mut entries,
+                        &key,
+                        name,
+                        "rolling back failed memo computation",
+                    );
+                    restore_entry_from_snapshot(entry, &snapshot);
                     return Err(err);
                 }
             }
@@ -636,25 +726,30 @@ where
             }
 
             if snapshot.value.is_some() && snapshot.verified_at == current_revision {
-                return Ok(Ok(snapshot
-                    .value
-                    .clone()
-                    .expect("ready memo entry must have a cached value")));
+                return Ok(Ok(ready_value_or_ice(
+                    &snapshot.value,
+                    name,
+                    "serving a current-revision fallible memo value",
+                )));
             }
 
             if snapshot.value.is_some() {
                 match dependencies_changed_since(db, &snapshot.deps, snapshot.verified_at) {
                     Ok(false) => {
-                        let mut entries = self.inner.entries.lock().unwrap();
-                        let entry = entries
-                            .get_mut(&key)
-                            .expect("memo entry must exist while refreshing verification");
+                        let mut entries = lock_or_ice(&self.inner.entries, "memo entries");
+                        let entry = query_entry_mut_or_ice(
+                            &mut entries,
+                            &key,
+                            name,
+                            "refreshing fallible memo verification",
+                        );
                         if entry.state == QueryState::Ready {
                             entry.verified_at = current_revision;
-                            return Ok(Ok(entry
-                                .value
-                                .clone()
-                                .expect("ready memo entry must have a cached value")));
+                            return Ok(Ok(ready_value_or_ice(
+                                &entry.value,
+                                name,
+                                "refreshing fallible memo verification",
+                            )));
                         }
                         continue;
                     }
@@ -664,10 +759,13 @@ where
             }
 
             {
-                let mut entries = self.inner.entries.lock().unwrap();
-                let entry = entries
-                    .get_mut(&key)
-                    .expect("memo entry must exist before computing");
+                let mut entries = lock_or_ice(&self.inner.entries, "memo entries");
+                let entry = query_entry_mut_or_ice(
+                    &mut entries,
+                    &key,
+                    name,
+                    "marking fallible memo as evaluating",
+                );
                 if entry.state == QueryState::Evaluating {
                     return Ok(Err(db.cycle_for(snapshot.token, name)));
                 }
@@ -677,27 +775,29 @@ where
             let computed = match db.execute_frame_fallible(name, snapshot.token, compute) {
                 Ok(computed) => computed,
                 Err(err) => {
-                    let mut entries = self.inner.entries.lock().unwrap();
-                    let entry = entries
-                        .get_mut(&key)
-                        .expect("memo entry must exist after failed computation");
-                    entry.state = snapshot.state;
+                    let mut entries = lock_or_ice(&self.inner.entries, "memo entries");
+                    let entry = query_entry_mut_or_ice(
+                        &mut entries,
+                        &key,
+                        name,
+                        "rolling back externally failed memo computation",
+                    );
                     // External errors, for example cancellation or IO, should
                     // leave the memo as if this attempt never happened.
-                    entry.value = snapshot.value.clone();
-                    entry.changed_at = snapshot.changed_at;
-                    entry.verified_at = snapshot.verified_at;
-                    entry.deps = snapshot.deps.clone();
+                    restore_entry_from_snapshot(entry, &snapshot);
                     return Err(err);
                 }
             };
 
             match computed {
                 Ok((value, deps)) => {
-                    let mut entries = self.inner.entries.lock().unwrap();
-                    let entry = entries
-                        .get_mut(&key)
-                        .expect("memo entry must exist after computing");
+                    let mut entries = lock_or_ice(&self.inner.entries, "memo entries");
+                    let entry = query_entry_mut_or_ice(
+                        &mut entries,
+                        &key,
+                        name,
+                        "storing computed fallible memo value",
+                    );
                     entry.value = Some(value.clone());
                     entry.changed_at = current_revision;
                     entry.verified_at = current_revision;
@@ -706,15 +806,14 @@ where
                     return Ok(Ok(value));
                 }
                 Err(err) => {
-                    let mut entries = self.inner.entries.lock().unwrap();
-                    let entry = entries
-                        .get_mut(&key)
-                        .expect("memo entry must exist after failed computation");
-                    entry.state = snapshot.state;
-                    entry.value = snapshot.value.clone();
-                    entry.changed_at = snapshot.changed_at;
-                    entry.verified_at = snapshot.verified_at;
-                    entry.deps = snapshot.deps.clone();
+                    let mut entries = lock_or_ice(&self.inner.entries, "memo entries");
+                    let entry = query_entry_mut_or_ice(
+                        &mut entries,
+                        &key,
+                        name,
+                        "rolling back fallible memo cycle/error",
+                    );
+                    restore_entry_from_snapshot(entry, &snapshot);
                     return Ok(Err(err));
                 }
             }
@@ -738,10 +837,13 @@ where
         {
             // `get_cached` may still validate dependencies; it just refuses to
             // run the owning computation when the cached value is stale.
-            let mut entries = self.inner.entries.lock().unwrap();
-            let entry = entries
-                .get_mut(&key)
-                .expect("memo entry must exist while refreshing verification");
+            let mut entries = lock_or_ice(&self.inner.entries, "memo entries");
+            let entry = query_entry_mut_or_ice(
+                &mut entries,
+                &key,
+                name,
+                "refreshing cached memo verification",
+            );
             if entry.state == QueryState::Ready {
                 entry.verified_at = current_revision;
                 return Ok(entry.value.clone());
@@ -768,7 +870,7 @@ where
     V: Clone,
 {
     fn ensure_entry_snapshot(&self, db: &Database, key: K) -> QueryEntrySnapshot<V> {
-        let mut entries = self.entries.lock().unwrap();
+        let mut entries = lock_or_ice(&self.entries, "memo entries");
         let entry = entries.entry(key).or_insert_with(|| QueryEntry {
             token: db.allocate_token(),
             state: QueryState::Ready,

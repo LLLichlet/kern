@@ -8,7 +8,7 @@
 use crate::SemaContext;
 use crate::def::Def;
 use crate::ty::TypeId;
-use kernc_utils::{Canceled, CancellationToken, Span};
+use kernc_utils::{Canceled, CancellationToken, Span, expect_uncancelable};
 use std::collections::HashMap;
 
 pub struct LinkageChecker<'a, 'ctx> {
@@ -25,8 +25,10 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
     }
 
     pub fn check_all(&mut self) {
-        self.check_all_cancelable(&CancellationToken::new())
-            .expect("fresh cancellation token cannot be canceled");
+        expect_uncancelable(
+            self.check_all_cancelable(&CancellationToken::new()),
+            "checking linkage",
+        );
     }
 
     pub fn check_all_cancelable(

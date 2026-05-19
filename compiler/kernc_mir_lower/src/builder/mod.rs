@@ -382,6 +382,13 @@ impl MirFunctionBuilder {
         ))
     }
 
+    pub(super) fn missing_switch_default_block<T>(&self, span: Span) -> LowerResult<T> {
+        Err(MirLowerError::new(
+            span,
+            "Kern ICE (MIR Lower): switch default case was present but no default block was allocated.",
+        ))
+    }
+
     fn expr_kind_name(&self, expr: &MastExpr) -> &'static str {
         match &expr.kind {
             MastExprKind::Undef => "undef",

@@ -10,8 +10,30 @@ use crate::llvm_api::{
     IntType, IntValue, PointerType, PointerValue, StructType, StructValue, VectorValue,
 };
 use kernc_utils::Span;
+use std::fmt::Debug;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    pub(crate) fn expect_llvm_builder<T, E: Debug>(
+        &mut self,
+        result: Result<T, E>,
+        span: Span,
+        context: &str,
+    ) -> Option<T> {
+        match result {
+            Ok(value) => Some(value),
+            Err(err) => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): LLVM builder failed while compiling {}: {:?}.",
+                        context, err
+                    ),
+                );
+                None
+            }
+        }
+    }
+
     pub(crate) fn lookup_intrinsic_declaration(
         &mut self,
         name: &'static str,

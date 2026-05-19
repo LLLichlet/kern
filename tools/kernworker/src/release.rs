@@ -163,10 +163,8 @@ fn prepare_dist_dir(
                 source.display()
             )));
         }
-        copy_path(
-            &source,
-            &dist_dir.join("bin").join(source.file_name().unwrap()),
-        )?;
+        let binary_name = path_file_name(&source, "release binary")?;
+        copy_path(&source, &dist_dir.join("bin").join(binary_name))?;
     }
 
     let library_root = resolve_official_library_root(root)?;
@@ -213,6 +211,15 @@ fn prepare_dist_dir(
         ),
     )?;
     Ok(())
+}
+
+fn path_file_name<'a>(path: &'a Path, label: &str) -> OpsResult<&'a std::ffi::OsStr> {
+    path.file_name().ok_or_else(|| {
+        OpsError::new(format!(
+            "{label} path `{}` has no file name",
+            path.display()
+        ))
+    })
 }
 
 fn prepare_toolchain_dist_dir(

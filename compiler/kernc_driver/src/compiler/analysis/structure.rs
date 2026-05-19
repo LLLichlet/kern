@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::compiler::completion;
+use kernc_utils::expect_uncancelable;
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
 
@@ -743,12 +744,14 @@ impl CompilerDriver {
         input_file: &str,
         source_overrides: &SourceOverrides,
     ) -> Option<StructureArtifact> {
-        self.try_reuse_clean_typed_structure_artifact_cancelable(
-            input_file,
-            source_overrides,
-            &CancellationToken::new(),
+        expect_uncancelable(
+            self.try_reuse_clean_typed_structure_artifact_cancelable(
+                input_file,
+                source_overrides,
+                &CancellationToken::new(),
+            ),
+            "reusing clean typed structure artifacts",
         )
-        .expect("fresh cancellation token cannot be canceled")
     }
 
     pub(super) fn try_reuse_clean_typed_structure_artifact_cancelable(
@@ -1236,13 +1239,15 @@ impl CompilerDriver {
         input_file: &str,
         source_overrides: &SourceOverrides,
     ) -> Result<ParsedModuleArtifact, Box<Session>> {
-        self.try_parse_modules_cancelable(
-            session,
-            input_file,
-            source_overrides,
-            &CancellationToken::new(),
+        expect_uncancelable(
+            self.try_parse_modules_cancelable(
+                session,
+                input_file,
+                source_overrides,
+                &CancellationToken::new(),
+            ),
+            "parsing modules for structure analysis",
         )
-        .expect("fresh cancellation token cannot be canceled")
     }
 
     pub(super) fn try_parse_modules_cancelable(
@@ -1367,8 +1372,10 @@ impl CompilerDriver {
         &self,
         imported: &ImportedStructureArtifact,
     ) -> Option<StructureArtifact> {
-        self.build_typed_structure_cancelable(imported, &CancellationToken::new())
-            .expect("fresh cancellation token cannot be canceled")
+        expect_uncancelable(
+            self.build_typed_structure_cancelable(imported, &CancellationToken::new()),
+            "building typed structure artifact",
+        )
     }
 
     pub(super) fn build_typed_structure_cancelable(
@@ -1433,8 +1440,10 @@ impl CompilerDriver {
         ctx: &mut SemaContext<'a>,
         asts: &[(DefId, ast::Module)],
     ) -> bool {
-        self.run_collect_phase_cancelable(ctx, asts, &CancellationToken::new())
-            .expect("fresh cancellation token cannot be canceled")
+        expect_uncancelable(
+            self.run_collect_phase_cancelable(ctx, asts, &CancellationToken::new()),
+            "running definition collection",
+        )
     }
 
     pub(super) fn run_collect_phase_cancelable<'a>(
@@ -1457,8 +1466,10 @@ impl CompilerDriver {
         ctx: &mut SemaContext<'a>,
         asts: Vec<(DefId, ast::Module)>,
     ) -> bool {
-        self.run_collect_phase_owned_cancelable(ctx, asts, &CancellationToken::new())
-            .expect("fresh cancellation token cannot be canceled")
+        expect_uncancelable(
+            self.run_collect_phase_owned_cancelable(ctx, asts, &CancellationToken::new()),
+            "running owned definition collection",
+        )
     }
 
     pub(super) fn run_collect_phase_owned_cancelable<'a>(
@@ -1477,8 +1488,10 @@ impl CompilerDriver {
     }
 
     pub(super) fn run_import_phase<'a>(&self, ctx: &mut SemaContext<'a>) -> bool {
-        self.run_import_phase_cancelable(ctx, &CancellationToken::new())
-            .expect("fresh cancellation token cannot be canceled")
+        expect_uncancelable(
+            self.run_import_phase_cancelable(ctx, &CancellationToken::new()),
+            "running import resolution",
+        )
     }
 
     pub(super) fn run_import_phase_cancelable<'a>(
@@ -1508,13 +1521,15 @@ impl CompilerDriver {
         lint_docs_enabled: bool,
         phase_timings: Option<&mut Vec<PhaseTiming>>,
     ) -> bool {
-        self.run_type_resolution_phase_with_timings_cancelable(
-            ctx,
-            lint_docs_enabled,
-            phase_timings,
-            &CancellationToken::new(),
+        expect_uncancelable(
+            self.run_type_resolution_phase_with_timings_cancelable(
+                ctx,
+                lint_docs_enabled,
+                phase_timings,
+                &CancellationToken::new(),
+            ),
+            "running type resolution for structure analysis",
         )
-        .expect("fresh cancellation token cannot be canceled")
     }
 
     pub(super) fn run_type_resolution_phase_with_timings_cancelable<'a>(

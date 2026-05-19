@@ -16,6 +16,8 @@ use kernc_db::Memo;
 use kernc_db::{Database, Input, Query};
 use kernc_parser::Parser;
 use kernc_sema::passes::Pruner;
+#[cfg(test)]
+use kernc_utils::expect_uncancelable;
 use kernc_utils::{
     Canceled, CancellationToken, Diagnostic, DiagnosticLevel, FileId, NodeId, Session, Span,
     SymbolId,
@@ -220,13 +222,15 @@ impl FrontendDatabase {
         normalized: &Path,
         collect_docs: bool,
     ) -> Result<Option<(FrontendParsedModule, FrontendLoadTimings)>, kernc_db::Cycle> {
-        self.load_parsed_module_normalized_profiled_cancelable(
-            session,
-            normalized,
-            collect_docs,
-            &CancellationToken::new(),
+        expect_uncancelable(
+            self.load_parsed_module_normalized_profiled_cancelable(
+                session,
+                normalized,
+                collect_docs,
+                &CancellationToken::new(),
+            ),
+            "loading parsed frontend module",
         )
-        .expect("fresh cancellation token cannot be canceled")
     }
 
     pub(crate) fn load_parsed_module_normalized_profiled_cancelable(

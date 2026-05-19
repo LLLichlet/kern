@@ -223,7 +223,7 @@ pub fn bundle_sdk_runtime_toolchain(
     let runtime_tool_roots = runtime_tool_source_roots(&runtime_tools);
     let mut copied_tools = Vec::new();
     for (component, source) in runtime_tools {
-        let destination = bin_dir.join(source.file_name().unwrap());
+        let destination = bin_dir.join(path_file_name(&source, "runtime tool")?);
         copy_path(&source, &destination)?;
         insert_file_record(&mut records, &component, &destination, dist_dir)?;
         copied_tools.push((component, destination));
@@ -246,7 +246,10 @@ pub fn bundle_sdk_runtime_toolchain(
         if host.archive_target.ends_with("apple-darwin") {
             copy_runtime_library(library, &lib_dir)?;
         } else {
-            copy_path(library, &lib_dir.join(library.file_name().unwrap()))?;
+            copy_path(
+                library,
+                &lib_dir.join(path_file_name(library, "runtime library")?),
+            )?;
         }
     }
     if host.archive_target.ends_with("apple-darwin") && !is_empty_dir(&lib_dir)? {
@@ -303,6 +306,15 @@ fn tool_paths(bundled_toolchain: &BundledToolchain) -> OpsResult<Vec<(String, Pa
     }
     tools.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(tools)
+}
+
+fn path_file_name<'a>(path: &'a Path, label: &str) -> OpsResult<&'a std::ffi::OsStr> {
+    path.file_name().ok_or_else(|| {
+        OpsError::new(format!(
+            "{label} path `{}` has no file name",
+            path.display()
+        ))
+    })
 }
 
 fn copy_runtime_library(source: &Path, lib_dir: &Path) -> OpsResult<()> {

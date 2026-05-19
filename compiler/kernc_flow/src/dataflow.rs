@@ -11,7 +11,7 @@ use crate::{
     AnalysisFlowReaching, AnalysisFlowResolvedUse, AnalysisFlowResolvedUseKind,
     AnalysisFlowSingleSourceUse, AnalysisFlowUseDef,
 };
-use kernc_utils::{Canceled, CancellationToken};
+use kernc_utils::{Canceled, CancellationToken, expect_uncancelable};
 use std::collections::HashMap;
 
 pub struct ComputedReaching {
@@ -46,8 +46,10 @@ pub struct CfgTopology {
 
 impl CfgTopology {
     pub fn from_cfg(cfg: &AnalysisFlowCfg) -> Self {
-        Self::from_cfg_cancelable(cfg, &CancellationToken::new())
-            .expect("fresh cancellation token cannot be canceled")
+        expect_uncancelable(
+            Self::from_cfg_cancelable(cfg, &CancellationToken::new()),
+            "building CFG topology",
+        )
     }
 
     pub fn from_cfg_cancelable(
@@ -77,14 +79,14 @@ pub fn collect_node_facts(
     node_defs: &[Vec<AnalysisFlowBindingId>],
     node_def_kinds: &[Option<AnalysisFlowDefinitionKind>],
 ) -> Vec<AnalysisFlowNodeFacts> {
-    collect_node_facts_cancelable(
+    let result = collect_node_facts_cancelable(
         cfg,
         node_uses,
         node_defs,
         node_def_kinds,
         &CancellationToken::new(),
-    )
-    .expect("fresh cancellation token cannot be canceled")
+    );
+    expect_uncancelable(result, "collecting flow node facts")
 }
 
 pub fn collect_node_facts_cancelable(
@@ -112,13 +114,13 @@ pub fn collect_definition_facts(
     node_value_uses: &[Vec<AnalysisFlowBindingId>],
     node_copy_sources: &[Option<AnalysisFlowBindingId>],
 ) -> Vec<AnalysisFlowDefinitionFacts> {
-    collect_definition_facts_cancelable(
+    let result = collect_definition_facts_cancelable(
         node_facts,
         node_value_uses,
         node_copy_sources,
         &CancellationToken::new(),
-    )
-    .expect("fresh cancellation token cannot be canceled")
+    );
+    expect_uncancelable(result, "collecting flow definition facts")
 }
 
 pub fn collect_definition_facts_cancelable(
@@ -158,8 +160,10 @@ pub fn collect_definition_facts_cancelable(
 pub fn collect_node_transfers(
     node_facts: &[AnalysisFlowNodeFacts],
 ) -> Vec<AnalysisFlowNodeTransfer> {
-    collect_node_transfers_cancelable(node_facts, &CancellationToken::new())
-        .expect("fresh cancellation token cannot be canceled")
+    expect_uncancelable(
+        collect_node_transfers_cancelable(node_facts, &CancellationToken::new()),
+        "collecting flow node transfers",
+    )
 }
 
 pub fn collect_node_transfers_cancelable(
@@ -191,8 +195,10 @@ pub fn collect_use_defs(
     node_facts: &[AnalysisFlowNodeFacts],
     reaching: &ComputedReaching,
 ) -> Vec<AnalysisFlowUseDef> {
-    collect_use_defs_cancelable(node_facts, reaching, &CancellationToken::new())
-        .expect("fresh cancellation token cannot be canceled")
+    expect_uncancelable(
+        collect_use_defs_cancelable(node_facts, reaching, &CancellationToken::new()),
+        "collecting flow use-def links",
+    )
 }
 
 pub fn collect_use_defs_cancelable(
@@ -233,8 +239,10 @@ pub fn collect_def_uses(
     node_transfers: &[AnalysisFlowNodeTransfer],
     use_defs: &[AnalysisFlowUseDef],
 ) -> Vec<AnalysisFlowDefUse> {
-    collect_def_uses_cancelable(node_transfers, use_defs, &CancellationToken::new())
-        .expect("fresh cancellation token cannot be canceled")
+    expect_uncancelable(
+        collect_def_uses_cancelable(node_transfers, use_defs, &CancellationToken::new()),
+        "collecting flow def-use links",
+    )
 }
 
 pub fn collect_def_uses_cancelable(
@@ -277,8 +285,10 @@ pub fn collect_def_uses_cancelable(
 }
 
 pub fn collect_resolved_uses(use_defs: &[AnalysisFlowUseDef]) -> Vec<AnalysisFlowResolvedUse> {
-    collect_resolved_uses_cancelable(use_defs, &CancellationToken::new())
-        .expect("fresh cancellation token cannot be canceled")
+    expect_uncancelable(
+        collect_resolved_uses_cancelable(use_defs, &CancellationToken::new()),
+        "collecting resolved flow uses",
+    )
 }
 
 pub fn collect_resolved_uses_cancelable(
@@ -309,12 +319,12 @@ pub fn collect_single_source_uses(
     resolved_uses: &[AnalysisFlowResolvedUse],
     definition_facts: &[AnalysisFlowDefinitionFacts],
 ) -> Vec<AnalysisFlowSingleSourceUse> {
-    collect_single_source_uses_cancelable(
+    let result = collect_single_source_uses_cancelable(
         resolved_uses,
         definition_facts,
         &CancellationToken::new(),
-    )
-    .expect("fresh cancellation token cannot be canceled")
+    );
+    expect_uncancelable(result, "collecting single-source flow uses")
 }
 
 pub fn collect_single_source_uses_cancelable(
@@ -357,8 +367,14 @@ pub fn compute_reaching_definitions(
     topology: &CfgTopology,
     node_transfers: &[AnalysisFlowNodeTransfer],
 ) -> ComputedReaching {
-    compute_reaching_definitions_cancelable(topology, node_transfers, &CancellationToken::new())
-        .expect("fresh cancellation token cannot be canceled")
+    expect_uncancelable(
+        compute_reaching_definitions_cancelable(
+            topology,
+            node_transfers,
+            &CancellationToken::new(),
+        ),
+        "computing reaching definitions",
+    )
 }
 
 pub fn compute_reaching_definitions_cancelable(
@@ -477,8 +493,10 @@ pub fn materialize_reaching_definitions(
     cfg: &AnalysisFlowCfg,
     reaching: &ComputedReaching,
 ) -> Vec<AnalysisFlowReaching> {
-    materialize_reaching_definitions_cancelable(cfg, reaching, &CancellationToken::new())
-        .expect("fresh cancellation token cannot be canceled")
+    expect_uncancelable(
+        materialize_reaching_definitions_cancelable(cfg, reaching, &CancellationToken::new()),
+        "materializing reaching definitions",
+    )
 }
 
 pub fn materialize_reaching_definitions_cancelable(
@@ -506,14 +524,14 @@ pub fn collect_binding_summaries(
     node_facts: &[AnalysisFlowNodeFacts],
     liveness: &ComputedLiveness,
 ) -> Vec<AnalysisFlowBindingSummary> {
-    collect_binding_summaries_cancelable(
+    let result = collect_binding_summaries_cancelable(
         binding_count,
         cfg,
         node_facts,
         liveness,
         &CancellationToken::new(),
-    )
-    .expect("fresh cancellation token cannot be canceled")
+    );
+    expect_uncancelable(result, "collecting flow binding summaries")
 }
 
 pub fn collect_binding_summaries_cancelable(
@@ -587,8 +605,10 @@ pub fn compute_liveness(
     topology: &CfgTopology,
     node_transfers: &[AnalysisFlowNodeTransfer],
 ) -> ComputedLiveness {
-    compute_liveness_cancelable(topology, node_transfers, &CancellationToken::new())
-        .expect("fresh cancellation token cannot be canceled")
+    expect_uncancelable(
+        compute_liveness_cancelable(topology, node_transfers, &CancellationToken::new()),
+        "computing liveness",
+    )
 }
 
 pub fn compute_liveness_cancelable(
@@ -674,8 +694,10 @@ pub fn materialize_liveness(
     cfg: &AnalysisFlowCfg,
     liveness: &ComputedLiveness,
 ) -> Vec<AnalysisFlowLiveness> {
-    materialize_liveness_cancelable(cfg, liveness, &CancellationToken::new())
-        .expect("fresh cancellation token cannot be canceled")
+    expect_uncancelable(
+        materialize_liveness_cancelable(cfg, liveness, &CancellationToken::new()),
+        "materializing liveness",
+    )
 }
 
 pub fn materialize_liveness_cancelable(

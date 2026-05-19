@@ -144,6 +144,9 @@ impl<'ctx> Builder<'ctx> {
             .iter()
             .map(|idx| idx.as_value_ref())
             .collect::<Vec<_>>();
+        // SAFETY: The caller upholds the pointee-type and index validity
+        // contract for this typed GEP wrapper. The temporary index buffer lives
+        // for the duration of the LLVM call.
         Ok(PointerValue::new(unsafe {
             LLVMBuildGEP2(
                 self.raw,

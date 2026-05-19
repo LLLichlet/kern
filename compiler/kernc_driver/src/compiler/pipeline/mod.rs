@@ -32,8 +32,8 @@ use kernc_flow::FlowLoweringHints;
 use kernc_lower::Lowerer;
 use kernc_sema::SemaContext;
 use kernc_sema::def::DefId;
-use kernc_utils::Session;
 use kernc_utils::config::{AsmDialect, CompileOptions, DriverMode, LtoMode};
+use kernc_utils::{Session, expect_uncancelable};
 
 use crate::frontend::FrontendDatabase;
 use crate::metadata;
@@ -199,13 +199,15 @@ impl CompilerDriver {
         flow_lowering_hints: &FlowLoweringHints,
         reachable_items: &std::collections::HashSet<DefId>,
     ) -> Option<LoweredModuleReport> {
-        self.lower_module_with_flow_report_cancelable(
-            ctx,
-            flow_lowering_hints,
-            reachable_items,
-            &CancellationToken::new(),
+        expect_uncancelable(
+            self.lower_module_with_flow_report_cancelable(
+                ctx,
+                flow_lowering_hints,
+                reachable_items,
+                &CancellationToken::new(),
+            ),
+            "lowering module for the compile pipeline",
         )
-        .expect("fresh cancellation token cannot be canceled")
     }
 
     pub(in crate::compiler) fn lower_module_with_flow_report_cancelable<'a>(

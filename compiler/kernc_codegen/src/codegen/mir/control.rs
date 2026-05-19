@@ -129,19 +129,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let dest = self.compile_mir_operand_as_pointer(body, dest, "memcpy destination");
                 let src = self.compile_mir_operand_as_pointer(body, src, "memcpy source");
                 let len = self.compile_mir_operand_as_int(body, len, "memcpy length");
-                self.builder.build_memcpy(dest, 1, src, 1, len).unwrap();
+                let result = self.builder.build_memcpy(dest, 1, src, 1, len);
+                let _ = self.expect_llvm_builder(result, Span::default(), "MIR memcpy");
             }
             MirMemoryIntrinsic::Move { dest, src, len } => {
                 let dest = self.compile_mir_operand_as_pointer(body, dest, "memmove destination");
                 let src = self.compile_mir_operand_as_pointer(body, src, "memmove source");
                 let len = self.compile_mir_operand_as_int(body, len, "memmove length");
-                self.builder.build_memmove(dest, 1, src, 1, len).unwrap();
+                let result = self.builder.build_memmove(dest, 1, src, 1, len);
+                let _ = self.expect_llvm_builder(result, Span::default(), "MIR memmove");
             }
             MirMemoryIntrinsic::Set { dest, val, len } => {
                 let dest = self.compile_mir_operand_as_pointer(body, dest, "memset destination");
                 let val = self.compile_mir_operand_as_int(body, val, "memset value");
                 let len = self.compile_mir_operand_as_int(body, len, "memset length");
-                self.builder.build_memset(dest, 1, val, len).unwrap();
+                let result = self.builder.build_memset(dest, 1, val, len);
+                let _ = self.expect_llvm_builder(result, Span::default(), "MIR memset");
             }
         }
     }
@@ -165,7 +168,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     );
                     return;
                 };
-                self.builder.build_unconditional_branch(block).unwrap();
+                let result = self.builder.build_unconditional_branch(block);
+                let _ = self.expect_llvm_builder(result, Span::default(), "MIR goto");
             }
             MirTerminator::Branch {
                 cond,
@@ -198,9 +202,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     );
                     return;
                 };
-                self.builder
-                    .build_conditional_branch(cond_val, then_bb, else_bb)
-                    .unwrap();
+                let result = self
+                    .builder
+                    .build_conditional_branch(cond_val, then_bb, else_bb);
+                let _ = self.expect_llvm_builder(result, Span::default(), "MIR branch");
             }
             MirTerminator::Switch {
                 target,
@@ -257,13 +262,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     }
                 }
 
-                self.builder
-                    .build_switch(target_val, default_bb, &llvm_cases)
-                    .unwrap();
+                let result = self
+                    .builder
+                    .build_switch(target_val, default_bb, &llvm_cases);
+                let _ = self.expect_llvm_builder(result, Span::default(), "MIR switch");
 
                 if default_block.is_none() {
                     self.builder.position_at_end(default_bb);
-                    self.builder.build_unreachable().unwrap();
+                    let result = self.builder.build_unreachable();
+                    let _ = self.expect_llvm_builder(
+                        result,
+                        Span::default(),
+                        "implicit switch default",
+                    );
                 }
             }
             MirTerminator::Return(value) => {
@@ -274,7 +285,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             return;
                         }
                     }
-                    self.builder.build_return(None).unwrap();
+                    let result = self.builder.build_return(None);
+                    let _ = self.expect_llvm_builder(result, Span::default(), "void MIR return");
                     return;
                 }
 
@@ -286,7 +298,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             function.name
                         ),
                     );
-                    self.builder.build_unreachable().unwrap();
+                    let result = self.builder.build_unreachable();
+                    let _ = self.expect_llvm_builder(
+                        result,
+                        Span::default(),
+                        "non-void MIR return without value",
+                    );
                     return;
                 };
 
@@ -294,10 +311,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 if self.current_block_is_terminated() {
                     return;
                 }
-                self.builder.build_return(Some(&ret)).unwrap();
+                let result = self.builder.build_return(Some(&ret));
+                let _ = self.expect_llvm_builder(result, Span::default(), "value MIR return");
             }
             MirTerminator::Unreachable => {
-                self.builder.build_unreachable().unwrap();
+                let result = self.builder.build_unreachable();
+                let _ = self.expect_llvm_builder(result, Span::default(), "MIR unreachable");
             }
         }
     }

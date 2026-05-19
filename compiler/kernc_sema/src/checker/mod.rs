@@ -18,7 +18,7 @@ use crate::scope::{ScopeId, SymbolInfo, SymbolKind, SymbolNamespace};
 use crate::semantic::SemanticSymbolKind;
 use crate::ty::{ConstGeneric, GenericArg, TypeId, TypeKind};
 use kernc_ast::{self as ast, Visibility};
-use kernc_utils::{Canceled, CancellationToken, FileId, Span};
+use kernc_utils::{Canceled, CancellationToken, FileId, Span, expect_uncancelable};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -375,8 +375,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     }
 
     pub fn resolve_global_worklist(&mut self, globals: &[(DefId, ScopeId)]) {
-        self.resolve_global_worklist_cancelable(globals, &CancellationToken::new())
-            .expect("fresh cancellation token cannot be canceled");
+        expect_uncancelable(
+            self.resolve_global_worklist_cancelable(globals, &CancellationToken::new()),
+            "resolving global initializer worklist",
+        );
     }
 
     pub fn resolve_global_worklist_cancelable(
@@ -497,8 +499,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     }
 
     pub fn check_body_worklist(&mut self, worklist: &[BodyWorkItem]) -> TypeckBodyTimings {
-        self.check_body_worklist_cancelable(worklist, &CancellationToken::new())
-            .expect("fresh cancellation token cannot be canceled")
+        expect_uncancelable(
+            self.check_body_worklist_cancelable(worklist, &CancellationToken::new()),
+            "checking body worklist",
+        )
     }
 
     pub fn check_body_worklist_cancelable(

@@ -17,6 +17,15 @@ pub struct CancellationToken {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Canceled;
 
+pub fn expect_uncancelable<T>(result: Result<T, Canceled>, context: &'static str) -> T {
+    match result {
+        Ok(value) => value,
+        Err(Canceled) => {
+            panic!("Kern ICE (Cancellation): fresh cancellation token was canceled while {context}")
+        }
+    }
+}
+
 impl CancellationToken {
     pub fn new() -> Self {
         Self {

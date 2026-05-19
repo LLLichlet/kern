@@ -144,7 +144,9 @@ impl MirFunctionBuilder {
         }
         if let Some(default_case) = default_case {
             // `default_block` is created from the same `default_case` option above.
-            let default_id = default_block.expect("default block must exist");
+            let Some(default_id) = default_block else {
+                return self.missing_switch_default_block(target_span);
+            };
             let end = self.lower_value_block(default_id, default_case, place)?;
             if let Some(end) = end {
                 self.set_terminator(end, target_span, MirTerminator::Goto(join));
@@ -500,11 +502,10 @@ impl MirFunctionBuilder {
                 }
                 if let Some(default_case) = default_case {
                     // `default_block` is created from the same `default_case` option above.
-                    let _ = self.lower_block(
-                        default_block.expect("default block must exist"),
-                        default_case,
-                        Some(join),
-                    )?;
+                    let Some(default_block) = default_block else {
+                        return self.missing_switch_default_block(target_span);
+                    };
+                    let _ = self.lower_block(default_block, default_case, Some(join))?;
                 }
                 Ok(Some(join))
             }

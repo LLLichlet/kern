@@ -144,6 +144,9 @@ impl<'ctx> Module<'ctx> {
         &self,
         target_data: llvm_sys::target::LLVMTargetDataRef,
     ) {
+        // SAFETY: The caller guarantees that `target_data` is a live LLVM
+        // target-data handle. LLVM copies the layout onto the module during the
+        // call, so no borrowed Rust data escapes this wrapper.
         unsafe { LLVMSetModuleDataLayout(self.raw, target_data) };
     }
 

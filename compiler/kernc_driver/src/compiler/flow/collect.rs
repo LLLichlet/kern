@@ -21,7 +21,7 @@ use kernc_flow::{
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId};
 use kernc_sema::semantic::SemanticSymbolKind;
-use kernc_utils::Span;
+use kernc_utils::{Span, expect_uncancelable};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
@@ -36,13 +36,15 @@ impl FlowModel {
         module_item_definition_spans: &HashMap<DefId, Span>,
         references: &[(Span, Span)],
     ) -> Self {
-        Self::collect_cancelable(
-            ctx,
-            module_item_definition_spans,
-            references,
-            &CancellationToken::new(),
+        expect_uncancelable(
+            Self::collect_cancelable(
+                ctx,
+                module_item_definition_spans,
+                references,
+                &CancellationToken::new(),
+            ),
+            "collecting flow model for tests",
         )
-        .expect("fresh cancellation token cannot be canceled")
     }
 
     pub fn collect_cancelable(
@@ -65,13 +67,15 @@ impl FlowModel {
         module_item_definition_spans: &HashMap<DefId, Span>,
         references: &[(Span, Span)],
     ) -> Self {
-        Self::collect_for_compile_cancelable(
-            ctx,
-            module_item_definition_spans,
-            references,
-            &CancellationToken::new(),
+        expect_uncancelable(
+            Self::collect_for_compile_cancelable(
+                ctx,
+                module_item_definition_spans,
+                references,
+                &CancellationToken::new(),
+            ),
+            "collecting flow model for compilation",
         )
-        .expect("fresh cancellation token cannot be canceled")
     }
 
     pub fn collect_for_compile_cancelable(

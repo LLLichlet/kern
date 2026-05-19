@@ -10,7 +10,7 @@ use crate::def::*;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
 use kernc_ast::Visibility;
 use kernc_ast::{UsePathKind, UseTarget, UseTree};
-use kernc_utils::{Canceled, CancellationToken, Span, SymbolId};
+use kernc_utils::{Canceled, CancellationToken, Span, SymbolId, expect_uncancelable};
 
 pub struct ImportResolver<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
@@ -39,8 +39,10 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
 
     /// Resolve all imports, repeating until the graph reaches a fixed point.
     pub fn resolve_all(&mut self) {
-        self.resolve_all_cancelable(&CancellationToken::new())
-            .expect("fresh cancellation token cannot be canceled");
+        expect_uncancelable(
+            self.resolve_all_cancelable(&CancellationToken::new()),
+            "resolving imports",
+        );
     }
 
     pub fn resolve_all_cancelable(

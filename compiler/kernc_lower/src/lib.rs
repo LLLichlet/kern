@@ -21,7 +21,7 @@ use kernc_sema::ty::{
     ConstExprKind, ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg, Substituter,
     TypeId, TypeKind,
 };
-use kernc_utils::{Canceled, CancellationToken, NodeId, Span, SymbolId};
+use kernc_utils::{Canceled, CancellationToken, NodeId, Span, SymbolId, expect_uncancelable};
 
 pub(crate) mod expr;
 mod inline;
@@ -530,8 +530,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     /// Entry point for lowering with internal timing breakdowns.
     pub fn lower_all_with_report(&mut self) -> LowerReport {
-        self.lower_all_with_report_cancelable()
-            .expect("fresh cancellation token cannot be canceled")
+        expect_uncancelable(
+            self.lower_all_with_report_cancelable(),
+            "lowering all semantic roots",
+        )
     }
 
     pub fn lower_all_with_report_cancelable(&mut self) -> Result<LowerReport, Canceled> {

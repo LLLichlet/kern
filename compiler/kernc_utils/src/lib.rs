@@ -20,7 +20,7 @@ mod source;
 mod span;
 
 pub use atomic::{AtomicOrdering, AtomicRmwOp};
-pub use cancel::{Canceled, CancellationToken};
+pub use cancel::{Canceled, CancellationToken, expect_uncancelable};
 pub use diagnostic::{
     Diagnostic, DiagnosticBuilder, DiagnosticCode, DiagnosticLevel, DiagnosticTag,
 };

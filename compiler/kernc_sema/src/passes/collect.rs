@@ -9,7 +9,7 @@ use crate::def::*;
 use crate::scope::{SymbolInfo, SymbolKind};
 use crate::ty::TypeId;
 use kernc_ast::{self as ast, Decl, DeclKind};
-use kernc_utils::{Canceled, CancellationToken, NodeId, Span, SymbolId};
+use kernc_utils::{Canceled, CancellationToken, NodeId, Span, SymbolId, expect_uncancelable};
 
 struct FunctionCollectSpec<'a> {
     vis: Visibility,
@@ -134,8 +134,10 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
     /// Collect all top-level members from a module AST into semantic definitions.
     pub fn collect_ast(&mut self, mod_id: DefId, module: &ast::Module) {
-        self.collect_ast_cancelable(mod_id, module, &CancellationToken::new())
-            .expect("fresh cancellation token cannot be canceled");
+        expect_uncancelable(
+            self.collect_ast_cancelable(mod_id, module, &CancellationToken::new()),
+            "collecting AST definitions",
+        );
     }
 
     pub fn collect_ast_cancelable(
@@ -236,8 +238,10 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
     }
 
     pub fn collect_ast_owned(&mut self, mod_id: DefId, module: ast::Module) {
-        self.collect_ast_owned_cancelable(mod_id, module, &CancellationToken::new())
-            .expect("fresh cancellation token cannot be canceled");
+        expect_uncancelable(
+            self.collect_ast_owned_cancelable(mod_id, module, &CancellationToken::new()),
+            "collecting owned AST definitions",
+        );
     }
 
     pub fn collect_ast_owned_cancelable(

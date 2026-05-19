@@ -5,6 +5,7 @@
 //! compilation success.
 
 use super::*;
+use kernc_utils::expect_uncancelable;
 
 struct ScopeExportFacts {
     definition_spans: std::collections::HashMap<DefId, Span>,
@@ -170,13 +171,15 @@ impl CompilerDriver {
         references: &[(Span, Span)],
         flow: &FlowModel,
     ) -> ModuleItemReachability {
-        self.compute_module_item_reachability_cancelable(
-            ctx,
-            references,
-            flow,
-            &CancellationToken::new(),
+        expect_uncancelable(
+            self.compute_module_item_reachability_cancelable(
+                ctx,
+                references,
+                flow,
+                &CancellationToken::new(),
+            ),
+            "computing module item reachability",
         )
-        .expect("fresh cancellation token cannot be canceled")
     }
 
     pub(in crate::compiler) fn compute_module_item_reachability_cancelable(

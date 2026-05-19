@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::compiler::ResolvedGlobalType;
+use kernc_utils::expect_uncancelable;
 
 impl CompilerDriver {
     pub fn analyze_artifact_from_structure(
@@ -654,29 +655,35 @@ impl CompilerDriver {
         let reachability = self.compute_module_item_reachability(ctx, &references, &flow_model);
         let lowered_module_items = reachability.lowered_reachable.clone();
         measure_body_phase(&mut phase_timings, "warn_unused_items", || {
-            self.emit_unused_private_item_warnings_with_reachability_cancelable(
-                ctx,
-                &reachability,
-                &CancellationToken::new(),
-            )
-            .expect("fresh cancellation token cannot be canceled");
+            expect_uncancelable(
+                self.emit_unused_private_item_warnings_with_reachability_cancelable(
+                    ctx,
+                    &reachability,
+                    &CancellationToken::new(),
+                ),
+                "emitting unused private item warnings",
+            );
         });
         measure_body_phase(&mut phase_timings, "warn_unused_bindings", || {
-            self.emit_unused_binding_warnings_cancelable(
-                ctx,
-                &flow_model,
-                &CancellationToken::new(),
-            )
-            .expect("fresh cancellation token cannot be canceled");
+            expect_uncancelable(
+                self.emit_unused_binding_warnings_cancelable(
+                    ctx,
+                    &flow_model,
+                    &CancellationToken::new(),
+                ),
+                "emitting unused binding warnings",
+            );
         });
         measure_body_phase(&mut phase_timings, "warn_dead_stores", || {
-            self.emit_dead_store_warnings_cancelable(
-                ctx,
-                &references,
-                &flow_model,
-                &CancellationToken::new(),
-            )
-            .expect("fresh cancellation token cannot be canceled");
+            expect_uncancelable(
+                self.emit_dead_store_warnings_cancelable(
+                    ctx,
+                    &references,
+                    &flow_model,
+                    &CancellationToken::new(),
+                ),
+                "emitting dead store warnings",
+            );
         });
 
         let mut linkage_checker = LinkageChecker::new(ctx);

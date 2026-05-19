@@ -7,13 +7,15 @@
 use super::*;
 use crate::scope::SymbolNamespace;
 
-use kernc_utils::FastHashMap;
+use kernc_utils::{FastHashMap, expect_uncancelable};
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     /// Run the full type-resolution pass in two stages.
     pub fn resolve_all(&mut self) {
-        self.resolve_all_cancelable(&CancellationToken::new())
-            .expect("fresh cancellation token cannot be canceled");
+        expect_uncancelable(
+            self.resolve_all_cancelable(&CancellationToken::new()),
+            "resolving item types",
+        );
     }
 
     pub fn resolve_all_cancelable(

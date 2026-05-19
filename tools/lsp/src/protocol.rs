@@ -1049,7 +1049,7 @@ pub fn file_uri_to_path(uri: &str) -> Option<PathBuf> {
 
     #[cfg(windows)]
     {
-        let trimmed = decoded.strip_prefix('/').unwrap_or(&decoded);
+        let trimmed = normalize_windows_file_uri_path(&decoded);
         let with_separators = trimmed.replace('/', "\\");
         Some(PathBuf::from(with_separators))
     }
@@ -1070,6 +1070,15 @@ pub fn work_done_progress_create(
         method: "window/workDoneProgress/create",
         params: WorkDoneProgressCreateParams { token },
     }
+}
+
+#[cfg(windows)]
+fn normalize_windows_file_uri_path(decoded: &str) -> &str {
+    let trimmed = decoded.trim_start_matches('/');
+    trimmed
+        .strip_prefix("?/UNC/")
+        .or_else(|| trimmed.strip_prefix("?/"))
+        .unwrap_or(trimmed)
 }
 
 fn percent_decode(input: &str) -> Result<String, ()> {

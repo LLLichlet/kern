@@ -203,6 +203,11 @@ pub(super) fn file_path_to_uri_for_test(path: &Path) -> String {
         .unwrap_or_else(|_| path.to_path_buf())
         .to_string_lossy()
         .replace('\\', "/");
+    if let Some(stripped) = rendered.strip_prefix("//?/UNC/") {
+        rendered = format!("//{stripped}");
+    } else if let Some(stripped) = rendered.strip_prefix("//?/") {
+        rendered = stripped.to_string();
+    }
     if !rendered.starts_with('/') {
         rendered.insert(0, '/');
     }

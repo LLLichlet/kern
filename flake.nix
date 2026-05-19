@@ -3,9 +3,13 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, ... }:
+  outputs = { self, nixpkgs, rust-overlay, ... }:
     let
       lib = nixpkgs.lib;
       systems = [
@@ -14,25 +18,28 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
-      forEachSystem = f: lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
+      forEachSystem = f:
+        lib.genAttrs systems (system:
+          f (import nixpkgs {
+            inherit system;
+            overlays = [ rust-overlay.overlays.default ];
+          }));
     in
     {
       devShells = forEachSystem (pkgs:
         let
           llvm = pkgs.llvmPackages_21;
           llvmPrefix = "${llvm.llvm.dev}";
+          rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
         in
         {
           default = pkgs.mkShell {
             packages = with pkgs; [
-              cargo
               cargo-edit
               cargo-nextest
               cmake
               pkg-config
-              rustc
-              rustfmt
-              clippy
+              rustToolchain
               llvm.bintools
               llvm.clang
               llvm.lld
@@ -55,6 +62,11 @@
         let
           llvm = pkgs.llvmPackages_21;
           llvmPrefix = "${llvm.llvm.dev}";
+          rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+          rustPlatform = pkgs.makeRustPlatform {
+            cargo = rustToolchain;
+            rustc = rustToolchain;
+          };
           runtimeLibPath = lib.makeLibraryPath (
             [ llvm.libclang.lib pkgs.zlib pkgs.zstd ]
             ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.libxml2 ]
@@ -89,7 +101,7 @@
               binaryName ? pname,
               extraBins ? [ ],
             }:
-            pkgs.rustPlatform.buildRustPackage {
+            rustPlatform.buildRustPackage {
               inherit pname;
               version = "0.7.6";
               src = ./.;

@@ -1,3 +1,9 @@
+//! LLVM code generation backend.
+//!
+//! This crate turns MIR modules into LLVM IR, emits objects/bitcode, optionally
+//! runs ThinLTO, and exposes codegen diagnostics such as instruction counts,
+//! alloca cleanup stats, and hot-function summaries.
+
 mod codegen;
 mod llvm_api;
 mod llvm_facade;

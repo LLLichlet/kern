@@ -1,3 +1,8 @@
+//! MIR terminator and side-effect instruction code generation.
+//!
+//! Control lowering emits branches, switches, returns, traps, memory intrinsics,
+//! inline asm, defers, and unreachable terminators from MIR into LLVM blocks.
+
 use super::*;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {

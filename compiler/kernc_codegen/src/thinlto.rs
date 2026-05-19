@@ -1,3 +1,13 @@
+//! ThinLTO bridge.
+//!
+//! Rust talks to a small C++ wrapper around LLVM ThinLTO through this module.
+//! The wrapper owns the native session and exposes generated object files or
+//! in-memory buffers after processing.
+//!
+//! Safety model: `ThinLtoSession` is the sole owner of the native opaque session
+//! pointer. Every FFI call checks bridge success where possible, copies strings
+//! and buffers into Rust-owned values, and disposes the native session in `Drop`.
+
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::{Path, PathBuf};

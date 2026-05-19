@@ -1,3 +1,9 @@
+//! MIR atomic instruction code generation.
+//!
+//! Atomic loads, stores, compare-exchange, read-modify-write, and fences are
+//! mapped to LLVM atomic instructions with Kern's ordering enum translated to
+//! LLVM's ordering constants.
+
 use super::*;
 
 pub(super) struct AtomicCasArgs<'a> {

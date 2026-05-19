@@ -1,3 +1,15 @@
+//! Base LLVM wrapper types.
+//!
+//! This file defines typed handles for LLVM values, types, blocks, modules, and
+//! attributes. Handles are non-owning unless their wrapper implements `Drop`;
+//! callers must ensure they belong to the live LLVM context/module that created
+//! them.
+//!
+//! Safety model: most wrappers are transparent handles around LLVM C API
+//! pointers. They do not prove lifetime relationships in Rust's type system;
+//! higher-level code must keep the originating `Context`/`Module` alive and must
+//! use the typed constructors instead of fabricating raw handles.
+
 use llvm_sys::LLVMAttributeFunctionIndex;
 use llvm_sys::core::{
     LLVMAddAttributeAtIndex, LLVMAddIncoming, LLVMArrayType2, LLVMConstArray2, LLVMConstBitCast,

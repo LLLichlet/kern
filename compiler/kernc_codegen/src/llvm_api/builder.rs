@@ -1,3 +1,9 @@
+//! LLVM instruction builder wrapper.
+//!
+//! The builder exposes typed constructors for LLVM instructions and constants.
+//! Unsafe GEP helpers require callers to pass element types and indices that
+//! match the pointee/object being addressed.
+
 use llvm_sys::core::{
     LLVMAddCase, LLVMBuildAShr, LLVMBuildAdd, LLVMBuildAlloca, LLVMBuildAnd,
     LLVMBuildAtomicCmpXchg, LLVMBuildAtomicRMW, LLVMBuildBitCast, LLVMBuildBr, LLVMBuildCall2,

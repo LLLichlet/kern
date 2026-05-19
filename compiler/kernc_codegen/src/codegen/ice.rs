@@ -1,3 +1,8 @@
+//! Backend ICE helpers.
+//!
+//! Codegen should not silently fabricate LLVM for invalid lowered input. These
+//! helpers centralize backend internal-error reporting and trap generation.
+
 use super::CodeGenerator;
 use crate::intrinsics::Intrinsic;
 use crate::llvm_api::{

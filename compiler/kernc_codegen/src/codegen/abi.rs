@@ -1,3 +1,9 @@
+//! ABI classification helpers.
+//!
+//! These helpers decide how values are passed/returned at the LLVM boundary,
+//! including direct values, indirect sret-style returns, aggregate payloads, and
+//! platform-visible function signatures.
+
 use super::CodeGenerator;
 use crate::AtomicOrdering as LlvmAtomicOrdering;
 use crate::types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, IntType};

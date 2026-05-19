@@ -1,3 +1,8 @@
+//! MIR rvalue code generation.
+//!
+//! Rvalues cover constants, loads, calls, aggregates, projections, casts,
+//! pointer arithmetic, unary/binary operations, slices, atomics, and SIMD forms.
+
 use super::*;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {

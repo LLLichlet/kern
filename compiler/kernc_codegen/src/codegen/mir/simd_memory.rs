@@ -1,3 +1,9 @@
+//! SIMD memory operation code generation.
+//!
+//! SIMD loads/stores, masked loads/stores, gathers, and scatters lower here.
+//! Masked operations expand into per-lane control flow when LLVM lacks a direct
+//! instruction form matching Kern's semantics.
+
 use super::*;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {

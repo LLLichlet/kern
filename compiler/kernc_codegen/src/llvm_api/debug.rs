@@ -1,3 +1,9 @@
+//! LLVM debug-info wrappers.
+//!
+//! These types wrap DIBuilder metadata creation for compile units, files,
+//! scopes, subprograms, variables, composite types, and debug locations while
+//! keeping raw metadata handles behind typed values.
+
 use llvm_sys::LLVMModuleFlagBehavior;
 use llvm_sys::core::{LLVMAddModuleFlag, LLVMValueAsMetadata};
 use llvm_sys::debuginfo::{

@@ -1,3 +1,9 @@
+//! Aggregate value helpers.
+//!
+//! Struct, union, array, enum payload, fat pointer, and anonymous aggregate
+//! helpers live here so codegen can construct/extract aggregate values and
+//! choose storage layouts consistently.
+
 use super::CodeGenerator;
 use crate::llvm_api::AsTypeRef;
 use crate::types::BasicTypeEnum;
@@ -8,6 +14,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         match ty {
             BasicTypeEnum::IntType(int_ty) => Some(int_ty.bit_width() as u64),
             BasicTypeEnum::FloatType(_) => Some(
+                // SAFETY: `ty` is a live LLVM type handle from the current context; querying its
+                // kind does not take ownership or mutate the type.
                 match unsafe { llvm_sys::core::LLVMGetTypeKind(ty.as_type_ref()) } {
                     llvm_sys::LLVMTypeKind::LLVMFloatTypeKind => 32,
                     llvm_sys::LLVMTypeKind::LLVMDoubleTypeKind => 64,

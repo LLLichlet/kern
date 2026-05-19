@@ -1,3 +1,9 @@
+//! MIR/semantic type lowering to LLVM types.
+//!
+//! Type lowering maps primitive, aggregate, pointer, enum, closure, trait object,
+//! SIMD, range, and function signature types into LLVM wrapper types with caches
+//! for recursive and named aggregates.
+
 use super::CodeGenerator;
 use crate::AddressSpace;
 use crate::types::BasicTypeEnum;

@@ -1,3 +1,9 @@
+//! LLVM object, bitcode, and IR emission.
+//!
+//! Emission configures target machines, initializes LLVM targets, writes object
+//! files or bitcode, verifies modules, runs pass pipelines, and collects
+//! instruction/allocation cleanup diagnostics.
+
 use super::{
     CodeGenerator, EmitObjectReport, EmitObjectTiming, IrCleanupStats, IrInstructionStats,
 };

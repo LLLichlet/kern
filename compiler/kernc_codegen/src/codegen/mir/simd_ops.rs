@@ -1,3 +1,8 @@
+//! SIMD arithmetic and lane operation code generation.
+//!
+//! This module emits vector unary/binary/reduction/shuffle/bitmask/select
+//! operations and maps checked semantic SIMD intrinsics to LLVM vector IR.
+
 use super::*;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {

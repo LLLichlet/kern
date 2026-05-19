@@ -1,3 +1,9 @@
+//! MIR body code generation.
+//!
+//! This module lowers MIR functions into LLVM blocks/instructions, allocates
+//! locals, maps MIR blocks to LLVM basic blocks, and delegates rvalues, places,
+//! control flow, atomics, and SIMD memory/ops to focused submodules.
+
 use super::CodeGenerator;
 use crate::basic_block::BasicBlock;
 use crate::llvm_sys::core::LLVMSetWeak;

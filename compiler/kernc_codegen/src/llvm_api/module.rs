@@ -1,3 +1,9 @@
+//! LLVM module wrapper.
+//!
+//! Modules own functions, globals, target/triple metadata, verification,
+//! bitcode/object emission inputs, and module-level flags used by debug info and
+//! target configuration.
+
 use llvm_sys::analysis::{LLVMVerifierFailureAction, LLVMVerifyModule};
 use llvm_sys::bit_writer::LLVMWriteBitcodeToMemoryBuffer;
 #[cfg(windows)]

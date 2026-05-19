@@ -1,3 +1,8 @@
+//! Shared SIMD type and intrinsic helpers.
+//!
+//! SIMD lowering needs common lane, mask, element, predicate, and vector-shape
+//! utilities across scalar codegen and MIR-specific SIMD operations.
+
 use super::CodeGenerator;
 use crate::llvm_api::const_vector;
 use crate::types::BasicTypeEnum;

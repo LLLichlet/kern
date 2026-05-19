@@ -1,3 +1,9 @@
+//! DWARF/debug-info emission.
+//!
+//! Debug-info generation maps modules, functions, locals, parameters, source
+//! locations, and type metadata into LLVM DIBuilder nodes while keeping enough
+//! state to attach locations during body generation.
+
 use super::CodeGenerator;
 use crate::llvm_api::{
     DICompileUnit, DICompositeTypeInput, DIFile, DIFunctionInput, DIMemberTypeInput,

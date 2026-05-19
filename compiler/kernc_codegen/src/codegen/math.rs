@@ -1,3 +1,9 @@
+//! Arithmetic and checked math codegen.
+//!
+//! Integer, float, pointer-offset, division, modulo, shifts, comparisons, and
+//! oversized integer helpers lower here, including explicit control flow for
+//! operations LLVM cannot directly represent for Kern semantics.
+
 use super::CodeGenerator;
 use crate::basic_block::BasicBlock;
 use crate::values::{BasicValueEnum, FloatValue, IntValue};

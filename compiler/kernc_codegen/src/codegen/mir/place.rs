@@ -1,3 +1,9 @@
+//! MIR place address/value code generation.
+//!
+//! Place lowering computes LLVM addresses for locals, globals, dereferences,
+//! fields, indices, slices, and enum payloads, then emits stores/loads with the
+//! correct volatility and aggregate update behavior.
+
 use super::*;
 use crate::module::Linkage;
 use crate::types::IntType;

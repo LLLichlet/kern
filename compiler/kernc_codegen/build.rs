@@ -1,3 +1,9 @@
+// Build-time LLVM include discovery.
+//
+// The crate links through `llvm-sys`; this build script forwards the LLVM
+// include directory to the bundled C++ ThinLTO bridge so it can include the same
+// LLVM headers as the Rust bindings.
+
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;

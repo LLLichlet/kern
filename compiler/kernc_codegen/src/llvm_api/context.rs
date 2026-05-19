@@ -1,3 +1,9 @@
+//! LLVM context wrapper.
+//!
+//! The context owns LLVM's top-level allocation arena and creates modules,
+//! builders, memory buffers, attributes, primitive types, constants, and basic
+//! blocks that must not outlive it.
+
 use llvm_sys::bit_reader::LLVMParseBitcodeInContext2;
 use llvm_sys::core::{
     LLVMAppendBasicBlockInContext, LLVMConstStringInContext2, LLVMContextCreate,

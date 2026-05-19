@@ -1,3 +1,9 @@
+//! LLVM declaration emission.
+//!
+//! Declarations create LLVM globals, functions, linkage, attributes, sections,
+//! inline hints, and placeholders before bodies are generated so references can
+//! be resolved across the whole module.
+
 use super::CodeGenerator;
 use crate::attributes::{Attribute, AttributeLoc};
 use crate::module::Linkage;

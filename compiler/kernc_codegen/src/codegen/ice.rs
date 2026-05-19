@@ -6,8 +6,8 @@
 use super::CodeGenerator;
 use crate::intrinsics::Intrinsic;
 use crate::llvm_api::{
-    BasicTypeEnum, BasicValueEnum, FloatValue, FunctionValue, IntValue, PointerValue, StructValue,
-    VectorValue,
+    BasicTypeEnum, BasicValueEnum, FloatType, FloatValue, FunctionValue, IntType, IntValue,
+    PointerType, PointerValue, StructType, StructValue, VectorValue,
 };
 use kernc_utils::Span;
 
@@ -147,6 +147,90 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         "Kern ICE (Codegen): expected vector LLVM value while compiling {}, found {:?}.",
                         context,
                         other.get_type()
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    pub(crate) fn expect_int_type(
+        &mut self,
+        ty: BasicTypeEnum<'ctx>,
+        span: Span,
+        context: &str,
+    ) -> Option<IntType<'ctx>> {
+        match ty {
+            BasicTypeEnum::IntType(ty) => Some(ty),
+            other => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): expected integer LLVM type while compiling {}, found {:?}.",
+                        context, other
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    pub(crate) fn expect_float_type(
+        &mut self,
+        ty: BasicTypeEnum<'ctx>,
+        span: Span,
+        context: &str,
+    ) -> Option<FloatType<'ctx>> {
+        match ty {
+            BasicTypeEnum::FloatType(ty) => Some(ty),
+            other => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): expected floating-point LLVM type while compiling {}, found {:?}.",
+                        context, other
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    pub(crate) fn expect_pointer_type(
+        &mut self,
+        ty: BasicTypeEnum<'ctx>,
+        span: Span,
+        context: &str,
+    ) -> Option<PointerType<'ctx>> {
+        match ty {
+            BasicTypeEnum::PointerType(ty) => Some(ty),
+            other => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): expected pointer LLVM type while compiling {}, found {:?}.",
+                        context, other
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    pub(crate) fn expect_struct_type(
+        &mut self,
+        ty: BasicTypeEnum<'ctx>,
+        span: Span,
+        context: &str,
+    ) -> Option<StructType<'ctx>> {
+        match ty {
+            BasicTypeEnum::StructType(ty) => Some(ty),
+            other => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): expected struct LLVM type while compiling {}, found {:?}.",
+                        context, other
                     ),
                 );
                 None

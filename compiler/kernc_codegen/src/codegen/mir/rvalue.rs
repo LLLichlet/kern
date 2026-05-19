@@ -205,7 +205,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         }
                     },
                     MirAggregateKind::FatPointer => {
-                        let struct_ty = expected_llvm_ty.into_struct_type();
+                        let Some(struct_ty) = self.expect_struct_type(
+                            expected_llvm_ty,
+                            Span::default(),
+                            "MIR fat pointer aggregate",
+                        ) else {
+                            return expected_llvm_ty.const_zero();
+                        };
                         let mut value = struct_ty.const_zero();
                         for (idx, field) in field_values.iter().enumerate() {
                             value = self
@@ -234,7 +240,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             );
                             return expected_llvm_ty.const_zero();
                         };
-                        let tag_ty = tag_field_ty.into_int_type();
+                        let Some(tag_ty) = self.expect_int_type(
+                            tag_field_ty,
+                            Span::default(),
+                            "MIR data aggregate tag field",
+                        ) else {
+                            return expected_llvm_ty.const_zero();
+                        };
                         let Some(union_field_ty) = struct_ty.get_field_type_at_index(1) else {
                             self.sess.emit_ice(
                                 Span::default(),
@@ -242,7 +254,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             );
                             return expected_llvm_ty.const_zero();
                         };
-                        let union_ty = union_field_ty.into_struct_type();
+                        let Some(union_ty) = self.expect_struct_type(
+                            union_field_ty,
+                            Span::default(),
+                            "MIR data aggregate payload field",
+                        ) else {
+                            return expected_llvm_ty.const_zero();
+                        };
                         let tag_val = tag_ty.const_u128(*tag_value);
 
                         let union_val = if let Some(payload) = field_values.first().copied() {
@@ -731,8 +749,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 else {
                     return target_llvm_ty.const_zero();
                 };
+                let Some(target_int_ty) = self.expect_int_type(
+                    target_llvm_ty,
+                    Span::default(),
+                    "MIR pointer-to-int cast target",
+                ) else {
+                    return target_llvm_ty.const_zero();
+                };
                 self.builder
-                    .build_ptr_to_int(value, target_llvm_ty.into_int_type(), "mir_ptr2int")
+                    .build_ptr_to_int(value, target_int_ty, "mir_ptr2int")
                     .unwrap()
                     .into()
             }
@@ -742,8 +767,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 else {
                     return target_llvm_ty.const_zero();
                 };
+                let Some(target_ptr_ty) = self.expect_pointer_type(
+                    target_llvm_ty,
+                    Span::default(),
+                    "MIR int-to-pointer cast target",
+                ) else {
+                    return target_llvm_ty.const_zero();
+                };
                 self.builder
-                    .build_int_to_ptr(value, target_llvm_ty.into_pointer_type(), "mir_int2ptr")
+                    .build_int_to_ptr(value, target_ptr_ty, "mir_int2ptr")
                     .unwrap()
                     .into()
             }
@@ -753,8 +785,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 else {
                     return target_llvm_ty.const_zero();
                 };
+                let Some(target_int_ty) = self.expect_int_type(
+                    target_llvm_ty,
+                    Span::default(),
+                    "MIR zero extension cast target",
+                ) else {
+                    return target_llvm_ty.const_zero();
+                };
                 self.builder
-                    .build_int_z_extend(value, target_llvm_ty.into_int_type(), "mir_zext")
+                    .build_int_z_extend(value, target_int_ty, "mir_zext")
                     .unwrap()
                     .into()
             }
@@ -764,8 +803,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 else {
                     return target_llvm_ty.const_zero();
                 };
+                let Some(target_int_ty) = self.expect_int_type(
+                    target_llvm_ty,
+                    Span::default(),
+                    "MIR sign extension cast target",
+                ) else {
+                    return target_llvm_ty.const_zero();
+                };
                 self.builder
-                    .build_int_s_extend(value, target_llvm_ty.into_int_type(), "mir_sext")
+                    .build_int_s_extend(value, target_int_ty, "mir_sext")
                     .unwrap()
                     .into()
             }
@@ -775,8 +821,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 else {
                     return target_llvm_ty.const_zero();
                 };
+                let Some(target_int_ty) = self.expect_int_type(
+                    target_llvm_ty,
+                    Span::default(),
+                    "MIR integer truncate cast target",
+                ) else {
+                    return target_llvm_ty.const_zero();
+                };
                 self.builder
-                    .build_int_truncate(value, target_llvm_ty.into_int_type(), "mir_trunc")
+                    .build_int_truncate(value, target_int_ty, "mir_trunc")
                     .unwrap()
                     .into()
             }
@@ -786,12 +839,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 else {
                     return target_llvm_ty.const_zero();
                 };
+                let Some(target_float_ty) = self.expect_float_type(
+                    target_llvm_ty,
+                    Span::default(),
+                    "MIR signed int-to-float cast target",
+                ) else {
+                    return target_llvm_ty.const_zero();
+                };
                 self.builder
-                    .build_signed_int_to_float(
-                        value,
-                        target_llvm_ty.into_float_type(),
-                        "mir_sitofp",
-                    )
+                    .build_signed_int_to_float(value, target_float_ty, "mir_sitofp")
                     .unwrap()
                     .into()
             }
@@ -801,12 +857,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 else {
                     return target_llvm_ty.const_zero();
                 };
+                let Some(target_float_ty) = self.expect_float_type(
+                    target_llvm_ty,
+                    Span::default(),
+                    "MIR unsigned int-to-float cast target",
+                ) else {
+                    return target_llvm_ty.const_zero();
+                };
                 self.builder
-                    .build_unsigned_int_to_float(
-                        value,
-                        target_llvm_ty.into_float_type(),
-                        "mir_uitofp",
-                    )
+                    .build_unsigned_int_to_float(value, target_float_ty, "mir_uitofp")
                     .unwrap()
                     .into()
             }
@@ -816,8 +875,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 else {
                     return target_llvm_ty.const_zero();
                 };
+                let Some(target_int_ty) = self.expect_int_type(
+                    target_llvm_ty,
+                    Span::default(),
+                    "MIR float-to-signed-int cast target",
+                ) else {
+                    return target_llvm_ty.const_zero();
+                };
                 self.builder
-                    .build_float_to_signed_int(value, target_llvm_ty.into_int_type(), "mir_fptosi")
+                    .build_float_to_signed_int(value, target_int_ty, "mir_fptosi")
                     .unwrap()
                     .into()
             }
@@ -829,12 +895,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 ) else {
                     return target_llvm_ty.const_zero();
                 };
+                let Some(target_int_ty) = self.expect_int_type(
+                    target_llvm_ty,
+                    Span::default(),
+                    "MIR float-to-unsigned-int cast target",
+                ) else {
+                    return target_llvm_ty.const_zero();
+                };
                 self.builder
-                    .build_float_to_unsigned_int(
-                        value,
-                        target_llvm_ty.into_int_type(),
-                        "mir_fptoui",
-                    )
+                    .build_float_to_unsigned_int(value, target_int_ty, "mir_fptoui")
                     .unwrap()
                     .into()
             }
@@ -843,8 +912,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 else {
                     return target_llvm_ty.const_zero();
                 };
+                let Some(target_float_ty) = self.expect_float_type(
+                    target_llvm_ty,
+                    Span::default(),
+                    "MIR float cast target",
+                ) else {
+                    return target_llvm_ty.const_zero();
+                };
                 self.builder
-                    .build_float_cast(value, target_llvm_ty.into_float_type(), "mir_fcast")
+                    .build_float_cast(value, target_float_ty, "mir_fcast")
                     .unwrap()
                     .into()
             }
@@ -897,7 +973,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     },
                 };
 
-                let slice_ty = target_llvm_ty.into_struct_type();
+                let Some(slice_ty) = self.expect_struct_type(
+                    target_llvm_ty,
+                    Span::default(),
+                    "MIR array-to-slice cast target",
+                ) else {
+                    return target_llvm_ty.const_zero();
+                };
                 let mut slice = slice_ty.get_undef();
                 slice = self
                     .builder
@@ -1001,9 +1083,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     "MIR atomic pointer load integer value",
                 )
                 .unwrap_or_else(|| self.context.i8_type().const_zero());
+            let Some(pointer_ty) = self.expect_pointer_type(
+                llvm_ty,
+                Span::default(),
+                "MIR atomic pointer load result",
+            ) else {
+                return self.get_undef_val(llvm_ty);
+            };
             return self
                 .builder
-                .build_int_to_ptr(load_int, llvm_ty.into_pointer_type(), "mir_atomic_load_ptr")
+                .build_int_to_ptr(load_int, pointer_ty, "mir_atomic_load_ptr")
                 .unwrap()
                 .into();
         }

@@ -113,7 +113,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         value: IntValue<'ctx>,
         target_ty: TypeId,
     ) -> IntValue<'ctx> {
-        let target = self.get_llvm_type(target_ty).into_int_type();
+        let target_llvm_ty = self.get_llvm_type(target_ty);
+        let Some(target) = self.expect_int_type(
+            target_llvm_ty,
+            Span::default(),
+            "MIR integer contextual cast",
+        ) else {
+            return value;
+        };
         self.cast_int_value_to_target_width(value, target, self.is_signed_int(target_ty))
     }
 
@@ -256,7 +263,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .llvm_integer_storage_type(*ty)
                     .unwrap_or_else(|| self.get_llvm_type(*ty));
                 if llvm_ty.is_pointer_type() {
-                    let ptr_ty = llvm_ty.into_pointer_type();
+                    let Some(ptr_ty) =
+                        self.expect_pointer_type(llvm_ty, Span::default(), "MIR pointer literal")
+                    else {
+                        return self.zero_i8_value();
+                    };
                     if *value == 0 {
                         ptr_ty.const_null().into()
                     } else {
@@ -267,14 +278,23 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             .into()
                     }
                 } else {
-                    llvm_ty.into_int_type().const_u128(*value).into()
+                    let Some(int_ty) =
+                        self.expect_int_type(llvm_ty, Span::default(), "MIR integer literal")
+                    else {
+                        return self.zero_i8_value();
+                    };
+                    int_ty.const_u128(*value).into()
                 }
             }
-            MirConst::Float { ty, value } => self
-                .get_llvm_type(*ty)
-                .into_float_type()
-                .const_float(*value)
-                .into(),
+            MirConst::Float { ty, value } => {
+                let llvm_ty = self.get_llvm_type(*ty);
+                let Some(float_ty) =
+                    self.expect_float_type(llvm_ty, Span::default(), "MIR floating-point literal")
+                else {
+                    return self.zero_i8_value();
+                };
+                float_ty.const_float(*value).into()
+            }
             MirConst::Bool { value } => self
                 .context
                 .bool_type()
@@ -295,7 +315,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     global.set_constant(true);
                     global.set_initializer(&array_val);
 
-                    let slice_ty = self.get_llvm_type(*ty).into_struct_type();
+                    let llvm_ty = self.get_llvm_type(*ty);
+                    let Some(slice_ty) = self.expect_struct_type(
+                        llvm_ty,
+                        Span::default(),
+                        "MIR string slice literal",
+                    ) else {
+                        return self.zero_i8_value();
+                    };
                     return slice_ty
                         .const_named_struct(&[
                             global.as_pointer_value().into(),

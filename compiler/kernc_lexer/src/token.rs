@@ -1,3 +1,9 @@
+//! Token and lexeme vocabulary produced by the Kern lexer.
+//!
+//! `Token` is the parser-facing stream with normal trivia removed.  `Lexeme`
+//! keeps whitespace and comments for tools that need a faithful source view,
+//! while still preserving doc comments as parser-visible tokens.
+
 use kernc_utils::Span;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -238,37 +244,37 @@ pub enum TokenType {
     /// `..&` mutable address-of.
     DotDotAmpersand,
 
-    /// ...
+    /// `...`
     Ellipsis,
 
-    /// ,
+    /// `,`
     Comma,
 
-    /// :
+    /// `:`
     Colon,
 
-    /// ;
+    /// `;`
     Semicolon,
 
-    /// (
+    /// `(`
     LParen,
 
-    /// )
+    /// `)`
     RParen,
 
-    /// {
+    /// `{`
     LBrace,
 
-    /// }
+    /// `}`
     RBrace,
 
-    /// [
+    /// `[`
     LBracket,
 
-    /// ]
+    /// `]`
     RBracket,
 
-    /// =>
+    /// `=>`
     Arrow,
 
     // === Special ===

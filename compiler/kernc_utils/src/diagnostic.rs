@@ -1,3 +1,9 @@
+//! Structured diagnostics and delayed diagnostic builders.
+//!
+//! Compiler phases construct diagnostics through `DiagnosticBuilder` so primary
+//! spans, labels, hints, codes, and editor-facing tags stay attached until the
+//! diagnostic is emitted into the active `Session`.
+
 use super::{Session, Span};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -162,6 +168,9 @@ impl<'a> DiagnosticBuilder<'a> {
 
         // ICE diagnostics abort immediately after printing the captured context.
         if is_ice {
+            // Print from the just-emitted diagnostic instead of draining the
+            // session queue; callers may still inspect earlier diagnostics in
+            // tests that catch the panic.
             self.sess.print_single_diagnostic(&self.diag);
 
             let (bold, reset) = if self.sess.use_color {

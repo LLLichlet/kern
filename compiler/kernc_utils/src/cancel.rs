@@ -1,3 +1,10 @@
+//! Cooperative cancellation primitives for long-running compiler work.
+//!
+//! The LSP server and analysis pipeline poll this token between bounded chunks
+//! of work.  The optional check budget is only for deterministic tests: it
+//! forces cancellation after a fixed number of successful polls without relying
+//! on timing.
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -54,6 +61,9 @@ impl CancellationToken {
             return true;
         };
 
+        // Multiple workers may share the same deterministic test token, so the
+        // artificial budget is decremented with a CAS loop just like real
+        // shared cancellation state.
         loop {
             let remaining = budget.load(Ordering::SeqCst);
             if remaining == 0 {

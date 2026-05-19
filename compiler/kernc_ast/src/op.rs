@@ -1,3 +1,8 @@
+//! Operator enums shared by parser, semantic checking, and lowering.
+//!
+//! The lexer only knows token spelling.  These enums represent the normalized
+//! AST operator categories after parser precedence handling.
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOperator {
     Add,            // +

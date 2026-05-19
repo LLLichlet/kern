@@ -1,3 +1,10 @@
+//! Compiler configuration and target/runtime option normalization.
+//!
+//! This module is the narrow waist between the CLI/project loader and the rest
+//! of the compiler.  It keeps command modes, target-machine facts, official
+//! library aliases, runtime entry choices, and LTO/linker validation in one
+//! place so later stages can assume a consistent `CompileOptions` value.
+
 use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -258,6 +265,9 @@ impl TargetMachine {
     }
 
     pub fn max_lock_free_atomic_bits(&self) -> u64 {
+        // The current backend treats atomics up to twice a native pointer pair
+        // as potentially lock-free, capped at i128/u128 because that is the
+        // largest scalar integer kind in Kern today.
         (self.pointer_size * 16).min(128)
     }
 }
@@ -424,6 +434,9 @@ pub fn resolve_library_workspace_path() -> PathBuf {
     if let Ok(exe_path) = env::current_exe()
         && let Some(exe_dir) = exe_path.parent()
     {
+        // Prefer colocated development or install layouts so `kernc` can find
+        // the official libraries when run from cargo, a build tree, or an
+        // installed prefix.
         for ancestor in exe_dir.ancestors() {
             let candidate = ancestor.join("library");
             if official_library_workspace_is_present(&candidate) {
@@ -548,6 +561,9 @@ pub fn validate_runtime_options(options: &CompileOptions) -> Result<(), String> 
 
 pub fn validate_compile_options(options: &CompileOptions) -> Result<(), String> {
     validate_runtime_options(options)?;
+    // Only validate the bundled workspace when an official alias is actually
+    // needed.  User-provided aliases may point at generated or external module
+    // roots, so they should not require the in-tree library layout.
     let needs_base_alias = matches!(
         options.library_bundle,
         LibraryBundle::Base | LibraryBundle::Std
@@ -616,6 +632,9 @@ pub fn validate_compile_options(options: &CompileOptions) -> Result<(), String> 
 }
 
 pub fn inject_driver_condition_defines(options: &mut CompileOptions) {
+    // These defines make runtime/library choices visible to conditional
+    // compilation without requiring every frontend caller to duplicate the
+    // command-line normalization logic.
     options
         .custom_defines
         .insert("test".to_string(), options.test_mode.to_string());
@@ -679,6 +698,8 @@ mod tests {
         let root = unique_temp_dir("kernlib_env_root");
         write_minimal_library_workspace(&root);
 
+        // SAFETY: tests that mutate process environment hold `ENV_LOCK`, so no
+        // other test in this module can concurrently read or write KERNLIB_PATH.
         unsafe {
             std::env::set_var("KERNLIB_PATH", &root);
         }
@@ -686,6 +707,7 @@ mod tests {
         assert_eq!(resolve_base_path(), root.join("base"));
         assert_eq!(resolve_std_path(), root.join("std"));
         assert_eq!(resolve_rt_path(), root.join("rt"));
+        // SAFETY: guarded by `ENV_LOCK`; see the matching `set_var` above.
         unsafe {
             std::env::remove_var("KERNLIB_PATH");
         }
@@ -698,6 +720,8 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let root = unique_temp_dir("kernlib_missing_root");
 
+        // SAFETY: tests that mutate process environment hold `ENV_LOCK`, so no
+        // other test in this module can concurrently read or write KERNLIB_PATH.
         unsafe {
             std::env::set_var("KERNLIB_PATH", &root);
         }
@@ -716,6 +740,7 @@ mod tests {
             .module_aliases
             .insert("std".to_string(), "/tmp/std".to_string());
         validate_compile_options(&options).unwrap();
+        // SAFETY: guarded by `ENV_LOCK`; see the matching `set_var` above.
         unsafe {
             std::env::remove_var("KERNLIB_PATH");
         }

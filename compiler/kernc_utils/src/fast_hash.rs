@@ -1,3 +1,9 @@
+//! Fast non-cryptographic hash maps used on hot compiler paths.
+//!
+//! The hasher is intentionally deterministic and simple.  It is appropriate
+//! for internal compiler tables where the keys are trusted compiler data, not
+//! for adversarial input exposed as a network boundary.
+
 use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 
@@ -11,6 +17,8 @@ impl FastHasher {
     #[inline]
     fn mix_bytes(&mut self, bytes: &[u8]) {
         if self.0 == 0 {
+            // `BuildHasherDefault` constructs the hasher with zeroed state, so
+            // initialize lazily to the standard FNV offset basis on first use.
             self.0 = FNV_OFFSET_BASIS;
         }
 

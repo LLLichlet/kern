@@ -1,3 +1,11 @@
+//! Byte-oriented tokenizer for Kern source text.
+//!
+//! The tokenizer owns the first recovery boundary in the compiler: it must
+//! always make forward progress, attach file-relative byte spans, preserve doc
+//! comments as real tokens, and classify normal whitespace/comments as trivia
+//! for tooling.  Parsing of literal values is intentionally left to later
+//! stages; this layer only recognizes the lexical shape.
+
 use super::token::{Lexeme, LexemeType, Token, TokenType};
 use kernc_utils::{FileId, Span};
 
@@ -5,8 +13,10 @@ use kernc_utils::{FileId, Span};
 pub struct Tokenizer<'a> {
     source: &'a [u8],
     file_id: FileId,
-    start: usize,   // Start byte offset of the current token.
-    current: usize, // Current scan cursor.
+    /// Start byte offset of the lexeme currently being scanned.
+    start: usize,
+    /// One-past-the-last consumed byte in `source`.
+    current: usize,
 }
 
 impl<'a> Tokenizer<'a> {
@@ -35,6 +45,8 @@ impl<'a> Tokenizer<'a> {
         loop {
             let lexeme = self.next_lexeme();
             match lexeme.tag {
+                // The parser sees doc comments because they attach to AST
+                // nodes; ordinary comments and whitespace are trivia.
                 LexemeType::Whitespace | LexemeType::LineComment | LexemeType::BlockComment => {}
                 LexemeType::Token(tag) => {
                     return Token {
@@ -198,6 +210,8 @@ impl<'a> Tokenizer<'a> {
     fn scan_line_comment_or_doc_comment(&mut self) -> Lexeme {
         self.advance(); // Consume the second `/`.
         let doc_kind = match self.peek() {
+            // `///` is an outer doc comment, but `////` is just a normal line
+            // comment so decorative separator comments do not become docs.
             b'/' if self.peek_next() != b'/' => Some(TokenType::DocCommentOuter),
             b'!' => Some(TokenType::DocCommentInner),
             _ => None,
@@ -301,6 +315,8 @@ impl<'a> Tokenizer<'a> {
                 self.advance();
             }
 
+            // Lexing accepts `1e+` as a float-shaped token; literal validation
+            // emits the user-facing numeric error with the complete span later.
             self.consume_digits(10);
             return true;
         }
@@ -333,6 +349,8 @@ impl<'a> Tokenizer<'a> {
 
     fn consume_numeric_suffix(&mut self) {
         if is_alpha(self.peek()) {
+            // Accept the suffix as part of the literal token even when it is
+            // not a known type suffix; semantic parsing reports that error.
             self.advance();
             while is_alpha_numeric(self.peek()) {
                 self.advance();
@@ -458,6 +476,8 @@ impl<'a> Tokenizer<'a> {
             }
 
             if self.peek() == b'\\' && self.peek_next() == b'\\' {
+                // Kern follows Zig-style multiline strings: every continued
+                // source line must start with `\\` after indentation.
                 self.advance();
                 self.advance();
                 continue;
@@ -614,6 +634,8 @@ impl<'a> Tokenizer<'a> {
 
     fn peek(&self) -> u8 {
         if self.current >= self.source.len() {
+            // Sentinel byte keeps scanner branches compact.  Source bytes are
+            // UTF-8 text, so NUL only matters as ordinary input before EOF.
             return 0;
         }
         self.source[self.current]
@@ -691,6 +713,8 @@ impl<'a> Tokenizer<'a> {
             if c == b'/' && self.peek_next() == b'*' {
                 self.advance();
                 self.advance();
+                // Nested block comments are accepted so commented-out regions
+                // can contain block comments without breaking recovery.
                 depth += 1;
                 continue;
             }

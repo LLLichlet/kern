@@ -1,3 +1,8 @@
+//! Attribute syntax attached to modules, declarations, and statements.
+//!
+//! Attribute payloads remain expression-like at this layer.  Semantic analysis
+//! decides which marker names and argument forms are valid for each attribute.
+
 use super::Expr;
 use kernc_utils::{Span, SymbolId};
 

@@ -1,3 +1,9 @@
+//! String interning for identifiers and compiler-created symbols.
+//!
+//! Most AST and semantic structures store `SymbolId` instead of cloning names.
+//! The backing vector is append-only, so IDs remain stable for the lifetime of
+//! a `Session` and can be copied freely between compiler tables.
+
 use std::sync::Arc;
 
 use crate::FastHashMap;
@@ -38,6 +44,9 @@ impl Interner {
         self.map.reserve(symbols.len());
         self.vec.reserve(symbols.len());
 
+        // Preserve existing IDs when a snapshot is merged into a live session.
+        // This is used by cached analysis state where symbols may already have
+        // been interned through normal parsing.
         let mut ids = Vec::with_capacity(symbols.len());
         for symbol in symbols {
             if let Some(&sym) = self.map.get(symbol.as_ref()) {

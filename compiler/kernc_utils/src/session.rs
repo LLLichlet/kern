@@ -1,3 +1,10 @@
+//! Per-compilation session state.
+//!
+//! `Session` is the shared context passed through the compiler pipeline.  It
+//! owns interned symbols, source files, accumulated diagnostics, generated node
+//! IDs, and the effective options that later stages need after CLI/project
+//! configuration has been normalized.
+
 use super::{
     Diagnostic, DiagnosticBuilder, DiagnosticLevel, FileId, Interner, NodeId, SourceManager, Span,
     SymbolId,
@@ -56,12 +63,16 @@ impl Session {
 
     pub fn next_node_id(&mut self) -> NodeId {
         let id = self.next_node_id;
+        // Node IDs are allocated monotonically so parallel analysis tables can
+        // key by ID without depending on AST pointer identity.
         self.next_node_id += 1;
         NodeId(id)
     }
 
     pub fn reserve_node_ids(&mut self, count: u32) -> NodeId {
         let start = self.next_node_id;
+        // Bulk reservation is used when a builder knows it will synthesize a
+        // contiguous group of nodes and wants deterministic IDs for them.
         self.next_node_id = self
             .next_node_id
             .checked_add(count)
@@ -109,6 +120,8 @@ impl Session {
     }
 
     pub fn print_single_diagnostic(&self, diag: &Diagnostic) {
+        // Diagnostics must still be printable during parser recovery, where a
+        // span can be synthetic or point at an unloaded file.
         let location = self.source_manager.lookup_location(diag.primary_span);
 
         let (filename, line, col) = match &location {
@@ -189,6 +202,9 @@ impl Session {
             let carets = "^".repeat(print_len);
 
             if self.use_color {
+                // Colored output is meant for terminals; byte-oriented spacing
+                // is acceptable here because diagnostics currently underline
+                // ASCII-heavy source and recovery spans defensively clamp.
                 eprintln!(
                     "{}{}{}\x1b[0m",
                     " ".repeat(col_offset),

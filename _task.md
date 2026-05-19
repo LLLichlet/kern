@@ -45,7 +45,7 @@ plain `String` semantics.
 - [x] Review existing atomic and sync support.
 - [ ] Design small cross-platform primitives: thread, mutex, rwlock, condvar,
       once, and maybe channel.
-- [ ] Keep the base layer freestanding where possible; place hosted OS bindings
+- [x] Keep the base layer freestanding where possible; place hosted OS bindings
       in `std`.
 - [x] Add tests for basic synchronization and poisoning/non-poisoning policy if
       applicable.
@@ -53,8 +53,10 @@ plain `String` semantics.
 Audit note:
 `base.sync` currently provides freestanding atomics, `SpinLock`, and `Once`.
 They busy-wait and do not model hosted blocking, poisoning, thread joining, or
-condition variables. Add hosted primitives in `std` only after the platform
-surface and failure policy are explicit.
+condition variables. `std.sync` is now the hosted namespace and currently
+re-exports those freestanding primitives. Future blocking `Thread`, `Mutex`,
+`RwLock`, `Condvar`, and channel APIs should be added there only after the
+platform surface and non-poisoning failure policy are explicit.
 
 ## 4. OS event and polling boundary
 

@@ -6,6 +6,7 @@ use base.mem.alloc.gpa;
 use base.test.{Report, report};
 use std.mem.Page;
 use std.proc;
+use std.sync.{ACQUIRE, SEQ_CST, atomic, once};
 use std.term;
 use std.time;
 
@@ -85,11 +86,30 @@ fn check_term[W](t: &mut Report[W]) void
     let _ = term.stdout().columns();
 }
 
+fn check_std_sync_reexports[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let mut hits = once();
+    let mut count = 0usize;
+    hits..&.call_once([count = count..&]() void {
+        count.* += 1;
+    });
+    hits..&.call_once([count = count..&]() void {
+        count.* += 10;
+    });
+    count.should().eq(1usize).sum(@loc(), t);
+
+    let mut value = atomic[usize](1usize);
+    value..&.fetch_add[SEQ_CST](2usize).should().eq(1usize).sum(@loc(), t);
+    value..&.load[ACQUIRE]().should().eq(3usize).sum(@loc(), t);
+}
+
 #[test]
 fn hosted_std_helpers() i32 {
     let t = report(io.discard())..&;
     check_proc(t);
     check_time(t);
     check_term(t);
+    check_std_sync_reexports(t);
     return 0;
 }

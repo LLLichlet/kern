@@ -1,0 +1,30 @@
+//! Hosted synchronization namespace.
+//!
+//! Kern keeps lock-free and freestanding synchronization in `base.sync`.
+//! `std.sync` is the public hosted entry point that re-exports those primitives
+//! today and leaves room for future OS-backed thread, mutex, rwlock, condvar,
+//! and channel APIs. Those future primitives should live here only after their
+//! platform handles, failure modes, and non-poisoning policy are explicit.
+
+pub use base.sync.{
+    Atomic,
+    AtomicCas,
+    MemOrder,
+    Once,
+    SpinLock,
+    atomic,
+    fence,
+    once,
+    spin_lock,
+};
+
+/// No synchronization with other operations.
+pub const RELAXED: MemOrder = MemOrder.Relaxed;
+/// Acquire semantics for loads and read-modify-write operations.
+pub const ACQUIRE: MemOrder = MemOrder.Acquire;
+/// Release semantics for stores and read-modify-write operations.
+pub const RELEASE: MemOrder = MemOrder.Release;
+/// Combined acquire and release semantics.
+pub const ACQ_REL: MemOrder = MemOrder.AcqRel;
+/// Sequentially consistent ordering.
+pub const SEQ_CST: MemOrder = MemOrder.SeqCst;

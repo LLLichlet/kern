@@ -1,3 +1,8 @@
+//! Deterministic `Craft.lock` renderer.
+//!
+//! Rendering sorts lockfile sections and references so regenerated lockfiles are
+//! reviewable and stable across platforms.
+
 use super::Lockfile;
 
 impl Lockfile {

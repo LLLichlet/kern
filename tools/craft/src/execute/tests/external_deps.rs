@@ -1,3 +1,5 @@
+//! Execution tests for external git/path dependencies.
+
 use super::*;
 
 #[test]

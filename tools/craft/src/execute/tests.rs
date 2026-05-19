@@ -1,3 +1,9 @@
+//! Integration-style execution tests for Craft.
+//!
+//! The suite builds temporary packages to validate compile/link scheduling,
+//! generated sources, runtime package reuse, local/external dependencies, and
+//! test target execution.
+
 use super::orchestrate::{build, check};
 use super::runtime::{run, test};
 use super::{

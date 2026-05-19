@@ -1,3 +1,9 @@
+//! Project-resolution support for editor and analysis tooling.
+//!
+//! A resolved `AnalysisProject` maps arbitrary files back to package targets,
+//! generated source roots, compile options, and import aliases needed by the
+//! language server.
+
 mod packages;
 mod paths;
 #[cfg(test)]

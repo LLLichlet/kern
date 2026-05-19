@@ -1,3 +1,5 @@
+//! Build-plan tests for package target layout and command filtering.
+
 use super::*;
 
 #[test]

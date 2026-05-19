@@ -1,3 +1,8 @@
+//! External package and resource fetching for Craft workspaces.
+//!
+//! This module materializes git/path dependencies, verifies publish proofs, and
+//! keeps fetched source/resource caches in a shape the build graph can consume.
+
 use crate::elaborate::ElaborationPlan;
 use crate::error::{Error, Result};
 use crate::graph::{PackageId, SourceId};

@@ -1,3 +1,9 @@
+//! Formatter for Kern source files managed by Craft.
+//!
+//! The formatter performs conservative whitespace, argument-list, postfix-chain,
+//! boolean-chain, and line-width adjustments without needing a full semantic
+//! analysis pass.
+
 use crate::error::{Error, Result};
 use crate::manifest::Manifest;
 use crate::workspace::WorkspaceMember;

@@ -1,3 +1,5 @@
+//! Manifest parsing and validation tests.
+
 use super::{CraftStyleSuggestionLevel, DependencySpec, Manifest, ReleaseSourcePolicy};
 use crate::plan::TargetKind;
 use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};

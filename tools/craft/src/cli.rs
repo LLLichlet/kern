@@ -1,3 +1,9 @@
+//! Command-line parsing and top-level Craft command dispatch.
+//!
+//! The parser keeps CLI syntax separate from command execution so tests can
+//! validate flags, selectors, and passthrough arguments without spawning the
+//! full build pipeline.
+
 use crate::elaborate;
 use crate::error::{Error, Result};
 use shared_cli::ColorChoice as HelpColorChoice;

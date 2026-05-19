@@ -1,3 +1,9 @@
+//! Cooperative filesystem locks for Craft operations.
+//!
+//! Workspace, output, and cache locks prevent concurrent builds from corrupting
+//! shared state. Stale lock recovery uses process liveness and Linux start-time
+//! checks where available.
+
 use crate::error::{Error, Result};
 use crate::local_state;
 use std::fs::{self, OpenOptions};

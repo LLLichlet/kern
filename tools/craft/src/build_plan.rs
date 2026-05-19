@@ -1,3 +1,9 @@
+//! Workspace build-plan construction.
+//!
+//! Build plans expand the resolved package graph into compile/link/staging
+//! actions, generated-source bindings, build-script applications, and runtime
+//! support units.
+
 mod actions;
 mod derive_support;
 mod paths;

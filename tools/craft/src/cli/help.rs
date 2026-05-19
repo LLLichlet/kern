@@ -1,3 +1,9 @@
+//! Help and usage text rendering for Craft commands.
+//!
+//! The help module centralizes command descriptions, option summaries, and
+//! topic-specific usage so parser errors and explicit help requests stay
+//! consistent.
+
 use crate::error::{Error, Result};
 use shared_cli::{ColorChoice, HelpDoc, HelpSection};
 

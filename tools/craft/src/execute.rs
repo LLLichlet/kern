@@ -1,3 +1,9 @@
+//! Build, check, run, and test execution engine for Craft.
+//!
+//! This module coordinates compile/link actions, runtime package builds,
+//! staging, incremental state, progress reporting, and shared driver reuse for
+//! all high-level commands.
+
 use crate::build_plan::{ActionPlan, BuildPlan, CompileAction, LinkAction};
 use crate::build_state;
 use crate::error::{Error, Result};

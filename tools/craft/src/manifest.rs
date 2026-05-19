@@ -1,3 +1,9 @@
+//! Craft manifest model, parsing, and validation entry points.
+//!
+//! The manifest layer keeps raw `Craft.toml` data close to user-facing
+//! validation so later planning stages can rely on normalized package,
+//! workspace, dependency, profile, and style settings.
+
 mod parse;
 #[cfg(test)]
 mod tests;

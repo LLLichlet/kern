@@ -1,3 +1,9 @@
+//! Local workspace state helpers.
+//!
+//! This module owns `.craft` directory creation, workspace `.gitignore`
+//! maintenance, and atomic file replacement utilities used by cache, lockfile,
+//! and analysis-context writers.
+
 use crate::error::{Error, Result};
 use std::fs;
 use std::io::ErrorKind;

@@ -1,3 +1,9 @@
+//! Workspace discovery and member loading.
+//!
+//! Workspace helpers locate root manifests, expand member globs, merge shared
+//! package defaults, and reject nested or malformed workspace layouts before
+//! graph construction.
+
 use crate::error::{Error, Result};
 use crate::manifest::{Manifest, WorkspacePackage};
 use std::collections::BTreeSet;

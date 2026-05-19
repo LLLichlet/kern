@@ -1,3 +1,8 @@
+//! Path derivation for generated build artifacts.
+//!
+//! Centralized path helpers keep compile outputs, link artifacts, staged files,
+//! generated roots, and runtime package locations stable across build modes.
+
 use super::{ArtifactKind, StagedAction, StagedActionKind};
 use crate::graph::{BuildDomain, PackageId};
 use crate::plan::TargetKind;

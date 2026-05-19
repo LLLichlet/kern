@@ -1,3 +1,9 @@
+//! Build-plan support derivation from package elaboration.
+//!
+//! This module expands package plans into concrete build units, runtime support,
+//! build-script applications, generated source roots, and staged artifact
+//! descriptors.
+
 use super::{
     BuildNodeBindings, BuildPlan, BuildScriptInput, BuildUnit, CompileSourceInput, DeriveOptions,
     ExternalDependencyBinding, LinkPlan, LocalDependencyBinding, PackageBuildPlan,

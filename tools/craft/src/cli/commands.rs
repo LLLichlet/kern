@@ -1,3 +1,9 @@
+//! Implementations for parsed Craft CLI commands.
+//!
+//! Command handlers load projects, acquire workspace locks, synchronize
+//! lockfiles/analysis context, and delegate to build, fetch, format, publish,
+//! install, or inspection subsystems.
+
 use crate::analysis_context;
 use crate::build_plan;
 use crate::discover;

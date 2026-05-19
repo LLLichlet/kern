@@ -1,3 +1,5 @@
+//! Execution tests for build graph scheduling and incremental rebuilds.
+
 use super::*;
 
 #[test]

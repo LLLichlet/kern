@@ -1,3 +1,9 @@
+//! Runtime, standard-library, and base-package build helpers.
+//!
+//! These packages are built on demand for the selected profile/target and then
+//! reused across workspace actions through shared incremental state and cache
+//! roots.
+
 use super::options::{
     apply_host_linker_env, normalize_windows_linker_input_options, profile_linker_input_flavor,
 };

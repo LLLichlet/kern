@@ -1,3 +1,8 @@
+//! CLI parser and command integration tests.
+//!
+//! These tests exercise command-line syntax, workspace locking, lockfile sync,
+//! publish policy, install/uninstall behavior, and subprocess execution paths.
+
 use super::{
     ColorChoice, Command, HelpTopic, InstallSelection, RunSelection, UiOptions, Verbosity,
     parse_args, run_command, summarize_check_sources, summarize_source_security,

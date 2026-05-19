@@ -1,3 +1,9 @@
+//! Human-readable rendering for Craft command output.
+//!
+//! Render helpers format progress lines, summaries, diagnostics, timing tables,
+//! source-policy reports, and install/uninstall messages while honoring terminal
+//! width and color settings.
+
 use crate::build_plan;
 use crate::elaborate;
 use crate::execute;

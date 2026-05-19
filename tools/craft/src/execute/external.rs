@@ -1,3 +1,9 @@
+//! External package build orchestration.
+//!
+//! External sources are built in isolated package instances, cached by source
+//! identity/profile, and threaded back into the main build as library artifacts,
+//! metadata roots, or executable host tools.
+
 use super::{
     ActionIndexes, ActionKey, BuiltExternalPackage, BuiltStdPackage, ExecutionConfig,
     ExecutionSession, ExecutionState, ExecutionSummary, ExternalArtifacts, ExternalToolKey,

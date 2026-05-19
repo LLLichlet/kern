@@ -1,3 +1,8 @@
+//! Package-facing helpers for analysis project resolution.
+//!
+//! Package utilities derive import aliases, target metadata, runtime defaults,
+//! and source roots needed when resolving a file to its analysis unit.
+
 use crate::error::Result;
 use crate::graph::{self, DependencyTarget, PackageGraph, PackageId, SourceId};
 use crate::manifest::Manifest;

@@ -1,3 +1,9 @@
+//! Manifest discovery from files, directories, and workspace members.
+//!
+//! Discovery canonicalizes user-provided paths, walks parent directories for
+//! workspace roots, and stops at nested workspaces before command execution
+//! loads manifests.
+
 use crate::error::{Error, Result};
 use crate::manifest::Manifest;
 use crate::workspace;

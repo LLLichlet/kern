@@ -1,3 +1,5 @@
+//! Analysis project resolution tests.
+
 use super::AnalysisProject;
 use super::paths::normalize_platform_path;
 use crate::analysis_context;

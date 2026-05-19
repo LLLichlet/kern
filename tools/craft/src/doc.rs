@@ -1,3 +1,8 @@
+//! Documentation-quality analysis and Markdown rendering.
+//!
+//! Craft documentation checks inspect public API metadata, summarize missing or
+//! weak docs, and render structured docs into package-facing Markdown output.
+
 use crate::build_plan::{ActionPlan, BuildPlan};
 use crate::error::{Error, Result};
 use crate::local_state;

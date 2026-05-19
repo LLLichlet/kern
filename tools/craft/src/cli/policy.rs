@@ -1,3 +1,9 @@
+//! Release policy checks used by `craft publish`.
+//!
+//! Policy validation combines source security, formatting, lockfile, git, style,
+//! documentation, repository, and metadata checks before a package can be
+//! released.
+
 use crate::elaborate;
 use crate::error::{Error, Result};
 use crate::manifest::Manifest;

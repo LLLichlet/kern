@@ -1,3 +1,5 @@
+//! Execution tests for SIMD compile options and built-in vector targets.
+
 use super::*;
 use kernc_driver::CompilerDriver;
 use std::collections::BTreeMap;

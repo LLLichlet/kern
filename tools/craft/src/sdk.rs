@@ -1,3 +1,8 @@
+//! Discovery of Craft's bundled Kern SDK sources.
+//!
+//! The SDK root is resolved relative to the installed executable first, with
+//! source-tree fallbacks for development and tests.
+
 use std::path::{Path, PathBuf};
 
 const SDK_ENV_VAR: &str = "KERN_CRAFT_SDK_ROOT";

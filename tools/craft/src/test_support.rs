@@ -1,3 +1,8 @@
+//! Shared test filesystem helpers for Craft.
+//!
+//! Test utilities keep temporary workspace creation and cross-platform directory
+//! cleanup consistent across the large Craft integration test suite.
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;

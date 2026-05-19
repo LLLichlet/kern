@@ -1,3 +1,8 @@
+//! Static validation for Craft build scripts.
+//!
+//! Script analysis ensures the required public entry point exists and that the
+//! script signature matches the host bridge contract before the script is run.
+
 use crate::error::{Error, Result};
 use crate::sdk;
 use kernc_driver::CompilerDriver;

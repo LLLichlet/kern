@@ -1,3 +1,9 @@
+//! Per-package build planning primitives.
+//!
+//! `PackagePlan` translates manifest targets, cfg/define overrides, runtime
+//! settings, and discovered test roots into the package-level inputs consumed by
+//! workspace graph elaboration.
+
 use crate::error::{Error, Result};
 use crate::graph::{DependencyKind, PackageId};
 use crate::manifest::{DependencySpec, DetailedDependency, Manifest, ResourceSpec};

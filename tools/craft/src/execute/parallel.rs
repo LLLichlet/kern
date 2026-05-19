@@ -1,3 +1,9 @@
+//! Parallel action scheduling for independent compile and link work.
+//!
+//! The scheduler builds ready target actions across worker threads while
+//! respecting package dependency edges, ThinLTO final-link ordering, and shared
+//! runtime/external package artifacts.
+
 use super::options::{compile_action_options, link_action_options};
 use super::{
     BuiltExternalPackage, BuiltStdPackage, ExecutionSummary, ManifestRuntimeOptions,

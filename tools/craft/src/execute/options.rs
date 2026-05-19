@@ -1,3 +1,9 @@
+//! Translation from Craft action plans to compiler/linker options.
+//!
+//! Option builders combine manifest profiles, runtime defaults, target kind,
+//! generated roots, dependency aliases, and linker input policy into concrete
+//! `CompileOptions` and link flags.
+
 use super::{
     BuiltExternalPackage, BuiltStdPackage, ManifestRuntimeOptions, PackageInstanceKey,
     runtime_profile_key,

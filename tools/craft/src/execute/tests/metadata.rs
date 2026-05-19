@@ -1,3 +1,5 @@
+//! Execution tests for generated metadata package handling.
+
 use super::*;
 
 #[test]

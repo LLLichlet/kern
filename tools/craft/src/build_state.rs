@@ -1,3 +1,9 @@
+//! Incremental action-state tracking for Craft build outputs.
+//!
+//! Fingerprint files record input/output metadata beside generated artifacts so
+//! later builds can skip unchanged compile, link, and staging actions while
+//! still detecting missing or externally modified outputs.
+
 use crate::error::{Error, Result};
 use crate::local_state;
 use std::fs;

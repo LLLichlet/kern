@@ -1,3 +1,5 @@
+//! Execution tests for runtime package cache reuse.
+
 use super::*;
 use kernc_utils::config::{CodeModel, LtoMode};
 

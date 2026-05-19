@@ -1,3 +1,9 @@
+//! Workspace elaboration from manifests into package and dependency plans.
+//!
+//! Elaboration applies feature selection, loads members, resolves dependencies,
+//! fetches external sources, and produces the graph inputs used by build-plan
+//! construction.
+
 use crate::error::{Error, Result};
 use crate::graph;
 use crate::graph::{PackageId, SourceId};

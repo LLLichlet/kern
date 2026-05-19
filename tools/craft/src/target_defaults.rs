@@ -1,3 +1,8 @@
+//! Default compile settings for manifest targets.
+//!
+//! Target defaults keep hosted, freestanding, library, executable, and test
+//! target behavior consistent before manifest/runtime overrides are applied.
+
 use crate::plan::TargetKind;
 use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};
 

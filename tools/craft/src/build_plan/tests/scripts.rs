@@ -1,3 +1,5 @@
+//! Build-plan tests for build-script effects and validation.
+
 use super::*;
 use crate::workspace;
 

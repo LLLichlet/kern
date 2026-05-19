@@ -1,3 +1,8 @@
+//! Build-plan unit tests.
+//!
+//! Submodules cover dependency closure, target layout, and build-script-derived
+//! actions without running the full executor.
+
 use super::{
     ArtifactKind, DeriveOptions, GeneratedFileOrigin, SourceRootBinding, StagedActionKind,
     StagedActionPhase, artifact_path, artifact_root_path, derive, derive_with_options,

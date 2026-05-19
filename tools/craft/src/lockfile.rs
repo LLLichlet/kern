@@ -1,3 +1,8 @@
+//! Craft lockfile model and synchronization entry points.
+//!
+//! Lockfiles record resolved package/source identities and publish proofs so
+//! builds, fetches, and release checks can agree on the exact dependency graph.
+
 mod build;
 mod parse;
 mod render;

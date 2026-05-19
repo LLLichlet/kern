@@ -1,3 +1,9 @@
+//! Build action graph derivation.
+//!
+//! Action planning orders compile, link, staging, and generated-source work
+//! from build units so the executor can schedule only valid dependency-ready
+//! actions.
+
 use super::{
     ActionPlan, ArtifactKind, BuildPlan, BuildUnit, CompileAction, CompileSourceInput, LinkAction,
     SourceRootBinding, StagedAction, artifact_path, artifact_root_path, generated_root_path,

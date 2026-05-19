@@ -1,3 +1,9 @@
+//! Dependency source resolver for package graphs.
+//!
+//! Resolution assigns stable external package identifiers, deduplicates shared
+//! git/path sources, and records local versus external source origins for later
+//! fetching and build planning.
+
 use crate::graph::{
     BuildDomain, DependencyKind, DependencyTarget, ExternalDependency, PackageGraph, PackageId,
     SourceId,

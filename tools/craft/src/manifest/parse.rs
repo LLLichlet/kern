@@ -1,3 +1,8 @@
+//! Parser for `Craft.toml` manifests.
+//!
+//! Raw TOML values are converted into the manifest model with source locations
+//! preserved enough for user-facing validation errors.
+
 use super::{
     CraftConfig, CraftFmtConfig, CraftStyleConfig, CraftStyleSuggestionLevel, DependencySpec,
     DetailedDependency, LibTarget, Manifest, NamedTarget, Package, Profile, Profiles,

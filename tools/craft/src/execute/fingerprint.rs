@@ -1,3 +1,9 @@
+//! Fingerprint construction for incremental build actions.
+//!
+//! Fingerprints intentionally include toolchain options, source roots,
+//! dependencies, and prior compile/link reports so cache hits reflect the
+//! behaviorally relevant inputs for each action.
+
 use super::{CompileReport, Result};
 use crate::build_plan::{CompileAction, LinkAction};
 use crate::build_state;

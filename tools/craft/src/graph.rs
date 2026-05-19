@@ -1,3 +1,9 @@
+//! Package dependency graph construction.
+//!
+//! Graph building combines the root manifest, workspace members, inherited
+//! dependencies, and external source identities into a resolved graph used by
+//! lockfiles, fetching, and build-plan elaboration.
+
 use crate::error::{Error, Result};
 use crate::manifest::{DependencySpec, DetailedDependency, Manifest};
 use crate::plan::PackagePlan;

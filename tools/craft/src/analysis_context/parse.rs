@@ -1,3 +1,8 @@
+//! Parser for persisted analysis-context files.
+//!
+//! Parsing is intentionally strict: malformed context data is ignored by callers
+//! rather than trusted for editor project resolution.
+
 use super::{
     AnalysisContext, AnalysisContextPackage, AnalysisContextUnit, AnalysisContextUnitAlias,
     AnalysisContextUnitValue, Section,

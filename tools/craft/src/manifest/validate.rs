@@ -1,3 +1,9 @@
+//! Semantic validation for parsed Craft manifests.
+//!
+//! Validation rejects unsupported sections, invalid target/source combinations,
+//! malformed profile/style settings, and dependency forms before planning uses
+//! the manifest.
+
 use super::{
     CURRENT_KERN_VERSION, CraftFmtConfig, CraftStyleConfig, DependencySpec, Manifest, Package,
     Profile, ResourceSpec, WorkspaceExport, WorkspacePackage,

@@ -1,3 +1,5 @@
+//! Execution tests for build-script generated sources and staged artifacts.
+
 use super::*;
 
 #[test]

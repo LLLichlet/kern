@@ -1,3 +1,9 @@
+//! Build-script validation and host bridge integration.
+//!
+//! Craft build scripts are compiled as host tools, then represented as
+//! structured actions that can generate sources, stage artifacts, and mutate
+//! compile/link configuration without bypassing planner validation.
+
 mod analysis;
 mod build_host;
 

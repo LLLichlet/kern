@@ -1,3 +1,9 @@
+//! Host-side bridge for executing Craft build scripts.
+//!
+//! The bridge converts validated script calls into structured build-plan
+//! effects while checking forged handles, invalid paths, target-domain rules,
+//! and staged-output dependencies.
+
 use super::{
     BuildScriptContext, BuildScriptTool, build_domain_tag, expect_arg, expect_bool, expect_string,
     option_none, option_some, plan_argument_value, pure_enum_value, target_kind_tag,

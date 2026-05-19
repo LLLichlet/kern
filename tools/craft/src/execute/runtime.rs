@@ -1,3 +1,9 @@
+//! Runtime execution helpers for `craft run` and `craft test`.
+//!
+//! Runtime actions locate the selected executable artifact, apply package/test
+//! environment variables, and execute the process while preserving structured
+//! stdout, stderr, and exit status summaries.
+
 use super::build_with_command;
 use crate::build_plan::{ActionPlan, BuildPlan, BuildUnit, LinkAction};
 use crate::error::{Error, Result};

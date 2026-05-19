@@ -1,3 +1,5 @@
+//! Build-plan tests for local, external, and build-tool dependencies.
+
 use super::*;
 
 #[test]

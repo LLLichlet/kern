@@ -1,3 +1,5 @@
+//! Analysis-context persistence tests.
+
 use super::{load_current_analysis_context, sync_analysis_context};
 use crate::build_plan;
 use crate::elaborate::{FeatureSelection, plan};

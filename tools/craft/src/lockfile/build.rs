@@ -1,3 +1,8 @@
+//! Lockfile construction from elaborated package graphs.
+//!
+//! Building a lockfile extracts local/external package identities, dependency
+//! edges, source proofs, and stable target references from the resolved graph.
+
 use super::{
     LockedDependency, LockedExternalPackage, LockedPackage, LockedPackageResource,
     LockedPackageTarget, Lockfile,

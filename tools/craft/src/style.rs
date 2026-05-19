@@ -1,3 +1,9 @@
+//! Source and documentation style analysis for Craft packages.
+//!
+//! Style checks scan package sources, count public API documentation coverage,
+//! and emit configurable suggestions that can be enforced during release
+//! publishing.
+
 use crate::error::{Error, Result};
 use crate::manifest::{CraftStyleConfig, CraftStyleSuggestionLevel, Manifest};
 use crate::workspace::WorkspaceMember;

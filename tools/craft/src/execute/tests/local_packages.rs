@@ -1,3 +1,5 @@
+//! Execution tests for local package dependencies and runtime behavior.
+
 use super::*;
 
 #[test]

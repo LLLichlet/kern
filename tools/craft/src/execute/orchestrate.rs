@@ -1,3 +1,8 @@
+//! Public orchestration entry points for Craft execution commands.
+//!
+//! The thin wrappers select the command mode and delegate to the shared
+//! execution engine so build, check, run, and test stay behaviorally aligned.
+
 use super::*;
 
 #[cfg_attr(not(test), allow(dead_code))]

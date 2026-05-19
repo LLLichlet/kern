@@ -1,6 +1,14 @@
+//! Terminal progress accounting for long-running Craft execution.
+//!
+//! The reporter keeps cheap atomic counters for build phases and a small
+//! mutex-protected detail string for human-readable status. Build execution
+//! must not depend on progress rendering, so poisoned UI state is recovered
+//! instead of aborting the operation.
+
 use std::io::Write;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::MutexGuard;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
@@ -107,6 +115,13 @@ struct ProgressState {
     detail: Mutex<String>,
 }
 
+fn recover_progress_detail_lock(lock: &Mutex<String>) -> MutexGuard<'_, String> {
+    match lock.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 impl ProgressReporter {
     pub fn new(plan: ExecutionProgressPlan) -> Self {
         Self {
@@ -131,7 +146,7 @@ impl ProgressReporter {
             compile_done: self.state.compile_done.load(Ordering::Relaxed),
             link_done: self.state.link_done.load(Ordering::Relaxed),
             elapsed: self.state.started_at.elapsed(),
-            detail: self.state.detail.lock().unwrap().clone(),
+            detail: recover_progress_detail_lock(&self.state.detail).clone(),
         }
     }
 
@@ -152,7 +167,7 @@ impl ProgressReporter {
     }
 
     pub(crate) fn set_detail(&self, detail: impl Into<String>) {
-        *self.state.detail.lock().unwrap() = detail.into();
+        *recover_progress_detail_lock(&self.state.detail) = detail.into();
     }
 
     pub(crate) fn suspend_terminal(&self) -> ProgressSuspendGuard {

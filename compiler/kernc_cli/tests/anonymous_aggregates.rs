@@ -262,6 +262,69 @@ fn main() i32 {
 }
 
 #[test]
+fn accepts_extern_named_struct_pointer_decay_in_declaration_order() {
+    let output = compile_source(
+        r#"
+struct Preintern {
+    z: u8,
+    a: u8,
+};
+
+extern struct Header {
+    z: u8,
+    a: u8,
+};
+
+fn read_header(ptr: &extern struct { z: u8, a: u8 }) i32 {
+    return ptr.z as i32 + ptr.a as i32;
+}
+
+fn main() i32 {
+    let header = Header.{ z: 2, a: 3 };
+    return read_header(header.&) - 5;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc extern struct pointer decay");
+}
+
+#[test]
+fn rejects_extern_named_struct_pointer_decay_with_reordered_fields() {
+    let output = compile_source(
+        r#"
+extern struct Header {
+    z: u8,
+    a: u8,
+};
+
+fn read_header(ptr: &extern struct { a: u8, z: u8 }) i32 {
+    return ptr.z as i32 + ptr.a as i32;
+}
+
+fn main() i32 {
+    let header = Header.{ z: 2, a: 3 };
+    return read_header(header.&);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("expected `&extern struct { a: u8, z: u8 }`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_top_level_extern_import_syntax() {
     let output = compile_source(
         r#"

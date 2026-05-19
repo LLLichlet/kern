@@ -273,7 +273,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         &act_s.fields,
                         act_args,
                         &exp_fields,
-                        true,
+                        !act_s.is_extern,
                     );
                 }
                 (TypeKind::AnonymousUnion(exp_is_extern, exp_fields), Def::Union(act_u)) => {
@@ -433,7 +433,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         named_fields: &[kernc_ast::StructFieldDef],
         args: &[GenericArg],
         anon_fields: &[crate::ty::AnonymousField],
-        _sort_named: bool,
+        sort_named: bool,
     ) -> bool {
         if anon_fields.len() != named_fields.len() {
             return false;
@@ -459,7 +459,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             act_fields.push((f.name, self.resolve_tv(inst_ty)));
         }
 
-        act_fields.sort_by_key(|f| f.0);
+        if sort_named {
+            act_fields.sort_by_key(|f| f.0);
+        }
 
         for (exp_f, act_f) in anon_fields.iter().zip(act_fields.iter()) {
             if exp_f.name != act_f.0 || self.resolve_tv(exp_f.ty) != act_f.1 {

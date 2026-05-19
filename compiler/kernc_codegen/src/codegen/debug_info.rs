@@ -917,9 +917,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return;
         };
         let context = self.context;
-        let state = self
-            .ensure_debug_info_state()
-            .expect("debug info state must exist");
+        let Some(state) = self.ensure_debug_info_state() else {
+            return;
+        };
         let location = state
             .builder
             .create_debug_location(context, line, column, subprogram);
@@ -973,9 +973,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         };
         let is_optimized = self.debug_info_is_optimized;
         let is_local_to_unit = matches!(function.linkage, kernc_mir::MirLinkage::Internal);
-        let state = self
-            .ensure_debug_info_state()
-            .expect("debug info state must exist");
+        let Some(state) = self.ensure_debug_info_state() else {
+            return;
+        };
         let subroutine_type = state.builder.create_subroutine_type(file);
         let subprogram = state.builder.create_function(DIFunctionInput {
             scope: compile_unit,
@@ -1008,9 +1008,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return;
         };
         let context = self.context;
-        let state = self
-            .ensure_debug_info_state()
-            .expect("debug info state must exist");
+        let Some(state) = self.ensure_debug_info_state() else {
+            return;
+        };
         let location = state
             .builder
             .create_debug_location(context, line, column, subprogram);

@@ -59,7 +59,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         global.set_constant(true);
         global.set_initializer(&array_val);
 
-        let slice_ty = self.get_llvm_type(ty).into_struct_type();
+        let llvm_ty = self.get_llvm_type(ty);
+        let Some(slice_ty) =
+            self.expect_struct_type(llvm_ty, Span::default(), "static string slice initializer")
+        else {
+            return self.context.i8_type().const_zero().into();
+        };
         slice_ty
             .const_named_struct(&[
                 global.as_pointer_value().into(),
@@ -183,9 +188,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
         };
         let mut values = vec![elem_ty.const_zero(); array_ty.len() as usize];
-        let first = self
-            .pack_union_static_chunk(value, elem_ty)?
-            .into_int_value();
+        let first_chunk = self.pack_union_static_chunk(value, elem_ty)?;
+        let first = self.static_int_value(first_chunk)?;
         let slot = values.first_mut()?;
         *slot = first;
         Some(elem_ty.const_array(&values).into())
@@ -436,12 +440,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     }
                 }
             }
-            MirConst::Float { ty, value } => Some(
-                self.get_llvm_type(*ty)
-                    .into_float_type()
-                    .const_float(*value)
-                    .into(),
-            ),
+            MirConst::Float { ty, value } => {
+                let llvm_ty = self.get_llvm_type(*ty);
+                let Some(float_ty) =
+                    self.expect_float_type(llvm_ty, Span::default(), "float static initializer")
+                else {
+                    return Some(llvm_ty.const_zero());
+                };
+                Some(float_ty.const_float(*value).into())
+            }
             MirConst::Bool { value } => Some(
                 self.context
                     .bool_type()

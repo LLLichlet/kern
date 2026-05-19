@@ -65,7 +65,12 @@ impl AnalysisEngine {
                                         },
                                     )?);
                             }
-                            let targets = targets.as_ref().expect("targets were just initialized");
+                            let Some(targets) = targets.as_ref() else {
+                                return Err(
+                                    "workspace symbol indexing failed to retain loaded targets"
+                                        .to_string(),
+                                );
+                            };
                             let document_path = normalize_path(&document.path);
                             resolved = targets
                                 .iter()
@@ -1591,11 +1596,12 @@ fn code_action_with_resolve_data(
     version: i64,
     request_range: &IdeRange,
 ) -> IdeCodeAction {
-    if action.fix_id.is_some_and(defer_code_action_fix)
+    if let Some(fix_id) = action
+        .fix_id
+        .filter(|fix_id| defer_code_action_fix(*fix_id))
         && let Some(diagnostic) = action.diagnostics.first()
         && let Some(action_kind) = action.kind
     {
-        let fix_id = action.fix_id.expect("checked above");
         action.resolve_data = Some(CodeActionResolveData {
             uri: uri.to_string(),
             version,

@@ -11,6 +11,8 @@ use crate::protocol::{
     ParameterInformation, PrepareRenameResult, SelectionRange, SemanticTokens, SignatureHelp,
     SignatureInformation, TextEdit, WorkspaceEdit, WorkspaceSymbol,
 };
+use serde::Serialize;
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
@@ -258,9 +260,7 @@ impl IdeCodeAction {
             }),
             edit: self.edit.map(IdeWorkspaceEdit::into_lsp),
             is_preferred: self.is_preferred,
-            data: self
-                .resolve_data
-                .map(|data| serde_json::to_value(data).expect("code action resolve data encodes")),
+            data: self.resolve_data.and_then(lsp_data_value),
         }
     }
 }
@@ -328,14 +328,11 @@ impl IdeCodeLens {
         CodeLens {
             range: self.range.into(),
             command: None,
-            data: Some(
-                serde_json::to_value(CodeLensResolveData {
-                    title: self.title,
-                    command: self.command,
-                    arguments: self.arguments,
-                })
-                .expect("code lens resolve data is serializable"),
-            ),
+            data: lsp_data_value(CodeLensResolveData {
+                title: self.title,
+                command: self.command,
+                arguments: self.arguments,
+            }),
         }
     }
 }
@@ -439,12 +436,9 @@ impl IdeDocumentLink {
         DocumentLink {
             range: self.range.into(),
             target: None,
-            data: Some(
-                serde_json::to_value(DocumentLinkResolveData {
-                    target: self.target,
-                })
-                .expect("document link resolve data is serializable"),
-            ),
+            data: lsp_data_value(DocumentLinkResolveData {
+                target: self.target,
+            }),
         }
     }
 }
@@ -536,11 +530,16 @@ impl IdeCompletionItem {
             insert_text: self.insert_text,
             insert_text_format,
             documentation: None,
-            data: self
-                .resolve_data
-                .map(|data| serde_json::to_value(data).expect("completion resolve data encodes")),
+            data: self.resolve_data.and_then(lsp_data_value),
         }
     }
+}
+
+fn lsp_data_value<T: Serialize>(data: T) -> Option<Value> {
+    // Resolve-data payloads are ordinary JSON-shaped protocol structs. If a
+    // future payload becomes non-representable, omit the deferred data instead
+    // of taking down the language server while building a response.
+    serde_json::to_value(data).ok()
 }
 
 impl IdeCompletionKind {

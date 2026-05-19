@@ -425,10 +425,11 @@ fn hex_value(byte: u8) -> Option<u8> {
 }
 
 fn hex_digit(value: u8) -> char {
-    match value & 0x0f {
-        0..=9 => (b'0' + (value & 0x0f)) as char,
-        10..=15 => (b'A' + ((value & 0x0f) - 10)) as char,
-        _ => unreachable!(),
+    let value = value & 0x0f;
+    match value {
+        0..=9 => (b'0' + value) as char,
+        10..=15 => (b'A' + (value - 10)) as char,
+        _ => '?',
     }
 }
 

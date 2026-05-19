@@ -1,3 +1,10 @@
+//! Recursive-descent parser for Kern source.
+//!
+//! The parser consumes `kernc_lexer` tokens and produces the source-oriented
+//! AST from `kernc_ast`.  It also owns syntax diagnostics, doc-comment
+//! attachment, cancellation checks for editor workloads, and best-effort error
+//! recovery that keeps later declarations parseable after malformed input.
+
 mod parser;
 mod stream;
 

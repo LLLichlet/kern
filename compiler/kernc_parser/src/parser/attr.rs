@@ -1,3 +1,10 @@
+//! Attribute parsing.
+//!
+//! Attribute syntax is split into module-level `#![...]`, item-level `#[...]`,
+//! conditional attributes, and generic metadata lists.  Payload validation is
+//! deliberately deferred to semantic analysis so the parser can preserve source
+//! expressions and keep recovery local to the bracketed attribute.
+
 use super::expr::Precedence;
 use super::{ParseResult, Parser};
 use kernc_ast::*;

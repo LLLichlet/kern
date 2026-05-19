@@ -1,3 +1,10 @@
+//! Control-flow, block, pattern, and match parsing.
+//!
+//! These routines own the grammar with the most recovery surface: block
+//! statements, trailing block values, `for` desugaring, `match` arms, and
+//! pattern syntax.  Recovery is intentionally local so a bad arm or statement
+//! does not discard the rest of the enclosing block.
+
 use super::super::{ParseResult, Parser};
 use super::Precedence;
 use kernc_ast::*;
@@ -56,6 +63,8 @@ impl<'a> Parser<'a> {
             if self.match_token(&[TokenType::Semicolon]) {
                 self.push_expr_stmt(&mut stmts, attributes, expr);
             } else if self.check(TokenType::RBrace) {
+                // No semicolon before `}` means this expression is the block's
+                // value unless it was already consumed as a statement above.
                 if !attributes.is_empty() {
                     self.add_error(
                         attributes[0].span,
@@ -64,6 +73,8 @@ impl<'a> Parser<'a> {
                 }
                 result = Some(Box::new(expr));
             } else if expr.is_block_like() {
+                // Block-like expressions can stand as statements without a
+                // semicolon, matching common control-flow syntax.
                 self.push_expr_stmt(&mut stmts, attributes, expr);
             } else {
                 let span = self.peek().span;
@@ -209,6 +220,8 @@ impl<'a> Parser<'a> {
         body: Expr,
     ) -> Expr {
         let block_id = self.new_id();
+        // `for (p: iter) body` lowers in the parser to a block that owns the
+        // iterator binding, then repeatedly calls `next()` and breaks on None.
         let iter_sym = self
             .session
             .intern(&format!("\0kern_for_iter_{}", block_id.0));
@@ -407,6 +420,8 @@ impl<'a> Parser<'a> {
                 return;
             }
             if self.match_token(&[TokenType::Comma]) {
+                // Match arms are comma-separated, so a comma is the safest
+                // boundary after an arm-local parse error.
                 return;
             }
             self.advance();
@@ -474,6 +489,8 @@ impl<'a> Parser<'a> {
         let pat_start = self.peek().span;
 
         if self.looks_like_call_shaped_payload_pattern() {
+            // Older call-shaped enum payload syntax is rejected with a targeted
+            // hint while still preserving a value-shaped pattern for recovery.
             let expr = self.parse_dotted_value_pattern_expr()?;
             let span = self.peek().span;
             self.session

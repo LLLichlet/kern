@@ -1,3 +1,10 @@
+//! Declaration parser for modules, items, imports, traits, and impl blocks.
+//!
+//! This module handles the grammar that can appear at module scope or inside
+//! item-like containers such as `extern`, `trait`, and `impl`.  It also attaches
+//! docs/attributes collected by the core parser and normalizes shared helpers
+//! like visibility, generics, where clauses, and use trees.
+
 use super::expr::Precedence;
 use super::{ParseError, ParseResult, Parser};
 use kernc_ast::*;
@@ -33,6 +40,8 @@ impl<'a> Parser<'a> {
         loop {
             self.check_canceled()?;
             if self.match_token(&[TokenType::LBrace]) {
+                // `use std.{io, mem}`: the path collected so far is the shared
+                // prefix and the target becomes a nested tree.
                 target = UseTarget::Tree(self.parse_use_tree_items()?);
                 break;
             }
@@ -170,6 +179,8 @@ impl<'a> Parser<'a> {
         while !self.check(TokenType::RParen) && !self.check(TokenType::Eof) {
             self.check_canceled()?;
             if self.match_token(&[TokenType::Ellipsis]) {
+                // The parser records variadics syntactically; declaration
+                // context checks later reject non-extern variadic functions.
                 is_variadic = true;
                 break;
             }
@@ -241,6 +252,9 @@ impl<'a> Parser<'a> {
         let is_extern = self.match_token(&[TokenType::Extern]);
 
         if is_extern && (self.check(TokenType::LBrace) || self.check(TokenType::StringLiteral)) {
+            // `extern "abi" { ... }` and `extern { ... }` are import blocks.
+            // `extern fn` is parsed below as an exported ABI definition and
+            // then rejected unless it has a body.
             if vis != Visibility::Private {
                 self.add_error(start_span, "Extern blocks cannot be pub".to_string());
             }
@@ -286,6 +300,8 @@ impl<'a> Parser<'a> {
         match decl_res {
             Ok(Some(mut decl)) => {
                 if is_extern {
+                    // Top-level imported declarations are intentionally forced
+                    // into extern blocks so ABI imports have a single syntax.
                     match &decl.kind {
                         DeclKind::Function { body: None, .. } => {
                             self.session
@@ -327,6 +343,7 @@ impl<'a> Parser<'a> {
         let name_id = self.intern_token(name_token);
 
         let decls = if self.match_token(&[TokenType::Semicolon]) {
+            // File-backed module; the driver resolves and parses the child file.
             None
         } else {
             self.expect(TokenType::LBrace)?;

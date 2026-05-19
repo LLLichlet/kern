@@ -1,3 +1,10 @@
+//! Type parser.
+//!
+//! Type grammar overlaps with expressions in array lengths, generic arguments,
+//! and type namespace expressions.  Where the grammar is ambiguous, this module
+//! uses bounded speculative parsing and restores the token stream, diagnostics,
+//! panic mode, and node-id cursor before trying the alternate interpretation.
+
 use super::expr::Precedence;
 use super::{ParseError, ParseResult, Parser};
 use kernc_ast::*;
@@ -136,6 +143,8 @@ impl<'a> Parser<'a> {
         start_token: kernc_lexer::Token,
     ) -> ParseResult<TypeNode> {
         if start_token.tag == TokenType::Question {
+            // Optional type syntax binds tightly: `?A!E` parses as `(?A)!E`
+            // because this routine runs before result-type parsing resumes.
             let inner = self.parse_prefixed_type()?;
             return Ok(TypeNode {
                 id: self.new_id(),
@@ -293,6 +302,8 @@ impl<'a> Parser<'a> {
                 && self.match_token(&[TokenType::RBracket])
                 && Self::token_can_start_array_element_type(self.peek().tag)
             {
+                // `&[_]T` is a pointer to an inferred-length array, distinct
+                // from the slice type `&[T]`.
                 let elem = self.parse_prefixed_type()?;
                 let array = TypeNode {
                     id: self.new_id(),
@@ -320,6 +331,8 @@ impl<'a> Parser<'a> {
                 && self.match_token(&[TokenType::RBracket])
                 && Self::token_can_start_array_element_type(self.peek().tag)
             {
+                // `&[N]T` is a pointer to an array.  If the expression parse
+                // does not form that shape, fall back to slice parsing below.
                 let elem = self.parse_prefixed_type()?;
                 let array = TypeNode {
                     id: self.new_id(),
@@ -508,6 +521,8 @@ impl<'a> Parser<'a> {
     ) -> ParseResult<TypeNode> {
         let mut span = start_span;
         let mut segments = vec![self.parse_type_path_segment_after_name(start_token)?];
+        // There is always one segment because `start_token` is already a
+        // consumed identifier or anchored-path identifier.
         span = span.to(segments.last().unwrap().name_span);
         if let Some(last_arg_span) =
             segments
@@ -588,6 +603,9 @@ impl<'a> Parser<'a> {
         if let Ok(ty) = self.parse_type()
             && matches!(self.peek().tag, TokenType::Comma | TokenType::RBracket)
         {
+            // Generic arguments prefer type syntax when it parses cleanly up to
+            // the delimiter.  Otherwise the same token sequence may be a const
+            // expression such as `N + 1`.
             return Ok(GenericArg::Type(ty));
         }
 

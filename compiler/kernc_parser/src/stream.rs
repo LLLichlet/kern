@@ -1,3 +1,10 @@
+//! Token stream with current-token caching and bounded lookahead.
+//!
+//! Parser code frequently needs one or two tokens of lookahead, but a few
+//! grammar decisions need more.  `TokenStream` keeps the current token separate
+//! from the lookahead buffer and compacts consumed buffer entries so long
+//! speculative parses do not grow memory indefinitely.
+
 use kernc_lexer::{Token, TokenType, Tokenizer};
 use kernc_utils::Span;
 
@@ -31,6 +38,8 @@ impl<'a> TokenStream<'a> {
         }
 
         let token = if self.buffer_start < self.buffer.len() {
+            // Promote buffered lookahead into the current slot when previous
+            // parser code peeked ahead before consuming.
             let token = self.buffer[self.buffer_start];
             self.buffer_start += 1;
             if self.buffer_start >= 64 && self.buffer_start * 2 >= self.buffer.len() {
@@ -121,6 +130,8 @@ impl<'a> TokenStream<'a> {
         let token = self.ensure_current();
 
         if token.tag == TokenType::Eof {
+            // EOF is sticky: consuming it repeatedly should keep diagnostics at
+            // the end-of-file span instead of pulling more lexer tokens.
             self.last_span = token.span;
             return token;
         }
@@ -183,6 +194,8 @@ impl<'a> TokenStream<'a> {
             return;
         }
 
+        // `Vec::drain` would move and drop every consumed token.  `copy_within`
+        // is cheaper for this Copy token buffer and keeps allocation capacity.
         self.buffer.copy_within(self.buffer_start.., 0);
         self.buffer.truncate(remaining);
         self.buffer_start = 0;

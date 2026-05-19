@@ -1,3 +1,9 @@
+//! Literal and simple prefix-expression parsing.
+//!
+//! The lexer validates literal shape and spans; this layer converts literal text
+//! into AST values, interprets escapes, recognizes suffixes, and keeps detailed
+//! diagnostics for malformed payloads.
+
 use super::super::{ParseError, ParseResult, Parser};
 use super::Precedence;
 use kernc_ast::*;
@@ -10,6 +16,8 @@ impl<'a> Parser<'a> {
         match token.tag {
             TokenType::IntLiteral => {
                 let text = self.source_slice(span).to_string();
+                // Suffix parsing runs before radix conversion so `123u8` and
+                // `0xffu8` both produce a clean numeric payload plus suffix.
                 let (text_clean, suffix) = split_integer_literal_suffix(&text).map_err(|msg| {
                     self.add_error(span, msg);
                     ParseError
@@ -280,6 +288,8 @@ impl<'a> Parser<'a> {
             lines.push(content);
         }
 
+        // The lexer includes only continued `\\` lines in the token, so joining
+        // with newlines reconstructs the user-visible multiline string value.
         Ok(lines.join("\n"))
     }
 
@@ -369,6 +379,8 @@ impl<'a> Parser<'a> {
 fn split_integer_literal_suffix(
     text: &str,
 ) -> Result<(String, Option<NumericLiteralSuffix>), String> {
+    // Try known suffixes longest-first to avoid reading `i128` as `i8` plus
+    // leftover text.
     for suffix_text in NUMERIC_SUFFIXES {
         if let Some(digits) = text.strip_suffix(suffix_text) {
             if digits.is_empty() {

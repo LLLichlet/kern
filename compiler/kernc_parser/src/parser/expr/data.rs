@@ -1,3 +1,10 @@
+//! Data initializer, closure, indexing, slicing, and type-namespace parsing.
+//!
+//! Many constructs in this file start with punctuation (`.[`, `.{`, `[`, `?`)
+//! that is ambiguous until a few tokens later.  The parser uses local
+//! lookahead/speculation and then chooses the AST form that keeps the source
+//! grammar ergonomic without pushing ambiguity into semantic analysis.
+
 use super::super::{ParseError, ParseResult, Parser};
 use super::Precedence;
 use kernc_ast::*;
@@ -20,6 +27,8 @@ impl<'a> Parser<'a> {
             }
             let current = self.peek().tag;
             if tags.contains(&current) {
+                // Leave the delimiter for the caller so it can continue parsing
+                // the surrounding initializer list.
                 return;
             }
             self.advance();
@@ -52,6 +61,8 @@ impl<'a> Parser<'a> {
             return None;
         }
 
+        // `?T.None` is parsed as field access on the optional type `?T` rather
+        // than as an optional over the path `T.None`.
         let last = segments.last()?;
         if !last.args.is_empty() {
             return None;
@@ -141,6 +152,8 @@ impl<'a> Parser<'a> {
             return Ok(expr);
         }
 
+        // `[ ... ]` may also start array/function type namespace syntax.  Undo
+        // failed closure parsing completely before taking that path.
         self.stream = saved_stream;
         self.panic_mode = saved_panic_mode;
         self.session.next_node_id = saved_next_node_id;
@@ -294,6 +307,8 @@ impl<'a> Parser<'a> {
                 || (type_node.is_some() && self.looks_like_field_pun_data_init()));
 
         if is_struct_mode {
+            // Typed initializers may use field punning, e.g. `Point.{x, y}`.
+            // Untyped `.{x, y}` remains an array initializer of identifiers.
             return self.parse_struct_data_init(type_node, start_span);
         }
 
@@ -434,6 +449,8 @@ impl<'a> Parser<'a> {
                 TokenType::Comma => {
                     index += 1;
                     if self.stream.peek_tag_nth(index) == TokenType::RBrace {
+                        // A trailing comma after identifiers still qualifies
+                        // as field-pun struct syntax.
                         return true;
                     }
                 }

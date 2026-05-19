@@ -1,3 +1,11 @@
+//! Parser core: construction, token helpers, diagnostics, docs, and recovery.
+//!
+//! Grammar-specific routines live in sibling modules.  This file keeps the
+//! shared parser invariants in one place: every parsed AST node gets a fresh
+//! `NodeId`, syntax errors enter panic mode until synchronization, cancellation
+//! is converted into `ParseError` internally, and doc comments are attached
+//! before item parsing begins.
+
 mod attr;
 mod decl;
 mod expr;
@@ -129,6 +137,9 @@ impl<'a> Parser<'a> {
         if let Some(cancellation) = self.cancellation
             && cancellation.check().is_err()
         {
+            // Most parser routines return `ParseResult`, so cancellation is
+            // recorded here and converted back to `Canceled` at the public
+            // parse-module boundary.
             self.canceled = true;
             return Err(ParseError);
         }
@@ -175,6 +186,8 @@ impl<'a> Parser<'a> {
         self.advance();
 
         let next = self.stream.peek_tag_nth(0);
+        // Trailing commas are accepted by returning false when the next token
+        // is the caller's closing delimiter.
         match end_tags {
             [single] => next != *single,
             [first, second] => next != *first && next != *second,
@@ -223,6 +236,7 @@ impl<'a> Parser<'a> {
             }
 
             diag.emit();
+            // Suppress cascaded errors until a synchronizing token is reached.
             self.panic_mode = true;
             Err(ParseError)
         }
@@ -274,6 +288,8 @@ impl<'a> Parser<'a> {
         let current = self.peek();
         let mut diag_span = current.span;
         if current.tag == TokenType::Eof {
+            // At EOF, underline the last useful token rather than the zero-width
+            // EOF sentinel; this usually points at the unterminated construct.
             diag_span = fallback_span;
         }
 
@@ -375,6 +391,8 @@ impl<'a> Parser<'a> {
                 span.to(token.span)
             };
             if self.options.collect_docs {
+                // Some consumers only need syntactic success.  Keep spans even
+                // when docs are disabled, but skip allocating text strings.
                 let text = self.doc_text_for_token(token, expect_inner);
                 lines.push(kernc_ast::DocLine {
                     span: token.span,
@@ -544,6 +562,8 @@ impl<'a> Parser<'a> {
     pub fn synchronize(&mut self) {
         self.panic_mode = false;
         if !self.check(TokenType::Eof) {
+            // Drop the token that triggered the error before searching for a
+            // likely statement/item boundary.
             self.advance();
         }
 

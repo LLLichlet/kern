@@ -807,7 +807,7 @@ fn workspace_folder_change_updates_roots_and_refreshes_index() {
     write_workspace_symbol_project(&root_b, "demo_b", "WorkspaceBetaNeedle");
 
     let mut state = initialized_state();
-    state.workspace_roots = vec![root_a.clone()];
+    state.workspace_roots = normalized_workspace_roots_for_test(vec![root_a.clone()]);
     let _ = dispatch_messages(
         &mut state,
         IncomingMessage {
@@ -827,7 +827,10 @@ fn workspace_folder_change_updates_roots_and_refreshes_index() {
         },
     );
 
-    assert_eq!(state.workspace_roots, vec![root_b.clone()]);
+    assert_eq!(
+        state.workspace_roots,
+        normalized_workspace_roots_for_test(vec![root_b.clone()])
+    );
     let response = dispatch_single_response(
         &mut state,
         IncomingMessage {

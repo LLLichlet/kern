@@ -389,7 +389,10 @@ fn initialize_records_root_uri_as_primary_workspace_root() {
     )
     .unwrap();
 
-    assert_eq!(state.workspace_roots, vec![root]);
+    assert_eq!(
+        state.workspace_roots,
+        normalized_workspace_roots_for_test(vec![root])
+    );
 }
 
 #[test]
@@ -420,7 +423,10 @@ fn initialize_records_all_workspace_folders() {
     )
     .unwrap();
 
-    assert_eq!(state.workspace_roots, vec![root_a, root_b]);
+    assert_eq!(
+        state.workspace_roots,
+        normalized_workspace_roots_for_test(vec![root_a, root_b])
+    );
     let messages = read_all_messages(&output);
     assert!(messages.iter().any(|message| {
         message["method"] == "$/logTrace"

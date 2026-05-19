@@ -217,6 +217,7 @@ fn handle_message_with_document_request_policy(
                 .iter()
                 .filter_map(|folder| crate::protocol::file_uri_to_path(&folder.uri))
                 .collect::<Vec<_>>();
+            let removed = normalize_workspace_roots(removed);
             let mut roots = state
                 .workspace_roots
                 .iter()

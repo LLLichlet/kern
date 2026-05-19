@@ -214,6 +214,10 @@ pub(super) fn file_path_to_uri_for_test(path: &Path) -> String {
     format!("file://{rendered}")
 }
 
+pub(super) fn normalized_workspace_roots_for_test(roots: Vec<PathBuf>) -> Vec<PathBuf> {
+    super::lifecycle::normalize_workspace_roots(roots)
+}
+
 pub(super) fn assert_uri_path_ends_with(uri: &str, suffix: impl AsRef<Path>) {
     let path = crate::analysis::uri_to_file_path(uri)
         .unwrap_or_else(|| panic!("expected file uri path, got {uri}"));

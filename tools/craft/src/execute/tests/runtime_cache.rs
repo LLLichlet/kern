@@ -1,6 +1,7 @@
 //! Execution tests for runtime package cache reuse.
 
 use super::*;
+use kernc_driver::CodegenPlanFallback;
 use kernc_utils::config::{CodeModel, LtoMode};
 
 #[test]
@@ -230,6 +231,16 @@ fn runtime_packages_preserve_multi_object_outputs_for_release_codegen_units() {
 
     assert_eq!(summary.compile_actions, 1);
     assert_eq!(summary.link_actions, 1);
+    let std_codegen_plan = summary
+        .action_timings
+        .iter()
+        .find(|timing| timing.label.starts_with("std ("))
+        .and_then(|timing| timing.codegen_plan.as_ref())
+        .expect("runtime std compile should report a codegen plan");
+    let std_fell_back_for_control_flow_asm = matches!(
+        std_codegen_plan.fallback_reason,
+        Some(CodegenPlanFallback::ContainsControlFlowAsm { .. })
+    );
 
     let profile_root = cache_root.join(super::runtime_profile_key(&profile));
     let std_object = profile_root
@@ -243,8 +254,14 @@ fn runtime_packages_preserve_multi_object_outputs_for_release_codegen_units() {
     if cfg!(windows) {
         assert!(!std_object_dir.is_dir());
         assert_eq!(linker_inputs.len(), 1);
+    } else if std_fell_back_for_control_flow_asm {
+        assert!(!std_object_dir.is_dir());
+        assert_eq!(linker_inputs, vec![std_object.clone()]);
     } else if cfg!(target_os = "linux") {
-        assert!(std_object_dir.is_dir());
+        assert!(
+            std_object_dir.is_dir(),
+            "expected multi-object runtime std output without codegen fallback; plan: {std_codegen_plan:#?}"
+        );
         assert!(linker_inputs.len() > 1);
     } else {
         if std_object_dir.is_dir() {

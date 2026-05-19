@@ -1706,7 +1706,7 @@ fn check_command_recovers_from_invalid_workspace_lock() {
             feature_selection: FeatureSelection::default(),
             ui: UiOptions::default(),
         },
-        Duration::from_secs(30),
+        kill_recovery_command_timeout(),
     );
 
     assert!(!root.join(".craft/lock/workspace.lock").exists());
@@ -1727,7 +1727,7 @@ fn build_command_recovers_from_invalid_workspace_lock() {
             ui: UiOptions::default(),
             include_examples: false,
         },
-        Duration::from_secs(30),
+        kill_recovery_command_timeout(),
     );
 
     assert!(!root.join(".craft/lock/workspace.lock").exists());

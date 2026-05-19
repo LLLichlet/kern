@@ -31,6 +31,7 @@ pub use .writers.{
     FixedBufferWriter,
     StringWriter,
     CountingWriter,
+    BufWriter,
     NullWriter,
     discard,
 };

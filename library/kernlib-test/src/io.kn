@@ -38,6 +38,23 @@ fn check_writers[T](t: &mut Report[T]) void
     small_writer.write_all("abcdef").not().should().sum(@loc(), t);
     small..&.as_slice().should().eq("abcde").sum(@loc(), t);
     small..&.did_overflow().should().sum(@loc(), t);
+    small_writer.flush_all().should().sum(@loc(), t);
+
+    let mut inner_storage: [32]u8 = undef;
+    let mut inner = (inner_storage..&[0...32]).writer();
+    let inner_writer = (inner..& as &mut Write);
+    let mut buf_storage: [4]u8 = undef;
+    let mut buffered = inner_writer.buffered(buf_storage..&[0...4]);
+    let buffered_writer = (buffered..& as &mut Write);
+    buffered_writer.write_all("ab").should().sum(@loc(), t);
+    inner..&.as_slice().should().eq("").sum(@loc(), t);
+    buffered..&.buffered_len().should().eq(2usize).sum(@loc(), t);
+    buffered_writer.write_all("cdef").should().sum(@loc(), t);
+    inner..&.as_slice().should().eq("abcd").sum(@loc(), t);
+    buffered..&.buffered_len().should().eq(2usize).sum(@loc(), t);
+    buffered_writer.flush_all().should().sum(@loc(), t);
+    inner..&.as_slice().should().eq("abcdef").sum(@loc(), t);
+    buffered..&.buffered_len().should().eq(0usize).sum(@loc(), t);
 
     let page = Page.{}..&;
     let gpa = gpa().on(page)..&;

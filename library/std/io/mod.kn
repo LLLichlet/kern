@@ -20,6 +20,11 @@ impl &mut File : Write {
 
         return os.write(self.inner.handle, buf.[0].&, len);
     }
+
+    /// Flushes the underlying file handle.
+    pub fn flush_write() bool {
+        return self.inner..&.flush().is_ok();
+    }
 }
 
 impl &mut File : Read {

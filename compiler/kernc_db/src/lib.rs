@@ -1,5 +1,13 @@
 #![doc = include_str!("../README.md")]
 
+//! Small incremental query database used by compiler services.
+//!
+//! The database tracks input revisions, memoized query values, dependency
+//! edges, and active query frames for cycle detection.  It is intentionally
+//! much smaller than salsa-style systems, but follows the same core contract:
+//! a cached value is reusable when all dependencies are unchanged since the
+//! value was last verified.
+
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
@@ -76,6 +84,8 @@ impl Database {
     fn record_dependency(&self, dep: Box<dyn DependencyEdge>) {
         let mut runtime = self.runtime.lock().unwrap();
         let Some(frame) = runtime.stack.last_mut() else {
+            // Reads outside an active query are allowed; they simply do not
+            // contribute to a cached dependency set.
             return;
         };
         if frame
@@ -99,6 +109,9 @@ impl Database {
     {
         {
             let mut runtime = self.runtime.lock().unwrap();
+            // The frame stays on the stack for the whole computation so nested
+            // query reads can register dependencies and cycles can report the
+            // active participant chain.
             runtime.stack.push(ActiveFrame {
                 token,
                 name,
@@ -158,6 +171,8 @@ impl Database {
             .position(|frame| frame.token == token)
             .unwrap_or(runtime.stack.len());
 
+        // Include the query that attempted to re-enter the active token so the
+        // rendered cycle reads `a -> b -> a` rather than only the open stack.
         let mut participants = runtime.stack[start..]
             .iter()
             .map(|frame| frame.name)
@@ -242,6 +257,8 @@ where
         });
 
         if entry.value == value {
+            // Re-setting an identical input does not advance the global
+            // revision, which lets transitive queries skip recomputation.
             return false;
         }
 
@@ -331,6 +348,8 @@ where
             }
 
             if snapshot.value.is_some() && snapshot.verified_at == current_revision {
+                // Fast path: another read already validated this entry in the
+                // current revision, so the dependency list is known fresh.
                 let value = snapshot
                     .value
                     .clone()
@@ -346,6 +365,9 @@ where
             if snapshot.value.is_some()
                 && !self.dependencies_changed_since(db, &snapshot.deps, snapshot.verified_at)?
             {
+                // The value may have been computed in an older revision, but
+                // all recorded dependencies are still valid.  Refresh only the
+                // verification timestamp instead of running the query again.
                 let mut entries = self.inner.entries.lock().unwrap();
                 let entry = entries
                     .get_mut(&key)
@@ -375,6 +397,9 @@ where
                 if entry.state == QueryState::Evaluating {
                     return Err(db.cycle_for(snapshot.token, self.inner.name));
                 }
+                // Mark before dropping the lock.  A recursive read of the same
+                // token will now report a cycle instead of deadlocking or
+                // starting a second computation.
                 entry.state = QueryState::Evaluating;
             }
 
@@ -385,6 +410,8 @@ where
             match computed {
                 Ok((value, deps)) => {
                     let changed_at = if snapshot.value.as_ref() == Some(&value) {
+                        // Stable values keep their old change revision so
+                        // dependents can reuse their own cached result.
                         snapshot.changed_at
                     } else {
                         current_revision
@@ -414,6 +441,8 @@ where
                         .get_mut(&key)
                         .expect("query entry must exist after failed computation");
                     entry.state = snapshot.state;
+                    // Failed query execution must not poison the cache.  Roll
+                    // the entry back to the last known-good snapshot.
                     entry.value = snapshot.value.clone();
                     entry.changed_at = snapshot.changed_at;
                     entry.verified_at = snapshot.verified_at;
@@ -521,6 +550,8 @@ where
             }
 
             if snapshot.value.is_some() && snapshot.verified_at == current_revision {
+                // Memos are manually named computations; unlike `Query`, they
+                // do not record a dependency edge for the caller themselves.
                 return Ok(snapshot
                     .value
                     .clone()
@@ -651,6 +682,8 @@ where
                         .get_mut(&key)
                         .expect("memo entry must exist after failed computation");
                     entry.state = snapshot.state;
+                    // External errors, for example cancellation or IO, should
+                    // leave the memo as if this attempt never happened.
                     entry.value = snapshot.value.clone();
                     entry.changed_at = snapshot.changed_at;
                     entry.verified_at = snapshot.verified_at;
@@ -703,6 +736,8 @@ where
         if snapshot.value.is_some()
             && !dependencies_changed_since(db, &snapshot.deps, snapshot.verified_at)?
         {
+            // `get_cached` may still validate dependencies; it just refuses to
+            // run the owning computation when the cached value is stale.
             let mut entries = self.inner.entries.lock().unwrap();
             let entry = entries
                 .get_mut(&key)

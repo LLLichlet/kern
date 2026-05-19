@@ -4,6 +4,11 @@ use kernc_ty::TypeId;
 use kernc_utils::{AtomicOrdering, FastHashMap, NodeId};
 
 /// Shared semantic facts attached to source nodes after type checking.
+///
+/// These maps are intentionally sparse.  A `NodeId` appears only when later
+/// stages need extra semantic context that is not representable in the AST or
+/// lowered expression itself, such as expected call argument types or the trait
+/// receiver type chosen for an overloaded operator.
 #[derive(Clone, Default)]
 pub struct NodeFacts {
     pub node_types: FastHashMap<NodeId, TypeId>,

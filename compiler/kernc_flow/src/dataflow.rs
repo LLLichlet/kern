@@ -1,3 +1,9 @@
+//! Data-flow algorithms over `AnalysisFlowCfg`.
+//!
+//! The public crate exposes materialized vectors for tools, but these
+//! algorithms operate on dense bitsets for speed.  Every long loop has a
+//! cancellation check because LSP analysis may abandon work between edits.
+
 use crate::{
     AnalysisFlowBindingId, AnalysisFlowBindingSummary, AnalysisFlowCfg, AnalysisFlowDefUse,
     AnalysisFlowDefinitionFacts, AnalysisFlowDefinitionKind, AnalysisFlowDefinitionRef,
@@ -52,6 +58,8 @@ impl CfgTopology {
         let mut successors = vec![Vec::<AnalysisFlowNodeId>::new(); cfg.nodes.len()];
         for edge in &cfg.edges {
             cancellation.check()?;
+            // Node IDs are dense indices by construction, so adjacency lists can
+            // be addressed directly without an intermediate map.
             predecessors[edge.to.index()].push(edge.from);
             successors[edge.from.index()].push(edge.to);
         }
@@ -129,6 +137,8 @@ pub fn collect_definition_facts_cancelable(
 
         for binding_id in &facts.define_binding_ids {
             cancellation.check()?;
+            // A definition remembers the value-side uses of the same node; this
+            // lets later passes identify copy-forwarding opportunities.
             definition_facts.push(AnalysisFlowDefinitionFacts {
                 definition: AnalysisFlowDefinitionRef {
                     binding_id: *binding_id,
@@ -361,6 +371,8 @@ pub fn compute_reaching_definitions_cancelable(
         .flat_map(|transfer| transfer.generate_definitions.iter().copied())
         .collect::<Vec<_>>();
     cancellation.check()?;
+    // The domain is stable and sorted so materialized facts are deterministic
+    // even when input CFG construction order changes slightly.
     domain.sort_by_key(|definition| (definition.binding_id, definition.node_id));
     domain.dedup();
 
@@ -384,6 +396,8 @@ pub fn compute_reaching_definitions_cancelable(
         let indices = transfer
             .kill_binding_ids
             .iter()
+            // Defining a binding kills all previous definitions for that
+            // binding, not just definitions that reach this node.
             .flat_map(|binding_id| {
                 binding_definition_indices
                     .get(binding_id)
@@ -436,6 +450,8 @@ pub fn compute_reaching_definitions_cancelable(
         next_out.union_with(&gen_bits[node_index]);
 
         if next_in != reaching_in[node_index] || next_out != reaching_out[node_index] {
+            // Forward fixed-point iteration: when a node changes, only its
+            // successors can observe new reaching definitions.
             reaching_in[node_index].copy_from(&next_in);
             reaching_out[node_index].copy_from(&next_out);
             for successor in &topology.successors[node_index] {
@@ -592,6 +608,8 @@ pub fn compute_liveness_cancelable(
         .max()
         .unwrap_or(0);
 
+    // Liveness is over bindings rather than definitions, so the bit domain is
+    // just the dense binding-id range observed in the transfer functions.
     let mut use_bits = Vec::with_capacity(node_transfers.len());
     let mut kill_bits = Vec::with_capacity(node_transfers.len());
     for transfer in node_transfers {
@@ -634,6 +652,8 @@ pub fn compute_liveness_cancelable(
         next_in.union_with(&carried);
 
         if next_out != live_out[node_index] || next_in != live_in[node_index] {
+            // Backward fixed-point iteration: predecessors are the only nodes
+            // affected by a changed live-in/live-out set.
             live_out[node_index].copy_from(&next_out);
             live_in[node_index].copy_from(&next_in);
             for predecessor in &topology.predecessors[node_index] {
@@ -725,6 +745,8 @@ impl DenseBitSet {
         let word = index / 64;
         let bit = index % 64;
         if let Some(slot) = self.words.get_mut(word) {
+            // Out-of-domain bits are ignored by construction callers, but this
+            // guard keeps malformed recovery data from panicking in analysis.
             *slot |= 1u64 << bit;
         }
     }
@@ -770,6 +792,8 @@ impl DenseBitSet {
                 cancellation.check()?;
                 let bit_index = bits.trailing_zeros() as usize;
                 f(word_index * 64 + bit_index)?;
+                // Clear the lowest set bit in O(1), avoiding a scan over unset
+                // positions in sparse data-flow sets.
                 bits &= bits - 1;
             }
         }

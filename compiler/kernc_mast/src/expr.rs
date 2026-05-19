@@ -1,3 +1,10 @@
+//! Expression nodes in the monomorphized AST.
+//!
+//! Each expression carries a concrete `TypeId`, so later lowering stages can
+//! choose ABI and LLVM operations without re-querying semantic inference.  This
+//! layer is still structured enough to preserve high-level operations such as
+//! SIMD, atomics, defer-expanded blocks, and aggregate construction.
+
 use super::MastBlock;
 use kernc_ast::{AssignmentOperator, BinaryOperator, UnaryOperator};
 use kernc_mono::MonoId;
@@ -217,6 +224,7 @@ pub enum MastExprKind {
     },
     SimdLoad {
         ptr: Box<MastExpr>,
+        /// Required byte alignment proven by semantic checking or lowering.
         align: u32,
     },
     SimdStore {
@@ -271,6 +279,8 @@ pub enum MastExprKind {
         ptr: Box<MastExpr>,
         expected: Box<MastExpr>,
         desired: Box<MastExpr>,
+        /// Success and failure orderings are stored separately because LLVM
+        /// enforces the compare-exchange failure-ordering restrictions.
         success: AtomicOrdering,
         failure: AtomicOrdering,
     },
@@ -311,7 +321,7 @@ pub enum MastExprKind {
 
 #[derive(Debug, Clone)]
 pub struct MastSwitchCase {
-    // After const-eval, every case pattern becomes a concrete integer.
+    /// After const-eval, every case pattern becomes a concrete integer.
     pub values: Vec<u128>,
     pub body: MastBlock,
 }

@@ -178,7 +178,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 return self.get_undef_val(dst_llvm_ty);
             };
             let src_bits = src_int.get_type().bit_width();
-            let dst_int_ty = dst_llvm_ty.into_int_type();
+            let Some(dst_int_ty) = self.expect_int_type(
+                dst_llvm_ty,
+                Span::default(),
+                "SIMD scalar int-to-int cast target",
+            ) else {
+                return self.get_undef_val(dst_llvm_ty);
+            };
             let dst_bits = dst_int_ty.bit_width();
             return if src_bits == dst_bits {
                 src_int.into()
@@ -206,7 +212,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             else {
                 return self.get_undef_val(dst_llvm_ty);
             };
-            let dst_float_ty = dst_llvm_ty.into_float_type();
+            let Some(dst_float_ty) = self.expect_float_type(
+                dst_llvm_ty,
+                Span::default(),
+                "SIMD scalar int-to-float cast target",
+            ) else {
+                return self.get_undef_val(dst_llvm_ty);
+            };
             return if src_elem == TypeId::BOOL || !self.is_signed_int(src_elem) {
                 self.builder
                     .build_unsigned_int_to_float(src_int, dst_float_ty, "simd_cast_uitofp")
@@ -226,7 +238,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             else {
                 return self.get_undef_val(dst_llvm_ty);
             };
-            let dst_int_ty = dst_llvm_ty.into_int_type();
+            let Some(dst_int_ty) = self.expect_int_type(
+                dst_llvm_ty,
+                Span::default(),
+                "SIMD scalar float-to-int cast target",
+            ) else {
+                return self.get_undef_val(dst_llvm_ty);
+            };
             return if self.is_signed_int(dst_elem) {
                 self.builder
                     .build_float_to_signed_int(src_float, dst_int_ty, "simd_cast_fptosi")
@@ -247,7 +265,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 return self.get_undef_val(dst_llvm_ty);
             };
             let src_bits = if src_elem == TypeId::F32 { 32 } else { 64 };
-            let dst_float_ty = dst_llvm_ty.into_float_type();
+            let Some(dst_float_ty) = self.expect_float_type(
+                dst_llvm_ty,
+                Span::default(),
+                "SIMD scalar float-to-float cast target",
+            ) else {
+                return self.get_undef_val(dst_llvm_ty);
+            };
             let dst_bits = if dst_elem == TypeId::F32 { 32 } else { 64 };
             return if src_bits == dst_bits {
                 src_float.into()

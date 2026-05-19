@@ -322,7 +322,7 @@ fn split_file_name(name: &str) -> (&str, &str) {
     }
 }
 
-pub(super) fn normalize_path(path: &Path) -> PathBuf {
+pub(crate) fn normalize_path(path: &Path) -> PathBuf {
     normalize_platform_path(fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
 }
 

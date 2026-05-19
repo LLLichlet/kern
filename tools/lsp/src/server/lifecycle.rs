@@ -186,12 +186,14 @@ pub(super) fn normalize_workspace_roots(roots: Vec<PathBuf>) -> Vec<PathBuf> {
 }
 
 fn normalize_path(path: PathBuf) -> PathBuf {
-    if path.is_absolute() {
-        return lexical_clean(&path);
-    }
-    std::env::current_dir()
-        .map(|cwd| lexical_clean(&cwd.join(&path)))
-        .unwrap_or(path)
+    let cleaned = if path.is_absolute() {
+        lexical_clean(&path)
+    } else {
+        std::env::current_dir()
+            .map(|cwd| lexical_clean(&cwd.join(&path)))
+            .unwrap_or(path)
+    };
+    crate::analysis::normalize_path(&cleaned)
 }
 
 fn lexical_clean(path: &Path) -> PathBuf {

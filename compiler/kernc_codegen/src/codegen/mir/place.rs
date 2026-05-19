@@ -647,9 +647,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             else {
                 return self.zero_i8_value();
             };
+            let Some(vector_val) =
+                self.expect_vector_value(vector_val, span, "MIR SIMD lane load base")
+            else {
+                return self.zero_i8_value();
+            };
             return self
                 .builder
-                .build_extract_element(vector_val.into_vector_value(), idx_val, "mir_simd_lane")
+                .build_extract_element(vector_val, idx_val, "mir_simd_lane")
                 .unwrap();
         }
 
@@ -772,14 +777,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             else {
                 return;
             };
+            let Some(vector_val) =
+                self.expect_vector_value(vector_val, span, "MIR SIMD lane store base")
+            else {
+                return;
+            };
             let updated_vector = self
                 .builder
-                .build_insert_element(
-                    vector_val.into_vector_value(),
-                    value,
-                    idx_val,
-                    "mir_simd_lane_set",
-                )
+                .build_insert_element(vector_val, value, idx_val, "mir_simd_lane_set")
                 .unwrap();
             if is_volatile {
                 self.builder
@@ -814,8 +819,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         use AssignmentOperator::*;
 
         if lhs_val.is_int_value() && rhs_val.is_int_value() {
-            let lhs = lhs_val.into_int_value();
-            let rhs = rhs_val.into_int_value();
+            let Some(lhs) = self.expect_int_value(lhs_val, span, "MIR assignment lhs integer")
+            else {
+                return self.zero_i8_value();
+            };
+            let Some(rhs) = self.expect_int_value(rhs_val, span, "MIR assignment rhs integer")
+            else {
+                return self.zero_i8_value();
+            };
             let is_signed = self.is_signed_int(lhs_ty);
             return if let Some(binary_op) = Self::assignment_binary_operator(op) {
                 self.compile_int_math(binary_op, lhs, rhs, is_signed, span)
@@ -825,8 +836,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         if lhs_val.is_float_value() && rhs_val.is_float_value() {
-            let lhs = lhs_val.into_float_value();
-            let rhs = rhs_val.into_float_value();
+            let Some(lhs) = self.expect_float_value(lhs_val, span, "MIR assignment lhs float")
+            else {
+                return self.zero_i8_value();
+            };
+            let Some(rhs) = self.expect_float_value(rhs_val, span, "MIR assignment rhs float")
+            else {
+                return self.zero_i8_value();
+            };
             return match op {
                 AddAssign => self
                     .builder

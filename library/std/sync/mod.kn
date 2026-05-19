@@ -3,13 +3,13 @@
 //! Kern keeps lock-free and freestanding synchronization in `base.sync`.
 //! `std.sync` is the public hosted entry point. It re-exports the freestanding
 //! primitives and provides no-libc blocking `Mutex`, `RwLock`, `Condvar`, and
-//! `Channel` APIs. A future `Thread` API should live here only after stack,
-//! TLS, entry, exit, and join semantics are explicit.
+//! `Channel` APIs, plus a low-level joinable `Thread` API with explicit stack
+//! size, entry, argument, and join ownership.
 //!
 //! Design policy:
-//! std must not depend on libc. Do not route synchronization through pthread or
-//! other libc-only APIs. Linux uses direct syscalls such as futex; Windows uses
-//! kernel32 wait/wake entry points; Darwin wait/wake is isolated for platform
+//! std must not depend on libc as a semantic foundation. Linux uses direct
+//! syscalls such as futex and clone; Windows uses kernel32 thread and wait/wake
+//! entry points; Darwin-specific fallbacks are isolated for platform
 //! validation. A lock should not become poisoned by hidden runtime state;
 //! callers that need panic recovery should build that policy above the
 //! primitive.
@@ -17,7 +17,8 @@
 use base.mem.null_mut_ptr;
 use base.mem.alloc.{AllocError, Allocator};
 
-mod wait_word;
+mod thread;
+pub/ mod wait_word;
 
 pub use base.sync.{
     Atomic,
@@ -51,6 +52,36 @@ pub enum Error {
     Closed,
     OutOfMemory,
     CapacityOverflow,
+    StackTooSmall,
+    SpawnFailed,
+    JoinFailed,
+};
+
+/// Minimum stack size accepted by `spawn`.
+pub const THREAD_MIN_STACK_SIZE = 16384usize;
+
+/// Function entry accepted by `Thread`.
+///
+/// The entry is a thin function pointer plus an explicit raw context pointer.
+/// Capturing closures are intentionally not accepted because their stack
+/// environments cannot be allowed to escape into a spawned thread.
+pub type ThreadEntry = &fn(&mut void) usize;
+
+/// A joinable hosted OS thread.
+pub struct Thread {
+    handle: usize,
+    control: &mut ThreadControl,
+    stack: &mut u8,
+    stack_size: usize,
+    joined: bool = false,
+};
+
+pub/ struct ThreadControl {
+    pub/ entry: ThreadEntry,
+    pub/ arg: &mut void,
+    pub/ result: usize = 0,
+    pub/ done: i32 = 0,
+    pub/ exited: i32 = 0,
 };
 
 /// A non-poisoning blocking mutex.
@@ -104,6 +135,84 @@ pub const fn rwlock() RwLock {
 /// Creates an empty channel.
 pub const fn channel[T]() Channel[T] {
     return .{};
+}
+
+/// Spawns a thread with an explicit stack allocation size.
+pub fn spawn(
+    alloc: &mut Allocator,
+    stack_size: usize,
+    entry: ThreadEntry,
+    arg: &mut void,
+) Thread!Error {
+    if (stack_size < THREAD_MIN_STACK_SIZE) {
+        return .{ Err: .StackTooSmall };
+    }
+
+    let .{ Ok: control } = alloc.try_alloc_one[ThreadControl]() else {
+        .{ Err: err } => return .{ Err: match (err) {
+            .OutOfMemory => Error.OutOfMemory,
+            .CapacityOverflow => Error.CapacityOverflow,
+        } },
+    };
+    control.* = .{ entry: entry, arg: arg };
+
+    let .{ Ok: stack } = alloc.try_alloc_array[u8](stack_size) else {
+        .{ Err: err } => {
+            alloc.free_one[ThreadControl](control);
+            return .{ Err: match (err) {
+                .OutOfMemory => Error.OutOfMemory,
+                .CapacityOverflow => Error.CapacityOverflow,
+            } };
+        },
+    };
+
+    let .{ Some: handle } = thread.spawn(control, stack) else {
+        alloc.free_array[u8](stack);
+        alloc.free_one[ThreadControl](control);
+        return .{ Err: .SpawnFailed };
+    };
+
+    return .{
+        Ok: .{
+            handle: handle,
+            control: control,
+            stack: stack.[0]..&,
+            stack_size: stack_size,
+        },
+    };
+}
+
+pub/ fn run_thread_control(control: &mut ThreadControl) usize {
+    let entry = control.entry;
+    let result = entry(control.arg);
+    control.result = result;
+    @atomicStore[i32](control.done..&, 1, RELEASE);
+    wait_word.wake_all(control.done..&);
+    return result;
+}
+
+impl &mut Thread {
+    /// Waits for the thread to finish and releases its stack/control storage.
+    ///
+    /// A `Thread` must be joined exactly once. The allocator must be the same
+    /// allocator that was passed to `spawn`.
+    pub fn join(alloc: &mut Allocator) usize!Error {
+        if (self.joined) {
+            return .{ Err: .JoinFailed };
+        }
+        while (@atomicLoad[i32](self.control.done.&, ACQUIRE) == 0) {
+            wait_word.wait(self.control.done..&, 0);
+        }
+        if (!thread.join(self.handle, self.control)) {
+            return .{ Err: .JoinFailed };
+        }
+        self.joined = true;
+
+        let result = self.control.result;
+        alloc.free_array[u8](self.stack..&[0...self.stack_size]);
+        alloc.free_one[ThreadControl](self.control);
+        return .{ Ok: result };
+    }
 }
 
 impl &mut Mutex {

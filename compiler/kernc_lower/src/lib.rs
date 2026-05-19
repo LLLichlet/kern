@@ -501,6 +501,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         false
     }
 
+    fn function_is_trait_impl_method(&self, f: &kernc_sema::def::FunctionDef) -> bool {
+        if let Some(parent_id) = f.parent
+            && let Some(Def::Impl(impl_def)) = self.ctx.defs.get(parent_id.0 as usize)
+        {
+            return impl_def.trait_type.is_some();
+        }
+        false
+    }
+
+    fn function_needs_metadata_export(&self, f: &kernc_sema::def::FunctionDef) -> bool {
+        self.ctx.sess.publishing_metadata && self.function_is_trait_impl_method(f)
+    }
+
     pub(crate) fn function_owner_scope(&self, f: &FunctionDef) -> Option<ScopeId> {
         let parent_id = f.parent?;
         match &self.ctx.defs[parent_id.0 as usize] {
@@ -578,6 +591,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             .reachable_module_items
                             .as_ref()
                             .is_some_and(|reachable| !reachable.contains(&id))
+                            && !this.function_needs_metadata_export(f)
                         {
                             continue;
                         }
@@ -731,13 +745,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &self,
         vis: Visibility,
         is_extern: bool,
+        is_imported_declaration: bool,
         attrs: &[ast::Attribute],
         uses_odr_linkage: bool,
     ) -> MastLinkage {
         if uses_odr_linkage {
             return MastLinkage::LinkOnceOdr;
         }
-        if is_extern || !vis.is_private() || self.has_meta_attr(attrs, "export_name") {
+        if is_imported_declaration
+            || is_extern
+            || !vis.is_private()
+            || self.has_meta_attr(attrs, "export_name")
+        {
             MastLinkage::External
         } else {
             MastLinkage::Internal

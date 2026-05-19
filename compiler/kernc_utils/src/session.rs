@@ -33,6 +33,7 @@ pub struct Session {
     pub runtime_entry: RuntimeEntry,
     pub custom_defines: HashMap<String, String>,
     pub test_mode: bool,
+    pub publishing_metadata: bool,
     pub report_timings: bool,
     pub preserve_llvm_value_names: bool,
 }
@@ -56,6 +57,7 @@ impl Session {
             runtime_entry: RuntimeEntry::None,
             custom_defines: HashMap::new(),
             test_mode: false,
+            publishing_metadata: false,
             report_timings: false,
             preserve_llvm_value_names: false,
         }
@@ -239,6 +241,7 @@ impl Session {
         self.runtime_entry = options.runtime_entry;
         self.custom_defines = options.custom_defines.clone();
         self.test_mode = options.test_mode;
+        self.publishing_metadata = options.metadata_output.is_some();
         self.report_timings = options.report_timings;
         self.preserve_llvm_value_names =
             matches!(options.driver_mode, crate::config::DriverMode::EmitLlvmIr);

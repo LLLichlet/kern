@@ -1290,6 +1290,71 @@ fn lowering_keeps_pub_super_imported_helpers_reachable() {
     let _ = fs::remove_dir_all(&root);
 }
 
+#[test]
+fn lowering_uses_external_linkage_for_imported_private_declarations() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_lower_imported_private_decl_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let lib_dir = root.join("lib");
+    let metadata_dir = root.join("kmeta");
+    fs::create_dir_all(&lib_dir).unwrap();
+    fs::create_dir_all(&metadata_dir).unwrap();
+
+    fs::write(
+        lib_dir.join("mod.kn"),
+        concat!(
+            "pub fn call() i32 { return hidden(); }\n",
+            "fn hidden() i32 { return 7; }\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        metadata_dir.join("Kmeta.toml"),
+        concat!(
+            "format_version = 2\n",
+            "kind = \"source_snapshot\"\n",
+            "package_name = \"util\"\n",
+            "root_module_name = \"util\"\n",
+            "entry_module_path = \"src/mod.kn\"\n",
+        ),
+    )
+    .unwrap();
+    fs::create_dir_all(metadata_dir.join("src")).unwrap();
+    fs::copy(lib_dir.join("mod.kn"), metadata_dir.join("src/mod.kn")).unwrap();
+
+    let main = root.join("main.kn");
+    fs::write(&main, "extern fn main() i32 { return dep.call(); }\n").unwrap();
+
+    let mut options = CompileOptions::default();
+    options.module_interface_aliases.insert(
+        "dep".to_string(),
+        metadata_dir.to_string_lossy().into_owned(),
+    );
+    let driver = CompilerDriver::new(options);
+    let mut session = Session::new();
+    let mut ctx = driver
+        .analyze(&mut session, main.to_str().unwrap())
+        .expect("expected sema context");
+    let module = driver
+        .lower_module(&mut ctx)
+        .expect("expected lowered module");
+
+    let imported_call = module
+        .functions
+        .iter()
+        .find(|function| function.name.contains("call"))
+        .expect("expected imported call declaration");
+    assert!(imported_call.body.is_none());
+    assert_eq!(imported_call.linkage, kernc_mast::MastLinkage::External);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
 fn count_calls_to_block(block: &MastBlock, target: MonoId) -> usize {
     let mut total = 0;
     for stmt in &block.stmts {

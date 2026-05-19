@@ -681,6 +681,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let def = unsafe { &*def_ptr };
             !def.generics.is_empty() && body.is_some() && !def.is_extern
         };
+        let needs_metadata_export = {
+            // SAFETY: same as above; the function definition stays pinned in `ctx.defs`.
+            let def = unsafe { &*def_ptr };
+            self.function_needs_metadata_export(def)
+        };
 
         self.measure_phase("    lower_fn_finalize", |this| {
             // SAFETY: same as above; the function definition stays pinned in `ctx.defs`.
@@ -690,8 +695,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 name: mangled_name,
                 span: def.name_span,
                 linkage: this.lowered_function_linkage(
-                    def.vis,
+                    if needs_metadata_export {
+                        kernc_sema::def::Visibility::Public
+                    } else {
+                        def.vis
+                    },
                     def.is_extern,
+                    def.is_imported && body.is_none(),
                     &def.attributes,
                     uses_odr_linkage,
                 ),

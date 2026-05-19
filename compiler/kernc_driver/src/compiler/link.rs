@@ -557,6 +557,7 @@ impl CompilerDriver {
     fn apply_runtime_contract(&self, cmd: &mut Command, is_windows: bool, is_darwin: bool) {
         if is_windows && !matches!(self.options.runtime_entry, RuntimeEntry::None) {
             cmd.arg("-lshell32");
+            cmd.arg("-lsynchronization");
         }
 
         match self.options.runtime_entry {
@@ -1584,6 +1585,37 @@ mod tests {
             value.starts_with(&format!("{}:", lib_dir.to_string_lossy()))
                 || value == lib_dir.to_string_lossy()
         );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn windows_hosted_links_wait_word_system_library() {
+        let root = std::env::temp_dir().join(format!(
+            "kern_link_windows_hosted_libs_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let output = root.join("main.exe");
+        let driver = CompilerDriver::new(CompileOptions {
+            output_file: output.to_string_lossy().to_string(),
+            target: kernc_utils::config::TargetMachine::new("x86_64-windows-msvc").unwrap(),
+            runtime_entry: RuntimeEntry::Crt,
+            runtime_libc: true,
+            linker_cmd_explicit: true,
+            ..CompileOptions::default()
+        });
+        let target = driver.normalized_target();
+
+        let cmd = driver.build_link_command(&[], &target).unwrap();
+        let args = command_args(&cmd);
+
+        assert!(args.iter().any(|arg| arg == "-lshell32"));
+        assert!(args.iter().any(|arg| arg == "-lsynchronization"));
 
         let _ = fs::remove_dir_all(&root);
     }

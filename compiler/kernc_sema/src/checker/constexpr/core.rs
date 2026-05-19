@@ -1,3 +1,9 @@
+//! Core const-eval values, arithmetic, places, and host callback plumbing.
+//!
+//! This file is deliberately independent of `SemaContext` for reusable value
+//! operations: projecting constant places, checking arithmetic overflow, and
+//! storing an erased script-host callback used by the higher-level evaluator.
+
 use kernc_ty::{GenericArg, TypeId};
 use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
@@ -756,6 +762,8 @@ impl ScriptHostHandle {
         args: &[ConstValue],
         span: Span,
     ) -> Result<ConstValue, String> {
+        // SAFETY: `ScriptHostHandle::new` stores a data pointer and trampoline for the same
+        // concrete `H`. The evaluator uses the handle only while the original `&mut H` is alive.
         unsafe { (self.call_extern)(self.data, name, args, span) }
     }
 }
@@ -766,6 +774,8 @@ unsafe fn call_script_host<H: ScriptHost>(
     args: &[ConstValue],
     span: Span,
 ) -> Result<ConstValue, String> {
+    // SAFETY: callers construct `data` from `&mut H` in `ScriptHostHandle::new`, and the handle is
+    // not `Send` or shared by this evaluator. Reborrowing here recreates that exclusive host borrow.
     unsafe { (&mut *(data as *mut H)).call_extern(name, args, span) }
 }
 

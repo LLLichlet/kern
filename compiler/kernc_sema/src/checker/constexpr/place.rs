@@ -1,3 +1,9 @@
+//! Const-eval place projection and assignment diagnostics.
+//!
+//! Constant references point at slots in the evaluator's local storage stack.
+//! This module resolves those places, applies field/index/deref projections, and
+//! reports why invalid const assignments or borrows fail.
+
 use super::*;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {

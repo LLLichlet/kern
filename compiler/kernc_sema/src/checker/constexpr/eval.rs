@@ -1,3 +1,9 @@
+//! Recursive const-expression evaluation.
+//!
+//! This module maps AST expressions to `ConstValue`s: literals, operators,
+//! casts, control flow, blocks, local bindings, references, array/struct/enum
+//! construction, and propagation through builtin optional/result values.
+
 use super::core::{
     eval_binary_values, eval_const_int_division, eval_const_int_modulo, eval_const_int_shift,
 };

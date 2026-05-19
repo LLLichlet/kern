@@ -1,3 +1,10 @@
+//! Compile-time expression evaluator.
+//!
+//! Const evaluation reuses semantic types and scopes to fold constant
+//! expressions, global initializers, const-generic values, and hosted script
+//! calls. The evaluator keeps its own stack of const scopes and storage slots so
+//! pointer-like constant places can be projected without touching runtime MIR.
+
 use crate::LayoutEngine;
 use crate::SemaContext;
 use crate::def::{Def, DefId, EnumDef, FunctionDef, GlobalDef, ModuleDef, StructDef, UnionDef};

@@ -1,3 +1,9 @@
+//! Const-eval support for calls and evaluable intrinsics.
+//!
+//! Constant execution can evaluate selected builtin intrinsics, const functions,
+//! and hosted script calls. This module validates intrinsic argument shapes,
+//! creates call frames, and maps function returns back into `ConstValue`s.
+
 use super::*;
 use crate::ty::GenericArg;
 

@@ -1,3 +1,9 @@
+//! Const-eval aggregate and pattern helpers.
+//!
+//! Struct/union/enum data layout at compile time needs the same field lookup,
+//! destructuring, default initialization, and generic substitution rules as
+//! normal expression checking, but materializes actual `ConstValue` payloads.
+
 use super::*;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {

@@ -1,3 +1,10 @@
+//! Import resolution pass.
+//!
+//! Imports are collected before every target can be resolved, especially across
+//! modules that import each other.  This pass flattens use trees, resolves roots
+//! from the correct module/package anchor, and repeats until no new import can
+//! be added before emitting diagnostics for the remaining failures.
+
 use crate::SemaContext;
 use crate::def::*;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
@@ -194,6 +201,8 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                 full_path.extend(path.iter().copied());
 
                 if alias.is_some() || nested.is_none() {
+                    // A node with nested children is only itself imported when
+                    // it has an alias or no nested tree.
                     flat.push(FlatImport {
                         path: full_path.clone(),
                         alias: *alias,
@@ -232,6 +241,8 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         if let Some((mod_id, mod_scope)) =
             self.resolve_path(current_mod_id, kind, &flat.path, flat.span, false)
         {
+            // Empty import paths returned above, so `last` is the imported binding name unless an
+            // explicit alias overrides it.
             let target_name = flat.alias.unwrap_or(*flat.path.last().unwrap());
             let symbol_info = if matches!(kind, UsePathKind::External) && flat.path.len() == 1 {
                 self.ctx

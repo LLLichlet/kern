@@ -1,3 +1,10 @@
+//! Linkage and exported-symbol validation.
+//!
+//! This pass checks that concrete exported functions/globals do not collide at
+//! the C/LLVM symbol layer, that declarations and definitions agree on
+//! signatures, and that unsupported linkage-facing attributes are diagnosed
+//! before codegen.
+
 use crate::SemaContext;
 use crate::def::Def;
 use crate::ty::TypeId;

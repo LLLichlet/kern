@@ -1,3 +1,10 @@
+//! Target-aware type layout computation.
+//!
+//! `LayoutEngine` computes size, alignment, and physical field order for
+//! resolved semantic types.  It reports diagnostics for unresolved/incomplete
+//! types instead of panicking, caches normalized type layouts, and tracks an
+//! active stack to diagnose recursive layouts.
+
 use crate::SemaContext;
 use crate::def::{Def, DefId};
 use crate::ty::{ConstGeneric, GenericArg, PrimitiveType, Substituter, TypeId, TypeKind};
@@ -78,6 +85,8 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
 
         // Optimize layout unless the type is explicitly marked `extern`.
         if !struct_def.is_extern {
+            // Native structs are compacted by alignment/size, while extern
+            // structs must preserve source order for ABI compatibility.
             field_metas.sort_by(|a, b| {
                 b.1.cmp(&a.1) // 1. Higher alignment first.
                     .then_with(|| b.2.cmp(&a.2)) // 2. Then larger size.
@@ -148,6 +157,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             .iter()
             .position(|frame| frame.ty == norm)
         {
+            // Recursive layout is a user-facing type error, not a backend ICE.
             self.emit_recursive_layout_diagnostic(ancestor_index, norm, request_span);
             return 1;
         }
@@ -348,6 +358,8 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                     self.ctx.type_registry.get(elem_norm),
                     TypeKind::TraitObject(..) | TypeKind::ClosureInterface { .. }
                 ) {
+                    // Pointers to unsized interface values are represented as
+                    // data pointer plus metadata/vtable pointer.
                     self.ctx.sess.target.pointer_size * 2
                 } else {
                     self.ctx.sess.target.pointer_size
@@ -520,6 +532,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
     }
 
     fn align_to(offset: u64, align: u64) -> u64 {
+        debug_assert!(align.is_power_of_two());
         (offset + align - 1) & !(align - 1)
     }
 

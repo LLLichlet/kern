@@ -1,3 +1,9 @@
+//! Human-readable semantic type formatting for diagnostics.
+//!
+//! Formatting has access to the semantic context so it can render names,
+//! generic arguments, enum const-generic tags, projections, and anonymous types
+//! using source-friendly syntax rather than raw `TypeId` internals.
+
 use crate::SemaContext;
 use crate::def::Def;
 
@@ -64,6 +70,9 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
         let mut current_tag = 0i128;
         for variant in &enum_def.variants {
             if let Some(value_expr) = &variant.value {
+                // Keep this evaluator intentionally small: it mirrors accepted
+                // discriminant syntax well enough for display, not full const
+                // evaluation.
                 current_tag = self.eval_const_discriminant(value_expr)?;
             }
             if variant.payload_type.is_none() && current_tag == tag {

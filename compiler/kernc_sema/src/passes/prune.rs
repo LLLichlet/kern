@@ -1,3 +1,10 @@
+//! Conditional-compilation pruning for parsed AST.
+//!
+//! `#[if(...)]` attributes are evaluated before semantic collection so disabled
+//! declarations and statements never enter the definition table.  The evaluator
+//! is intentionally small and only understands the expression subset allowed in
+//! compile-time configuration conditions.
+
 use crate::def::DefId;
 use kernc_ast::*;
 use kernc_utils::Session;

@@ -1,3 +1,9 @@
+//! Definition collection pass.
+//!
+//! Collection walks parsed AST modules, creates stable `DefId` records, defines
+//! symbols in module/trait/impl scopes, records imports for a later fixed-point
+//! resolver, and preserves docs/attributes for diagnostics and tooling.
+
 use crate::SemaContext;
 use crate::def::*;
 use crate::scope::{SymbolInfo, SymbolKind};
@@ -155,6 +161,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
         let parent_module = self.current_module;
         let parent_module_imported = self.current_module_imported;
+        // Collection is recursive over inline modules and imported extern
+        // containers, so preserve the previous module context around this AST.
         self.current_module = Some(mod_id);
         self.current_module_imported = matches!(
             self.ctx.defs.get(mod_id.0 as usize),
@@ -1367,6 +1375,15 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             let mut default_impl = None;
             if method.body.is_some() {
                 let name = method.signature.name;
+                let ret_type = match method.signature.type_node.kind.clone() {
+                    ast::TypeKind::Function { ret: Some(ret), .. } => *ret,
+                    _ => ast::TypeNode {
+                        id: self.ctx.next_node_id(),
+                        span: method.signature.span,
+                        kind: ast::TypeKind::Void,
+                    },
+                };
+                let body = method.body.clone();
                 let decl = Decl {
                     id: self.ctx.next_node_id(),
                     span: method.span,
@@ -1379,20 +1396,15 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         generics: Vec::new(),
                         where_clauses: Vec::new(),
                         params: method.params.clone(),
-                        ret_type: match method.signature.type_node.kind.clone() {
-                            ast::TypeKind::Function { ret: Some(ret), .. } => *ret,
-                            _ => ast::TypeNode {
-                                id: self.ctx.next_node_id(),
-                                span: method.signature.span,
-                                kind: ast::TypeKind::Void,
-                            },
-                        },
-                        body: method.body.clone(),
+                        ret_type: ret_type.clone(),
+                        body: body.clone(),
                         is_const: false,
                         is_extern: false,
                         is_variadic: false,
                     },
                 };
+                // Default trait bodies are collected as hidden functions owned by the trait so
+                // later impl checking can reuse the normal function-resolution path.
                 default_impl = self.collect_function(
                     &decl,
                     FunctionCollectSpec {
@@ -1403,18 +1415,9 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         is_extern: false,
                         generics: trait_generics,
                         where_clauses: &[],
-                        params: match &decl.kind {
-                            DeclKind::Function { params, .. } => params,
-                            _ => unreachable!(),
-                        },
-                        ret_type: match &decl.kind {
-                            DeclKind::Function { ret_type, .. } => ret_type,
-                            _ => unreachable!(),
-                        },
-                        body: match &decl.kind {
-                            DeclKind::Function { body, .. } => body,
-                            _ => unreachable!(),
-                        },
+                        params: &method.params,
+                        ret_type: &ret_type,
+                        body: &body,
                         is_variadic: false,
                     },
                 );

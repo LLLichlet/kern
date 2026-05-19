@@ -1,3 +1,9 @@
+//! Supertrait graph validation.
+//!
+//! Trait inheritance is checked as a graph after type resolution.  Cycles are
+//! diagnosed once, then the offending edges are replaced with `ERROR` so later
+//! lookup/projection code can continue without recursively walking the cycle.
+
 use super::*;
 use std::collections::{HashMap, HashSet};
 

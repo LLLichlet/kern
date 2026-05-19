@@ -1,3 +1,9 @@
+//! Trait impl coherence and method-contract validation.
+//!
+//! This module checks that impls do not overlap ambiguously, that required trait
+//! methods are implemented, and that impl method signatures satisfy the trait
+//! declaration after generic and associated-type substitution.
+
 use super::*;
 use kernc_utils::FastHashMap;
 
@@ -69,6 +75,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     pub(super) fn validate_trait_impl_coherence(&mut self) {
         let trait_impl_groups = self.ctx.trait_impl_groups().clone();
         for trait_impl_ids in trait_impl_groups.into_values() {
+            // Coherence is pairwise within each trait lookup key. Specific impls may overlap
+            // generic impls only when the solver can order one as strictly more specific.
             for (index, left_impl_id) in trait_impl_ids.iter().copied().enumerate() {
                 for right_impl_id in trait_impl_ids.iter().copied().skip(index + 1) {
                     let Some(overlap) =

@@ -1,3 +1,9 @@
+//! Shared helper routines for type resolution.
+//!
+//! These helpers keep common diagnostics and environment setup out of the
+//! individual item/path/type resolution files: generic binding, duplicate
+//! checking, required `DefId` extraction, and sizedness/layout checks.
+
 use super::*;
 use crate::ty::{ConstGeneric, GenericArg, LayoutEngine};
 
@@ -80,6 +86,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.set_current_scope(scope);
 
         for param in generics {
+            // Const parameters are values as well as generic parameters; resolving their declared
+            // type here makes later const-generic expressions compare against a concrete TypeId.
             let (kind, param_ty) = match &param.kind {
                 ast::GenericParamKind::Type => (
                     SymbolKind::TypeParam,

@@ -1,3 +1,9 @@
+//! Type path resolution.
+//!
+//! Paths may start from lexical scope, parent module, or package root, and may
+//! continue through modules, named types, trait qualifications, associated
+//! types, and generic arguments.  This file owns that stepwise resolution.
+
 use super::*;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
@@ -630,6 +636,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             return false;
         }
 
+        // `len() >= 2` above guarantees a variant segment exists.
         let last_segment = segments.last().unwrap();
         let mut current_scope = match anchor {
             Some(anchor) => {

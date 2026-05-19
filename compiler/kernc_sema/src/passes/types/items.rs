@@ -1,3 +1,9 @@
+//! Top-level item type-resolution driver.
+//!
+//! This file coordinates the module pass over collected definitions, ensuring
+//! each item kind resolves its signature, fields, trait data, impl head, and
+//! nested expressions in the correct scope.
+
 use super::*;
 use crate::scope::SymbolNamespace;
 
@@ -21,6 +27,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             |this| this.resolve_module_pass_cancelable(&module_ids, true, cancellation),
         )?;
         cancellation.check()?;
+        // Aliases are resolved first so later item signatures can normalize through
+        // them without depending on source-order details inside a module.
         self.measure_phase(
             |timings, duration| timings.resolve_non_alias_items += duration,
             |this| -> Result<(), Canceled> {
@@ -160,7 +168,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             return;
         };
 
-        // Safety: type resolution mutates inference state and selected `resolved_*` fields, but
+        // SAFETY: type resolution mutates inference state and selected `resolved_*` fields, but
         // it never reorders or removes entries from `ctx.defs`. Raw pointers let us inspect the
         // existing definition payloads without cloning the full AST-backed items first.
         unsafe {

@@ -1,3 +1,9 @@
+//! Const-generic expression resolution.
+//!
+//! Closed const expressions are evaluated immediately.  Expressions that mention
+//! const generic parameters are converted into symbolic const-expression nodes
+//! that can be substituted and folded after generic instantiation.
+
 use super::*;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
@@ -532,6 +538,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         expr: &ast::Expr,
         env_scope: ScopeId,
     ) -> bool {
+        // This predicate decides whether a const argument can be folded immediately or must be
+        // kept symbolic for monomorphization. It therefore resolves only value names and recurses
+        // through syntax that can contain value expressions; type-only bindings are ignored.
         self.ctx.scopes.set_current_scope(env_scope);
         match &expr.kind {
             ast::ExprKind::Identifier(name) => self

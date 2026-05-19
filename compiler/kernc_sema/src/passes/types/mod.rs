@@ -1,3 +1,10 @@
+//! Type-resolution pass and shared helpers.
+//!
+//! Type resolution converts AST type nodes into semantic `TypeId`s, binds
+//! generics, resolves associated types and const generics, validates
+//! supertraits/impl coherence/contracts, and records phase timings when
+//! requested by the driver.
+
 use super::ImportResolver;
 use crate::SemaContext;
 use crate::checker::{ConstEvaluator, ConstValue, ExprChecker};

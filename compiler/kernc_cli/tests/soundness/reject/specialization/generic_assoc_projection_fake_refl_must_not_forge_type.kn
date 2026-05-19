@@ -1,0 +1,37 @@
+// Generic associated types are another projection entry point. Assoc arguments
+// must be substitutions on the selected impl assoc body, not a way to reuse a
+// shadowed blanket proof as fake reflection.
+// stderr: mismatched types
+
+trait TypeMap[T] {
+    type Is[A];
+};
+
+impl[S, T] S: TypeMap[T] {
+    type Is[A] = A;
+}
+
+struct FakeProof[L, R] {};
+
+impl[L, R] FakeProof[L, R]: TypeMap[R] {
+    type Is[A] = L;
+}
+
+fn rewrite[R, RW](value: RW.TypeMap[R].Is[R]) R
+    where RW: TypeMap[R],
+{
+    return value;
+}
+
+fn cast[L, R](value: L) R {
+    return rewrite[R, FakeProof[L, R]](value);
+}
+
+fn seed() i32 {
+    return 11;
+}
+
+fn main() i32 {
+    let forged = cast[&fn() i32, &fn(i32, i32) i32](seed);
+    return forged(100, 200) - 11;
+}

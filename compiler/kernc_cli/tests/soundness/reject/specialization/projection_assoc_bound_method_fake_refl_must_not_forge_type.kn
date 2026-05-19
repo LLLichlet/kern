@@ -1,0 +1,34 @@
+// A projected associated value must not be normalized through a shadowed
+// blanket impl before method lookup. Otherwise the call could treat `L` as `R`
+// and forge a callable function type.
+// stderr: expression is not callable
+
+trait TypeIs[T] {
+    type Is;
+};
+
+impl[S, T] S: TypeIs[T] {
+    type Is = T;
+}
+
+struct FakeProof[L, R] {
+    value: L,
+};
+
+impl[L, R] FakeProof[L, R]: TypeIs[R] {
+    type Is = L;
+}
+
+fn seed() i32 {
+    return 11;
+}
+
+fn forge[R, RW](value: RW.TypeIs[R].Is) i32
+    where RW: TypeIs[R],
+{
+    return value(100, 200);
+}
+
+fn main() i32 {
+    return forge[&fn(i32, i32) i32, FakeProof[&fn() i32, &fn(i32, i32) i32]](seed) - 11;
+}

@@ -84,7 +84,14 @@ impl[K, V] &mut Map[K, V]
 
         let .{ Some: storage } = alloc.alloc(layout) else return .{ Err: .OutOfMemory };
         let ctrl = storage;
-        let entries = ((storage as usize) + entries_offset).as_mut_ptr[Entry[K, V]]();
+        let entries_addr = match ((storage as usize).checked_add(entries_offset)) {
+            .{ Some: addr } => addr,
+            .None => {
+                alloc.free(storage, layout);
+                return .{ Err: .CapacityOverflow };
+            },
+        };
+        let entries = entries_addr.as_mut_ptr[Entry[K, V]]();
         @memset(ctrl, EMPTY, capacity);
 
         return .{
@@ -205,7 +212,8 @@ impl[K, V] &mut Map[K, V]
         }
 
         let required_len = self.len() + additional;
-        let required_occupied = required_len + self.tombstones;
+        let .{ Some: required_occupied } = required_len.checked_add(self.tombstones)
+            else return .{ Err: .CapacityOverflow };
         let .{ Some: target } = self.capacity_for_len(required_occupied)
             else return .{ Err: .CapacityOverflow };
 

@@ -28,6 +28,9 @@ fn check_gpa_and_arena[W](t: &mut Report[W]) void
     let aligned = Layout.{ size: 33usize, align: 256usize };
     let ptr_a = gpa.alloc(aligned).should_some().sum(@loc(), t);
     (((ptr_a as usize) % 256usize) == 0usize).should().sum(@loc(), t);
+    page.alloc(Layout.{ size: 1usize, align: 8192usize })
+        .should_none()
+        .sum(@loc(), t);
 
     let compact = Layout.{ size: 17usize, align: 64usize };
     let ptr_b = gpa.alloc(compact).should_some().sum(@loc(), t);

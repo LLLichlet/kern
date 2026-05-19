@@ -18,6 +18,7 @@ pub fn page() Page {
 
 #[if(os == "windows")]
 const WINDOWS_PAGE_READWRITE = 4u32;
+const OS_PAGE_MIN_ALIGN = 4096usize;
 
 fn normalize_align(align: usize) usize {
     return if (align == 0) 1usize else align;
@@ -32,6 +33,12 @@ impl &mut Page : Allocator{
     pub fn alloc(layout: Layout) ?&mut u8 {
         if (layout.size == 0) {
             return .{ Some: dangling_ptr(layout.align) };
+        }
+        // OS page APIs guarantee page-aligned mappings. Larger alignments need
+        // an over-allocation strategy, so this allocator rejects them instead of
+        // returning a pointer that violates `Allocator.alloc`'s layout contract.
+        if (normalize_align(layout.align) > OS_PAGE_MIN_ALIGN) {
+            return .None;
         }
 
         #[if(os == "linux")] {

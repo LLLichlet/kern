@@ -7,7 +7,6 @@
 //! keep corruption checks cheap and fail loudly on invalid frees.
 
 use base.mem.{Layout, align_up};
-use base.num.USIZE_MAX;
 use ..Allocator;
 
 struct FreeBlock {
@@ -85,14 +84,9 @@ fn gpa_allocation_size(layout: Layout) usize {
 fn gpa_required_block_size(layout: Layout) ?usize {
     let payload = gpa_allocation_size(layout);
     let align = gpa_request_align(layout);
-    if (payload > USIZE_MAX - GPA_ALLOC_HEADER_SIZE) {
-        return .None;
-    }
-    let payload_with_header = payload + GPA_ALLOC_HEADER_SIZE;
-    if (align - 1 > USIZE_MAX - payload_with_header) {
-        return .None;
-    }
-    return align_up(payload_with_header + align - 1, GPA_FREE_ALIGN);
+    let payload_with_header = payload.checked_add(GPA_ALLOC_HEADER_SIZE).?;
+    let padded = payload_with_header.checked_add(align - 1).?;
+    return align_up(padded, GPA_FREE_ALIGN);
 }
 
 impl &mut GPA : Allocator {
@@ -100,14 +94,37 @@ impl &mut GPA : Allocator {
         @trap();
     }
 
+    fn bump_generation() void {
+        let .{ Some: next } = self.generation.checked_add(1) else @trap();
+        self.generation = next;
+    }
+
+    fn checked_addr_add(base: usize, offset: usize) ?usize {
+        return base.checked_add(offset);
+    }
+
+    fn checked_range_end(start: usize, size: usize) ?usize {
+        return self.checked_addr_add(start, size);
+    }
+
+    fn chunk_usable_start_checked(chunk: &mut BackingChunk) ?usize {
+        let header_end = self.checked_addr_add(chunk as usize, GPA_CHUNK_HEADER_SIZE).?;
+        return align_up(header_end, GPA_FREE_ALIGN);
+    }
+
+    fn chunk_end_checked(chunk: &mut BackingChunk) ?usize {
+        return self.checked_range_end(chunk as usize, chunk.size);
+    }
+
     fn chunk_usable_start(chunk: &mut BackingChunk) usize {
-        let .{ Some: start } = align_up((chunk as usize) + GPA_CHUNK_HEADER_SIZE, GPA_FREE_ALIGN)
-            else @trap();
+        let .{ Some: start } = self.chunk_usable_start_checked(chunk) else @trap();
         return start;
     }
 
     fn chunk_usable_size(chunk: &mut BackingChunk) usize {
-        return chunk.size - (self.chunk_usable_start(chunk) - (chunk as usize));
+        let .{ Some: start } = self.chunk_usable_start_checked(chunk) else @trap();
+        let .{ Some: end } = self.chunk_end_checked(chunk) else @trap();
+        return end - start;
     }
 
     fn push_chunk_as_free_block(chunk: &mut BackingChunk) void {
@@ -122,8 +139,14 @@ impl &mut GPA : Allocator {
 
                 while (true) {
             let .{ Some: current } = chunk else break;
-            let start = self.chunk_usable_start(current);
-            let end = (current as usize) + current.size;
+            let .{ Some: start } = self.chunk_usable_start_checked(current) else {
+                chunk = current.next;
+                continue;
+            };
+            let .{ Some: end } = self.chunk_end_checked(current) else {
+                chunk = current.next;
+                continue;
+            };
             if (ptr_addr >= start and ptr_addr < end) {
                 return .{ Some: current };
             }
@@ -138,7 +161,9 @@ impl &mut GPA : Allocator {
     }
 
     fn header_block_end(header: &mut AllocationHeader) usize {
-        return self.header_block_start(header) + header.size;
+        let .{ Some: end } = self.checked_range_end(self.header_block_start(header), header.size)
+            else @trap();
+        return end;
     }
 
     fn link_active(header: &mut AllocationHeader) void {
@@ -168,13 +193,16 @@ impl &mut GPA : Allocator {
 
     fn free_block_overlaps_active(block: &mut FreeBlock) bool {
         let block_start = block as usize;
-        let block_end = block_start + block.size;
+        let .{ Some: block_end } = self.checked_range_end(block_start, block.size) else {
+            return true;
+        };
         let mut active = self.active;
 
                 while (true) {
             let .{ Some: current } = active else break;
             let active_start = self.header_block_start(current);
-            let active_end = self.header_block_end(current);
+            let .{ Some: active_end } = self.checked_range_end(active_start, current.size)
+                else return true;
             if (block_start < active_end and active_start < block_end) {
                 return true;
             }
@@ -205,8 +233,13 @@ impl &mut GPA : Allocator {
 
         match (curr) {
             .{ Some: curr } => {
-                if (((block as usize) + block.size) == (curr as usize)) {
-                    block.size += curr.size;
+                let is_adjacent = match (self.checked_range_end(block as usize, block.size)) {
+                    .{ Some: block_end } => block_end == (curr as usize),
+                    .None => @trap(),
+                };
+                if (is_adjacent) {
+                    let .{ Some: merged_size } = block.size.checked_add(curr.size) else @trap();
+                    block.size = merged_size;
                     block.next = curr.next;
                 }
             }
@@ -215,10 +248,15 @@ impl &mut GPA : Allocator {
 
         match (prev) {
             .{ Some: prev } => {
-                if (((prev as usize) + prev.size) == (block as usize)) {
+                let is_adjacent = match (self.checked_range_end(prev as usize, prev.size)) {
+                    .{ Some: prev_end } => prev_end == (block as usize),
+                    .None => @trap(),
+                };
+                if (is_adjacent) {
                     // Coalescing with the previous block consumes `block`;
                     // callers must not inspect `block` after insertion returns.
-                    prev.size += block.size;
+                    let .{ Some: merged_size } = prev.size.checked_add(block.size) else @trap();
+                    prev.size = merged_size;
                     prev.next = block.next;
                 }
             }
@@ -249,21 +287,18 @@ impl &mut GPA : Allocator {
             }
 
             let block_start = current as usize;
-            let block_end = block_start + current.size;
-            if (GPA_ALLOC_HEADER_SIZE > USIZE_MAX - block_start) {
-                return .None;
-            }
-            let .{ Some: header_end } = align_up(block_start + GPA_ALLOC_HEADER_SIZE, align)
+            let .{ Some: block_end } = self.checked_range_end(block_start, current.size)
+                else return .None;
+            let .{ Some: header_min } = self.checked_addr_add(block_start, GPA_ALLOC_HEADER_SIZE)
+                else return .None;
+            let .{ Some: header_end } = align_up(header_min, align)
                 else return .None;
             let header_addr = header_end - GPA_ALLOC_HEADER_SIZE;
-            if (GPA_ALLOC_HEADER_SIZE > USIZE_MAX - header_addr) {
-                return .None;
-            }
-            let user_addr = header_addr + GPA_ALLOC_HEADER_SIZE;
-            if (payload_size > USIZE_MAX - user_addr) {
-                return .None;
-            }
-            let .{ Some: used_end } = align_up(user_addr + payload_size, GPA_FREE_ALIGN)
+            let .{ Some: user_addr } = self.checked_addr_add(header_addr, GPA_ALLOC_HEADER_SIZE)
+                else return .None;
+            let .{ Some: payload_end } = self.checked_addr_add(user_addr, payload_size)
+                else return .None;
+            let .{ Some: used_end } = align_up(payload_end, GPA_FREE_ALIGN)
                 else return .None;
 
             if (used_end <= block_end) {
@@ -307,14 +342,9 @@ impl &mut GPA : Allocator {
     fn grow(layout: Layout) bool {
         let .{ Some: needed } = gpa_required_block_size(layout) else return false;
         let chunk_payload = gpa_max_usize(gpa_default_chunk_size(self.chunk_size), needed);
-        if (GPA_CHUNK_HEADER_SIZE > USIZE_MAX - chunk_payload) {
-            return false;
-        }
-        let with_header = chunk_payload + GPA_CHUNK_HEADER_SIZE;
-        if (GPA_FREE_ALIGN > USIZE_MAX - with_header) {
-            return false;
-        }
-        let raw_size = with_header + GPA_FREE_ALIGN;
+        let .{ Some: with_header } = chunk_payload.checked_add(GPA_CHUNK_HEADER_SIZE)
+            else return false;
+        let .{ Some: raw_size } = with_header.checked_add(GPA_FREE_ALIGN) else return false;
         let raw_layout = Layout.{ size: raw_size, align: GPA_CHUNK_ALIGN };
 
         let .{ Some: raw } = self.backing.alloc(raw_layout) else return false;
@@ -359,7 +389,12 @@ impl &mut GPA : Allocator {
             return;
         };
         let chunk_start = self.chunk_usable_start(chunk);
-        if ((ptr as usize) < chunk_start + GPA_ALLOC_HEADER_SIZE) {
+        let .{ Some: min_user_addr } = self.checked_addr_add(chunk_start, GPA_ALLOC_HEADER_SIZE)
+            else {
+                self.trap_invalid_free();
+                return;
+            };
+        if ((ptr as usize) < min_user_addr) {
             self.trap_invalid_free();
             return;
         }
@@ -393,7 +428,7 @@ impl &mut GPA : Allocator {
     /// Warning:
     /// pointers handed out before `reset` become invalid.
     pub fn reset() void {
-        self.generation += 1;
+        self.bump_generation();
         self.free_list = .None;
         self.active = .None;
 
@@ -407,6 +442,7 @@ impl &mut GPA : Allocator {
 
     /// Releases every backing chunk owned by the allocator.
     pub fn deinit() void {
+        self.bump_generation();
         let mut chunk = self.chunks;
         let chunk_layout_align = GPA_CHUNK_ALIGN;
 

@@ -56,6 +56,21 @@ fn check_writers[T](t: &mut Report[T]) void
     inner..&.as_slice().should().eq("abcdef").sum(@loc(), t);
     buffered..&.buffered_len().should().eq(0usize).sum(@loc(), t);
 
+    let mut line_storage: [32]u8 = undef;
+    let mut line_inner = (line_storage..&[0...32]).writer();
+    let line_inner_writer = (line_inner..& as &mut Write);
+    let mut line_buffer: [8]u8 = undef;
+    let mut line = line_inner_writer.line_buffered(line_buffer..&[0...8]);
+    let line_writer = (line..& as &mut Write);
+    line_writer.write_all("hello").should().sum(@loc(), t);
+    line_inner..&.as_slice().should().eq("").sum(@loc(), t);
+    line..&.buffered_len().should().eq(5usize).sum(@loc(), t);
+    line_writer.write_all("\nnext").should().sum(@loc(), t);
+    line_inner..&.as_slice().should().eq("hello\n").sum(@loc(), t);
+    line..&.buffered_len().should().eq(4usize).sum(@loc(), t);
+    line_writer.flush_all().should().sum(@loc(), t);
+    line_inner..&.as_slice().should().eq("hello\nnext").sum(@loc(), t);
+
     let page = Page.{}..&;
     let gpa = gpa().on(page)..&;
     defer gpa.deinit();

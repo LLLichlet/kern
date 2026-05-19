@@ -32,6 +32,7 @@ pub use .writers.{
     StringWriter,
     CountingWriter,
     BufWriter,
+    LineWriter,
     NullWriter,
     discard,
 };

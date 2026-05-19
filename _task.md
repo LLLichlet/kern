@@ -10,7 +10,7 @@ Keep it until the whole round is finished, then delete it in a cleanup commit.
 - [x] Add best-effort flush to writer-facing traits without weakening no-std/base users.
 - [x] Add `BufWriter` with explicit buffer ownership and predictable flush behavior.
 - [x] Add `BufReader` for repeated small reads.
-- [ ] Add `LineWriter` only if it remains small and useful.
+- [x] Add `LineWriter` only if it remains small and useful.
 - [x] Distinguish best-effort stream flush from durable file sync APIs.
 - [x] Add kernlib tests for buffered writes and explicit flush.
 

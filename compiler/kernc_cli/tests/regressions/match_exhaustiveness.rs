@@ -1119,6 +1119,88 @@ fn main() i32 {
 }
 
 #[test]
+fn struct_value_patterns_with_defaults_match_full_literal_value() {
+    let output = build_and_run_source(
+        r#"
+struct Pair {
+    left: i32,
+    right: i32 = 2,
+};
+
+fn classify(pair: Pair) i32 {
+    return match (pair) {
+        Pair.{ left: 1 } => 5,
+        _ => 9,
+    };
+}
+
+fn main() i32 {
+    return classify(Pair.{ left: 1, right: 2 })
+        + classify(Pair.{ left: 1, right: 3 })
+        - 14;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn imported_struct_value_pattern_defaults_use_definition_scope() {
+    let output = compile_source_tree(
+        "main.kn",
+        &[
+            (
+                "settings.kn",
+                r#"
+type Mode = i32;
+
+const DEFAULT_MODE: Mode = 2;
+
+pub struct Settings {
+    pub id: i32,
+    pub mode: Mode = DEFAULT_MODE,
+}
+"#,
+            ),
+            (
+                "main.kn",
+                r#"
+mod settings;
+
+use .settings.Settings;
+
+fn classify(settings: Settings) i32 {
+    return match (settings) {
+        Settings.{ id: 7 } => 10,
+        _ => 30,
+    };
+}
+
+fn main() i32 {
+    return classify(Settings.{ id: 7, mode: 2 })
+        + classify(Settings.{ id: 7, mode: 3 })
+        - 40;
+}
+"#,
+            ),
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn lowers_nested_enum_payload_value_pattern_structurally() {
     let output = build_and_run_source(
         r#"

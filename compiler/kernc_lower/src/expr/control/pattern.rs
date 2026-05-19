@@ -16,6 +16,40 @@ struct UserPatternPlanInput<'a> {
     bindings: &'a mut Vec<PatternBindingPlan>,
 }
 
+enum StructValuePatternField {
+    Written(ast::StructFieldInit),
+    Default {
+        name: SymbolId,
+        value: Expr,
+        span: Span,
+        owner_def: kernc_sema::def::DefId,
+        subst_map: HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+    },
+}
+
+impl StructValuePatternField {
+    fn name(&self) -> SymbolId {
+        match self {
+            Self::Written(field) => field.name,
+            Self::Default { name, .. } => *name,
+        }
+    }
+
+    fn span(&self) -> Span {
+        match self {
+            Self::Written(field) => field.span,
+            Self::Default { span, .. } => *span,
+        }
+    }
+
+    fn value(&self) -> &Expr {
+        match self {
+            Self::Written(field) => &field.value,
+            Self::Default { value, .. } => value,
+        }
+    }
+}
+
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(super) fn is_ignored_binding(&self, name: SymbolId) -> bool {
         self.ctx.resolve(name) == "_"
@@ -193,10 +227,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     )?;
                     Some(self.and_expr(span, tag_cond, inner))
                 } else {
+                    let expanded_fields =
+                        self.expand_struct_value_pattern_fields(span, target_ty, fields)?;
                     let mut cond = self.bool_expr(span, true);
-                    for field in fields {
+                    for field in &expanded_fields {
+                        let field_name = field.name();
+                        let field_span = field.span();
                         let (field_ty, struct_id, field_idx) =
-                            self.resolve_struct_pattern_field(target_ty, field.name, field.span)?;
+                            self.resolve_struct_pattern_field(target_ty, field_name, field_span)?;
                         let field_expr = MastExpr::new(
                             field_ty,
                             MastExprKind::FieldAccess {
@@ -204,16 +242,40 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 struct_id,
                                 field_idx,
                             },
-                            field.span,
+                            field_span,
                         );
-                        let inner = self.collect_value_pattern_plan(
-                            field.span,
-                            &field.value,
-                            &field_expr,
-                            field_ty,
-                            subst_map,
-                        )?;
-                        cond = self.and_expr(field.span, cond, inner);
+                        let inner = match field {
+                            StructValuePatternField::Written(_) => self
+                                .collect_value_pattern_plan(
+                                    field_span,
+                                    field.value(),
+                                    &field_expr,
+                                    field_ty,
+                                    subst_map,
+                                )?,
+                            StructValuePatternField::Default {
+                                owner_def,
+                                subst_map,
+                                ..
+                            } => {
+                                let prev_scope = self.ctx.scopes.current_scope_id();
+                                if let Some(owner_scope) = self.ctx.def_owner_scope(*owner_def) {
+                                    self.ctx.scopes.set_current_scope(owner_scope);
+                                }
+                                let inner = self.collect_value_pattern_plan(
+                                    field_span,
+                                    field.value(),
+                                    &field_expr,
+                                    field_ty,
+                                    subst_map,
+                                );
+                                if let Some(prev_scope) = prev_scope {
+                                    self.ctx.scopes.set_current_scope(prev_scope);
+                                }
+                                inner?
+                            }
+                        };
+                        cond = self.and_expr(field_span, cond, inner);
                     }
                     Some(cond)
                 }
@@ -412,6 +474,69 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         (vec![matched_let], cond)
+    }
+
+    fn expand_struct_value_pattern_fields(
+        &mut self,
+        span: Span,
+        target_ty: TypeId,
+        fields: &[ast::StructFieldInit],
+    ) -> Option<Vec<StructValuePatternField>> {
+        let norm_target = self.ctx.type_registry.normalize(target_ty);
+        let TypeKind::Def(def_id, gen_args) = self.ctx.type_registry.get(norm_target).clone()
+        else {
+            return Some(
+                fields
+                    .iter()
+                    .cloned()
+                    .map(StructValuePatternField::Written)
+                    .collect(),
+            );
+        };
+        let Def::Struct(def) = self.ctx.defs.get(def_id.0 as usize)? else {
+            return Some(
+                fields
+                    .iter()
+                    .cloned()
+                    .map(StructValuePatternField::Written)
+                    .collect(),
+            );
+        };
+        if fields.len() >= def.fields.len() {
+            return Some(
+                fields
+                    .iter()
+                    .cloned()
+                    .map(StructValuePatternField::Written)
+                    .collect(),
+            );
+        }
+
+        let mut expanded = Vec::with_capacity(def.fields.len());
+        let mut struct_subst_map = HashMap::new();
+        for (index, param) in def.generics.iter().enumerate() {
+            if let Some(arg) = gen_args.get(index).copied() {
+                struct_subst_map.insert(param.name, arg);
+            }
+        }
+
+        for field_def in &def.fields {
+            if let Some(field) = fields.iter().find(|field| field.name == field_def.name) {
+                expanded.push(StructValuePatternField::Written(field.clone()));
+                continue;
+            }
+
+            let default_value = field_def.default_value.as_deref()?;
+            expanded.push(StructValuePatternField::Default {
+                name: field_def.name,
+                value: default_value.clone(),
+                span,
+                owner_def: def_id,
+                subst_map: struct_subst_map.clone(),
+            });
+        }
+
+        Some(expanded)
     }
 
     fn value_pattern_is_qualified_enum_variant(

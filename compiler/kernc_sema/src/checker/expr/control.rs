@@ -10,7 +10,7 @@ use crate::LayoutEngine;
 use crate::checker::{ConstEvaluator, ConstValue};
 use crate::def::{Def, ImportDef};
 use crate::passes::ImportResolver;
-use crate::ty::{AnonymousField, PrimitiveType, TypeId, TypeKind};
+use crate::ty::{AnonymousField, GenericArg, PrimitiveType, TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
 use kernc_utils::{DiagnosticCode, DiagnosticTag, Span, SymbolId};
 
@@ -31,6 +31,11 @@ pub(super) enum CoverageConstructorKind {
 pub(super) struct CoverageConstructor {
     kind: CoverageConstructorKind,
     arg_tys: Vec<TypeId>,
+}
+
+struct CoverageValuePatternField {
+    name: SymbolId,
+    pattern: CoveragePattern,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -626,10 +631,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return None;
                 };
 
+                let expanded_fields =
+                    self.coverage_expand_struct_value_pattern_fields(norm_target, fields, &ctor)?;
+
                 let mut args = Vec::with_capacity(field_names.len());
-                for (index, field_name) in field_names.iter().enumerate() {
-                    let field = fields.iter().find(|field| field.name == *field_name)?;
-                    args.push(self.coverage_lower_expr_pattern(&field.value, ctor.arg_tys[index])?);
+                for field_name in &field_names {
+                    let field = expanded_fields
+                        .iter()
+                        .find(|field| field.name == *field_name)?;
+                    args.push(field.pattern.clone());
                 }
 
                 Some(CoveragePattern::Constructor(
@@ -639,6 +649,81 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             _ => None,
         }
+    }
+
+    fn coverage_expand_struct_value_pattern_fields<'b>(
+        &mut self,
+        norm_target: TypeId,
+        fields: &'b [ast::StructFieldInit],
+        ctor: &CoverageConstructor,
+    ) -> Option<Vec<CoverageValuePatternField>> {
+        let TypeKind::Def(def_id, generic_args) = self.ctx.type_registry.get(norm_target).clone()
+        else {
+            return self.coverage_lower_written_value_pattern_fields(fields, &ctor.arg_tys);
+        };
+        let Def::Struct(def) = self.ctx.defs.get(def_id.0 as usize)? else {
+            return self.coverage_lower_written_value_pattern_fields(fields, &ctor.arg_tys);
+        };
+        if fields.len() >= def.fields.len() {
+            return self.coverage_lower_written_value_pattern_fields(fields, &ctor.arg_tys);
+        }
+
+        let mut subst_map = std::collections::HashMap::<SymbolId, GenericArg>::new();
+        for (index, param) in def.generics.iter().enumerate() {
+            if let Some(arg) = generic_args.get(index).copied() {
+                subst_map.insert(param.name, arg);
+            }
+        }
+
+        let def_fields = def.fields.clone();
+        let mut expanded = Vec::with_capacity(def_fields.len());
+        for (index, field_def) in def_fields.iter().enumerate() {
+            let field_ty = *ctor.arg_tys.get(index)?;
+            if let Some(field) = fields.iter().find(|field| field.name == field_def.name) {
+                expanded.push(CoverageValuePatternField {
+                    name: field.name,
+                    pattern: self.coverage_lower_expr_pattern(&field.value, field_ty)?,
+                });
+                continue;
+            }
+
+            let default_value = field_def.default_value.as_deref()?;
+            let prev_scope = self.ctx.scopes.current_scope_id();
+            if let Some(owner_scope) = self.ctx.def_owner_scope(def_id) {
+                self.ctx.scopes.set_current_scope(owner_scope);
+            }
+            let lowered = self.coverage_lower_expr_pattern(default_value, field_ty);
+            if let Some(prev_scope) = prev_scope {
+                self.ctx.scopes.set_current_scope(prev_scope);
+            }
+            if lowered.is_none() {
+                return None;
+            }
+
+            expanded.push(CoverageValuePatternField {
+                name: field_def.name,
+                pattern: lowered?,
+            });
+        }
+
+        Some(expanded)
+    }
+
+    fn coverage_lower_written_value_pattern_fields(
+        &mut self,
+        fields: &[ast::StructFieldInit],
+        arg_tys: &[TypeId],
+    ) -> Option<Vec<CoverageValuePatternField>> {
+        fields
+            .iter()
+            .zip(arg_tys.iter())
+            .map(|(field, &field_ty)| {
+                Some(CoverageValuePatternField {
+                    name: field.name,
+                    pattern: self.coverage_lower_expr_pattern(&field.value, field_ty)?,
+                })
+            })
+            .collect()
     }
 
     fn expr_pattern_is_qualified_enum_variant(&mut self, expr: &Expr, target_ty: TypeId) -> bool {

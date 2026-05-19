@@ -41,14 +41,47 @@ pub(super) fn dispatch_messages(state: &mut ServerState, message: IncomingMessag
     let mut writer = MessageWriter::new(&mut output);
     let should_exit = handle_message(state, &mut writer, message).unwrap();
     assert!(!should_exit);
-    drain_scheduler_to_quiescence(state, &mut writer);
+    flush_started_work_to_quiescence(state, &mut writer);
     read_all_messages(&output)
+}
+
+pub(super) fn flush_started_work_to_quiescence(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl std::io::Write>,
+) {
+    // Message dispatch should wait for work that production dispatch already
+    // submitted, but it must not turn deferred diagnostics targets into new
+    // worker jobs. Several didChange tests assert that boundary explicitly.
+    while state.pending_workspace_refresh_tasks > 0
+        || state.pending_diagnostics_worker_tasks > 0
+        || state.pending_prewarm_tasks > 0
+        || state.has_pending_document_request_work()
+        || !state.pending_diagnostics.is_empty()
+    {
+        if state.pending_prewarm_tasks > 0 {
+            super::scheduler::flush_prewarm_results(state, writer, true).unwrap();
+        }
+        if state.pending_workspace_refresh_tasks > 0 {
+            super::scheduler::flush_workspace_refresh_results(state, writer, true).unwrap();
+        }
+        if state.pending_diagnostics_worker_tasks > 0 {
+            super::scheduler::flush_diagnostics_results(state, writer, true).unwrap();
+        }
+        if state.has_pending_document_request_work() {
+            super::scheduler::flush_document_request_results(state, writer, true).unwrap();
+        }
+        if !state.pending_diagnostics.is_empty() {
+            super::scheduler::publish_pending_diagnostics(state, writer).unwrap();
+        }
+    }
 }
 
 pub(super) fn drain_scheduler_to_quiescence(
     state: &mut ServerState,
     writer: &mut MessageWriter<impl std::io::Write>,
 ) {
+    // Explicit scheduler tests and stress tests use this stronger helper when
+    // they need to materialize every queued diagnostics target.
     while state.pending_workspace_refresh_tasks > 0
         || state.pending_diagnostics_worker_tasks > 0
         || state.pending_prewarm_tasks > 0

@@ -104,6 +104,13 @@ pub(super) fn flush_diagnostics_lane(
     flush_workspace_refresh_results(state, writer, false)?;
     flush_diagnostics_results(state, writer, false)?;
 
+    publish_pending_diagnostics(state, writer)
+}
+
+pub(super) fn publish_pending_diagnostics(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+) -> Result<(), ServerError> {
     let pending = std::mem::take(&mut state.pending_diagnostics);
     for (target_uri, publish) in pending {
         publish_analysis_outcome(

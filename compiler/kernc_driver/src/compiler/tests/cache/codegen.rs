@@ -1,3 +1,8 @@
+//! Codegen-cache tests.
+//!
+//! These tests cover preserved objects, summary-driven codegen planning, and
+//! compile-only cache behavior.
+
 use super::*;
 
 #[test]

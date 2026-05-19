@@ -1,3 +1,9 @@
+//! Incremental analysis reuse helpers.
+//!
+//! Reuse compares normalized module paths, source contents, structure snapshots,
+//! and body-only changes so analysis can preserve cached semantic artifacts when
+//! edits do not invalidate them.
+
 use super::*;
 use kernc_utils::{Interner, SymbolId};
 

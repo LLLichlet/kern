@@ -1,3 +1,8 @@
+//! Cache reporting tests.
+//!
+//! These tests assert cache statistics, metadata emission, timing diagnostics,
+//! and workload reporting in compile/analysis reports.
+
 use super::*;
 
 #[test]

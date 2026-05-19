@@ -1,3 +1,8 @@
+//! Public flow-analysis model and artifacts.
+//!
+//! Flow analysis lowers typed AST bodies into CFG/def-use/liveness structures
+//! consumed by completion facts, unused-binding lints, and editor navigation.
+
 mod cfg;
 mod collect;
 mod control;

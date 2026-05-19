@@ -1,3 +1,9 @@
+//! Native link and toolchain command construction.
+//!
+//! Linking turns emitted objects or bitcode linker inputs into final binaries,
+//! shared libraries, or compile-only artifacts. This module resolves target
+//! toolchains, runtime search paths, SDK settings, and command-line arguments.
+
 use super::{CompilerDriver, LinkTarget, TempDirGuard, TempFileGuard};
 use kernc_codegen::{
     ThinLtoModule, ThinLtoObject, ThinLtoObjectKind, ThinLtoOptions, run_thin_lto,

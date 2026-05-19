@@ -1,3 +1,9 @@
+//! Structure and semantic analysis orchestration.
+//!
+//! Structure analysis builds typed semantic artifacts, imports reusable cache
+//! layers when possible, and exposes outline/navigation/completion/lint data to
+//! analysis callers.
+
 use super::*;
 use crate::compiler::completion;
 

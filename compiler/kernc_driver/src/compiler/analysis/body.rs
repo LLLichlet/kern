@@ -1,3 +1,9 @@
+//! Full body analysis artifact construction.
+//!
+//! This module starts from a structure artifact, type-checks bodies, collects
+//! flow/completion/reference/lint data, and returns the complete analysis model
+//! used by editor features.
+
 use super::*;
 use crate::compiler::ResolvedGlobalType;
 

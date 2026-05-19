@@ -1,3 +1,9 @@
+//! Flow control-region collection.
+//!
+//! Control facts summarize loops, branches, matches, early exits, and diverging
+//! regions so analysis reports can explain control-flow structure without
+//! re-walking the AST.
+
 use super::*;
 
 pub(super) fn collect_control_facts(

@@ -1,3 +1,9 @@
+//! Completion item collection.
+//!
+//! Completion combines parsed syntax, semantic symbols, member queries, and
+//! flow-derived facts to produce context-sensitive items for modules, members,
+//! blocks, closures, `if`, and `match` regions.
+
 mod facts;
 mod member;
 mod model;

@@ -1,3 +1,9 @@
+//! Partitioned codegen-unit emission.
+//!
+//! This module builds each planned codegen unit, picks object/bitcode output
+//! paths, applies the effective inline-assembly dialect, and records per-unit
+//! codegen/emit reports for the partitioned pipeline.
+
 use super::*;
 use crate::compiler::codegen_units;
 use kernc_utils::config::OptLevel;
@@ -110,6 +116,7 @@ impl CompilerDriver {
         {
             AsmDialect::Intel => InlineAsmDialect::Intel,
             AsmDialect::Att => InlineAsmDialect::ATT,
+            // `effective_for_target` resolves Auto before this conversion.
             AsmDialect::Auto => unreachable!("effective_for_target must resolve `auto`"),
         };
         let mut pending: Vec<PendingCodegenUnit> = codegen_unit_plans

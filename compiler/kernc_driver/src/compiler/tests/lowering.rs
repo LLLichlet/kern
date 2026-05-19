@@ -1,3 +1,8 @@
+//! Lowering integration tests.
+//!
+//! These tests exercise driver-level lowering output and ensure semantic
+//! analysis artifacts feed the lower/MIR/codegen stages correctly.
+
 use super::*;
 use kernc_mono::MonoId;
 

@@ -1,3 +1,9 @@
+//! Codegen-unit planning.
+//!
+//! Planning assigns roots and reachable helper items to units using either MIR
+//! summary data or MAST workload estimates, then records imports needed for
+//! cross-unit references.
+
 use super::refs::build_item_refs;
 use super::workload::{workload_for_function, workload_for_global};
 use super::*;
@@ -278,6 +284,7 @@ fn plan_codegen_units_impl(
                     .cmp(&rhs.workload)
                     .then_with(|| lhs.name.cmp(&rhs.name))
             })
+            // Unit allocation always creates at least one bucket before clusters are assigned.
             .expect("at least one codegen unit must exist");
         let unit = &mut units[unit_idx];
         unit.root_keys.extend(cluster.root_keys);

@@ -1,3 +1,8 @@
+//! Type hint extraction for editor analysis.
+//!
+//! Type hints annotate expressions and bindings with inferred semantic types so
+//! frontends can surface inline hints without re-running type formatting logic.
+
 use super::{AnalysisTypeHint, AnalysisTypeHintKind, CompilerDriver};
 use kernc_ast as ast;
 use kernc_sema::SemaContext;

@@ -1,3 +1,8 @@
+//! Flow analysis tests.
+//!
+//! These tests validate CFG, liveness, def-use, completion facts, and
+//! flow-sensitive diagnostics produced by the driver analysis pipeline.
+
 use super::*;
 
 #[test]

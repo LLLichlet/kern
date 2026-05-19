@@ -1,3 +1,9 @@
+//! Flow CFG construction.
+//!
+//! This builder lowers typed AST expressions into analysis CFG nodes and edges,
+//! preserving binding/reference ids and node facts used by dataflow and
+//! completion.
+
 use super::*;
 
 impl<'a> FlowCfgBuilder<'a> {

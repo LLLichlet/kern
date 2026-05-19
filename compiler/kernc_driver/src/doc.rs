@@ -1,3 +1,9 @@
+//! Documentation extraction and rendering.
+//!
+//! This module collects doc comments from semantic definitions, normalizes them
+//! into structured sections/entries, and renders package metadata documentation
+//! for Kmeta consumers.
+
 use crate::language::is_language_builtin_def;
 use kernc_ast as ast;
 use kernc_sema::SemaContext;

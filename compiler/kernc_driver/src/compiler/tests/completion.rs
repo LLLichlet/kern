@@ -1,3 +1,8 @@
+//! Completion analysis tests.
+//!
+//! These tests build small source files and assert body-aware completion facts,
+//! ownership, and binding visibility exposed by the driver.
+
 use super::*;
 
 #[test]

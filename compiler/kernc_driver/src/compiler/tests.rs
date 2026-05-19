@@ -1,3 +1,9 @@
+//! Compiler driver integration tests.
+//!
+//! These tests exercise frontend loading, structure analysis, incremental cache
+//! behavior, cancellation, and large-source handling through the public driver
+//! APIs.
+
 use super::{
     AnalysisCallKind, AnalysisDeadStoreKind, AnalysisFlowBindingKind, AnalysisFlowCfgEdgeKind,
     AnalysisFlowCfgNodeKind, AnalysisFlowDefinitionKind, AnalysisFlowDefinitionRef,

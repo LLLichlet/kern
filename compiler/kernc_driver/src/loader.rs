@@ -1,3 +1,9 @@
+//! Package/module loader.
+//!
+//! The loader resolves root modules, package names, source paths, dependencies,
+//! and imported metadata before semantic collection. It coordinates frontend
+//! parsing with package-root discovery and cancellation-aware dependency walks.
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

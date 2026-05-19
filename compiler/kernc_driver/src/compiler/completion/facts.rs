@@ -1,3 +1,8 @@
+//! Completion fact aggregation.
+//!
+//! Fact collection indexes syntax regions that need special completion behavior,
+//! such as local block scopes, closure captures, if-let arms, and match arms.
+
 use super::model::push_completion_item;
 use super::*;
 

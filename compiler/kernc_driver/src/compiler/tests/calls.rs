@@ -1,3 +1,8 @@
+//! Call analysis and lowering tests.
+//!
+//! These cases assert that the driver reports call targets, call completeness,
+//! and lowering behavior consistently across direct and method-call forms.
+
 use super::*;
 use crate::AnalysisCallTargetCompleteness;
 

@@ -1,3 +1,8 @@
+//! Flow dataflow-derived diagnostics.
+//!
+//! This module uses reaching definitions and liveness to identify dead stores
+//! and other flow-sensitive facts that are easier to report after CFG analysis.
+
 use super::*;
 use std::collections::{HashMap, HashSet};
 

@@ -1,3 +1,9 @@
+//! Surface analysis artifact construction.
+//!
+//! Surface analysis collects top-level symbols and lightweight declaration
+//! information without requiring full body checking, enabling fast outline and
+//! navigation responses.
+
 use super::*;
 
 impl CompilerDriver {

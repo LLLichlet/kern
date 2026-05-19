@@ -1,3 +1,9 @@
+//! Editor and analysis artifact pipeline.
+//!
+//! Analysis artifacts reuse frontend and semantic caches to serve outline,
+//! surface, structure, semantic, flow, completion, hover, reference, and lint
+//! data without running full codegen.
+
 mod body;
 mod entry;
 mod lints;

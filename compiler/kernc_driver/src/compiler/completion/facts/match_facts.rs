@@ -1,3 +1,8 @@
+//! Match completion facts.
+//!
+//! Match facts record arm bodies and pattern-introduced bindings so completion
+//! can offer per-arm locals and flow-sensitive candidates.
+
 use super::*;
 
 pub(in crate::compiler) fn collect_module_match_completion_facts(

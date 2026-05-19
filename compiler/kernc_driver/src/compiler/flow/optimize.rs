@@ -1,3 +1,9 @@
+//! Flow-lowering optimization hints.
+//!
+//! Before building flow CFGs, the driver records facts that allow the flow
+//! lowerer to elide irrelevant nodes and forward simple bindings while
+//! preserving analysis-visible semantics.
+
 use super::*;
 use crate::compiler::{AnalysisFlowBindingSummary, AnalysisFlowDefinitionKind};
 use kernc_ast as ast;

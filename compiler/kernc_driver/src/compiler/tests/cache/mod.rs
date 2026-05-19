@@ -1,3 +1,8 @@
+//! Incremental cache test helpers and module.
+//!
+//! Cache tests cover outline, imported structure, full structure, reporting, and
+//! codegen cache reuse behavior through driver APIs.
+
 use super::*;
 use crate::CodegenPlanFallback;
 use kernc_utils::config::{LibraryBundle, RuntimeEntry};

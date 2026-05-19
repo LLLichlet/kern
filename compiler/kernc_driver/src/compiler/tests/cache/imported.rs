@@ -1,3 +1,8 @@
+//! Imported-cache tests.
+//!
+//! These tests verify analysis artifacts can be derived from imported metadata
+//! caches and remain coherent across dirty source edits.
+
 use super::*;
 
 #[test]

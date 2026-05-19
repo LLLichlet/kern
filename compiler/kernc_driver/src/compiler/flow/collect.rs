@@ -1,5 +1,12 @@
+// Flow model collection.
+//
+// Collection walks semantic definitions, lowers function bodies into flow CFGs,
+// computes reaching definitions, liveness, use-def links, control regions, and
+// phase timings for editor/compile diagnostics.
+
 use super::control::collect_control_facts;
 use super::optimize::collect_owner_optimization_facts;
+
 use super::*;
 use crate::compiler::AnalysisFlowOwner;
 use kernc_flow::FlowLoweringHints;
@@ -400,6 +407,8 @@ impl FlowModel {
                             &computed_reaching,
                             cancellation,
                         )?;
+                        // `computed_liveness` is stored just above so consumers can inspect the
+                        // raw fixed-point result; the materialized form uses the same value.
                         owner.liveness = materialize_liveness_cancelable(
                             &owner.cfg,
                             owner.computed_liveness.as_ref().unwrap(),

@@ -1,3 +1,8 @@
+//! Function and item signature model extraction.
+//!
+//! The signature model captures semantic type information in a compact,
+//! serializable form used by analysis reports, hovers, and cache comparisons.
+
 use super::{
     AnalysisParameterInformation, AnalysisSignatureHelp, AnalysisSignatureInformation,
     CompilerDriver,

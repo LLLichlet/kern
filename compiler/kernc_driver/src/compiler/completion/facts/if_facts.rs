@@ -1,3 +1,8 @@
+//! `if` completion facts.
+//!
+//! These facts identify condition, then, and else regions so completion can
+//! apply branch-specific flow and binding visibility.
+
 use super::*;
 
 pub(in crate::compiler) fn collect_module_if_completion_facts(

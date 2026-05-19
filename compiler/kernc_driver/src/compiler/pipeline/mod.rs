@@ -1,3 +1,9 @@
+//! Compile pipeline orchestration.
+//!
+//! The pipeline turns frontend/semantic artifacts into MAST, MIR, codegen unit
+//! plans, object files, optional ThinLTO output, metadata, and final reports. It
+//! is cancellation-aware so editor and CI callers can stop between phases.
+
 mod compile;
 mod partitioned;
 mod reporting;

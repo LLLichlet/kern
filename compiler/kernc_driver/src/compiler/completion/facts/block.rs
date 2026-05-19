@@ -1,3 +1,8 @@
+//! Block completion facts.
+//!
+//! These facts capture local bindings visible at block-expression spans so
+//! completion can offer variables introduced by previous statements.
+
 use super::*;
 
 pub(in crate::compiler) fn collect_module_block_completion_facts(

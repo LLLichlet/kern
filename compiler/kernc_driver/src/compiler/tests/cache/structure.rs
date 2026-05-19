@@ -1,3 +1,8 @@
+//! Structure-cache tests.
+//!
+//! These tests assert that structure artifacts are reused or invalidated based
+//! on source and dependency changes.
+
 use super::*;
 
 #[test]

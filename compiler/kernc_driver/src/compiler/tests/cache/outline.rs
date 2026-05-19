@@ -1,3 +1,8 @@
+//! Outline-cache tests.
+//!
+//! These tests focus on parsed/outline cache reuse when edits do or do not
+//! affect top-level structure.
+
 use super::*;
 
 #[test]

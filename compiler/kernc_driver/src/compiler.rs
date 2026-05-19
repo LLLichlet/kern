@@ -1,3 +1,10 @@
+//! High-level compiler driver state and public analysis API.
+//!
+//! `CompilerDriver` ties frontend caches, semantic analysis, lowering,
+//! partitioning, codegen, linking, and editor analysis artifacts together. The
+//! submodules own each stage, while this file defines shared reports and cache
+//! keys.
+
 mod analysis;
 mod codegen_units;
 mod completion;

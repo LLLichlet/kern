@@ -1,3 +1,9 @@
+//! Analysis lints.
+//!
+//! Lints use semantic definitions plus flow data to report unused private items,
+//! unused bindings, dead stores, and visibility/export issues without affecting
+//! compilation success.
+
 use super::*;
 
 struct ScopeExportFacts {

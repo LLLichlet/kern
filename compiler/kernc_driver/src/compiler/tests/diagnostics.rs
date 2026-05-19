@@ -1,3 +1,8 @@
+//! Diagnostic artifact tests.
+//!
+//! These tests check that compile and analysis failures preserve structured
+//! diagnostic codes, spans, hints, and messages through driver entry points.
+
 use super::*;
 use crate::AnalysisArtifact;
 

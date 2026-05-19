@@ -1,3 +1,9 @@
+//! Single-module compile pipeline helpers.
+//!
+//! This module handles lowering, codegen-unit construction, object emission,
+//! inline-asm dialect selection, ThinLTO linker input emission, and final
+//! `CompileReport` assembly for non-partitioned and shared pipeline paths.
+
 use super::*;
 use kernc_utils::config::{LinkerInputFlavor, OptLevel};
 use std::fs;
@@ -392,6 +398,7 @@ impl CompilerDriver {
         {
             AsmDialect::Intel => InlineAsmDialect::Intel,
             AsmDialect::Att => InlineAsmDialect::ATT,
+            // `effective_for_target` resolves Auto before this conversion.
             AsmDialect::Auto => unreachable!("effective_for_target must resolve `auto`"),
         }
     }

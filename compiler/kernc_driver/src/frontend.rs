@@ -1,3 +1,9 @@
+//! Frontend source, parse, and incremental cache database.
+//!
+//! The frontend owns file loading, source overrides for editor requests, parser
+//! invocation, AST pruning, and memoized parse artifacts. Later driver stages
+//! build semantic and codegen artifacts from these cached frontend results.
+
 use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};

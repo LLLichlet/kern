@@ -1,3 +1,8 @@
+//! Codegen-unit planning tests.
+//!
+//! These tests build compact MAST/MIR summaries and assert ownership, imports,
+//! fallback planning, and materialized per-unit modules.
+
 use super::materialize_codegen_unit;
 use super::plan::{plan_codegen_units, plan_codegen_units_with_report};
 use super::plan_codegen_units_with_mir_summary;

@@ -1,3 +1,8 @@
+//! Closure completion facts.
+//!
+//! Closure regions expose parameter and capture bindings to body completions,
+//! including the span where each binding should become visible.
+
 use super::*;
 
 pub(in crate::compiler) fn collect_module_closure_completion_facts(

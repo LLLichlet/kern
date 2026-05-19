@@ -1,0 +1,34 @@
+// class: coherence
+// source: global associated projection normalization must not pick one incomparable impl arbitrarily
+// stderr: ambiguous associated type projection
+// stderr-not: LLVM IR Verification Failed
+
+trait Left {};
+trait Right {};
+
+impl i32 : Left {}
+impl i32 : Right {}
+
+trait Pick {
+    type Out;
+};
+
+struct Box[T] {
+    value: T,
+};
+
+impl[T] Box[T]: Pick where T: Left {
+    type Out = i32;
+}
+
+impl[T] Box[T]: Pick where T: Right {
+    type Out = bool;
+}
+
+fn take(value: Box[i32].Pick.Out) i32 {
+    return 0;
+}
+
+fn main() i32 {
+    return take(1);
+}

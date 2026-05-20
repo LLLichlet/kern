@@ -217,7 +217,7 @@ function rewriteImageSrc(src, sourcePath) {
   }
   const targetPath = normalizePath(path.join(path.dirname(sourcePath), src));
   if (targetPath === "assets/brand/kern-logo.svg") {
-    return "/brand/kern-logo.svg";
+    return "brand/kern-logo.svg";
   }
   return `https://raw.githubusercontent.com/kern-project/kern/main/${targetPath}`;
 }

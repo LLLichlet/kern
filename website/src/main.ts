@@ -92,7 +92,7 @@ function homeTemplate() {
   return `
     <header class="site-header">
       <a class="brand" href="#/" aria-label="Kern home">
-        <img src="/brand/kern-logo.svg" alt="Kern" />
+        <img src="${sitePath("brand/kern-logo.svg")}" alt="Kern" />
       </a>
       <nav class="top-nav" aria-label="Primary">
         <a href="#/docs/${install?.slug ?? "install"}">Install</a>
@@ -194,7 +194,7 @@ function docsTemplate(page: DocPage) {
   return `
     <header class="site-header docs-header">
       <a class="brand" href="#/" aria-label="Kern home">
-        <img src="/brand/kern-logo.svg" alt="Kern" />
+        <img src="${sitePath("brand/kern-logo.svg")}" alt="Kern" />
       </a>
       <nav class="top-nav" aria-label="Primary">
         <a href="#/">Home</a>
@@ -368,7 +368,7 @@ function searchResultTemplate(page: SearchEntry, query: string) {
 }
 
 function loadSearchIndex() {
-  searchIndexPromise ??= fetch("/docs-data/search-index.json").then((response) => {
+  searchIndexPromise ??= fetch(sitePath("docs-data/search-index.json")).then((response) => {
     if (!response.ok) {
       throw new Error("failed to load documentation search index");
     }
@@ -438,7 +438,7 @@ function docMetaBySlug(slug: string) {
 
 async function loadDocPage(slug: string): Promise<DocPage> {
   const meta = docMetaBySlug(slug) ?? docs[0];
-  const response = await fetch(`/docs-data/${meta.slug}.json`);
+  const response = await fetch(sitePath(`docs-data/${meta.slug}.json`));
   if (!response.ok) {
     throw new Error(`failed to load documentation page ${meta.slug}`);
   }
@@ -530,4 +530,8 @@ function highlightMatch(value: string, query: string) {
     return escapeHtml(value);
   }
   return `${escapeHtml(value.slice(0, index))}<mark>${escapeHtml(value.slice(index, index + query.length))}</mark>${escapeHtml(value.slice(index + query.length))}`;
+}
+
+function sitePath(path: string) {
+  return `${import.meta.env.BASE_URL}${path}`;
 }

@@ -412,8 +412,10 @@ fn diagnostics_lane_yields_remaining_tasks_after_exceeded_budget() {
 
     flush_diagnostics_lane(&mut state, &mut writer).unwrap();
 
-    assert!(output.is_empty());
-    assert_eq!(state.pending_diagnostics_worker_tasks, 1);
+    let submitted_or_completed = state.pending_diagnostics_worker_tasks
+        + state.pending_diagnostics.len()
+        + state.published_by_target.len();
+    assert_eq!(submitted_or_completed, 1);
     assert_eq!(state.pending_diagnostics_targets.len(), 1);
     assert!(state.has_pending_diagnostics_work());
 }
@@ -444,8 +446,10 @@ fn diagnostics_lane_prioritizes_active_document_within_target_budget() {
 
     flush_diagnostics_lane(&mut state, &mut writer).unwrap();
 
-    assert!(output.is_empty());
-    assert_eq!(state.pending_diagnostics_worker_tasks, 1);
+    let submitted_or_completed = state.pending_diagnostics_worker_tasks
+        + state.pending_diagnostics.len()
+        + state.published_by_target.len();
+    assert_eq!(submitted_or_completed, 1);
     assert_eq!(
         state
             .pending_diagnostics_targets

@@ -43,7 +43,7 @@ You may also see `.craft/`. This is `craft`'s local derived-state directory for
 locks, caches, build outputs, and analysis state. It is not source code you
 need to maintain by hand.
 
-Replace `src/main.kn` with:
+The generated `src/main.kn` is already a runnable hello-world program:
 
 ```kern
 use std.io;
@@ -54,7 +54,7 @@ fn main() i32 {
 }
 ```
 
-Then run:
+Run it:
 
 ```sh
 craft run

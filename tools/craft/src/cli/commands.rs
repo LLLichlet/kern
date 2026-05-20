@@ -1582,7 +1582,7 @@ fn apply_init_plan(root: &Path, init: &InitPlan) -> Result<Vec<PathBuf>> {
     if init.create_main_stub {
         write_if_missing(
             &root.join("src/main.kn"),
-            "fn main() i32 {\n    return 0;\n}\n",
+            "use std.io;\n\nfn main() i32 {\n    \"Hello, Kern!\".println();\n    return 0;\n}\n",
             &mut created,
         )?;
     }

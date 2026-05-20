@@ -2337,7 +2337,9 @@ fn init_command_scaffolds_minimal_bin_package() {
     let lockfile = fs::read_to_string(root.join("Craft.lock")).unwrap();
     assert!(lockfile.contains("manifest = \"Craft.toml\""));
     assert!(lockfile.contains("name = \"craft_cli_init_minimal"));
-    assert!(root.join("src/main.kn").is_file());
+    let source = fs::read_to_string(root.join("src/main.kn")).unwrap();
+    assert!(source.contains("use std.io;"));
+    assert!(source.contains("\"Hello, Kern!\".println();"));
 
     let _ = fs::remove_dir_all(root);
 }

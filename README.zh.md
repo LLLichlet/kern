@@ -228,4 +228,6 @@ cargo run -p kernworker -- ci kernc-tests --mode smoke
 
 ## 许可证
 
-Kern 使用 [MIT License](LICENSE)。
+Kern 使用分层授权模型：核心工具链采用 GPL-3.0-or-later，库、安装器、
+共享辅助 crate、示例、编辑器插件和文档保持 MIT。详见
+[Licensing Policy](docs/licensing.md)。

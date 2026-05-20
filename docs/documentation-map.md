@@ -22,6 +22,7 @@ These are the current public reference documents.
 - [`docs/nix.md`](./nix.md): Nix and NixOS usage for installing Kern through flake configuration and entering the repository development shell
 - [`docs/install.md`](./install.md): SDK installation, installed layout, offline installs, source builds, local archive packaging, and reproducibility checks
 - [`docs/versioning.md`](./versioning.md): release numbering, Craft compatibility declarations, version bumping, and publish order
+- [`docs/licensing.md`](./licensing.md): GPL/MIT package boundaries and license-text locations
 - [`docs/tutorial/`](./tutorial/README.md): default English guided tour through tools, language basics, core semantics, library usage, and freestanding entry points; the Simplified Chinese version is [`docs/tutorial/zh/README.md`](./tutorial/zh/README.md)
 - [`docs/design.md`](./design.md): current language semantics and syntax
 - [`docs/kernc.md`](./kernc.md): `kernc` CLI/driver behavior
@@ -66,5 +67,6 @@ When writing tutorials or guide material, prefer these sources:
 - package manager behavior: [`docs/craft.md`](./craft.md)
 - installation behavior and SDK layout: [`docs/install.md`](./install.md)
 - release numbering and compatibility declarations: [`docs/versioning.md`](./versioning.md)
+- license boundaries: [`docs/licensing.md`](./licensing.md)
 - platform release/distribution constraints: [`docs/unix-distribution.md`](./unix-distribution.md) and [`docs/windows-distribution.md`](./windows-distribution.md)
 - implementation architecture details: the relevant crate README files under [`compiler/`](../compiler/) and tool README files under [`tools/`](../tools/)

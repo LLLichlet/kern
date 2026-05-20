@@ -269,4 +269,7 @@ proposal can be checked against Kern's freestanding, explicit semantics.
 
 ## License
 
-Kern is licensed under the [MIT License](LICENSE).
+Kern uses a split licensing model. The core toolchain is licensed under
+GPL-3.0-or-later, while the libraries, installer, shared helper crates,
+examples, editor extension, and documentation remain MIT. See
+[Licensing Policy](docs/licensing.md).

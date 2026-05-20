@@ -326,7 +326,7 @@ fn prepare_kernup_dist_dir(
     }
     let binary_name = path_file_name(&source, "kernup release binary")?;
     copy_path(&source, &dist_dir.join(binary_name))?;
-    copy_path(&root.join("LICENSE"), &dist_dir.join("LICENSE"))?;
+    copy_license_files(root, dist_dir)?;
     Ok(())
 }
 
@@ -394,6 +394,7 @@ fn prepare_dist_dir(
     for text_file in ["README.md", "LICENSE"] {
         copy_path(&root.join(text_file), &dist_dir.join(text_file))?;
     }
+    copy_dir_recursive(&root.join("LICENSES"), &dist_dir.join("LICENSES"))?;
 
     let records = bundle_sdk_runtime_toolchain(dist_dir, host, bundled_toolchain)?;
     write_json_value(
@@ -429,13 +430,19 @@ fn prepare_toolchain_dist_dir(
     fs::create_dir_all(dist_dir.join("toolchain").join("host").join("bin"))?;
     fs::create_dir_all(dist_dir.join("toolchain").join("host").join("lib"))?;
     fs::create_dir_all(dist_dir.join("toolchain").join("host").join("sysroot"))?;
-    copy_path(&root.join("LICENSE"), &dist_dir.join("LICENSE"))?;
+    copy_license_files(root, dist_dir)?;
 
     let records = bundle_host_toolchain(dist_dir, host, bundled_toolchain)?;
     write_json_value(
         &dist_dir.join("manifest").join("toolchain.json"),
         &toolchain_manifest_json(version, &host.archive_target, bundled_toolchain, &records),
     )?;
+    Ok(())
+}
+
+fn copy_license_files(root: &Path, dist_dir: &Path) -> OpsResult<()> {
+    copy_path(&root.join("LICENSE"), &dist_dir.join("LICENSE"))?;
+    copy_dir_recursive(&root.join("LICENSES"), &dist_dir.join("LICENSES"))?;
     Ok(())
 }
 

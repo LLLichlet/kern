@@ -3,7 +3,7 @@ name = "kernc_middle"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-license.workspace = true
+license = "GPL-3.0-or-later"
 readme = "README.md"
 
 [dependencies]

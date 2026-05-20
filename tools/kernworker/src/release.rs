@@ -10,7 +10,9 @@ mod checksum;
 mod deps;
 mod util;
 
-use crate::args::{ReleaseChecksumsArgs, ReleasePackageArgs, ReleaseToolchainPackageArgs};
+use crate::args::{
+    ReleaseBumpVersionArgs, ReleaseChecksumsArgs, ReleasePackageArgs, ReleaseToolchainPackageArgs,
+};
 use archive::create_archive;
 use bundle::{bundle_host_toolchain, bundle_sdk_runtime_toolchain};
 use checksum::write_checksums;
@@ -23,7 +25,7 @@ use shared_ops::{
 };
 use std::ffi::OsString;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub fn package_release(args: ReleasePackageArgs) -> OpsResult<()> {
     let root = repo_root()?;
@@ -88,6 +90,113 @@ pub fn package_toolchain_release(args: ReleaseToolchainPackageArgs) -> OpsResult
 
 pub fn write_release_checksums(args: ReleaseChecksumsArgs) -> OpsResult<()> {
     write_checksums(args)
+}
+
+pub fn bump_release_version(args: ReleaseBumpVersionArgs) -> OpsResult<()> {
+    let root = repo_root()?;
+    let to = normalize_release_semver(
+        args.version
+            .as_deref()
+            .ok_or_else(|| OpsError::new("`--version` is required"))?,
+        "--version",
+    )?;
+    let from = match args.from {
+        Some(value) => normalize_release_semver(&value, "--from")?,
+        None => load_workspace_version(&root)?,
+    };
+    if from == to && !args.check {
+        return Err(OpsError::new(format!(
+            "release version is already `{to}`; choose a different target version"
+        )));
+    }
+
+    let tracked_files = git_tracked_files(&root)?;
+    let mut changed = Vec::new();
+    for path in tracked_files {
+        if bump_version_in_file(&path, &from, &to, args.check)? {
+            changed.push(path);
+        }
+    }
+
+    if args.check {
+        if changed.is_empty() {
+            println!("Release version references are already synchronized at {to}.");
+            return Ok(());
+        }
+        return Err(OpsError::new(format!(
+            "release version references need updating from {from} to {to}: {}",
+            changed
+                .iter()
+                .map(|path| path
+                    .strip_prefix(&root)
+                    .unwrap_or(path)
+                    .display()
+                    .to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
+
+    println!(
+        "Rewrote release version references from {from} to {to} in {} tracked files.",
+        changed.len()
+    );
+    Ok(())
+}
+
+fn normalize_release_semver(value: &str, label: &str) -> OpsResult<String> {
+    let raw = value.strip_prefix('v').unwrap_or(value);
+    let parts = raw.split('.').collect::<Vec<_>>();
+    if parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+    {
+        return Ok(raw.to_string());
+    }
+    Err(OpsError::new(format!(
+        "`{label}` must be a simple semantic version like 0.7.9"
+    )))
+}
+
+fn git_tracked_files(root: &Path) -> OpsResult<Vec<PathBuf>> {
+    let result = shared_ops::run_command_capture(
+        &[
+            OsString::from("git"),
+            OsString::from("ls-files"),
+            OsString::from("-z"),
+        ],
+        Some(root),
+    )?;
+    if result.status_code != Some(0) {
+        return Err(OpsError::new(format!(
+            "failed to list tracked files: {}{}",
+            result.stdout, result.stderr
+        )));
+    }
+    Ok(result
+        .stdout
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(|path| root.join(path))
+        .collect())
+}
+
+fn bump_version_in_file(path: &Path, from: &str, to: &str, check: bool) -> OpsResult<bool> {
+    let bytes = fs::read(path).map_err(|err| OpsError::io(path, "read", err))?;
+    let Ok(text) = String::from_utf8(bytes) else {
+        return Ok(false);
+    };
+    let bumped = text
+        .replace(&format!("v{from}"), &format!("v{to}"))
+        .replace(from, to);
+    if bumped == text {
+        return Ok(false);
+    }
+    if !check {
+        fs::write(path, bumped).map_err(|err| OpsError::io(path, "write", err))?;
+    }
+    Ok(true)
 }
 
 fn ensure_host_native_target(target: &str, host: &shared_ops::HostTarget) -> OpsResult<()> {

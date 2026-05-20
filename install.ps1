@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$DefaultVersion = "v0.7.8"
+$DefaultVersion = "v0.7.9"
 $VersionSpecified = $PSBoundParameters.ContainsKey("Version")
 
 function Fail([string]$Message) {

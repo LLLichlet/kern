@@ -91,7 +91,7 @@ fn main(argc: i32, argv: &&u8) i32
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.8"
+kern = "0.7.9"
 
 [runtime]
 entry = "none"

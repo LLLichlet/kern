@@ -365,7 +365,7 @@ cargo build --release --target x86_64-pc-windows-msvc -p kern-lsp
 Or, equivalently, use the Rust repository worker:
 
 ```powershell
-cargo run -q -p kernworker -- release package --version v0.7.8 --target x86_64-windows-msvc
+cargo run -q -p kernworker -- release package --version v0.7.9 --target x86_64-windows-msvc
 ```
 
 For the local source-build environment, including `LLVM_SYS_211_PREFIX` and the

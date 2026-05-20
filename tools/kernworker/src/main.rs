@@ -49,6 +49,7 @@ fn run() -> OpsResult<()> {
         Command::Release(ReleaseCommand::WriteChecksums(args)) => {
             release::write_release_checksums(args)
         }
+        Command::Release(ReleaseCommand::BumpVersion(args)) => release::bump_release_version(args),
         Command::Release(ReleaseCommand::Help) => {
             print!("{}", args::release_help().render(ColorChoice::Auto));
             Ok(())

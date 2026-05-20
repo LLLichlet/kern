@@ -1,7 +1,7 @@
 # Unix Distribution Guide
 
 This document describes the Linux and macOS host-tool distribution policy for
-the current 0.7.8 toolchain.
+the current 0.7.9 toolchain.
 
 It keeps three concerns separate:
 
@@ -146,6 +146,22 @@ It means:
   baseline, not quietly relying on whatever `ubuntu-latest` happens to mean
   that month
 
+## Release Train Discipline
+
+The release train should be boring even while the language remains pre-1.0:
+
+- prepare the release by bumping versions with `kernworker release bump-version`
+- build platform SDK and full-toolchain artifacts in CI
+- smoke install the generated SDK on the native runner and on the extra Linux
+  distro probes configured in the workflow
+- only after those SDK checks pass, publish crates.io packages, GitHub release
+  assets, and editor marketplace artifacts
+- if a release artifact fails after a tag or registry version exists, publish a
+  new patch version instead of reusing the bad version
+
+This keeps patch releases meaningful: a newer patch is allowed to supersede a
+bad packaging attempt without changing the language migration story.
+
 ## Canonical Build And Packaging Commands
 
 ### Local Development Build
@@ -170,15 +186,15 @@ distribution compatibility.
 For release-quality host-native Unix archives:
 
 ```bash
-cargo run -q -p kernworker -- release package --version v0.7.8 --target <host-target>
+cargo run -q -p kernworker -- release package --version v0.7.9 --target <host-target>
 ```
 
 Examples:
 
 ```bash
-cargo run -q -p kernworker -- release package --version v0.7.8 --target x86_64-linux-gnu
-cargo run -q -p kernworker -- release package --version v0.7.8 --target x86_64-apple-darwin
-cargo run -q -p kernworker -- release package --version v0.7.8 --target aarch64-apple-darwin
+cargo run -q -p kernworker -- release package --version v0.7.9 --target x86_64-linux-gnu
+cargo run -q -p kernworker -- release package --version v0.7.9 --target x86_64-apple-darwin
+cargo run -q -p kernworker -- release package --version v0.7.9 --target aarch64-apple-darwin
 ```
 
 The important policy point is that `<host-target>` is a host label, not a free
@@ -191,7 +207,7 @@ The Rust repository worker is the canonical packaging entry
 point:
 
 ```bash
-cargo run -q -p kernworker -- release package --version v0.7.8 --target <host-target>
+cargo run -q -p kernworker -- release package --version v0.7.9 --target <host-target>
 ```
 
 The command should enforce the important Unix-specific rules:

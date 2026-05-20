@@ -756,7 +756,7 @@ mod tests {
     use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    const TEST_KERN_VERSION: &str = "0.7.8";
+    const TEST_KERN_VERSION: &str = "0.7.9";
 
     fn temp_dir(prefix: &str) -> std::path::PathBuf {
         let nanos = SystemTime::now()

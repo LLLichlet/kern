@@ -662,6 +662,7 @@ fn prepare_fixture(source: &Path, temp_root: &Path, version: &str) -> OpsResult<
 }
 
 pub(crate) fn rewrite_kern_versions(root: &Path, version: &str) -> OpsResult<()> {
+    let compat_version = kern_minor_line(version).unwrap_or(version);
     for entry in walk_files(root)? {
         if entry.file_name().and_then(|name| name.to_str()) != Some("Craft.toml") {
             continue;
@@ -672,7 +673,7 @@ pub(crate) fn rewrite_kern_versions(root: &Path, version: &str) -> OpsResult<()>
             .map(|line| {
                 if line.trim_start().starts_with("kern = ") {
                     let indent_len = line.len() - line.trim_start().len();
-                    format!("{}kern = \"{}\"", &line[..indent_len], version)
+                    format!("{}kern = \"{}\"", &line[..indent_len], compat_version)
                 } else {
                     line.to_string()
                 }
@@ -683,6 +684,21 @@ pub(crate) fn rewrite_kern_versions(root: &Path, version: &str) -> OpsResult<()>
         fs::write(&entry, rewritten)?;
     }
     Ok(())
+}
+
+fn kern_minor_line(version: &str) -> Option<&str> {
+    let mut dots_seen = 0;
+    for (index, ch) in version.char_indices() {
+        if ch == '.' {
+            dots_seen += 1;
+            if dots_seen == 2 {
+                return Some(&version[..index]);
+            }
+        } else if !ch.is_ascii_digit() {
+            return None;
+        }
+    }
+    None
 }
 
 fn walk_files(root: &Path) -> OpsResult<Vec<PathBuf>> {
@@ -743,12 +759,12 @@ mod tests {
         assert!(
             fs::read_to_string(root.join("Craft.toml"))
                 .unwrap()
-                .contains("kern = \"0.7.9\"")
+                .contains("kern = \"0.7\"")
         );
         assert!(
             fs::read_to_string(package.join("Craft.toml"))
                 .unwrap()
-                .contains("    kern = \"0.7.9\"")
+                .contains("    kern = \"0.7\"")
         );
         remove_path_if_exists(&root).unwrap();
     }

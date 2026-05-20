@@ -1614,7 +1614,7 @@ fn render_init_manifest(init: &InitPlan) -> String {
     let mut out = format!(
         "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nkern = \"{}\"\n",
         init.package_name,
-        env!("CARGO_PKG_VERSION")
+        crate::manifest::default_kern_compat_version()
     );
 
     if let Some(root) = &init.lib_root {

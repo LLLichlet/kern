@@ -79,7 +79,7 @@ For a minimal freestanding package, keep startup ownership explicit in
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.9"
+kern = "0.7"
 
 [runtime]
 entry = "none"
@@ -358,7 +358,7 @@ Example:
 [package]
 name = "http"
 version = "0.1.0"
-kern = "0.7.9"
+kern = "0.7"
 
 [runtime]
 entry = "rt"
@@ -401,7 +401,7 @@ debug = false
 Manifest rules:
 
 - targets are explicit, except that package tests default to direct `tests/*.kn` roots when `[test].roots` is absent
-- `[package].kern` must match the current installed Kern toolchain version exactly
+- `[package].kern` declares the compatible Kern minor line, such as `0.7`; a full patch version such as `0.7.9` is also accepted for patch-specific packages
 - `[package].name` is always package-local; workspace inheritance never names a member package
 - a root `Craft.toml` cannot be both a package and a workspace
 - `Craft.toml` does not expose an `edition` field before Kern 1.0
@@ -455,7 +455,7 @@ json = { member = "json" }
 
 [workspace.package]
 version = "0.1.0"
-kern = "0.7.9"
+kern = "0.7"
 description = "JSON parsing and document utilities for Kern"
 license = "MIT"
 authors = ["Example <dev@example.com>"]

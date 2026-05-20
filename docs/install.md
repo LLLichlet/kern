@@ -67,46 +67,10 @@ The shell and PowerShell scripts are intentionally thin bootstrap entry points.
 They should not grow separate SDK installation semantics; the cross-platform
 install contract lives in `kernup`.
 
-## Release Version Policy
+## Versioning And Release Order
 
-Kern is still pre-1.0, so language and toolchain changes may remain breaking.
-Even so, release numbers should now carry a predictable maintenance meaning:
-
-- patch releases, such as `0.7.9`, are for packaging fixes, installer fixes,
-  editor fixes, documentation corrections, and low-risk compiler/tool fixes
-- minor releases, such as `0.8.0`, are for planned language, standard library,
-  package format, or tool behavior changes that ecosystem projects must react to
-- the next minor release notes should describe the expected migration work before
-  ecosystem repositories are upgraded
-- published tags, GitHub release assets, crates.io versions, and Marketplace
-  extension versions should not be deleted or reused; publish a newer patch
-  release when a release candidate or released artifact is bad
-
-Treat SDK and installer smoke checks as the release gate. Publish crates.io
-packages and Marketplace extensions after the platform SDK artifacts have passed
-their install smoke tests.
-
-## Version Source Of Truth
-
-The workspace package version in the repository root `Cargo.toml` is the
-canonical checked-in Kern version. Other checked-in references, including Craft
-fixtures, install examples, `kernup` examples, the VS Code extension package,
-and Nix metadata, are synchronized from it for release branches.
-
-Use the repository worker instead of manually editing every occurrence:
-
-```sh
-cargo run -q -p kernworker -- release bump-version --version 0.7.9
-```
-
-To verify that a checkout is already synchronized:
-
-```sh
-cargo run -q -p kernworker -- release bump-version --version 0.7.9 --check
-```
-
-The command rewrites tracked UTF-8 files only, so ignored VSIX archives,
-`node_modules`, build output, and binary artifacts are not touched.
+Release numbering, Craft compatibility declarations, version bumping, and
+publish ordering are defined in [Versioning Policy](./versioning.md).
 
 ## Installer Options
 

@@ -110,10 +110,21 @@ pub fn bump_release_version(args: ReleaseBumpVersionArgs) -> OpsResult<()> {
         )));
     }
 
+    let from_line = minor_line(&from);
+    let to_line = minor_line(&to);
     let tracked_files = git_tracked_files(&root)?;
     let mut changed = Vec::new();
     for path in tracked_files {
-        if bump_version_in_file(&path, &from, &to, args.check)? {
+        if bump_version_in_file(
+            &path,
+            VersionRewrite {
+                from: &from,
+                to: &to,
+                from_line,
+                to_line,
+            },
+            args.check,
+        )? {
             changed.push(path);
         }
     }
@@ -159,6 +170,19 @@ fn normalize_release_semver(value: &str, label: &str) -> OpsResult<String> {
     )))
 }
 
+fn minor_line(version: &str) -> Option<&str> {
+    let mut dots_seen = 0;
+    for (index, ch) in version.char_indices() {
+        if ch == '.' {
+            dots_seen += 1;
+            if dots_seen == 2 {
+                return Some(&version[..index]);
+            }
+        }
+    }
+    None
+}
+
 fn git_tracked_files(root: &Path) -> OpsResult<Vec<PathBuf>> {
     let result = shared_ops::run_command_capture(
         &[
@@ -182,14 +206,29 @@ fn git_tracked_files(root: &Path) -> OpsResult<Vec<PathBuf>> {
         .collect())
 }
 
-fn bump_version_in_file(path: &Path, from: &str, to: &str, check: bool) -> OpsResult<bool> {
+struct VersionRewrite<'a> {
+    from: &'a str,
+    to: &'a str,
+    from_line: Option<&'a str>,
+    to_line: Option<&'a str>,
+}
+
+fn bump_version_in_file(path: &Path, rewrite: VersionRewrite<'_>, check: bool) -> OpsResult<bool> {
     let bytes = fs::read(path).map_err(|err| OpsError::io(path, "read", err))?;
     let Ok(text) = String::from_utf8(bytes) else {
         return Ok(false);
     };
-    let bumped = text
-        .replace(&format!("v{from}"), &format!("v{to}"))
-        .replace(from, to);
+    let mut bumped = text
+        .replace(&format!("v{}", rewrite.from), &format!("v{}", rewrite.to))
+        .replace(rewrite.from, rewrite.to);
+    if let (Some(from_line), Some(to_line)) = (rewrite.from_line, rewrite.to_line)
+        && from_line != to_line
+    {
+        bumped = bumped.replace(
+            &format!("kern = \"{from_line}\""),
+            &format!("kern = \"{to_line}\""),
+        );
+    }
     if bumped == text {
         return Ok(false);
     }

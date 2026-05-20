@@ -731,7 +731,7 @@ edition = "2027"
 }
 
 #[test]
-fn rejects_mismatched_kern_version() {
+fn accepts_current_kern_minor_line() {
     let manifest = Manifest::parse(
         r#"
 [package]
@@ -743,12 +743,30 @@ kern = "0.7"
     )
     .unwrap();
 
+    manifest
+        .validate(std::path::Path::new("Craft.toml"))
+        .unwrap();
+}
+
+#[test]
+fn rejects_mismatched_kern_minor_line() {
+    let manifest = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.8"
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
     let err = manifest
         .validate(std::path::Path::new("Craft.toml"))
         .unwrap_err();
     assert!(
         err.to_string()
-            .contains("must match the current toolchain version")
+            .contains("must match the current Kern minor line")
     );
 }
 

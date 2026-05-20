@@ -148,19 +148,8 @@ It means:
 
 ## Release Train Discipline
 
-The release train should be boring even while the language remains pre-1.0:
-
-- prepare the release by bumping versions with `kernworker release bump-version`
-- build platform SDK and full-toolchain artifacts in CI
-- smoke install the generated SDK on the native runner and on the extra Linux
-  distro probes configured in the workflow
-- only after those SDK checks pass, publish crates.io packages, GitHub release
-  assets, and editor marketplace artifacts
-- if a release artifact fails after a tag or registry version exists, publish a
-  new patch version instead of reusing the bad version
-
-This keeps patch releases meaningful: a newer patch is allowed to supersede a
-bad packaging attempt without changing the language migration story.
+Release numbering, publish order, and the rule for superseding bad artifacts are
+centralized in [Versioning Policy](./versioning.md).
 
 ## Canonical Build And Packaging Commands
 

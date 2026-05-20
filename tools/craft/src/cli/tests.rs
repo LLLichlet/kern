@@ -2327,6 +2327,7 @@ fn init_command_scaffolds_minimal_bin_package() {
     .unwrap();
 
     let manifest = fs::read_to_string(root.join("Craft.toml")).unwrap();
+    assert!(manifest.contains("kern = \"0.7\""));
     assert!(manifest.contains("[[bin]]"));
     assert!(manifest.contains("root = \"src/main.kn\""));
     assert_eq!(

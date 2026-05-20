@@ -200,6 +200,7 @@ pub struct WorkspacePackage {
 }
 
 const CURRENT_KERN_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub(crate) use validate::default_kern_compat_version;
 
 #[derive(Clone, Debug)]
 pub(super) enum Section {

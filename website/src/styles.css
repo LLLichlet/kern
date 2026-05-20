@@ -804,6 +804,11 @@ mark {
     grid-template-columns: 1fr;
   }
 
+  .hero {
+    padding-top: clamp(32px, 6vw, 56px);
+    transform: none;
+  }
+
   .docs-sidebar,
   .toc {
     position: static;
@@ -834,6 +839,7 @@ mark {
 
   .hero {
     min-height: auto;
+    padding-top: clamp(34px, 9vw, 58px);
   }
 
   .feature-grid,

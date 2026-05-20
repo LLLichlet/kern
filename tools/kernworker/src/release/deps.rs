@@ -29,12 +29,12 @@ pub fn linux_collect_bundled_runtime_libs(
         }
         visited.push(current.clone());
         for dependency in linux_load_dependencies(&current)? {
-            if !is_linux_bundled_runtime_lib(&dependency, &bundled_prefix) {
+            if !is_linux_bundled_runtime_lib(&dependency.path, &bundled_prefix) {
                 continue;
             }
-            if !libs.contains(&dependency) {
-                libs.push(dependency.clone());
-                queued.push(dependency);
+            record_linux_runtime_dependency(&mut libs, &dependency);
+            if !visited.contains(&dependency.resolved) {
+                queued.push(dependency.resolved);
             }
         }
     }
@@ -42,7 +42,13 @@ pub fn linux_collect_bundled_runtime_libs(
     Ok(libs)
 }
 
-fn linux_load_dependencies(path: &Path) -> OpsResult<Vec<PathBuf>> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LinuxDependency {
+    path: PathBuf,
+    resolved: PathBuf,
+}
+
+fn linux_load_dependencies(path: &Path) -> OpsResult<Vec<LinuxDependency>> {
     let result = run_command_capture(&[OsString::from("ldd"), path.as_os_str().to_owned()], None)?;
     if result.status_code != Some(0) {
         return Err(OpsError::new(format!(
@@ -68,11 +74,23 @@ fn linux_load_dependencies(path: &Path) -> OpsResult<Vec<PathBuf>> {
         if candidate.starts_with('/') {
             let path = PathBuf::from(candidate);
             if path.is_file() {
-                dependencies.push(canonical_or_self(&path));
+                dependencies.push(LinuxDependency {
+                    resolved: canonical_or_self(&path),
+                    path,
+                });
             }
         }
     }
     Ok(dependencies)
+}
+
+fn record_linux_runtime_dependency(libs: &mut Vec<PathBuf>, dependency: &LinuxDependency) {
+    if !libs.contains(&dependency.path) {
+        libs.push(dependency.path.clone());
+    }
+    if dependency.resolved != dependency.path && !libs.contains(&dependency.resolved) {
+        libs.push(dependency.resolved.clone());
+    }
 }
 
 fn is_linux_bundled_runtime_lib(dependency: &Path, bundled_prefix: &Path) -> bool {
@@ -412,6 +430,8 @@ fn macos_local_dylib_reference(path: &Path, dylib_name: &str, lib_dir: &Path) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared_ops::{make_temp_dir, remove_path_if_exists};
+    use std::fs;
 
     #[test]
     fn linux_runtime_filter_bundles_non_baseline_clang_dependencies() {
@@ -430,5 +450,33 @@ mod tests {
         assert!(!should_bundle_linux_runtime_library("libm.so.6"));
         assert!(!should_bundle_linux_runtime_library("libpthread.so.0"));
         assert!(!should_bundle_linux_runtime_library("ld-linux-x86-64.so.2"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linux_dependency_scan_preserves_soname_symlink_paths() {
+        use std::os::unix::fs::symlink;
+
+        let root = make_temp_dir("kernworker-linux-deps-").unwrap();
+        let lib_dir = root.join("lib");
+        fs::create_dir_all(&lib_dir).unwrap();
+        let resolved = lib_dir.join("libedit.so.2.0.72");
+        let soname = lib_dir.join("libedit.so.2");
+        fs::write(&resolved, "not an elf").unwrap();
+        symlink("libedit.so.2.0.72", &soname).unwrap();
+
+        let dependency = LinuxDependency {
+            path: soname.clone(),
+            resolved: canonical_or_self(&soname),
+        };
+        let mut libs = Vec::new();
+        record_linux_runtime_dependency(&mut libs, &dependency);
+
+        assert_eq!(dependency.path, soname);
+        assert_eq!(dependency.resolved, resolved);
+        assert_ne!(dependency.path, dependency.resolved);
+        assert_eq!(libs, vec![dependency.path, dependency.resolved]);
+
+        remove_path_if_exists(&root).unwrap();
     }
 }

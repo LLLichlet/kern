@@ -1,6 +1,7 @@
 :root {
   color-scheme: light;
   --header-height: 48px;
+  --docs-shell-height: 100vh;
   --bg: #f5f6f7;
   --panel: #ffffff;
   --panel-strong: #ffffff;
@@ -50,6 +51,7 @@
 
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: 18px;
 }
 
 body {
@@ -391,17 +393,81 @@ pre {
 
 .docs-shell {
   display: grid;
-  grid-template-columns: 310px minmax(0, 1fr) 220px;
-  gap: 28px;
+  grid-template-columns: 286px minmax(0, 1fr) 230px;
+  gap: 24px;
   align-items: start;
-  padding: 22px clamp(20px, 4vw, 48px) 72px;
+  height: var(--docs-shell-height);
+  overflow: hidden;
+  padding: 16px clamp(18px, 4vw, 38px);
 }
 
-.docs-sidebar,
+.docs-sidebar {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  min-height: 0;
+  max-height: 100%;
+}
+
+.docs-sidebar-head {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.docs-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.docs-sidebar-head .brand {
+  width: 92px;
+  flex: 0 0 auto;
+}
+
+.docs-sidebar-head .theme-toggle {
+  flex: 0 0 auto;
+}
+
+.docs-sidebar-head .theme-toggle button {
+  min-height: 24px;
+  padding: 0 7px;
+  font-size: 0.76rem;
+}
+
+.docs-side-links {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.docs-side-links a {
+  min-width: 0;
+  padding: 6px 0;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.docs-side-links a:hover {
+  background: var(--active-bg);
+  color: var(--ink);
+}
+
+#doc-nav {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
 .toc {
-  position: sticky;
-  top: calc(var(--header-height) + 20px);
-  max-height: calc(100vh - var(--header-height) - 36px);
+  min-height: 0;
+  max-height: 100%;
   overflow: auto;
 }
 
@@ -595,10 +661,14 @@ mark {
 }
 
 .doc-article {
+  position: relative;
   min-width: 0;
+  max-height: 100%;
+  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-strong);
+  scroll-padding-top: 18px;
 }
 
 .doc-meta {
@@ -607,7 +677,7 @@ mark {
   gap: 12px;
   justify-content: space-between;
   padding: 14px 22px;
-  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 0.82rem;
 }
@@ -627,6 +697,7 @@ mark {
 
 .markdown-body h1 {
   margin: 0 0 24px;
+  scroll-margin-top: 18px;
   font-size: clamp(2.2rem, 5vw, 4.2rem);
   line-height: 1;
 }
@@ -635,16 +706,19 @@ mark {
   margin: 42px 0 14px;
   padding-top: 8px;
   border-top: 1px solid var(--line);
+  scroll-margin-top: 18px;
   font-size: 1.8rem;
 }
 
 .markdown-body h3 {
   margin: 30px 0 10px;
+  scroll-margin-top: 18px;
   font-size: 1.25rem;
 }
 
 .markdown-body h4 {
   margin: 24px 0 8px;
+  scroll-margin-top: 18px;
   font-size: 1.05rem;
 }
 
@@ -702,6 +776,57 @@ mark {
   display: block;
   padding: 18px;
   line-height: 1.6;
+}
+
+.doc-pager {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 clamp(22px, 4vw, 44px) clamp(22px, 4vw, 44px);
+}
+
+.pager-link {
+  display: grid;
+  gap: 6px;
+  min-height: 104px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.pager-link.next {
+  text-align: right;
+}
+
+.pager-link:hover {
+  border-color: var(--accent);
+  background: var(--active-bg);
+}
+
+.pager-link.disabled {
+  visibility: hidden;
+}
+
+.pager-link span {
+  color: var(--accent-strong);
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.pager-link strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.pager-link small {
+  align-self: end;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .copy-code {
@@ -799,8 +924,7 @@ mark {
 }
 
 @media (max-width: 1120px) {
-  .hero,
-  .docs-shell {
+  .hero {
     grid-template-columns: 1fr;
   }
 
@@ -809,9 +933,24 @@ mark {
     transform: none;
   }
 
+  .docs-shell {
+    grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
+  }
+
+  .docs-sidebar-head {
+    grid-template-columns: auto 1fr;
+    align-items: center;
+  }
+
+  .docs-side-links {
+    grid-column: 1 / -1;
+  }
+
   .docs-sidebar,
+  .doc-article,
   .toc {
-    position: static;
     max-height: none;
   }
 
@@ -853,5 +992,13 @@ mark {
 
   .doc-article {
     margin-inline: -4px;
+  }
+
+  .doc-pager {
+    grid-template-columns: 1fr;
+  }
+
+  .pager-link.next {
+    text-align: left;
   }
 }

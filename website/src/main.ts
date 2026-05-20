@@ -63,9 +63,7 @@ async function renderCurrentRoute() {
   }
   root.innerHTML = docsTemplate(page);
   wireDocs(page);
-  if (route.hash) {
-    requestAnimationFrame(() => document.getElementById(route.hash ?? "")?.scrollIntoView());
-  }
+  requestAnimationFrame(() => scrollDocumentArticle(route.hash));
 }
 
 function currentRoute(): Route {
@@ -73,10 +71,16 @@ function currentRoute(): Route {
   if (!hash) {
     return { kind: "home" };
   }
-  const [pathPart, anchor] = hash.split("#");
+  const anchorIndex = hash.indexOf("#");
+  const pathPart = anchorIndex >= 0 ? hash.slice(0, anchorIndex) : hash;
+  const anchor = anchorIndex >= 0 ? hash.slice(anchorIndex + 1) : undefined;
   const parts = pathPart.split("/");
   if (parts[0] === "docs") {
-    return { kind: "docs", slug: parts[1] || docs[0].slug, hash: anchor };
+    return {
+      kind: "docs",
+      slug: decodeRoutePart(parts[1] || docs[0].slug),
+      hash: anchor ? decodeRoutePart(anchor) : undefined
+    };
   }
   return { kind: "home" };
 }
@@ -190,23 +194,25 @@ function docsTemplate(page: DocPage) {
   const grouped = groupDocs();
   const tocHeadings = page.headings.filter((heading) => heading.depth > 1 && heading.depth < 4);
   const toc = tocHeadings.slice(0, 18).map((heading, index) => tocLinkTemplate(page, heading, index)).join("");
+  const tutorialPager = tutorialPagerTemplate(page);
 
   return `
-    <header class="site-header docs-header">
-      <a class="brand" href="#/" aria-label="Kern home">
-        <img src="${sitePath("brand/kern-logo.svg")}" alt="Kern" />
-      </a>
-      <nav class="top-nav" aria-label="Primary">
-        <a href="#/">Home</a>
-        <a href="#/docs/install">Install</a>
-        <a href="#/docs/tutorial--en--01-quick-start">Tutorial</a>
-        <a href="https://github.com/kern-project/kern">GitHub</a>
-      </nav>
-      ${themeToggleTemplate()}
-    </header>
-
     <main class="docs-shell">
       <aside class="docs-sidebar" aria-label="Documentation">
+        <div class="docs-sidebar-head">
+          <div class="docs-brand-row">
+            <a class="brand" href="#/" aria-label="Kern home">
+              <img src="${sitePath("brand/kern-logo.svg")}" alt="Kern" />
+            </a>
+            ${themeToggleTemplate()}
+          </div>
+          <nav class="docs-side-links" aria-label="Primary">
+            <a href="#/">Home</a>
+            <a href="#/docs/install">Install</a>
+            <a href="#/docs/tutorial--en--01-quick-start">Tutorial</a>
+            <a href="https://github.com/kern-project/kern">GitHub</a>
+          </nav>
+        </div>
         <label class="search-label">
           <span>Search docs</span>
           <input id="doc-search" type="search" placeholder="trait, craft, install" />
@@ -220,11 +226,12 @@ function docsTemplate(page: DocPage) {
       </aside>
 
       <article class="doc-article">
+        <div class="markdown-body">${page.html}</div>
+        ${tutorialPager}
         <div class="doc-meta">
           <span>${escapeHtml(page.section)}</span>
           <a href="https://github.com/kern-project/kern/blob/main/${page.sourcePath}">${escapeHtml(page.sourcePath)}</a>
         </div>
-        <div class="markdown-body">${page.html}</div>
       </article>
 
       <aside class="toc" aria-label="On this page">
@@ -309,6 +316,22 @@ function wireDocs(page: DocPage) {
   });
 
   document.title = `${page.title} - Kern`;
+}
+
+function scrollDocumentArticle(hash: string | undefined) {
+  const article = document.querySelector<HTMLElement>(".doc-article");
+  if (!hash) {
+    article?.scrollTo({ top: 0, behavior: "instant" });
+    window.scrollTo({ top: 0, behavior: "instant" });
+    return;
+  }
+
+  const target = document.getElementById(hash);
+  if (!target) {
+    article?.scrollTo({ top: 0, behavior: "instant" });
+    return;
+  }
+  target.scrollIntoView({ block: "start" });
 }
 
 async function renderSearchResults(query: string, container: HTMLDivElement | null) {
@@ -482,6 +505,44 @@ function tocLinkTemplate(page: DocPage, heading: DocPage["headings"][number], in
   `;
 }
 
+function tutorialPagerTemplate(page: DocPage) {
+  if (page.section !== "Tutorial" && page.section !== "Tutorial 中文") {
+    return "";
+  }
+
+  const pages = docs.filter((candidate) => candidate.section === page.section);
+  const index = pages.findIndex((candidate) => candidate.slug === page.slug);
+  if (index < 0) {
+    return "";
+  }
+
+  const previous = pages[index - 1];
+  const next = pages[index + 1];
+  const previousLabel = page.language === "zh" ? "上一章" : "Previous";
+  const nextLabel = page.language === "zh" ? "下一章" : "Next";
+
+  return `
+    <nav class="doc-pager" aria-label="${page.language === "zh" ? "教程章节导航" : "Tutorial chapter navigation"}">
+      ${pagerLinkTemplate(previous, previousLabel, "previous")}
+      ${pagerLinkTemplate(next, nextLabel, "next")}
+    </nav>
+  `;
+}
+
+function pagerLinkTemplate(page: DocPageMeta | undefined, label: string, direction: "previous" | "next") {
+  if (!page) {
+    return `<span class="pager-link disabled ${direction}" aria-hidden="true"></span>`;
+  }
+
+  return `
+    <a class="pager-link ${direction}" href="#/docs/${page.slug}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(page.title)}</strong>
+      <small>${escapeHtml(shortPath(page.sourcePath))}</small>
+    </a>
+  `;
+}
+
 function terminalLine(command: string, rest: string) {
   return `<span class="shell-prompt">$</span> <span class="shell-command">${escapeHtml(command)}</span> <span class="shell-args">${escapeHtml(rest)}</span>`;
 }
@@ -534,4 +595,12 @@ function highlightMatch(value: string, query: string) {
 
 function sitePath(path: string) {
   return `${import.meta.env.BASE_URL}${path}`;
+}
+
+function decodeRoutePart(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }

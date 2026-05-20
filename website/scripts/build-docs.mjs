@@ -16,6 +16,8 @@ const publicDocs = [
   "README.zh.md",
   "docs/documentation-map.md",
   "docs/install.md",
+  "docs/versioning.md",
+  "docs/licensing.md",
   "docs/nix.md",
   "docs/tutorial/README.md",
   "docs/tutorial/en/01-quick-start.md",
@@ -198,17 +200,17 @@ function rewriteHref(href, sourcePath) {
     return href;
   }
   if (href.startsWith("#")) {
-    return `#/docs/${slugForPath(sourcePath)}${href}`;
+    return `#/docs/${slugForPath(sourcePath)}${decodeFragment(href)}`;
   }
 
   const [rawTarget, hash = ""] = href.split("#");
-  const targetPath = normalizePath(path.join(path.dirname(sourcePath), rawTarget));
+  const targetPath = normalizePath(path.join(path.dirname(sourcePath), decodeUriComponent(rawTarget)));
   const targetSlug = docPathToSlug.get(targetPath);
   if (targetSlug) {
-    return `#/docs/${targetSlug}${hash ? `#${hash}` : ""}`;
+    return `#/docs/${targetSlug}${hash ? `#${decodeUriComponent(hash)}` : ""}`;
   }
 
-  return `https://github.com/kern-project/kern/blob/main/${targetPath}${hash ? `#${hash}` : ""}`;
+  return `https://github.com/kern-project/kern/blob/main/${targetPath}${hash ? `#${decodeUriComponent(hash)}` : ""}`;
 }
 
 function rewriteImageSrc(src, sourcePath) {
@@ -342,4 +344,20 @@ function languageForPath(sourcePath) {
 
 function normalizePath(value) {
   return value.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function decodeFragment(value) {
+  const [prefix, ...rest] = value.split("#");
+  if (!rest.length) {
+    return decodeUriComponent(value);
+  }
+  return [decodeUriComponent(prefix), ...rest.map(decodeUriComponent)].join("#");
+}
+
+function decodeUriComponent(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }

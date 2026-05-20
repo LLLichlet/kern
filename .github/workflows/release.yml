@@ -294,9 +294,9 @@ jobs:
         working-directory: editors/vscode
         run: |
           VERSION=${KERN_RELEASE_VERSION#v}
-          npm run package:vsix -- --out kern-vscode-${VERSION}.vsix
-          cargo run -q -p kernworker -- ci verify-vsix --vsix kern-vscode-${VERSION}.vsix
-          echo "VSCODE_ARTIFACT=kern-vscode-${VERSION}.vsix" >> "$GITHUB_ENV"
+          npm run package:vsix -- --out kern-language-${VERSION}.vsix
+          cargo run -q -p kernworker -- ci verify-vsix --vsix kern-language-${VERSION}.vsix
+          echo "VSCODE_ARTIFACT=kern-language-${VERSION}.vsix" >> "$GITHUB_ENV"
 
       - name: Upload VS Code Extension Artifact
         uses: actions/upload-artifact@v6

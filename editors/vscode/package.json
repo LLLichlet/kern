@@ -1,9 +1,9 @@
 {
-  "name": "kern-vscode",
+  "name": "kern-language",
   "displayName": "Kern",
   "description": "VS Code support for the Kern programming language.",
   "version": "0.7.7",
-  "publisher": "softfault",
+  "publisher": "kern-project",
   "icon": "icons/kern.png",
   "license": "MIT",
   "repository": {

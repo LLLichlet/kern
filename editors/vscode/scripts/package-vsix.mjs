@@ -35,7 +35,7 @@ const rawFiles = fileNames.map((file) => ({
 }));
 const files = await processFiles(createDefaultProcessors(manifest), rawFiles);
 await writeVsix(files, out);
-console.log(`[kern-vscode] packaged ${out}`);
+console.log(`[kern-language] packaged ${out}`);
 
 function cleanServerDirectory() {
     fs.rmSync(path.join(extensionRoot, "server"), { recursive: true, force: true });
@@ -274,6 +274,6 @@ function parseArgs(argv) {
 }
 
 function fail(message) {
-    console.error(`[kern-vscode] ${message}`);
+    console.error(`[kern-language] ${message}`);
     process.exit(1);
 }

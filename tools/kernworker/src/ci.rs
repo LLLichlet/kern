@@ -434,7 +434,7 @@ pub fn verify_vscode_extension_archive(args: VsixVerifyArgs) -> OpsResult<()> {
         .ok_or_else(|| OpsError::new("VS Code package.json has no string `version`"))?;
     let vsix_path = args
         .vsix_path
-        .unwrap_or_else(|| PathBuf::from(format!("kern-vscode-{version}.vsix")));
+        .unwrap_or_else(|| PathBuf::from(format!("kern-language-{version}.vsix")));
     if !vsix_path.is_file() {
         return Err(OpsError::new(format!(
             "VSIX archive `{}` is missing",

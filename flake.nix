@@ -144,7 +144,7 @@
 
               meta = {
                 description = "Kern language tool `${binaryName}`";
-                license = lib.licenses.mit;
+                license = with lib.licenses; [ gpl3Plus mit ];
                 platforms = systems;
               };
             };

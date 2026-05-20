@@ -80,11 +80,40 @@ fn is_linux_bundled_runtime_lib(dependency: &Path, bundled_prefix: &Path) -> boo
         || dependency
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| {
-                name.starts_with("libLLVM")
-                    || name.starts_with("libclang")
-                    || name.starts_with("libLTO")
-            })
+            .is_some_and(should_bundle_linux_runtime_library)
+}
+
+fn should_bundle_linux_runtime_library(name: &str) -> bool {
+    if name.starts_with("libLLVM") || name.starts_with("libclang") || name.starts_with("libLTO") {
+        return true;
+    }
+    if name.starts_with("ld-linux") {
+        return false;
+    }
+    if !name.contains(".so") {
+        return false;
+    }
+    !is_linux_host_abi_library(name)
+}
+
+fn is_linux_host_abi_library(name: &str) -> bool {
+    let Some(stem) = name.split(".so").next() else {
+        return false;
+    };
+    matches!(
+        stem,
+        "libBrokenLocale"
+            | "libanl"
+            | "libc"
+            | "libdl"
+            | "libm"
+            | "libmvec"
+            | "libnsl"
+            | "libpthread"
+            | "libresolv"
+            | "librt"
+            | "libutil"
+    )
 }
 
 pub fn external_runtime_libdirs_for_bundled_tools(
@@ -377,5 +406,29 @@ fn macos_local_dylib_reference(path: &Path, dylib_name: &str, lib_dir: &Path) ->
         format!("@loader_path/{dylib_name}")
     } else {
         format!("@loader_path/../lib/{dylib_name}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn linux_runtime_filter_bundles_non_baseline_clang_dependencies() {
+        assert!(should_bundle_linux_runtime_library("libedit.so.2"));
+        assert!(should_bundle_linux_runtime_library("libtinfo.so.6"));
+        assert!(should_bundle_linux_runtime_library("libzstd.so.1"));
+        assert!(should_bundle_linux_runtime_library("libstdc++.so.6"));
+    }
+
+    #[test]
+    fn linux_runtime_filter_keeps_llvm_libraries_and_excludes_host_abi() {
+        assert!(should_bundle_linux_runtime_library("libLLVM.so.21.1"));
+        assert!(should_bundle_linux_runtime_library("libclang-cpp.so.21.1"));
+        assert!(should_bundle_linux_runtime_library("libLTO.so.21.1"));
+        assert!(!should_bundle_linux_runtime_library("libc.so.6"));
+        assert!(!should_bundle_linux_runtime_library("libm.so.6"));
+        assert!(!should_bundle_linux_runtime_library("libpthread.so.0"));
+        assert!(!should_bundle_linux_runtime_library("ld-linux-x86-64.so.2"));
     }
 }

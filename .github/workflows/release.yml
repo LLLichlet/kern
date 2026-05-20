@@ -214,6 +214,19 @@ jobs:
         run: |
           cargo run -q -p kernup -- install --archive "${{ env.ARTIFACT_FILE }}" --dest "${RUNNER_TEMP}/kern-sdk-smoke" --no-path
 
+      - name: Smoke Install Packaged SDK On Fedora
+        if: matrix.target == 'x86_64-linux-gnu'
+        run: |
+          docker run --rm \
+            -v "$PWD:/work:ro" \
+            -v "${RUNNER_TEMP}:/runner-temp" \
+            -w /work \
+            fedora:latest \
+            /work/target/release/kernup install \
+              --archive "/work/${{ env.ARTIFACT_FILE }}" \
+              --dest /runner-temp/kern-sdk-fedora-smoke \
+              --no-path
+
       - name: Smoke Install Packaged SDK (Windows)
         if: runner.os == 'Windows'
         shell: powershell

@@ -310,7 +310,13 @@ pub fn validate_sdk_toolchain_manifest(sdk_root: &Path) -> OpsResult<()> {
                     check.component
                 ))
             })?;
-            validate_manifest_health_check(sdk_root, &check.component, entry, &check.kind)?;
+            validate_manifest_health_check(
+                sdk_root,
+                host_target,
+                &check.component,
+                entry,
+                &check.kind,
+            )?;
         }
     }
     Ok(())
@@ -376,7 +382,13 @@ pub fn validate_toolchain_root(toolchain_root: &Path, expected_target: &str) -> 
                 check.component
             ))
         })?;
-        validate_manifest_health_check(toolchain_root, &check.component, entry, &check.kind)?;
+        validate_manifest_health_check(
+            toolchain_root,
+            expected_target,
+            &check.component,
+            entry,
+            &check.kind,
+        )?;
     }
     Ok(())
 }
@@ -439,9 +451,10 @@ pub fn copy_sdk_contents(sdk_root: &Path, install_root: &Path) -> OpsResult<()> 
 
 pub fn verify_installed_tools(install_root: &Path, host: &HostTarget) -> OpsResult<()> {
     let bin_dir = install_root.join("bin");
+    let runtime_env = toolchain_runtime_library_env(install_root, &host.archive_target);
     for binary in HOST_TOOL_BINARIES {
         let binary_path = bin_dir.join(format!("{binary}{}", host.exe_suffix));
-        verify_binary_starts(&binary_path)?;
+        verify_binary_starts_with_env(&binary_path, &runtime_env)?;
     }
     Ok(())
 }
@@ -549,21 +562,30 @@ pub fn infer_release_version_from_archive_name(name: &str, target: &str) -> Opti
 }
 
 pub fn verify_binary_starts(binary_path: &Path) -> OpsResult<CommandResult> {
+    verify_binary_starts_with_env(binary_path, &[])
+}
+
+fn verify_binary_starts_with_env(
+    binary_path: &Path,
+    envs: &[(&str, String)],
+) -> OpsResult<CommandResult> {
     if !binary_path.is_file() {
         return Err(OpsError::new(format!(
             "installed binary `{}` is missing",
             binary_path.display()
         )));
     }
-    let output = Command::new(binary_path)
-        .arg("--version")
-        .output()
-        .map_err(|err| {
-            OpsError::new(format!(
-                "failed to start `{}`: {err}",
-                binary_path.display()
-            ))
-        })?;
+    let mut command = Command::new(binary_path);
+    command.arg("--version");
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let output = command.output().map_err(|err| {
+        OpsError::new(format!(
+            "failed to start `{}`: {err}",
+            binary_path.display()
+        ))
+    })?;
     let result = command_result(output);
     if result.status_code == Some(0) {
         let first = first_non_empty_line(&result.stdout)
@@ -636,6 +658,14 @@ pub fn run_command_with_env(
 }
 
 pub fn run_command_capture(cmd: &[OsString], cwd: Option<&Path>) -> OpsResult<CommandResult> {
+    run_command_capture_with_env(cmd, cwd, &[])
+}
+
+pub fn run_command_capture_with_env(
+    cmd: &[OsString],
+    cwd: Option<&Path>,
+    envs: &[(&str, &str)],
+) -> OpsResult<CommandResult> {
     if cmd.is_empty() {
         return Err(OpsError::new("cannot run an empty command"));
     }
@@ -650,6 +680,9 @@ pub fn run_command_capture(cmd: &[OsString], cwd: Option<&Path>) -> OpsResult<Co
     command.args(&cmd[1..]);
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
+    }
+    for (key, value) in envs {
+        command.env(key, value);
     }
     let output = command.output().map_err(|err| {
         OpsError::new(format!(
@@ -1573,6 +1606,7 @@ fn validate_component_record(
 
 fn validate_manifest_health_check(
     root: &Path,
+    host_target: &str,
     component: &str,
     entry: &serde_json::Value,
     kind: &str,
@@ -1586,11 +1620,13 @@ fn validate_manifest_health_check(
         .and_then(|value| value.as_str())
         .ok_or_else(|| OpsError::new(format!("toolchain component `{component}` has no path")))?;
     let target = root.join(path);
+    let runtime_env = toolchain_runtime_library_env(root, host_target);
     if kind == "starts-with-version" {
         validate_component_record(root, component, entry, "toolchain component")?;
-        let result = run_command_capture(
+        let result = run_command_capture_with_env_owned(
             &[target.as_os_str().to_owned(), OsString::from("--version")],
             None,
+            &runtime_env,
         )?;
         if result.status_code == Some(0) {
             return Ok(());
@@ -1604,13 +1640,14 @@ fn validate_manifest_health_check(
         validate_component_record(root, component, entry, "toolchain component")?;
         let temp = make_temp_dir("kern-llvm-lib-probe-")?;
         let probe = temp.join("empty.lib");
-        let result = run_command_capture(
+        let result = run_command_capture_with_env_owned(
             &[
                 target.as_os_str().to_owned(),
                 OsString::from("/llvmlibempty"),
                 OsString::from(format!("/out:{}", probe.display())),
             ],
             Some(&temp),
+            &runtime_env,
         );
         let _ = remove_path_if_exists(&temp);
         let result = result?;
@@ -1625,6 +1662,32 @@ fn validate_manifest_health_check(
     Err(OpsError::new(format!(
         "toolchain manifest component `{component}` has unsupported health check `{kind}`"
     )))
+}
+
+fn toolchain_runtime_library_env(root: &Path, host_target: &str) -> Vec<(&'static str, String)> {
+    let lib_dir = root.join("toolchain").join("host").join("lib");
+    if !lib_dir.is_dir() {
+        return Vec::new();
+    }
+    if host_target.ends_with("apple-darwin") {
+        return vec![("DYLD_LIBRARY_PATH", lib_dir.to_string_lossy().to_string())];
+    }
+    if host_target.ends_with("linux-gnu") {
+        return vec![("LD_LIBRARY_PATH", lib_dir.to_string_lossy().to_string())];
+    }
+    Vec::new()
+}
+
+fn run_command_capture_with_env_owned(
+    cmd: &[OsString],
+    cwd: Option<&Path>,
+    envs: &[(&str, String)],
+) -> OpsResult<CommandResult> {
+    let borrowed = envs
+        .iter()
+        .map(|(key, value)| (*key, value.as_str()))
+        .collect::<Vec<_>>();
+    run_command_capture_with_env(cmd, cwd, &borrowed)
 }
 
 fn normalize_runner_os(value: &str) -> OpsResult<String> {

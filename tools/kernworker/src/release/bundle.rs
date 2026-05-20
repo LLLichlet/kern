@@ -15,7 +15,7 @@ use super::util::{
 };
 use shared_ops::{
     ArtifactRecord, BundledToolchain, OpsError, OpsResult, copy_dir_recursive, copy_path,
-    remove_path_if_exists, run_command_capture, sha256_directory, sha256_file,
+    remove_path_if_exists, run_command_capture_with_env, sha256_directory, sha256_file,
 };
 use std::ffi::OsString;
 use std::fs;
@@ -263,7 +263,7 @@ pub fn bundle_sdk_runtime_toolchain(
     }
 
     for (component, path) in &copied_tools {
-        verify_sdk_runtime_tool_starts(component, path)?;
+        verify_sdk_runtime_tool_starts(component, path, &lib_dir, host)?;
     }
     if !is_empty_dir(&lib_dir)? {
         insert_record(
@@ -376,26 +376,45 @@ fn runtime_tool_source_roots(runtime_tools: &[(String, PathBuf)]) -> Vec<PathBuf
         .collect::<Vec<_>>()
 }
 
-fn verify_sdk_runtime_tool_starts(component: &str, path: &Path) -> OpsResult<()> {
+fn verify_sdk_runtime_tool_starts(
+    component: &str,
+    path: &Path,
+    lib_dir: &Path,
+    host: &shared_ops::HostTarget,
+) -> OpsResult<()> {
+    let runtime_env_name = if host.archive_target.ends_with("apple-darwin") {
+        Some("DYLD_LIBRARY_PATH")
+    } else if host.archive_target.ends_with("linux-gnu") && lib_dir.is_dir() {
+        Some("LD_LIBRARY_PATH")
+    } else {
+        None
+    };
+    let runtime_env_value = runtime_env_name.map(|_| lib_dir.to_string_lossy().to_string());
+    let runtime_env = match (runtime_env_name, runtime_env_value.as_deref()) {
+        (Some(name), Some(value)) => vec![(name, value)],
+        _ => Vec::new(),
+    };
     let result = if component == "llvm_lib" {
         let probe = path
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join("__kern_llvm_lib_probe.lib");
-        let result = run_command_capture(
+        let result = run_command_capture_with_env(
             &[
                 path.as_os_str().to_owned(),
                 OsString::from("/llvmlibempty"),
                 OsString::from(format!("/out:{}", probe.display())),
             ],
             path.parent(),
+            &runtime_env,
         );
         let _ = remove_path_if_exists(&probe);
         result?
     } else {
-        run_command_capture(
+        run_command_capture_with_env(
             &[path.as_os_str().to_owned(), OsString::from("--version")],
             path.parent(),
+            &runtime_env,
         )?
     };
     if result.status_code == Some(0) {

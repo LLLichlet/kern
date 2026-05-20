@@ -547,7 +547,7 @@ pub fn help() -> HelpDoc {
             "run craft release policy fixtures",
         )
         .example(
-            "kernworker release package --version v0.7.7",
+            "kernworker release package --version v0.7.8",
             "build a host-native SDK archive",
         )
 }
@@ -730,7 +730,7 @@ mod tests {
             "release".to_string(),
             "package".to_string(),
             "--version".to_string(),
-            "v0.7.7".to_string(),
+            "v0.7.8".to_string(),
             "--target".to_string(),
             "x86_64-linux-gnu".to_string(),
             "--skip-build".to_string(),
@@ -741,7 +741,7 @@ mod tests {
         let Command::Release(ReleaseCommand::Package(args)) = command else {
             panic!("expected release package command");
         };
-        assert_eq!(args.version.as_deref(), Some("v0.7.7"));
+        assert_eq!(args.version.as_deref(), Some("v0.7.8"));
         assert_eq!(args.target.as_deref(), Some("x86_64-linux-gnu"));
         assert!(args.skip_build);
         assert_eq!(

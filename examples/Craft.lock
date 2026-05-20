@@ -4,81 +4,81 @@ manifest = "Craft.toml"
 manifest-digest = "fnv1a64:a531d953c33fb0ec"
 
 [[package]]
-id = "examples 0.7.7 root"
+id = "examples 0.7.8 root"
 name = "examples"
-version = "0.7.7"
+version = "0.7.8"
 source = "root"
 manifest = "Craft.toml"
 manifest-digest = "fnv1a64:a531d953c33fb0ec"
 
 [[package-target]]
-package = "examples 0.7.7 root"
+package = "examples 0.7.8 root"
 kind = "example"
 name = "hello_world"
 root = "hello_world.kn"
 
 [[package-target]]
-package = "examples 0.7.7 root"
+package = "examples 0.7.8 root"
 kind = "example"
 name = "basics"
 root = "basics.kn"
 
 [[package-target]]
-package = "examples 0.7.7 root"
+package = "examples 0.7.8 root"
 kind = "example"
 name = "control_flow"
 root = "control_flow.kn"
 
 [[package-target]]
-package = "examples 0.7.7 root"
+package = "examples 0.7.8 root"
 kind = "example"
 name = "anonymous_aggregates"
 root = "anonymous_aggregates.kn"
 
 [[package-target]]
-package = "examples 0.7.7 root"
+package = "examples 0.7.8 root"
 kind = "example"
 name = "slices_and_iterators"
 root = "slices_and_iterators.kn"
 
 [[package-target]]
-package = "examples 0.7.7 root"
+package = "examples 0.7.8 root"
 kind = "example"
 name = "string"
 root = "string.kn"
 
 [[package-target]]
-package = "examples 0.7.7 root"
+package = "examples 0.7.8 root"
 kind = "example"
 name = "collections"
 root = "collections.kn"
 
 [[package-target]]
-package = "examples 0.7.7 root"
+package = "examples 0.7.8 root"
 kind = "example"
 name = "test_closure"
 root = "test_closure.kn"
 
 [[package-target]]
-package = "examples 0.7.7 root"
+package = "examples 0.7.8 root"
 kind = "example"
 name = "closure_heap_escape"
 root = "closure_heap_escape.kn"
 
 [[package-target]]
-package = "examples 0.7.7 root"
+package = "examples 0.7.8 root"
 kind = "example"
 name = "sync"
 root = "sync.kn"
 
 [[package-target]]
-package = "examples 0.7.7 root"
+package = "examples 0.7.8 root"
 kind = "example"
 name = "io_and_files"
 root = "io_and_files.kn"
 
 [[package-target]]
-package = "examples 0.7.7 root"
+package = "examples 0.7.8 root"
 kind = "example"
 name = "void"
 root = "void.kn"

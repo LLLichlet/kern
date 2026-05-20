@@ -360,7 +360,7 @@ members = ["compiler/*", "tools/demo"]
 [package]
 name = "compiler-demo"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 "#,
         )
         .unwrap();
@@ -370,7 +370,7 @@ kern = "0.7.7"
 [package]
 name = "tools-demo"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 "#,
         )
         .unwrap();
@@ -435,7 +435,7 @@ members = ["json"]
 
 [workspace.package]
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 license = "MIT"
 "#,
         )
@@ -453,7 +453,7 @@ name = "json"
         let members = load_members(&root.join("Craft.toml"), &root_manifest).unwrap();
         let package = members[0].manifest.package.as_ref().unwrap();
         assert_eq!(package.version, "0.1.0");
-        assert_eq!(package.kern, "0.7.7");
+        assert_eq!(package.kern, "0.7.8");
 
         let _ = fs::remove_dir_all(root);
     }

@@ -2008,11 +2008,11 @@ mod tests {
     #[test]
     fn archive_kind_accepts_release_archive_extensions() {
         assert_eq!(
-            archive_kind_from_path(Path::new("kern-v0.7.7-x86_64-linux-gnu.tar.gz")).unwrap(),
+            archive_kind_from_path(Path::new("kern-v0.7.8-x86_64-linux-gnu.tar.gz")).unwrap(),
             ArchiveKind::TarGz
         );
         assert_eq!(
-            archive_kind_from_path(Path::new("kern-v0.7.7-x86_64-windows-msvc.zip")).unwrap(),
+            archive_kind_from_path(Path::new("kern-v0.7.8-x86_64-windows-msvc.zip")).unwrap(),
             ArchiveKind::Zip
         );
         assert!(archive_kind_from_path(Path::new("kern.tar")).is_err());
@@ -2023,11 +2023,11 @@ mod tests {
         let root = make_temp_dir("shared-ops-version-test-").unwrap();
         fs::write(
             root.join("Cargo.toml"),
-            "[package]\nversion = \"9.9.9\"\n\n[workspace.package]\nversion = \"0.7.7\"\n",
+            "[package]\nversion = \"9.9.9\"\n\n[workspace.package]\nversion = \"0.7.8\"\n",
         )
         .unwrap();
 
-        assert_eq!(load_workspace_version(&root).unwrap(), "0.7.7");
+        assert_eq!(load_workspace_version(&root).unwrap(), "0.7.8");
         remove_path_if_exists(&root).unwrap();
     }
 

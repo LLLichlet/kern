@@ -27,7 +27,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "app"
@@ -45,7 +45,7 @@ log = { path = "../vendor/log", version = "1" }
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [lib]
 root = "src/lib.kn"
@@ -58,7 +58,7 @@ root = "src/lib.kn"
 [package]
 name = "log"
 version = "1"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [lib]
 root = "src/lib.kn"
@@ -143,7 +143,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "app"
@@ -165,7 +165,7 @@ cc = { path = "../vendor/cc", version = "1" }
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [lib]
 root = "src/lib.kn"
@@ -178,7 +178,7 @@ root = "src/lib.kn"
 [package]
 name = "log"
 version = "1"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [lib]
 root = "src/lib.kn"
@@ -196,7 +196,7 @@ root = "src/lib.kn"
 [package]
 name = "cc"
 version = "1"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [lib]
 root = "src/lib.kn"
@@ -280,7 +280,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "app"
@@ -308,7 +308,7 @@ b.define_string("tool_path", b.tool_path("codegen", "codegen"));
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "codegen"
@@ -397,7 +397,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "app"
@@ -425,7 +425,7 @@ b.define_string("selected_tool", b.tool_path("tools", "beta"));
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "alpha"
@@ -502,7 +502,7 @@ fn build_tool_lookup_supports_external_build_dependency_tools() {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "app"
@@ -530,7 +530,7 @@ b.define_string("selected_tool", b.tool_path("codegen", "codegen"));
 [package]
 name = "codegen"
 version = "1"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "codegen"
@@ -610,7 +610,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "app"
@@ -627,7 +627,7 @@ foo = { path = "../util", export = "util" }
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [lib]
 root = "src/lib.kn"

@@ -79,7 +79,7 @@ fn write_minimal_bin_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "demo"
@@ -98,7 +98,7 @@ fn write_minimal_lib_package(root: &Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [lib]
 root = "src/lib.kn"
@@ -116,7 +116,7 @@ fn write_publishable_bin_package(root: &Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 description = "Demo package"
 license = "MIT"
 authors = ["Demo <demo@example.com>"]
@@ -154,7 +154,7 @@ members = ["{member_name}"]
 [package]
 name = "{member_name}"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "{member_name}"
@@ -311,7 +311,7 @@ fn write_arg_check_bin_package(root: &std::path::Path, first: &str, second: &str
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "demo"
@@ -334,7 +334,7 @@ fn write_arg_check_test_package(root: &std::path::Path, first: &str, second: &st
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [test]
 roots = ["tests/smoke.kn"]
@@ -356,7 +356,7 @@ fn write_multi_test_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [test]
 roots = ["tests/alpha.kn", "tests/beta.kn"]
@@ -384,7 +384,7 @@ fn write_bin_and_test_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "demo"
@@ -412,7 +412,7 @@ fn write_bin_and_example_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "demo"
@@ -439,7 +439,7 @@ fn write_multi_bin_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "demo"
@@ -469,7 +469,7 @@ fn write_workspace_with_member_test_package(root: &std::path::Path) -> PathBuf {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [test]
 roots = ["tests/smoke.kn"]
@@ -625,7 +625,7 @@ fn write_generated_build_script_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "demo"
@@ -1942,7 +1942,7 @@ fn build_resolves_runtime_packages_from_external_kernlib_workspace() {
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "hello"
@@ -2396,7 +2396,7 @@ fn build_command_uses_workspace_root_outputs_for_member_paths() {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "member"
@@ -2574,7 +2574,7 @@ fn build_auto_syncs_lockfile_and_rebuilds_without_clean() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "demo"
@@ -2630,7 +2630,7 @@ fn build_updates_lockfile_after_manifest_changes() {
 [package]
 name = "demo"
 version = "0.2.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "demo"
@@ -2670,7 +2670,7 @@ fn member_build_recreates_deleted_workspace_lockfile() {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "member"
@@ -3039,7 +3039,7 @@ repository = "https://example.com/workspace"
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "member"

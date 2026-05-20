@@ -18,7 +18,7 @@ fn runtime_packages_are_reused_across_fresh_workspaces() {
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [[bin]]
 name = "hello"
@@ -82,7 +82,7 @@ fn runtime_packages_respect_profile_opt_level() {
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [profile.release]
 opt = {opt}
@@ -151,7 +151,7 @@ fn runtime_packages_respect_profile_codegen_units() {
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.7.7"
+kern = "0.7.8"
 
 [profile.release]
 opt = 3

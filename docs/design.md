@@ -1,4 +1,4 @@
-# Kern Language Design (v0.7.7)
+# Kern Language Design (v0.7.8)
 
 ## Table of Contents
 

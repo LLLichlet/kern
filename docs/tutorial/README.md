@@ -8,7 +8,7 @@ This is the official introductory Kern tutorial. It is not a replacement for
 it starts with tools, syntax, and library usage, then gradually moves into
 Kern's low-level programming model.
 
-This tutorial follows the current Kern 0.7.7 implementation. Kern is still
+This tutorial follows the current Kern 0.7.8 implementation. Kern is still
 pre-1.0, so syntax and library APIs may change as the design settles. If a
 detail conflicts with another document, prefer the reference documents under
 `docs/` and the runnable examples in this repository.

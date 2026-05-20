@@ -384,7 +384,11 @@ fn workspace_refresh_reuses_diagnostics_budget_yielding() {
         .unwrap();
     super::super::scheduler::drain_scheduler(&mut state, &mut writer).unwrap();
 
-    assert_eq!(state.pending_diagnostics_worker_tasks, 1);
+    // The first diagnostics task may finish before `drain_scheduler` returns on
+    // fast CI runners because the scheduler opportunistically collects ready
+    // worker results after submitting budgeted work. The budget guarantee is
+    // that only one target is consumed and the next target remains queued.
+    assert!(state.pending_diagnostics_worker_tasks <= 1);
     assert_eq!(state.pending_diagnostics_targets.len(), 1);
     assert!(state.has_pending_diagnostics_work());
 }

@@ -712,7 +712,7 @@ pub fn build(b: &mut builder.Builder) void {{
         "\
 use std.io;
 
-#[if(enable_telemetry)]
+#[if enable_telemetry]
 fn init_telemetry() void {
     \"[Telemetry] Enabled\".println();
 }
@@ -819,12 +819,12 @@ pub fn build(b: &mut builder.Builder) void {{
         "\
 use std.io;
 
-#[if(enable_telemetry)]
+#[if enable_telemetry]
 fn init_telemetry() void {
     \"[Telemetry] Enabled\".println();
 }
 
-#[if(!enable_telemetry)]
+#[if !enable_telemetry]
 fn init_telemetry() void {
     \"[Telemetry] Disabled\".println();
 }
@@ -916,7 +916,7 @@ use craft.builder;
 pub fn build(b: &mut builder.Builder) void {
     let generated = b.emit_generated(
         \"src/main.kn\",
-        \"#[if(generated)]\\nfn main() i32 { let _ = ENTRY_KIND; return 0; }\\n\"
+        \"#[if generated]\\nfn main() i32 { let _ = ENTRY_KIND; return 0; }\\n\"
     );
     b.set_source_root(generated);
     b.cfg_bool(\"generated\", true);
@@ -951,7 +951,7 @@ pub fn build(b: &mut builder.Builder) void {
         Some("true")
     );
     let uri = file_path_to_uri(&generated_path).unwrap();
-    let source = "#[if(generated)]\nfn main() i32 { let _ = ENTRY_KIND; return 0; }\n";
+    let source = "#[if generated]\nfn main() i32 { let _ = ENTRY_KIND; return 0; }\n";
 
     let mut analysis = AnalysisEngine::default();
     let outcome = analysis.open_document(DidOpenTextDocumentParams {
@@ -1023,7 +1023,7 @@ root = \"src/placeholder.kn\"
         "\
 mod build_info;
 
-#[if(generated)]
+#[if generated]
 fn main() i32 {
     let _ = build_info.MAGIC_NUMBER;
     return 0;

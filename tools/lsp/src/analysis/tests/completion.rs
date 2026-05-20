@@ -280,7 +280,7 @@ fn completion_in_iterator_for_body_includes_item_binding() {
     let source = concat!(
         "use base.coll.Iterator;\n",
         "fn main(values: &[i32]) void {\n",
-        "    for (item: values.iter()) {\n",
+        "    for item in values.iter() {\n",
         "        \n",
         "    }\n",
         "}\n",

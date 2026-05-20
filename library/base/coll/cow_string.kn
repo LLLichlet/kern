@@ -37,7 +37,7 @@ impl CowString {
 
     /// Returns the current bytes without changing ownership state.
     pub fn as_str() &[u8] {
-        if (self.is_owned) {
+        if self.is_owned {
             return self.owned.&.as_str();
         }
         return self.borrowed;
@@ -72,7 +72,7 @@ impl CowString {
 impl &mut CowString {
     /// Materializes borrowed bytes into owned storage when needed.
     pub fn try_to_owned(alloc: &mut Allocator) void!AllocError {
-        if (self.is_owned) {
+        if self.is_owned {
             return .{ Ok: {} };
         }
 
@@ -90,7 +90,7 @@ impl &mut CowString {
 
     /// Releases owned storage and leaves borrowed bytes untouched.
     pub fn deinit(alloc: &mut Allocator) void {
-        if (self.is_owned) {
+        if self.is_owned {
             self.owned..&.deinit(alloc);
             self.owned = String.{};
             self.is_owned = false;

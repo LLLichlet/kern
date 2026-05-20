@@ -1,6 +1,6 @@
 //! Conditional-compilation pruning for parsed AST.
 //!
-//! `#[if(...)]` attributes are evaluated before semantic collection so disabled
+//! `#[if ...]` attributes are evaluated before semantic collection so disabled
 //! declarations and statements never enter the definition table.  The evaluator
 //! is intentionally small and only understands the expression subset allowed in
 //! compile-time configuration conditions.
@@ -26,7 +26,7 @@ impl<'a> Pruner<'a> {
     }
 
     pub fn prune_module(&mut self, module: &mut Module) {
-        // Handle module-level `#![if(...)]` attributes first.
+        // Handle module-level `#![if ...]` attributes first.
         if !self.eval_attributes(&module.attributes) {
             // A false module-level condition drops the entire module body.
             module.decls.clear();
@@ -181,7 +181,7 @@ impl<'a> Pruner<'a> {
         }
     }
 
-    /// Return `false` when any `#[if(expr)]` attribute evaluates to false.
+    /// Return `false` when any `#[if expr]` attribute evaluates to false.
     fn eval_attributes(&mut self, attributes: &[Attribute]) -> bool {
         for attr in attributes {
             if let AttributeKind::If(cond_expr) = &attr.kind {
@@ -204,7 +204,7 @@ impl<'a> Pruner<'a> {
     }
 }
 
-/// Lightweight evaluator used specifically for `#[if(...)]`.
+/// Lightweight evaluator used specifically for `#[if ...]`.
 /// It supports boolean logic, string comparison, and injected environment variables without full type checking.
 struct ConditionEvaluator<'a> {
     sess: &'a mut Session,

@@ -22,7 +22,7 @@ enum Tree {
 };
 
 fn classify(tree: Tree) i32 {
-    return match (tree) {
+    return match tree {
         .Nil => 0,
         .{ Branch: Node.{ left: .Empty, right: .Empty } } => 1,
         .{ Branch: Node.{ left: .Empty, right: .{ Full: .Zero } } } => 2,

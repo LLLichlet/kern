@@ -86,6 +86,7 @@ pub enum TokenType {
     If,
     Else,
     For,
+    In,
     While,
     Break,
     Continue,

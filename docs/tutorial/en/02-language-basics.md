@@ -72,7 +72,7 @@ When context is already clear, the type provider can be omitted:
 
 ```kern
 let mut i = 0;
-while (i < 10) {
+while i < 10 {
     i += 1;
 }
 ```
@@ -222,13 +222,13 @@ impl &mut Point {
 Kern is expression-oriented. `if` has this form:
 
 ```kern
-let max = if (a > b) a else b;
+let max = if a > b a else b;
 ```
 
 Branches are expressions too. Use blocks when a branch needs multiple steps:
 
 ```kern
-let max = if (a > b) {
+let max = if a > b {
     a
 } else {
     b
@@ -239,15 +239,15 @@ Likewise, `if` does not have a C-style "single statement" special case. It
 takes an expression as its branch body:
 
 ```kern
-if (len == 0) return 0;
+if len == 0 return 0;
 ```
 
-`while` is also `while (cond) expr`. Loop bodies are usually blocks:
+`while` is also `while cond expr`. Loop bodies are usually blocks:
 
 ```kern
 let mut i = 0;
 let mut total = 0;
-while (i < 5) {
+while i < 5 {
     total += i;
     i += 1;
 }
@@ -256,7 +256,7 @@ while (i < 5) {
 When the body is one expression, it can be written directly:
 
 ```kern
-while (ready()) tick();
+while ready() tick();
 ```
 
 Loop expressions are usually used as `void`; loops that cannot terminate
@@ -266,7 +266,7 @@ Iterators can be used with `for`:
 
 ```kern
 let mut sum = 0;
-for (i: 1...4) {
+for i in 1...4 {
     sum += i;
 }
 ```

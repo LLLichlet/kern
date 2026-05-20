@@ -38,8 +38,8 @@ pub fn ord_cmp[T](lhs: T, rhs: T) Ordering
 
 impl i8 : Comparable[i8] {
     pub fn cmp(other: i8) Ordering {
-        if (self < other) return LESS;
-        if (self > other) return GREATER;
+        if self < other return LESS;
+        if self > other return GREATER;
         return EQUAL;
     }
 }
@@ -48,8 +48,8 @@ impl i8 : Ord[i8] {}
 
 impl i16 : Comparable[i16] {
     pub fn cmp(other: i16) Ordering {
-        if (self < other) return LESS;
-        if (self > other) return GREATER;
+        if self < other return LESS;
+        if self > other return GREATER;
         return EQUAL;
     }
 }
@@ -58,8 +58,8 @@ impl i16 : Ord[i16] {}
 
 impl i32 : Comparable[i32] {
     pub fn cmp(other: i32) Ordering {
-        if (self < other) return LESS;
-        if (self > other) return GREATER;
+        if self < other return LESS;
+        if self > other return GREATER;
         return EQUAL;
     }
 }
@@ -68,8 +68,8 @@ impl i32 : Ord[i32] {}
 
 impl i64 : Comparable[i64] {
     pub fn cmp(other: i64) Ordering {
-        if (self < other) return LESS;
-        if (self > other) return GREATER;
+        if self < other return LESS;
+        if self > other return GREATER;
         return EQUAL;
     }
 }
@@ -78,8 +78,8 @@ impl i64 : Ord[i64] {}
 
 impl i128 : Comparable[i128] {
     pub fn cmp(other: i128) Ordering {
-        if (self < other) return LESS;
-        if (self > other) return GREATER;
+        if self < other return LESS;
+        if self > other return GREATER;
         return EQUAL;
     }
 }
@@ -88,8 +88,8 @@ impl i128 : Ord[i128] {}
 
 impl isize : Comparable[isize] {
     pub fn cmp(other: isize) Ordering {
-        if (self < other) return LESS;
-        if (self > other) return GREATER;
+        if self < other return LESS;
+        if self > other return GREATER;
         return EQUAL;
     }
 }
@@ -98,8 +98,8 @@ impl isize : Ord[isize] {}
 
 impl u8 : Comparable[u8] {
     pub fn cmp(other: u8) Ordering {
-        if (self < other) return LESS;
-        if (self > other) return GREATER;
+        if self < other return LESS;
+        if self > other return GREATER;
         return EQUAL;
     }
 }
@@ -108,8 +108,8 @@ impl u8 : Ord[u8] {}
 
 impl u16 : Comparable[u16] {
     pub fn cmp(other: u16) Ordering {
-        if (self < other) return LESS;
-        if (self > other) return GREATER;
+        if self < other return LESS;
+        if self > other return GREATER;
         return EQUAL;
     }
 }
@@ -118,8 +118,8 @@ impl u16 : Ord[u16] {}
 
 impl u32 : Comparable[u32] {
     pub fn cmp(other: u32) Ordering {
-        if (self < other) return LESS;
-        if (self > other) return GREATER;
+        if self < other return LESS;
+        if self > other return GREATER;
         return EQUAL;
     }
 }
@@ -128,8 +128,8 @@ impl u32 : Ord[u32] {}
 
 impl u64 : Comparable[u64] {
     pub fn cmp(other: u64) Ordering {
-        if (self < other) return LESS;
-        if (self > other) return GREATER;
+        if self < other return LESS;
+        if self > other return GREATER;
         return EQUAL;
     }
 }
@@ -138,8 +138,8 @@ impl u64 : Ord[u64] {}
 
 impl u128 : Comparable[u128] {
     pub fn cmp(other: u128) Ordering {
-        if (self < other) return LESS;
-        if (self > other) return GREATER;
+        if self < other return LESS;
+        if self > other return GREATER;
         return EQUAL;
     }
 }
@@ -148,8 +148,8 @@ impl u128 : Ord[u128] {}
 
 impl usize : Comparable[usize] {
     pub fn cmp(other: usize) Ordering {
-        if (self < other) return LESS;
-        if (self > other) return GREATER;
+        if self < other return LESS;
+        if self > other return GREATER;
         return EQUAL;
     }
 }
@@ -158,8 +158,8 @@ impl usize : Ord[usize] {}
 
 impl bool : Comparable[bool] {
     pub fn cmp(other: bool) Ordering {
-        if (self == other) return EQUAL;
-        if (!self and other) return LESS;
+        if self == other return EQUAL;
+        if !self and other return LESS;
         return GREATER;
     }
 }

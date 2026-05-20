@@ -97,7 +97,7 @@ fn check_direct_file_ops[W](gpa: &mut base.mem.alloc.Allocator, root: &[u8], t: 
     all.as_slice().should().eq("abc").sum(@loc(), t);
 
     let mut too_much: [1]u8 = undef;
-    match (file.read_exact(too_much..&[0...1]).should_err().sum(@loc(), t)) {
+    match file.read_exact(too_much..&[0...1]).should_err().sum(@loc(), t) {
         .UnexpectedEof => {},
         _ => false.should().sum(@loc(), t),
     }
@@ -184,7 +184,7 @@ fn check_dirs[W](gpa: &mut base.mem.alloc.Allocator, root: &[u8], t: &mut Report
 
     let mut saw_note = false;
     let visited = nested.as_str().path().read_dir(gpa, [saw = saw_note..&](entry: fs.DirEntry) bool {
-        if (entry.name == "note.txt" and entry.is_file()) {
+        if entry.name == "note.txt" and entry.is_file() {
             saw.* = true;
         }
         return true;
@@ -205,7 +205,7 @@ fn check_dirs[W](gpa: &mut base.mem.alloc.Allocator, root: &[u8], t: &mut Report
 
     let mut files = 0usize;
     let walked_files = root.path().walk_files(gpa, [files = files..&](_: &[u8], entry: fs.DirEntry, depth: usize) bool {
-        if (entry.is_file() and depth >= 1) {
+        if entry.is_file() and depth >= 1 {
             files.* += 1;
         }
         return true;
@@ -215,7 +215,7 @@ fn check_dirs[W](gpa: &mut base.mem.alloc.Allocator, root: &[u8], t: &mut Report
 
     let mut dirs = 0usize;
     root.path().walk_dirs(gpa, [dirs = dirs..&](_: &[u8], entry: fs.DirEntry, _: usize) bool {
-        if (entry.is_dir()) {
+        if entry.is_dir() {
             dirs.* += 1;
         }
         return true;

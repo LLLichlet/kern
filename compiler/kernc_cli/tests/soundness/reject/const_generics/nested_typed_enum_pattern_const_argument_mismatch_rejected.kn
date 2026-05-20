@@ -16,7 +16,7 @@ enum Outer[N: usize] {
 
 fn main() i32 {
     let value = Outer[3].{ Wrap: Inner[3].{ A: [3]u8.{ 1, 2, 3 } } };
-    return match (value) {
+    return match value {
         .{ Wrap: Inner[4].{ A: _ } } => 0,
         .{ Wrap: .B } => 1,
         .Done => 2,

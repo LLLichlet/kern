@@ -146,12 +146,12 @@ pub fn spawn(
     entry: ThreadEntry,
     arg: &mut void,
 ) Thread!Error {
-    if (stack_size < THREAD_MIN_STACK_SIZE) {
+    if stack_size < THREAD_MIN_STACK_SIZE {
         return .{ Err: .StackTooSmall };
     }
 
     let .{ Ok: control } = alloc.try_alloc_one[ThreadControl]() else {
-        .{ Err: err } => return .{ Err: match (err) {
+        .{ Err: err } => return .{ Err: match err {
             .OutOfMemory => Error.OutOfMemory,
             .CapacityOverflow => Error.CapacityOverflow,
         } },
@@ -197,13 +197,13 @@ impl &mut Thread {
     /// A `Thread` must be joined exactly once. The allocator must be the same
     /// allocator that was passed to `spawn`.
     pub fn join(alloc: &mut Allocator) usize!Error {
-        if (self.joined) {
+        if self.joined {
             return .{ Err: .JoinFailed };
         }
-        while (@atomicLoad[i32](self.control.done.&, ACQUIRE) == 0) {
+        while @atomicLoad[i32](self.control.done.&, ACQUIRE) == 0 {
             wait_word.wait(self.control.done..&, 0);
         }
-        if (!thread.join(self.handle, self.control)) {
+        if !thread.join(self.handle, self.control) {
             return .{ Err: .JoinFailed };
         }
         self.joined = true;
@@ -225,13 +225,13 @@ impl &mut Mutex {
             ACQUIRE,
             RELAXED,
         );
-        if (fast.success) {
+        if fast.success {
             return;
         }
 
-        while (true) {
+        while true {
             let previous = @atomicXchg[i32](self.state..&, MUTEX_CONTENDED, ACQUIRE);
-            if (previous == MUTEX_UNLOCKED) {
+            if previous == MUTEX_UNLOCKED {
                 return;
             }
             wait_word.wait(self.state..&, MUTEX_CONTENDED);
@@ -252,7 +252,7 @@ impl &mut Mutex {
     /// Unlocks this mutex.
     pub fn unlock() void {
         let previous = @atomicXchg[i32](self.state..&, MUTEX_UNLOCKED, RELEASE);
-        if (previous == MUTEX_CONTENDED) {
+        if previous == MUTEX_CONTENDED {
             wait_word.wake_one(self.state..&);
         }
     }
@@ -294,7 +294,7 @@ impl &mut RwLock {
     /// Acquires shared read access.
     pub fn read_lock() void {
         self.mutex..&.lock();
-        while (self.writer or self.waiting_writers != 0) {
+        while self.writer or self.waiting_writers != 0 {
             self.ready..&.wait(self.mutex..&);
         }
         self.readers += 1;
@@ -304,10 +304,10 @@ impl &mut RwLock {
     /// Releases shared read access.
     pub fn read_unlock() void {
         self.mutex..&.lock();
-        if (self.readers != 0) {
+        if self.readers != 0 {
             self.readers -= 1;
         }
-        if (self.readers == 0) {
+        if self.readers == 0 {
             self.ready..&.broadcast();
         }
         self.mutex..&.unlock();
@@ -317,7 +317,7 @@ impl &mut RwLock {
     pub fn write_lock() void {
         self.mutex..&.lock();
         self.waiting_writers += 1;
-        while (self.writer or self.readers != 0) {
+        while self.writer or self.readers != 0 {
             self.ready..&.wait(self.mutex..&);
         }
         self.waiting_writers -= 1;
@@ -341,7 +341,7 @@ impl[T] &mut Channel[T] {
 
     fn push_node_locked(node: &mut ChannelNode[T]) void {
         node.next = null_mut_ptr[ChannelNode[T]]();
-        if ((self.tail as usize) == 0) {
+        if (self.tail as usize) == 0 {
             self.head = node;
             self.tail = node;
             return;
@@ -351,12 +351,12 @@ impl[T] &mut Channel[T] {
     }
 
     fn pop_node_locked() ?&mut ChannelNode[T] {
-        if (self.is_empty_locked()) {
+        if self.is_empty_locked() {
             return .None;
         }
         let node = self.head;
         self.head = node.next;
-        if ((self.head as usize) == 0) {
+        if (self.head as usize) == 0 {
             self.tail = null_mut_ptr[ChannelNode[T]]();
         }
         node.next = null_mut_ptr[ChannelNode[T]]();
@@ -366,7 +366,7 @@ impl[T] &mut Channel[T] {
     /// Sends one value to this channel.
     pub fn send(alloc: &mut Allocator, value: T) bool!Error {
         let .{ Ok: node } = alloc.try_alloc_one[ChannelNode[T]]() else {
-            .{ Err: err } => return .{ Err: match (err) {
+            .{ Err: err } => return .{ Err: match err {
                 .OutOfMemory => Error.OutOfMemory,
                 .CapacityOverflow => Error.CapacityOverflow,
             } },
@@ -374,7 +374,7 @@ impl[T] &mut Channel[T] {
         node.* = .{ value: value, next: null_mut_ptr[ChannelNode[T]]() };
 
         self.mutex..&.lock();
-        if (self.closed) {
+        if self.closed {
             self.mutex..&.unlock();
             alloc.free_one[ChannelNode[T]](node);
             return .{ Err: .Closed };
@@ -389,7 +389,7 @@ impl[T] &mut Channel[T] {
     /// Receives one value, or `None` after the channel closes and drains.
     pub fn recv(alloc: &mut Allocator) ?T {
         self.mutex..&.lock();
-        while (self.is_empty_locked() and !self.closed) {
+        while self.is_empty_locked() and !self.closed {
             self.ready..&.wait(self.mutex..&);
         }
 
@@ -417,7 +417,7 @@ impl[T] &mut Channel[T] {
     pub fn deinit(alloc: &mut Allocator) void {
         self.close();
         self.mutex..&.lock();
-        while (true) {
+        while true {
             let .{ Some: node } = self.pop_node_locked() else break;
             alloc.free_one[ChannelNode[T]](node);
         }

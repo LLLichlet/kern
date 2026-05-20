@@ -1,4 +1,4 @@
-#![if(os == "windows")]
+#![if os == "windows"]
 
 const U64_MAX = ~0u64;
 const NS_PER_MILLI = 1_000_000u64;
@@ -13,7 +13,7 @@ extern {
 
 fn performance_frequency() u64 {
     let mut frequency = 0i64;
-    if (QueryPerformanceFrequency(frequency..&) == 0 or frequency <= 0) {
+    if QueryPerformanceFrequency(frequency..&) == 0 or frequency <= 0 {
         return 0;
     }
     return frequency as u64;
@@ -21,12 +21,12 @@ fn performance_frequency() u64 {
 
 pub/ fn monotonic_now_nanos() u64 {
     let freq = performance_frequency();
-    if (freq == 0) {
+    if freq == 0 {
         return 0;
     }
 
     let mut counter = 0i64;
-    if (QueryPerformanceCounter(counter..&) == 0 or counter < 0) {
+    if QueryPerformanceCounter(counter..&) == 0 or counter < 0 {
         return 0;
     }
 
@@ -34,34 +34,34 @@ pub/ fn monotonic_now_nanos() u64 {
     let secs = ticks / freq;
     let rem = ticks % freq;
 
-    if (secs > U64_MAX / NS_PER_SEC) {
+    if secs > U64_MAX / NS_PER_SEC {
         return U64_MAX;
     }
 
     let nanos_from_secs = secs * NS_PER_SEC;
     let nanos_from_rem = ((rem as u128) * (NS_PER_SEC as u128) / (freq as u128)) as u64;
-    if (nanos_from_secs > U64_MAX - nanos_from_rem) {
+    if nanos_from_secs > U64_MAX - nanos_from_rem {
         return U64_MAX;
     }
     return nanos_from_secs + nanos_from_rem;
 }
 
 pub/ fn sleep_nanos(nanos: u64) void {
-    if (nanos == 0) {
+    if nanos == 0 {
         return;
     }
 
     let mut millis = nanos / NS_PER_MILLI;
-    if (nanos % NS_PER_MILLI != 0) {
+    if nanos % NS_PER_MILLI != 0 {
         millis += 1;
     }
 
-        while (millis > (U32_MAX as u64)) {
+        while millis > (U32_MAX as u64) {
         Sleep(U32_MAX);
         millis -= U32_MAX as u64;
     }
 
-    if (millis > 0) {
+    if millis > 0 {
         Sleep(millis as u32);
     }
 }

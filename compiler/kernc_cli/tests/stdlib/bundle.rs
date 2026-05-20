@@ -41,8 +41,8 @@ fn official_library_bundle_resolves_from_external_kernlib_workspace_root() {
 use std.io;
 
 fn main() i32 {
-    for (value: 0usize...3usize) {
-        if (value == 2usize) {
+    for value in 0usize...3usize {
+        if value == 2usize {
             "external kernlib".println();
         }
     }

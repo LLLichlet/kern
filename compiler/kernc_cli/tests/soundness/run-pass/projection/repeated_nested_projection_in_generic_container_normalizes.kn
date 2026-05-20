@@ -33,5 +33,5 @@ fn sum(pair: Pair[X.Step.Mid.Finish.Out]) i32 {
 fn main() i32 {
     let pair = Pair[X.Step.Mid.Finish.Out].{ left: 7, right: 9 };
     let size = @sizeOf[Pair[X.Step.Mid.Finish.Out]]();
-    return if (sum(pair) == 16 and size == 8) { 0 } else { 1 };
+    return if sum(pair) == 16 and size == 8 { 0 } else { 1 };
 }

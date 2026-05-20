@@ -36,7 +36,7 @@ impl[K, V] &Map[K, V]
     pub fn any(pred: &Fn(K, V) bool) bool {
         let mut matched = false;
         let visit = [pred, matched = matched..&](entry: &mut Entry[K, V]) bool {
-            if (pred(entry.key, entry.value)) {
+            if pred(entry.key, entry.value) {
                 matched.* = true;
                 return false;
             }
@@ -55,7 +55,7 @@ impl[K, V] &Map[K, V]
     pub fn all(pred: &Fn(K, V) bool) bool {
         let mut all_match = true;
         let visit = [pred, all_match = all_match..&](entry: &mut Entry[K, V]) bool {
-            if (!pred(entry.key, entry.value)) {
+            if !pred(entry.key, entry.value) {
                 all_match.* = false;
                 return false;
             }
@@ -74,7 +74,7 @@ impl[K, V] &Map[K, V]
     pub fn count(pred: &Fn(K, V) bool) usize {
         let mut total = 0usize;
         let visit = [pred, total = total..&](entry: &mut Entry[K, V]) bool {
-            if (pred(entry.key, entry.value)) {
+            if pred(entry.key, entry.value) {
                 total.* += 1;
             }
             return true;
@@ -108,7 +108,7 @@ impl[K, V] &Map[K, V]
     pub fn find_map[U](visit: &Fn(K, V) ?U) ?U {
         let mut found = ?U.None;
         let visit_entry = [visit, found = found..&](entry: &mut Entry[K, V]) bool {
-            match (visit(entry.key, entry.value)) {
+            match visit(entry.key, entry.value) {
                 .{ Some: value } => {
                     found.* = .{ Some: value };
                     return false;
@@ -132,7 +132,7 @@ impl[K, V] &Map[K, V]
 
         let mut err = ?AllocError.None;
         let visit = [out, alloc, err = err..&](entry: &mut Entry[K, V]) bool {
-            match (out.try_push(alloc, entry.key)) {
+            match out.try_push(alloc, entry.key) {
                 .{ Ok: _ } => {}
                 .{ Err: alloc_err } => {
                     err.* = .{ Some: alloc_err };
@@ -147,7 +147,7 @@ impl[K, V] &Map[K, V]
             self.capacity,
             visit,
         );
-        match (err) {
+        match err {
             .{ Some: alloc_err } => return .{ Err: alloc_err },
             .None => return .{ Ok: {} },
         }
@@ -159,7 +159,7 @@ impl[K, V] &Map[K, V]
 
         let mut err = ?AllocError.None;
         let visit = [out, alloc, err = err..&](entry: &mut Entry[K, V]) bool {
-            match (out.try_push(alloc, entry.value)) {
+            match out.try_push(alloc, entry.value) {
                 .{ Ok: _ } => {}
                 .{ Err: alloc_err } => {
                     err.* = .{ Some: alloc_err };
@@ -174,7 +174,7 @@ impl[K, V] &Map[K, V]
             self.capacity,
             visit,
         );
-        match (err) {
+        match err {
             .{ Some: alloc_err } => return .{ Err: alloc_err },
             .None => return .{ Ok: {} },
         }
@@ -183,7 +183,7 @@ impl[K, V] &Map[K, V]
     /// Collects all keys into a new list.
     pub fn keys(alloc: &mut Allocator) List[K]!AllocError {
         let mut out = List[K].{};
-        match (self.try_append_keys(alloc, out..&)) {
+        match self.try_append_keys(alloc, out..&) {
             .{ Ok: _ } => return .{ Ok: out },
             .{ Err: err } => {
                 out..&.deinit(alloc);
@@ -195,7 +195,7 @@ impl[K, V] &Map[K, V]
     /// Collects all values into a new list.
     pub fn values(alloc: &mut Allocator) List[V]!AllocError {
         let mut out = List[V].{};
-        match (self.try_append_values(alloc, out..&)) {
+        match self.try_append_values(alloc, out..&) {
             .{ Ok: _ } => return .{ Ok: out },
             .{ Err: err } => {
                 out..&.deinit(alloc);
@@ -206,7 +206,7 @@ impl[K, V] &Map[K, V]
 
     /// Returns the value stored for `key`.
     pub fn get(key: K) ?V {
-        if (self.capacity == 0) return .None;
+        if self.capacity == 0 return .None;
 
         let hash = key_hash(key);
         let slot = find_index_with_hash[K, V](

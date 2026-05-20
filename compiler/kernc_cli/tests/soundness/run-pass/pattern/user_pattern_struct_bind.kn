@@ -7,7 +7,7 @@ impl CaptureEven : Pattern[i32] {
     type Bind = struct { value: i32 };
 
     fn apply(value: i32) ?Bind {
-        if ((value % 2) == 0) {
+        if (value % 2) == 0 {
             return .{ Some: .{ value: value } };
         }
         return .None;
@@ -16,7 +16,7 @@ impl CaptureEven : Pattern[i32] {
 
 fn main() i32 {
     let capture = CaptureEven.{};
-    return match (6) {
+    return match 6 {
         capture => value - 6,
         _ => 1,
     };

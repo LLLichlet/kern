@@ -710,7 +710,7 @@ pub mod inner;
     fs::write(
         &inner_entry,
         r#"
-#[if(runtime_entry != "none")]
+#[if runtime_entry != "none"]
 pub mod entry;
 
 pub fn answer() i32 {

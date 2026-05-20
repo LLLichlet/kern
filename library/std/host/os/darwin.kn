@@ -1,4 +1,4 @@
-#![if(os == "darwin")]
+#![if os == "darwin"]
 
 //! Darwin-specific operating-system shims.
 //!
@@ -107,7 +107,7 @@ extern {
     fn system_cfmakeraw(termios: &mut Termios) void;
 }
 
-#[if(arch == "aarch64")]
+#[if arch == "aarch64"]
 extern {
     #[export_name("stat")]
     fn system_stat(path: &u8, stat: &mut Stat) i32;
@@ -119,7 +119,7 @@ extern {
     fn system_readdir(dir: &mut void) &mut Dirent;
 }
 
-#[if(arch == "x86_64")]
+#[if arch == "x86_64"]
 extern {
     #[export_name("stat$INODE64")]
     fn system_stat(path: &u8, stat: &mut Stat) i32;
@@ -237,18 +237,18 @@ pub fn invalid_handle() Handle {
 
 fn match_environment_name(entry: &u8, name: &u8) ?&u8 {
     let mut i = 0usize;
-        while (true) {
+        while true {
         let entry_byte = (entry + i).*;
         let name_byte = (name + i).*;
 
-        if (name_byte == 0) {
-            if (entry_byte == b'=') {
+        if name_byte == 0 {
+            if entry_byte == b'=' {
                 return .{ Some: entry + i + 1usize };
             }
             return .None;
         }
 
-        if (entry_byte != name_byte or entry_byte == 0 or entry_byte == b'=') {
+        if entry_byte != name_byte or entry_byte == 0 or entry_byte == b'=' {
             return .None;
         }
 
@@ -275,13 +275,13 @@ pub fn find_environment_value(name: &u8) ?&u8 {
     let .{ Some: envp } = environment_entries() else return .None;
     let mut envp = envp;
 
-        while (true) {
+        while true {
         let entry = envp.*;
-        if ((entry as usize) == 0) {
+        if (entry as usize) == 0 {
             return .None;
         }
 
-        match (match_environment_name(entry, name)) {
+        match match_environment_name(entry, name) {
             .{ Some: value } => return .{ Some: value },
             .None => {},
         }
@@ -293,7 +293,7 @@ pub fn find_environment_value(name: &u8) ?&u8 {
 /// Returns the process environment block initialized by the runtime entry layer.
 pub fn environment_entries() ?&&u8 {
     let envp = process_env();
-    if (envp == 0) {
+    if envp == 0 {
         return .None;
     }
     return .{ Some: envp as &&u8 };
@@ -327,7 +327,7 @@ pub fn is_terminal(handle: Handle) bool {
 /// Returns the visible terminal dimensions for `handle`.
 pub fn terminal_size(handle: Handle) TerminalSize!Error {
     let mut size: WinSize = undef;
-    if (system_ioctl(handle, TIOCGWINSZ, size..&) < 0) {
+    if system_ioctl(handle, TIOCGWINSZ, size..&) < 0 {
         return .{ Err: last_error() };
     }
 
@@ -342,7 +342,7 @@ pub fn terminal_size(handle: Handle) TerminalSize!Error {
 /// Enables raw mode on one terminal handle and returns the previous state.
 pub fn enable_raw_mode(handle: Handle) TerminalState!Error {
     let mut state: Termios = undef;
-    if (system_tcgetattr(handle, state..&) < 0) {
+    if system_tcgetattr(handle, state..&) < 0 {
         return .{ Err: last_error() };
     }
 
@@ -350,7 +350,7 @@ pub fn enable_raw_mode(handle: Handle) TerminalState!Error {
     system_cfmakeraw(state..&);
     state.c_cc.[VMIN] = 0;
     state.c_cc.[VTIME] = 1;
-    if (system_tcsetattr(handle, TCSAFLUSH, state..&) < 0) {
+    if system_tcsetattr(handle, TCSAFLUSH, state..&) < 0 {
         return .{ Err: last_error() };
     }
 
@@ -359,7 +359,7 @@ pub fn enable_raw_mode(handle: Handle) TerminalState!Error {
 
 /// Restores a previously captured terminal state.
 pub fn restore_terminal_mode(handle: Handle, state: &TerminalState) bool!Error {
-    if (system_tcsetattr(handle, TCSAFLUSH, state) < 0) {
+    if system_tcsetattr(handle, TCSAFLUSH, state) < 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -368,7 +368,7 @@ pub fn restore_terminal_mode(handle: Handle, state: &TerminalState) bool!Error {
 /// Reads up to `len` bytes from `handle` into `ptr`.
 pub fn read_file(handle: Handle, ptr: &mut u8, len: usize) usize!Error {
     let ret = system_read(handle, ptr, len);
-    if (ret < 0) {
+    if ret < 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: ret as usize };
@@ -377,7 +377,7 @@ pub fn read_file(handle: Handle, ptr: &mut u8, len: usize) usize!Error {
 /// Writes up to `len` bytes from `ptr` into `handle`.
 pub fn write_file(handle: Handle, ptr: &u8, len: usize) usize!Error {
     let ret = system_write(handle, ptr, len);
-    if (ret < 0) {
+    if ret < 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: ret as usize };
@@ -386,7 +386,7 @@ pub fn write_file(handle: Handle, ptr: &u8, len: usize) usize!Error {
 /// Repositions an open file handle and returns the new byte offset.
 pub fn seek_file(handle: Handle, offset: isize, whence: i32) usize!Error {
     let ret = system_lseek(handle, offset, whence);
-    if (ret < 0) {
+    if ret < 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: ret as usize };
@@ -395,7 +395,7 @@ pub fn seek_file(handle: Handle, offset: isize, whence: i32) usize!Error {
 /// Changes an open file's length.
 pub fn truncate_file(handle: Handle, size: usize) bool!Error {
     let ret = system_ftruncate(handle, size as isize);
-    if (ret < 0) {
+    if ret < 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -404,7 +404,7 @@ pub fn truncate_file(handle: Handle, size: usize) bool!Error {
 /// Flushes file contents and metadata to the backing store.
 pub fn flush_file(handle: Handle) bool!Error {
     let ret = system_fsync(handle);
-    if (ret < 0) {
+    if ret < 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -413,7 +413,7 @@ pub fn flush_file(handle: Handle) bool!Error {
 /// Closes an open file handle.
 pub fn close_file(handle: Handle) bool!Error {
     let ret = system_close(handle);
-    if (ret < 0) {
+    if ret < 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -421,30 +421,30 @@ pub fn close_file(handle: Handle) bool!Error {
 
 fn stat_file_type(mode: u16) FileType {
     let kind = mode & S_IFMT;
-    if (kind == S_IFREG) {
+    if kind == S_IFREG {
         return .File;
     }
-    if (kind == S_IFDIR) {
+    if kind == S_IFDIR {
         return .Directory;
     }
     return .Other;
 }
 
 fn dirent_file_type(kind: u8) FileType {
-    if (kind == DT_REG) {
+    if kind == DT_REG {
         return .File;
     }
-    if (kind == DT_DIR) {
+    if kind == DT_DIR {
         return .Directory;
     }
     return .Other;
 }
 
 fn is_dot_entry(name: &[u8]) bool {
-    if (name.@len() == 1 and name.[0] == b'.') {
+    if name.@len() == 1 and name.[0] == b'.' {
         return true;
     }
-    if (name.@len() == 2 and name.[0] == b'.' and name.[1] == b'.') {
+    if name.@len() == 2 and name.[0] == b'.' and name.[1] == b'.' {
         return true;
     }
     return false;
@@ -453,11 +453,11 @@ fn is_dot_entry(name: &[u8]) bool {
 pub fn metadata(path: &u8) Metadata!Error {
     let mut stat: Stat = undef;
     let ret = system_stat(path, stat..&);
-    if (ret < 0) {
+    if ret < 0 {
         return .{ Err: last_error() };
     }
 
-    let size = if (stat.st_size < 0) 0usize else stat.st_size as usize;
+    let size = if stat.st_size < 0 0usize else stat.st_size as usize;
     return .{
         Ok: .{
             file_type: stat_file_type(stat.st_mode),
@@ -472,7 +472,7 @@ pub fn metadata(path: &u8) Metadata!Error {
 pub fn scan_dir(path: &u8, search_path: &u8, visitor: &Fn(&[u8], FileType) bool) usize!Error {
     _ = search_path;
     let dir = system_opendir(path);
-    if ((dir as usize) == 0) {
+    if (dir as usize) == 0 {
         return .{ Err: last_error() };
     }
     defer {
@@ -481,23 +481,23 @@ pub fn scan_dir(path: &u8, search_path: &u8, visitor: &Fn(&[u8], FileType) bool)
 
     let errno = system_errno();
     let mut total = 0usize;
-        while (true) {
+        while true {
         errno.* = 0;
         let entry = system_readdir(dir);
-        if ((entry as usize) == 0) {
-            if (errno.* != 0) {
+        if (entry as usize) == 0 {
+            if errno.* != 0 {
                 return .{ Err: last_error() };
             }
             return .{ Ok: total };
         }
 
         let name = entry.d_name.&[0...entry.d_namlen as usize];
-        if (is_dot_entry(name)) {
+        if is_dot_entry(name) {
             continue;
         }
 
         total += 1usize;
-        if (!visitor(name, dirent_file_type(entry.d_type))) {
+        if !visitor(name, dirent_file_type(entry.d_type)) {
             return .{ Ok: total };
         }
     }
@@ -509,14 +509,14 @@ pub fn open_file(
     options: &OpenOptions,
 ) Handle!Error {
     let mut flags =
-        if (options.read and options.write) O_RDWR else if (options.write) O_WRONLY else O_RDONLY;
-    if (options.create) flags |= O_CREAT;
-    if (options.create_new) flags |= O_CREAT | O_EXCL;
-    if (options.truncate) flags |= O_TRUNC;
-    if (options.append) flags |= O_APPEND;
+        if options.read and options.write O_RDWR else if options.write O_WRONLY else O_RDONLY;
+    if options.create flags |= O_CREAT;
+    if options.create_new flags |= O_CREAT | O_EXCL;
+    if options.truncate flags |= O_TRUNC;
+    if options.append flags |= O_APPEND;
 
     let ret = system_open(path, flags, DEFAULT_MODE);
-    if (ret < 0) {
+    if ret < 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: ret };
@@ -525,7 +525,7 @@ pub fn open_file(
 /// Creates one directory.
 pub fn create_dir(path: &u8) bool!Error {
     let ret = system_mkdir(path, MODE_DIR);
-    if (ret < 0) {
+    if ret < 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -534,7 +534,7 @@ pub fn create_dir(path: &u8) bool!Error {
 /// Removes one empty directory.
 pub fn remove_dir(path: &u8) bool!Error {
     let ret = system_rmdir(path);
-    if (ret < 0) {
+    if ret < 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -543,7 +543,7 @@ pub fn remove_dir(path: &u8) bool!Error {
 /// Removes one file.
 pub fn remove_file(path: &u8) bool!Error {
     let ret = system_unlink(path);
-    if (ret < 0) {
+    if ret < 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -552,7 +552,7 @@ pub fn remove_file(path: &u8) bool!Error {
 /// Renames or moves a filesystem entry.
 pub fn rename(old_path: &u8, new_path: &u8) bool!Error {
     let ret = system_rename(old_path, new_path);
-    if (ret < 0) {
+    if ret < 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -560,7 +560,7 @@ pub fn rename(old_path: &u8, new_path: &u8) bool!Error {
 
 /// Best-effort write helper that collapses errors to `0`.
 pub fn write(handle: Handle, ptr: &u8, len: usize) usize {
-    match (write_file(handle, ptr, len)) {
+    match write_file(handle, ptr, len) {
         .{ Ok: written } => return written,
         .{ Err: _ } => return 0,
     }

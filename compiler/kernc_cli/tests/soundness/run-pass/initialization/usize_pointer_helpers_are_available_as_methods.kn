@@ -11,17 +11,17 @@ fn main() i32 {
     let null_addr_ptr = base.mem.null_addr_ptr[u8]();
     let null_mut_addr_ptr = base.mem.null_mut_addr_ptr[u8]();
 
-    if ((ptr as usize) != raw) return 1;
-    if ((mut_ptr as usize) != raw) return 2;
-    if ((addr_ptr as usize) != raw) return 3;
-    if ((mut_addr_ptr as usize) != raw) return 4;
-    if (ptr.is_null()) return 5;
-    if (mut_ptr.is_null()) return 6;
-    if (addr_ptr.is_null()) return 7;
-    if (mut_addr_ptr.is_null()) return 8;
-    if (!null_ptr.is_null()) return 9;
-    if (!null_mut_ptr.is_null()) return 10;
-    if (!null_addr_ptr.is_null()) return 11;
-    if (!null_mut_addr_ptr.is_null()) return 12;
+    if (ptr as usize) != raw return 1;
+    if (mut_ptr as usize) != raw return 2;
+    if (addr_ptr as usize) != raw return 3;
+    if (mut_addr_ptr as usize) != raw return 4;
+    if ptr.is_null() return 5;
+    if mut_ptr.is_null() return 6;
+    if addr_ptr.is_null() return 7;
+    if mut_addr_ptr.is_null() return 8;
+    if !null_ptr.is_null() return 9;
+    if !null_mut_ptr.is_null() return 10;
+    if !null_addr_ptr.is_null() return 11;
+    if !null_mut_addr_ptr.is_null() return 12;
     return 0;
 }

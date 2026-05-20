@@ -5,7 +5,7 @@ enum Step {
 }
 
 fn apply(step: Step, current: i32) i32 {
-    return match (step) {
+    return match step {
         .{ Add: amount } => current + amount,
         .Stop => current,
     };
@@ -14,7 +14,7 @@ fn apply(step: Step, current: i32) i32 {
 fn main() i32 {
     let mut total = 0i32;
     let mut index = 0i32;
-    while (index < 4i32) {
+    while index < 4i32 {
         total = apply(Step.{ Add: index }, total);
         index += 1i32;
     }

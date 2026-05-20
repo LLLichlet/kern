@@ -81,11 +81,11 @@ fn thread_entry(arg: &mut void) usize {
 fn main(argc: i32, argv: &&u8) i32 {
     let args = proc.args(argc, argv);
     let pid = proc.process_id();
-    if (pid == 0) {
+    if pid == 0 {
         return 1;
     }
     let _ = args.len();
-    for (_: args.iter()) {}
+    for _ in args.iter() {}
     let mut saw_entry = false;
 
     let visited = env.vars().visit([saw_entry = saw_entry..&](entry: env.Var) bool {
@@ -109,7 +109,7 @@ fn main(argc: i32, argv: &&u8) i32 {
     let .{ Ok: joined } = thread..&.join(alloc) else {
         .{ Err: _ } => return 4,
     };
-    if (joined != 1usize or thread_value != 1usize) {
+    if joined != 1usize or thread_value != 1usize {
         return 2;
     }
     return 0;
@@ -431,49 +431,49 @@ use std.proc;
 
 fn main(argc: i32, argv: &&u8) i32 {
     let args = proc.args(argc, argv);
-    if (args.len() != 6) {
+    if args.len() != 6 {
         return 1;
     }
-    let first = match (args.get(0)) {
+    let first = match args.get(0) {
         .{ Some: arg } => arg,
         .None => return 2,
     };
-    if (first.@len() == 0) {
+    if first.@len() == 0 {
         return 2;
     }
-    let second = match (args.get(1)) {
+    let second = match args.get(1) {
         .{ Some: arg } => arg,
         .None => return 3,
     };
-    if (second != "alpha") {
+    if second != "alpha" {
         return 3;
     }
-    let third = match (args.get(2)) {
+    let third = match args.get(2) {
         .{ Some: arg } => arg,
         .None => return 4,
     };
-    if (third != "beta gamma") {
+    if third != "beta gamma" {
         return 4;
     }
     let mut seen = 0usize;
     let mut saw_alpha = false;
     let mut saw_spaced = false;
-    for (arg: args.iter()) {
-        if (seen == 1 and arg == "alpha") {
+    for arg in args.iter() {
+        if seen == 1 and arg == "alpha" {
             saw_alpha = true;
         }
-        if (seen == 2 and arg == "beta gamma") {
+        if seen == 2 and arg == "beta gamma" {
             saw_spaced = true;
         }
         seen += 1;
     }
-    if (seen != args.len()) {
+    if seen != args.len() {
         return 5;
     }
-    if (!saw_alpha) {
+    if !saw_alpha {
         return 6;
     }
-    if (!saw_spaced) {
+    if !saw_spaced {
         return 7;
     }
     return 0;

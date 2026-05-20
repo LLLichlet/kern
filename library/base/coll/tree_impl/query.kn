@@ -23,8 +23,8 @@ impl[K, V] &Tree[K, V]
         let .{ Some: node } = node else return;
 
         let mut i = 0usize;
-                while (i < node.len) {
-            if (!node.is_leaf) {
+                while i < node.len {
+            if !node.is_leaf {
                 self.for_each_node(some_node[K, V](child_at[K, V](node, i)), visitor);
             }
             visitor(key_at[K, V](node, i), value_at[K, V](node, i));
@@ -32,7 +32,7 @@ impl[K, V] &Tree[K, V]
             i += 1;
         }
 
-        if (!node.is_leaf) {
+        if !node.is_leaf {
             self.for_each_node(some_node[K, V](child_at[K, V](node, node.len)), visitor);
         }
     }
@@ -46,8 +46,8 @@ impl[K, V] &Tree[K, V]
 
         let mut accum = init;
         let mut i = 0usize;
-                while (i < node.len) {
-            if (!node.is_leaf) {
+                while i < node.len {
+            if !node.is_leaf {
                 accum = self.fold_node(some_node[K, V](child_at[K, V](node, i)), accum, step);
             }
             accum = step(accum, key_at[K, V](node, i), value_at[K, V](node, i));
@@ -55,7 +55,7 @@ impl[K, V] &Tree[K, V]
             i += 1;
         }
 
-        if (!node.is_leaf) {
+        if !node.is_leaf {
             accum = self.fold_node(some_node[K, V](child_at[K, V](node, node.len)), accum, step);
         }
 
@@ -130,21 +130,21 @@ impl[K, V] &Tree[K, V]
         let root = self.root.?;
         let mut node = root;
 
-                while (true) {
+                while true {
             let mut index = 0usize;
-                        while (index < node.len) {
+                        while index < node.len {
                 let cmp = self.compare(key_at[K, V](node, index), key);
-                if (cmp == 0) {
+                if cmp == 0 {
                     return .{ Some: value_at[K, V](node, index) };
                 }
-                if (cmp > 0) {
+                if cmp > 0 {
                     break;
                 }
 
                 index += 1;
             }
 
-            if (node.is_leaf) {
+            if node.is_leaf {
                 return .None;
             }
 

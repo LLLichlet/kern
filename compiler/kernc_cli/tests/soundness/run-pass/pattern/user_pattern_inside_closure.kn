@@ -9,7 +9,7 @@ impl Is : Pattern[i32] {
     type Bind = void;
 
     fn apply(value: i32) ?Bind {
-        if (value == self.expected) {
+        if value == self.expected {
             return .{ Some: {} };
         }
         return .None;
@@ -23,7 +23,7 @@ fn call(cb: &Fn(i32) i32) i32 {
 fn main() i32 {
     return call([](value: i32) i32 {
         let five = Is.{ expected: 5 };
-        return match (value) {
+        return match value {
             five => 0,
             _ => 1,
         };

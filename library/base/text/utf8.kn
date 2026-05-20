@@ -23,7 +23,7 @@ impl &Utf8Error : Formatable {
     /// Writes the UTF-8 error; format presentations do not affect diagnostics.
     pub fn write_fmt(spec: FormatSpec, writer: &mut Write) void {
         _ = spec;
-        match (self.*) {
+        match self.* {
             .UnexpectedEof => _ = writer.write("Utf8Error.UnexpectedEof"),
             .{ InvalidEncoding: offset } => {
                 _ = "Utf8Error.InvalidEncoding({})".fmt(.{offset}).write_to(writer);
@@ -37,14 +37,14 @@ impl &Utf8Error : Formatable {
 impl Utf8Error : Eq[Utf8Error] {
     /// Compares UTF-8 error variants and offsets exactly.
     pub fn eq(other: Utf8Error) bool {
-        return match (self) {
-            .UnexpectedEof => match (other) { .UnexpectedEof => true, _ => false },
-            .{ InvalidEncoding: a } => match (other) {
+        return match self {
+            .UnexpectedEof => match other { .UnexpectedEof => true, _ => false },
+            .{ InvalidEncoding: a } => match other {
                 .{ InvalidEncoding: b } => a == b,
                 _ => false,
             },
-            .InvalidScalar => match (other) { .InvalidScalar => true, _ => false },
-            .ShortOutput => match (other) { .ShortOutput => true, _ => false },
+            .InvalidScalar => match other { .InvalidScalar => true, _ => false },
+            .ShortOutput => match other { .ShortOutput => true, _ => false },
         };
     }
 }
@@ -64,28 +64,28 @@ fn is_continuation(byte: u8) bool {
 
 /// Returns the UTF-8 byte width for a Unicode scalar value.
 pub fn len(codepoint: u32) usize!Utf8Error {
-    if (!unicode.is_scalar(codepoint)) return .{ Err: .InvalidScalar };
-    if (codepoint <= 0x7Fu32) return .{ Ok: 1 };
-    if (codepoint <= 0x7FFu32) return .{ Ok: 2 };
-    if (codepoint <= 0xFFFFu32) return .{ Ok: 3 };
+    if !unicode.is_scalar(codepoint) return .{ Err: .InvalidScalar };
+    if codepoint <= 0x7Fu32 return .{ Ok: 1 };
+    if codepoint <= 0x7FFu32 return .{ Ok: 2 };
+    if codepoint <= 0xFFFFu32 return .{ Ok: 3 };
     return .{ Ok: 4 };
 }
 
 /// Writes one Unicode scalar as UTF-8 at `index`.
 pub fn write_at(codepoint: u32, out: &mut [u8], index: usize) usize!Utf8Error {
     let width = len(codepoint).?;
-    if (index > out.@len()) return .{ Err: .ShortOutput };
-    if (out.@len() - index < width) return .{ Err: .ShortOutput };
-    if (width == 1) {
+    if index > out.@len() return .{ Err: .ShortOutput };
+    if out.@len() - index < width return .{ Err: .ShortOutput };
+    if width == 1 {
         out.[index] = codepoint as u8;
         return .{ Ok: index + 1 };
     }
-    if (width == 2) {
+    if width == 2 {
         out.[index] = (0xC0u32 + (codepoint >> 6)) as u8;
         out.[index + 1] = (0x80u32 + (codepoint & 0x3Fu32)) as u8;
         return .{ Ok: index + 2 };
     }
-    if (width == 3) {
+    if width == 3 {
         out.[index] = (0xE0u32 + (codepoint >> 12)) as u8;
         out.[index + 1] = (0x80u32 + ((codepoint >> 6) & 0x3Fu32)) as u8;
         out.[index + 2] = (0x80u32 + (codepoint & 0x3Fu32)) as u8;
@@ -105,18 +105,18 @@ pub fn write(codepoint: u32, out: &mut [u8]) usize!Utf8Error {
 
 /// Reads one UTF-8 scalar from `text` at byte offset `start`.
 pub fn read_at(text: &[u8], start: usize) Utf8Scalar!Utf8Error {
-    if (start >= text.@len()) return .{ Err: .UnexpectedEof };
+    if start >= text.@len() return .{ Err: .UnexpectedEof };
     let remaining = text.@len() - start;
 
     let b0 = text.[start];
-    if (b0 < 0x80u8) {
+    if b0 < 0x80u8 {
         return .{ Ok: .{ codepoint: b0 as u32, len: 1 } };
     }
 
     // Two-byte scalars must start at C2; C0 and C1 would be overlong ASCII.
-    if (b0 >= 0xC2u8 and b0 <= 0xDFu8) {
-        if (remaining < 2) return .{ Err: .UnexpectedEof };
-        if (!is_continuation(text.[start + 1])) return .{ Err: .{ InvalidEncoding: start } };
+    if b0 >= 0xC2u8 and b0 <= 0xDFu8 {
+        if remaining < 2 return .{ Err: .UnexpectedEof };
+        if !is_continuation(text.[start + 1]) return .{ Err: .{ InvalidEncoding: start } };
         let payload0 = (b0 & 0x1Fu8) as u32;
         let payload1 = (text.[start + 1] & 0x3Fu8) as u32;
         let value = (payload0 << 6) + payload1;
@@ -125,15 +125,15 @@ pub fn read_at(text: &[u8], start: usize) Utf8Scalar!Utf8Error {
 
     // Three-byte scalars need extra boundary checks for overlong forms and
     // UTF-16 surrogate codepoints.
-    if (b0 >= 0xE0u8 and b0 <= 0xEFu8) {
-        if (remaining < 3) return .{ Err: .UnexpectedEof };
-        if (!is_continuation(text.[start + 1]) or !is_continuation(text.[start + 2])) {
+    if b0 >= 0xE0u8 and b0 <= 0xEFu8 {
+        if remaining < 3 return .{ Err: .UnexpectedEof };
+        if !is_continuation(text.[start + 1]) or !is_continuation(text.[start + 2]) {
             return .{ Err: .{ InvalidEncoding: start } };
         }
         let b1 = text.[start + 1];
-        if ((b0 == 0xE0u8 and b1 < 0xA0u8)
+        if (b0 == 0xE0u8 and b1 < 0xA0u8)
             or (b0 == 0xEDu8 and b1 >= 0xA0u8)
-        ) {
+         {
             return .{ Err: .{ InvalidEncoding: start } };
         }
         let payload0 = (b0 & 0x0Fu8) as u32;
@@ -144,18 +144,18 @@ pub fn read_at(text: &[u8], start: usize) Utf8Scalar!Utf8Error {
     }
 
     // Four-byte scalars are valid only up to U+10FFFF.
-    if (b0 >= 0xF0u8 and b0 <= 0xF4u8) {
-        if (remaining < 4) return .{ Err: .UnexpectedEof };
-        if (!is_continuation(text.[start + 1])
+    if b0 >= 0xF0u8 and b0 <= 0xF4u8 {
+        if remaining < 4 return .{ Err: .UnexpectedEof };
+        if !is_continuation(text.[start + 1])
             or !is_continuation(text.[start + 2])
             or !is_continuation(text.[start + 3])
-        ) {
+         {
             return .{ Err: .{ InvalidEncoding: start } };
         }
         let b1 = text.[start + 1];
-        if ((b0 == 0xF0u8 and b1 < 0x90u8)
+        if (b0 == 0xF0u8 and b1 < 0x90u8)
             or (b0 == 0xF4u8 and b1 > 0x8Fu8)
-        ) {
+         {
             return .{ Err: .{ InvalidEncoding: start } };
         }
         let payload0 = (b0 & 0x07u8) as u32;
@@ -173,7 +173,7 @@ pub fn read_at(text: &[u8], start: usize) Utf8Scalar!Utf8Error {
 pub fn is_valid(text: &[u8]) bool {
     let mut i = 0;
     // UTF-8 validation advances by scalar width, not by individual bytes.
-    while (i < text.@len()) {
+    while i < text.@len() {
         let .{ Ok: scalar } = read_at(text, i) else return false;
         i += scalar.len;
     }
@@ -185,7 +185,7 @@ pub fn scalar_count(text: &[u8]) usize!Utf8Error {
     let mut count = 0;
     let mut i = 0;
     // Scalar counting shares the decoder so validation and counting cannot drift.
-    while (i < text.@len()) {
+    while i < text.@len() {
         let scalar = read_at(text, i).?;
         count += 1;
         i += scalar.len;

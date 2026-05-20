@@ -55,9 +55,9 @@ fn size_is_zero(size: usize) bool {
 }
 
 fn not_found_is_false(err: Error) bool!Error {
-    match (err) {
+    match err {
         .{ Os: os_err } => {
-            if (os.is_not_found(os_err)) {
+            if os.is_not_found(os_err) {
                 return .{ Ok: false };
             }
             return .{ Err: .{ Os: os_err } };
@@ -67,7 +67,7 @@ fn not_found_is_false(err: Error) bool!Error {
 }
 
 fn is_already_exists_error(err: Error) bool {
-    match (err) {
+    match err {
         .{ Os: os_err } => return os.is_already_exists(os_err),
         _ => return false,
     }
@@ -78,7 +78,7 @@ fn append_usize_decimal(
     alloc: &mut Allocator,
     value: usize,
 ) bool {
-    if (value == 0) {
+    if value == 0 {
         return out.try_push_char(alloc, b'0').is_ok();
     }
 
@@ -86,7 +86,7 @@ fn append_usize_decimal(
     let mut i = 40usize;
     let mut curr = value;
 
-    while (curr > 0) {
+    while curr > 0 {
         i -= 1usize;
         let digit = curr % 10usize;
         buf.[i] = digit as u8 + 48;
@@ -102,11 +102,11 @@ fn atomic_tmp_path(
     attempt: usize,
 ) String!Error {
     let mut tmp = String.{};
-    if (tmp..&.try_push_str(alloc, path).is_err()
+    if tmp..&.try_push_str(alloc, path).is_err()
         or tmp..&.try_push_str(alloc, ".tmp.").is_err()
         or !append_usize_decimal(tmp..&, alloc, os.process_id())
         or tmp..&.try_push_char(alloc, b'.').is_err()
-        or !append_usize_decimal(tmp..&, alloc, attempt))
+        or !append_usize_decimal(tmp..&, alloc, attempt)
     {
         tmp..&.deinit(alloc);
         return .{ Err: .OutOfMemory };
@@ -131,7 +131,7 @@ fn rename_with_c_paths(old_c_path: &u8, new_c_path: &u8) bool!Error {
 }
 
 fn seek_whence(value: SeekFrom) i32 {
-    return match (value) {
+    return match value {
         .{ Start: _ } => 0,
         .{ Current: _ } => 1,
         .{ End: _ } => 2,
@@ -139,9 +139,9 @@ fn seek_whence(value: SeekFrom) i32 {
 }
 
 fn seek_offset(value: SeekFrom) isize!Error {
-    return match (value) {
+    return match value {
         .{ Start: offset } => {
-            if ((offset as isize) < 0) {
+            if (offset as isize) < 0 {
                 return .{ Err: .InvalidSeek };
             }
             .{ Ok: offset as isize }
@@ -156,7 +156,7 @@ fn open_path(
     path: &[u8],
     options: &OpenOptions,
 ) File!Error {
-    if (!options.read and !options.write) {
+    if !options.read and !options.write {
         return .{ Err: .InvalidOptions };
     }
 
@@ -192,7 +192,7 @@ fn write_all_atomic_tmp(
 ) usize!Error {
     let mut file = tmp_path.path().create(alloc).?;
 
-    let written = match (file..&.write_all(buf)) {
+    let written = match file..&.write_all(buf) {
         .{ Ok: count } => count,
         .{ Err: err } => {
             _ = file..&.close();
@@ -201,7 +201,7 @@ fn write_all_atomic_tmp(
         },
     };
 
-    match (file..&.flush()) {
+    match file..&.flush() {
         .{ Ok: _ } => {},
         .{ Err: err } => {
             _ = file..&.close();
@@ -210,7 +210,7 @@ fn write_all_atomic_tmp(
         },
     }
 
-    match (file..&.close()) {
+    match file..&.close() {
         .{ Ok: _ } => {},
         .{ Err: err } => {
             _ = tmp_path.path().remove_file_if_exists(alloc);
@@ -218,7 +218,7 @@ fn write_all_atomic_tmp(
         },
     }
 
-    match (tmp_path.path().rename(alloc, path)) {
+    match tmp_path.path().rename(alloc, path) {
         .{ Ok: _ } => {},
         .{ Err: err } => {
             _ = tmp_path.path().remove_file_if_exists(alloc);
@@ -237,7 +237,7 @@ fn write_all_atomic_unique_tmp(
 ) usize!Error {
     let mut file = tmp_path.path().create_new(alloc).?;
 
-    let written = match (file..&.write_all(buf)) {
+    let written = match file..&.write_all(buf) {
         .{ Ok: count } => count,
         .{ Err: err } => {
             _ = file..&.close();
@@ -246,7 +246,7 @@ fn write_all_atomic_unique_tmp(
         },
     };
 
-    match (file..&.flush()) {
+    match file..&.flush() {
         .{ Ok: _ } => {},
         .{ Err: err } => {
             _ = file..&.close();
@@ -255,7 +255,7 @@ fn write_all_atomic_unique_tmp(
         },
     }
 
-    match (file..&.close()) {
+    match file..&.close() {
         .{ Ok: _ } => {},
         .{ Err: err } => {
             _ = tmp_path.path().remove_file_if_exists(alloc);
@@ -263,7 +263,7 @@ fn write_all_atomic_unique_tmp(
         },
     }
 
-    match (tmp_path.path().rename(alloc, path)) {
+    match tmp_path.path().rename(alloc, path) {
         .{ Ok: _ } => {},
         .{ Err: err } => {
             _ = tmp_path.path().remove_file_if_exists(alloc);
@@ -283,7 +283,7 @@ fn write_all_atomic(
     let mut attempt = 0usize;
     let mut last_err = Error.InvalidPath;
 
-    while (attempt < MAX_ATOMIC_TMP_ATTEMPTS) {
+    while attempt < MAX_ATOMIC_TMP_ATTEMPTS {
         let mut tmp = atomic_tmp_path(alloc, path, attempt).?;
         let result = write_all_atomic_unique_tmp(
             alloc,
@@ -293,10 +293,10 @@ fn write_all_atomic(
         );
         tmp..&.deinit(alloc);
 
-        match (result) {
+        match result {
             .{ Ok: written } => return .{ Ok: written },
             .{ Err: err } => {
-                if (!is_already_exists_error(err)) {
+                if !is_already_exists_error(err) {
                     return .{ Err: err };
                 }
                 last_err = err;
@@ -504,7 +504,7 @@ impl &mut File {
     /// Reads bytes into the provided mutable slice.
     pub fn read(buf: &mut [u8]) usize!Error {
         let len = buf.@len();
-        if (len == 0) {
+        if len == 0 {
             return .{ Ok: 0usize };
         }
 
@@ -542,10 +542,10 @@ impl &mut File {
     /// returns `UnexpectedEof` if the file ends before the buffer is full.
     pub fn read_exact(buf: &mut [u8]) bool!Error {
         let mut total = 0usize;
-        while (total < buf.@len()) {
+        while total < buf.@len() {
             let chunk = (buf.[0]..& + total)..&[0...buf.@len() - total];
             let read = self.read(chunk).?;
-            if (read == 0) {
+            if read == 0 {
                 return .{ Err: .UnexpectedEof };
             }
             total += read;
@@ -556,7 +556,7 @@ impl &mut File {
     /// Writes bytes from the provided slice.
     pub fn write(buf: &[u8]) usize!Error {
         let len = buf.@len();
-        if (len == 0) {
+        if len == 0 {
             return .{ Ok: 0usize };
         }
 
@@ -567,9 +567,9 @@ impl &mut File {
     /// Repeatedly writes until the full buffer has been flushed.
     pub fn write_all(buf: &[u8]) usize!Error {
         let mut total = 0usize;
-                while (total < buf.@len()) {
+                while total < buf.@len() {
             let written = self.write(buf.&[total...buf.@len()]).?;
-            if (written == 0) {
+            if written == 0 {
                 return .{ Err: .WriteZero };
             }
             total += written;
@@ -582,10 +582,10 @@ impl &mut File {
         let mut chunk: [1024]u8 = undef;
         let mut total = 0usize;
 
-                while (true) {
+                while true {
             let read = self.read(chunk..&[0...1024]).?;
 
-            if (read == 0) {
+            if read == 0 {
                 return .{ Ok: total };
             }
 
@@ -596,7 +596,7 @@ impl &mut File {
 
     /// Closes the file handle if it is still open.
     pub fn close() bool!Error {
-        if (self.handle == os.invalid_handle()) {
+        if self.handle == os.invalid_handle() {
             return .{ Ok: true };
         }
 
@@ -616,7 +616,7 @@ impl &mut File {
         let mut out = String.{};
         let mut chunk: [1024]u8 = undef;
 
-                while (true) {
+                while true {
             let .{ Ok: read } = self.read(chunk..&[0...1024]) else {
                 .{ Err: err } => {
                     out..&.deinit(alloc);
@@ -624,11 +624,11 @@ impl &mut File {
                 },
             };
 
-            if (read == 0) {
+            if read == 0 {
                 return .{ Ok: out };
             }
 
-            match (out..&.try_push_str(alloc, chunk.&[0...read])) {
+            match out..&.try_push_str(alloc, chunk.&[0...read]) {
                 .{ Ok: _ } => {},
                 .{ Err: err } => {
                     out..&.deinit(alloc);
@@ -643,7 +643,7 @@ impl &mut File {
         let mut out = List[u8].{};
         let mut chunk: [1024]u8 = undef;
 
-                while (true) {
+                while true {
             let .{ Ok: read } = self.read(chunk..&[0...1024]) else {
                 .{ Err: err } => {
                     out..&.deinit(alloc);
@@ -651,11 +651,11 @@ impl &mut File {
                 },
             };
 
-            if (read == 0) {
+            if read == 0 {
                 return .{ Ok: out };
             }
 
-            match (out..&.try_append_slice(alloc, chunk.&[0...read])) {
+            match out..&.try_append_slice(alloc, chunk.&[0...read]) {
                 .{ Ok: _ } => {},
                 .{ Err: err } => {
                     out..&.deinit(alloc);

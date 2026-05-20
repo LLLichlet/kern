@@ -100,14 +100,14 @@ fn check_spin_lock[W](t: &mut Report[W]) void
     }).should_some().eq(10).sum(@loc(), t);
 
     let reentrant_blocked = counter..&.with_lock[bool]([lock = counter..&](value: &mut i32) bool {
-        if (!lock.is_locked()) {
+        if !lock.is_locked() {
             return false;
         }
         let nested = lock.try_with_lock[i32]([](inner: &mut i32) i32 {
             inner.* = 99;
             return inner.*;
         });
-        match (nested) {
+        match nested {
             .None => {},
             .{ Some: _ } => return false,
         }

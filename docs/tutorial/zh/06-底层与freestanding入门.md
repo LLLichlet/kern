@@ -115,7 +115,7 @@ root = "src/main.kn"
 ```kern
 #[export_name("_start")]
 fn kmain() void {
-    while (true) {}
+    while true {}
     @unreachable();
 }
 ```

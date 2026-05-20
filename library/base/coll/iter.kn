@@ -1,6 +1,6 @@
 //! Iterator traits and basic iterator state types.
 //!
-//! Iterators are explicit state values. A `for (item: iter)` loop stores the
+//! Iterators are explicit state values. A `for item in iter` loop stores the
 //! iterator in a mutable local and repeatedly calls `next`.
 
 pub trait Iterator {
@@ -10,8 +10,8 @@ pub trait Iterator {
 
 pub.. fn consume_count[T](it: &mut Iterator[Item = T]) usize {
     let mut total = 0usize;
-    while (true) {
-        match (it.next()) {
+    while true {
+        match it.next() {
             .{ Some: _ } => total += 1,
             .None => return total,
         }
@@ -21,12 +21,12 @@ pub.. fn consume_count[T](it: &mut Iterator[Item = T]) usize {
 
 pub.. fn consume_nth[T](it: &mut Iterator[Item = T], n: usize) ?T {
     let mut i = 0usize;
-    while (true) {
-        let item = match (it.next()) {
+    while true {
+        let item = match it.next() {
             .{ Some: value } => value,
             .None => return .None,
         };
-        if (i == n) {
+        if i == n {
             return .{ Some: item };
         }
         i += 1;
@@ -36,8 +36,8 @@ pub.. fn consume_nth[T](it: &mut Iterator[Item = T], n: usize) ?T {
 
 pub.. fn consume_last[T](it: &mut Iterator[Item = T]) ?T {
     let mut last = ?T.None;
-    while (true) {
-        match (it.next()) {
+    while true {
+        match it.next() {
             .{ Some: value } => last = .{ Some: value },
             .None => return last,
         }
@@ -46,8 +46,8 @@ pub.. fn consume_last[T](it: &mut Iterator[Item = T]) ?T {
 }
 
 pub.. fn consume_for_each[T](it: &mut Iterator[Item = T], visitor: &Fn(T) void) void {
-    while (true) {
-        match (it.next()) {
+    while true {
+        match it.next() {
             .{ Some: value } => visitor(value),
             .None => return,
         }
@@ -56,8 +56,8 @@ pub.. fn consume_for_each[T](it: &mut Iterator[Item = T], visitor: &Fn(T) void) 
 
 pub.. fn consume_fold[T, U](it: &mut Iterator[Item = T], init: U, step: &Fn(U, T) U) U {
     let mut accum = init;
-    while (true) {
-        match (it.next()) {
+    while true {
+        match it.next() {
             .{ Some: value } => accum = step(accum, value),
             .None => return accum,
         }
@@ -66,9 +66,9 @@ pub.. fn consume_fold[T, U](it: &mut Iterator[Item = T], init: U, step: &Fn(U, T
 }
 
 pub.. fn consume_any[T](it: &mut Iterator[Item = T], pred: &Fn(T) bool) bool {
-    while (true) {
-        match (it.next()) {
-            .{ Some: value } => if (pred(value)) return true,
+    while true {
+        match it.next() {
+            .{ Some: value } => if pred(value) return true,
             .None => return false,
         }
     }
@@ -76,9 +76,9 @@ pub.. fn consume_any[T](it: &mut Iterator[Item = T], pred: &Fn(T) bool) bool {
 }
 
 pub.. fn consume_all[T](it: &mut Iterator[Item = T], pred: &Fn(T) bool) bool {
-    while (true) {
-        match (it.next()) {
-            .{ Some: value } => if (!pred(value)) return false,
+    while true {
+        match it.next() {
+            .{ Some: value } => if !pred(value) return false,
             .None => return true,
         }
     }
@@ -86,9 +86,9 @@ pub.. fn consume_all[T](it: &mut Iterator[Item = T], pred: &Fn(T) bool) bool {
 }
 
 pub.. fn consume_find[T](it: &mut Iterator[Item = T], pred: &Fn(T) bool) ?T {
-    while (true) {
-        match (it.next()) {
-            .{ Some: value } => if (pred(value)) return .{ Some: value },
+    while true {
+        match it.next() {
+            .{ Some: value } => if pred(value) return .{ Some: value },
             .None => return .None,
         }
     }
@@ -97,10 +97,10 @@ pub.. fn consume_find[T](it: &mut Iterator[Item = T], pred: &Fn(T) bool) ?T {
 
 pub.. fn consume_position[T](it: &mut Iterator[Item = T], pred: &Fn(T) bool) ?usize {
     let mut index = 0usize;
-    while (true) {
-        match (it.next()) {
+    while true {
+        match it.next() {
             .{ Some: value } => {
-                if (pred(value)) {
+                if pred(value) {
                     return .{ Some: index };
                 }
                 index += 1;
@@ -112,9 +112,9 @@ pub.. fn consume_position[T](it: &mut Iterator[Item = T], pred: &Fn(T) bool) ?us
 }
 
 pub.. fn consume_find_map[T, U](it: &mut Iterator[Item = T], call_back: &Fn(T) ?U) ?U {
-    while (true) {
-        match (it.next()) {
-            .{ Some: value } => match (call_back(value)) {
+    while true {
+        match it.next() {
+            .{ Some: value } => match call_back(value) {
                 .{ Some: mapped } => return .{ Some: mapped },
                 .None => {},
             },
@@ -133,7 +133,7 @@ impl[T] &mut SliceIter[T] : Iterator {
     type Item = T;
 
     pub fn next() ?Item {
-        if (self.index >= self.data.@len()) return .None;
+        if self.index >= self.data.@len() return .None;
 
         let item = self.data.[self.index];
         self.index += 1;
@@ -192,7 +192,7 @@ impl[T] &mut SliceMutIter[T] : Iterator {
     type Item = &mut T;
 
     pub fn next() ?Item {
-        if (self.index >= self.data.@len()) return .None;
+        if self.index >= self.data.@len() return .None;
 
         let item = self.data.[self.index]..&;
         self.index += 1;

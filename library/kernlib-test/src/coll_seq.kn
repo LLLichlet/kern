@@ -84,7 +84,7 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
 
     let insert_alias = list[u8]()..&;
     defer insert_alias.deinit(gpa);
-    for (value: 0u8...8u8) {
+    for value in 0u8...8u8 {
         insert_alias.try_push(gpa, value).should_ok().sum(@loc(), t);
     }
     insert_alias.try_insert_slice(gpa, 1usize, insert_alias.as_slice())
@@ -96,7 +96,7 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
 
     let append_alias = list[u8]()..&;
     defer append_alias.deinit(gpa);
-    for (value: 0u8...8u8) {
+    for value in 0u8...8u8 {
         append_alias.try_push(gpa, value).should_ok().sum(@loc(), t);
     }
     append_alias.try_append_slice(gpa, append_alias.as_slice())
@@ -120,7 +120,7 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
     items.capacity().should().eq(items.len()).sum(@loc(), t);
     items.count([](value: i32) bool { return value >= 3; }).should().eq(2usize).sum(@loc(), t);
     items.find_map([](value: i32) ?i32 {
-        if (value > 3) {
+        if value > 3 {
             return .{ Some: value * 10 };
         }
         return .None;
@@ -242,13 +242,13 @@ fn check_ranges[W](t: &mut Report[W]) void
     where &mut W: io.Write,
 {
     let mut sum = 0i32;
-    for (i: 0i32...5i32) {
+    for i in 0i32...5i32 {
         sum += i;
     }
     sum.should().eq(10i32).sum(@loc(), t);
 
     let mut inclusive_sum = 0i32;
-    for (i: -2i32..=2i32) {
+    for i in -2i32..=2i32 {
         inclusive_sum += i;
     }
     inclusive_sum.should().eq(0i32).sum(@loc(), t);
@@ -258,13 +258,13 @@ fn check_ranges[W](t: &mut Report[W]) void
     inclusive_single..&.next().should_none().sum(@loc(), t);
 
     let mut descending_sum = 0i32;
-    for (value: (2i32...6i32).rev()) {
+    for value in (2i32...6i32).rev() {
         descending_sum += value;
     }
     descending_sum.should().eq(14i32).sum(@loc(), t);
 
     let mut inclusive_descending_sum = 0i32;
-    for (value: (1i32..=3i32).rev()) {
+    for value in (1i32..=3i32).rev() {
         inclusive_descending_sum += value;
     }
     inclusive_descending_sum.should().eq(6i32).sum(@loc(), t);

@@ -25,7 +25,7 @@ fn main() i32 {
     let size = @sizeOf[Bytes.Pick.Out]();
     let align = @alignOf[Bytes.Pick.Out]();
     let value = project("ok");
-    return if (value == 7 and size == 4 and align == 4) {
+    return if value == 7 and size == 4 and align == 4 {
         0
     } else {
         1

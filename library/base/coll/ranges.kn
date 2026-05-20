@@ -57,7 +57,7 @@ impl[T] &mut (T...T) : Iterator
     type Item = T;
 
     pub fn next() ?Item {
-        if (!(self.start < self.end)) return .None;
+        if !(self.start < self.end) return .None;
 
         let item = self.start;
         self.start += 1;
@@ -115,12 +115,12 @@ impl[T] &mut (T..=T) : Iterator
     type Item = T;
 
     pub fn next() ?Item {
-        if (!(self.start <= self.end)) return .None;
+        if !(self.start <= self.end) return .None;
 
         let item = self.start;
-        if (self.start == self.end) {
+        if self.start == self.end {
             let zero: T = self.start - self.start;
-            if (self.start <= zero) {
+            if self.start <= zero {
                 self.start += 1;
             } else {
                 self.end -= 1;
@@ -182,7 +182,7 @@ impl[T] &mut RangeRev[T] : Iterator
     type Item = T;
 
     pub fn next() ?Item {
-        if (!(self.start < self.end)) return .None;
+        if !(self.start < self.end) return .None;
 
         self.end -= 1;
         let item = self.end;
@@ -240,14 +240,14 @@ impl[T] &mut RangeRevInclusive[T] : Iterator
     type Item = T;
 
     pub fn next() ?Item {
-        if (self.done) return .None;
-        if (!(self.start <= self.end)) {
+        if self.done return .None;
+        if !(self.start <= self.end) {
             self.done = true;
             return .None;
         }
 
         let item = self.end;
-        if (self.start == self.end) {
+        if self.start == self.end {
             self.done = true;
         } else {
             self.end -= 1;

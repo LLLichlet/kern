@@ -38,5 +38,5 @@ fn project(value: Bytes) Bytes.Step.Mid.Finish.Out {
 fn main() i32 {
     let value = project("ok");
     let size = @sizeOf[Bytes.Step.Mid.Finish.Out]();
-    return if (value == 7 and size == 4) { 0 } else { 1 };
+    return if value == 7 and size == 4 { 0 } else { 1 };
 }

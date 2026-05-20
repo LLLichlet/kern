@@ -9,7 +9,7 @@ fn main() i32 {
 
     let middle = values.&[1...4];
     let mut sum = 0i32;
-    for (item: middle.iter()) {
+    for item in middle.iter() {
         sum += item;
     }
     (sum == 9).should().sum(@loc(), t);
@@ -19,7 +19,7 @@ fn main() i32 {
     (values == [5]i32.{ 3, 2, 1, 4, 5 }).should().sum(@loc(), t);
 
     let mut squares = 0i32;
-    for (i: 1i32...4i32) {
+    for i in 1i32...4i32 {
         squares += i * i;
     }
     (squares == 14).should().sum(@loc(), t);

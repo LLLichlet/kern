@@ -28,5 +28,5 @@ fn project(value: Bytes) Bytes.Step.Mid.Finish.Out {
 
 fn main() i32 {
     let value = project("ok");
-    return if (value == 7) { 0 } else { 1 };
+    return if value == 7 { 0 } else { 1 };
 }

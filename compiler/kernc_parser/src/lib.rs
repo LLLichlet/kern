@@ -215,22 +215,22 @@ struct Uart {
     #[test]
     fn parses_interleaved_doc_comments_for_modules_impls_and_extern_members() {
         let source = r#"
-#![if(true)]
+#![if true]
 //! Runtime entrypoints.
-#![if(true)]
+#![if true]
 //!
 //! Design:
 //! keep the call boundary explicit.
 
-#[if(true)]
+#[if true]
 /// A typed counter.
-#[if(true)]
+#[if true]
 struct Counter {
     value: i32,
 };
 
 impl Counter {
-    #[if(true)]
+    #[if true]
     /// Read the current value.
     /// Returns:
     /// - a stable snapshot of the counter.
@@ -238,7 +238,7 @@ impl Counter {
 }
 
 extern {
-    #[if(true)]
+    #[if true]
     /// Yield control to the scheduler.
     fn yield_now() void;
 }
@@ -849,6 +849,126 @@ fn range_return_type() i32... {
             assert_eq!(end.is_some(), has_end);
             assert_eq!(*actual_inclusive, is_inclusive);
         }
+    }
+
+    #[test]
+    fn parses_paren_free_control_flow_heads_and_if_attributes() {
+        let source = r#"
+#[if os == "linux" and arch == "x86_64"]
+fn main() i32 {
+    let mut sum = 0i32;
+    for item in 0...3 {
+        sum += item;
+    }
+    while sum < 10 {
+        sum += 1;
+    }
+    return if sum == 10 {
+        match sum {
+            10 => 0,
+            _ => 1,
+        }
+    } else {
+        2
+    };
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+
+        assert_eq!(module.decls.len(), 1);
+        assert_eq!(module.decls[0].attributes.len(), 1);
+        let ast::AttributeKind::If(attr_expr) = &module.decls[0].attributes[0].kind else {
+            panic!("expected #[if ...] attribute");
+        };
+        let ast::ExprKind::Binary { .. } = &attr_expr.kind else {
+            panic!("expected attribute condition expression");
+        };
+
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[0].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block { stmts, .. } = &body.kind else {
+            panic!("expected block body");
+        };
+        assert_eq!(stmts.len(), 4);
+
+        let ast::StmtKind::ExprStmt(for_block) = &stmts[1].kind else {
+            panic!("expected desugared for expression statement");
+        };
+        let ast::ExprKind::Block {
+            stmts: for_stmts, ..
+        } = &for_block.kind
+        else {
+            panic!("expected for loop to desugar to a block");
+        };
+        let ast::StmtKind::ExprStmt(iter_let) = &for_stmts[0].kind else {
+            panic!("expected iterator binding");
+        };
+        let ast::ExprKind::Let { init, .. } = &iter_let.kind else {
+            panic!("expected iterator let expression");
+        };
+        let ast::ExprKind::Range {
+            start,
+            end,
+            is_inclusive,
+        } = &init.kind
+        else {
+            panic!("expected for-in range iterator expression");
+        };
+        assert!(start.is_some());
+        assert!(end.is_some());
+        assert!(!is_inclusive);
+
+        let ast::StmtKind::ExprStmt(while_expr) = &stmts[2].kind else {
+            panic!("expected while expression statement");
+        };
+        let ast::ExprKind::While { cond, .. } = &while_expr.kind else {
+            panic!("expected while expression");
+        };
+        let ast::ExprKind::Binary { .. } = &cond.kind else {
+            panic!("expected while condition expression");
+        };
+
+        let ast::StmtKind::ExprStmt(return_expr) = &stmts[3].kind else {
+            panic!("expected return expression statement");
+        };
+        let ast::ExprKind::Return(Some(if_expr)) = &return_expr.kind else {
+            panic!("expected return value");
+        };
+        let ast::ExprKind::If {
+            cond,
+            then_branch,
+            else_branch: Some(_),
+        } = &if_expr.kind
+        else {
+            panic!("expected if expression");
+        };
+        let ast::ExprKind::Binary { .. } = &cond.kind else {
+            panic!("expected if condition expression");
+        };
+        let ast::ExprKind::Block {
+            result: Some(match_expr),
+            ..
+        } = &then_branch.kind
+        else {
+            panic!("expected then block");
+        };
+        let ast::ExprKind::Match { target, arms } = &match_expr.kind else {
+            panic!("expected match expression");
+        };
+        let ast::ExprKind::Identifier(_) = &target.kind else {
+            panic!("expected match target identifier");
+        };
+        assert_eq!(arms.len(), 2);
     }
 
     #[test]
@@ -1776,6 +1896,7 @@ fn main(flag: bool) i32 {
             "if",
             "else",
             "for",
+            "in",
             "while",
             "break",
             "continue",
@@ -1810,7 +1931,7 @@ fn main(flag: bool) i32 {
             "/* block */",
             "/* unterminated",
             "#[test]",
-            "#![if(test)]",
+            "#![if test]",
             "/// docs\n",
             "//! docs\n",
             "\\\\multi\n    \\\\line",

@@ -191,7 +191,7 @@ impl[T] &mut SpinLock[T] {
     }
 
     fn acquire() void {
-        while (!self.try_acquire()) {}
+        while !self.try_acquire() {}
     }
 
     fn release() void {
@@ -215,7 +215,7 @@ impl[T] &mut SpinLock[T] {
     /// This makes failed speculative access explicit and avoids recursively
     /// entering the non-reentrant lock.
     pub fn try_with_lock[U](call_back: &Fn(&mut T) U) ?U {
-        if (!self.try_acquire()) {
+        if !self.try_acquire() {
             return .None;
         }
         defer self.release();
@@ -232,7 +232,7 @@ impl &Once {
 
 impl &mut Once {
     fn wait_until_done() void {
-        while (self.state..&.load[ACQUIRE]() != ONCE_DONE) {}
+        while self.state..&.load[ACQUIRE]() != ONCE_DONE {}
     }
 
     /// Runs `call_back` exactly once, waiting if another caller is running it.
@@ -242,12 +242,12 @@ impl &mut Once {
     /// before exposing a blocking `std.Once`.
     pub fn call_once(call_back: &Fn() void) void {
         let cas = self.state..&.compare_exchange[ACQ_REL, ACQUIRE](ONCE_INCOMPLETE, ONCE_RUNNING);
-        if (cas.success) {
+        if cas.success {
             call_back();
             self.state..&.store[RELEASE](ONCE_DONE);
             return;
         }
-        if (cas.value != ONCE_DONE) {
+        if cas.value != ONCE_DONE {
             self.wait_until_done();
         }
     }
@@ -258,7 +258,7 @@ impl &mut Once {
     /// is currently running it.
     pub fn try_call_once(call_back: &Fn() void) bool {
         let cas = self.state..&.compare_exchange[ACQ_REL, ACQUIRE](ONCE_INCOMPLETE, ONCE_RUNNING);
-        if (!cas.success) {
+        if !cas.success {
             return false;
         }
         call_back();

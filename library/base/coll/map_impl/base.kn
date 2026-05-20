@@ -60,14 +60,14 @@ pub.. fn visit_full[K, V](
 ) usize {
     let mut total = 0usize;
         let mut i = 0usize;
-    while (i < capacity) {
-        if (ctrl_at(ctrl, i) != FULL) {
+    while i < capacity {
+        if ctrl_at(ctrl, i) != FULL {
             i += 1;
             continue;
         }
 
         total += 1;
-        if (!visitor(entry_ptr[K, V](entries, i))) {
+        if !visitor(entry_ptr[K, V](entries, i)) {
             return total;
         }
 
@@ -107,15 +107,15 @@ pub.. fn find_index_with_hash[K, V](
     let mut index = (hash as usize) & mask;
     let mut probes = 0usize;
 
-        while (probes < capacity) {
+        while probes < capacity {
         let state = ctrl_at(ctrl, index);
-        if (state == EMPTY) {
+        if state == EMPTY {
             return .None;
         }
 
-        if (state == FULL) {
+        if state == FULL {
             let entry = entry_ptr[K, V](entries, index);
-            if (entry.hash64 == hash and keys_equal(entry.key, key)) {
+            if entry.hash64 == hash and keys_equal(entry.key, key) {
                 return .{ Some: index };
             }
         }

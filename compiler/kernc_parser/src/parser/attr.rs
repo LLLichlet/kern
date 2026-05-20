@@ -52,13 +52,11 @@ impl<'a> Parser<'a> {
             self.expect(TokenType::LBracket)?;
 
             let kind = if self.match_token(&[TokenType::If]) {
-                // Form 1: conditional attributes, for example `#[if(expr)]`.
-                self.expect(TokenType::LParen)?;
+                // Form 1: conditional attributes, for example `#[if os == "linux"]`.
                 let expr = self.parse_expression(Precedence::Lowest)?;
-                self.expect(TokenType::RParen)?;
 
                 if self.match_token(&[TokenType::Comma]) {
-                    self.add_error(self.stream.prev_span(), "`#[if(...)]` must be standalone and cannot be mixed with metadata in the same bracket".to_string());
+                    self.add_error(self.stream.prev_span(), "`#[if ...]` must be standalone and cannot be mixed with metadata in the same bracket".to_string());
                 }
 
                 AttributeKind::If(Box::new(expr))

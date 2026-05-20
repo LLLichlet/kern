@@ -77,7 +77,7 @@ fn overview_doc(program_name: &str) -> HelpDoc {
                 )
                 .entry(
                     "--test-mode",
-                    "Compile a test target, collect #[test] cases, and enable #[if(test)]",
+                    "Compile a test target, collect #[test] cases, and enable #[if test]",
                 )
                 .entry(
                     "--test-metadata-output <FILE>",
@@ -160,7 +160,7 @@ fn all_doc(program_name: &str) -> HelpDoc {
                 )
                 .entry(
                     "--test-mode",
-                    "Compile a test target, collect #[test] cases, and enable #[if(test)]",
+                    "Compile a test target, collect #[test] cases, and enable #[if test]",
                 )
                 .entry(
                     "--test-metadata-output <FILE>",

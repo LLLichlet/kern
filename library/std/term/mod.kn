@@ -27,8 +27,8 @@ pub struct RawMode {
 };
 
 fn normalized_size(size: Size) Size {
-    let rows = if (size.rows == 0) 24usize else size.rows;
-    let cols = if (size.cols == 0) 80usize else size.cols;
+    let rows = if size.rows == 0 24usize else size.rows;
+    let cols = if size.cols == 0 80usize else size.cols;
     return .{ rows: rows, cols: cols };
 }
 
@@ -37,7 +37,7 @@ fn wrap_os_error(err: os.Error) Error {
 }
 
 fn size_for_handle(handle: os.Handle) Size!Error {
-    if (!os.is_terminal(handle)) {
+    if !os.is_terminal(handle) {
         return .{ Err: .NotTerminal };
     }
     return os
@@ -69,7 +69,7 @@ impl Terminal {
 
     /// Enables raw mode for this terminal stream.
     pub fn raw_mode() RawMode!Error {
-        if (!self.is_terminal()) {
+        if !self.is_terminal() {
             return .{ Err: .NotTerminal };
         }
         let handle = self.handle;
@@ -99,7 +99,7 @@ impl Terminal {
 impl &mut RawMode {
     /// Restores the terminal to the state captured before raw mode was enabled.
     pub fn restore() bool!Error {
-        if (!self.active) {
+        if !self.active {
             return .{ Ok: true };
         }
 

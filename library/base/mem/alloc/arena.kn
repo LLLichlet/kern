@@ -47,20 +47,20 @@ impl ArenaBuilder {
 }
 
 fn arena_max_usize(lhs: usize, rhs: usize) usize {
-    return if (lhs > rhs) lhs else rhs;
+    return if lhs > rhs lhs else rhs;
 }
 
 fn arena_default_chunk_size(size: usize) usize {
-    return if (size == 0) ARENA_DEFAULT_CHUNK_SIZE else size;
+    return if size == 0 ARENA_DEFAULT_CHUNK_SIZE else size;
 }
 
 fn arena_dangling_ptr(align: usize) &mut u8 {
-    return (if (align == 0) 1 else align).as_mut_ptr[u8]();
+    return (if align == 0 1 else align).as_mut_ptr[u8]();
 }
 
 fn arena_grow_hint(size: usize) usize {
     let max = ~0usize;
-    if (size > max / 2) {
+    if size > max / 2 {
         return max;
     }
     return size * 2;
@@ -84,7 +84,7 @@ impl &mut Arena : Allocator {
 
     #[inline]
     fn chunk_can_fit(chunk: &mut Chunk, layout: Layout) bool {
-        let payload = if (layout.size == 0) 1usize else layout.size;
+        let payload = if layout.size == 0 1usize else layout.size;
         let start = chunk as usize;
         let .{ Some: used_start } = self.checked_addr_add(start, chunk.used) else return false;
         let .{ Some: alloc_start } = align_up(used_start, layout.align)
@@ -96,7 +96,7 @@ impl &mut Arena : Allocator {
 
     #[inline]
     fn alloc_from_chunk(chunk: &mut Chunk, layout: Layout) ?&mut u8 {
-        let payload = if (layout.size == 0) 1usize else layout.size;
+        let payload = if layout.size == 0 1usize else layout.size;
         let start = chunk as usize;
         let .{ Some: used_start } = self.checked_addr_add(start, chunk.used) else return .None;
         let .{ Some: alloc_start } = align_up(used_start, layout.align)
@@ -104,7 +104,7 @@ impl &mut Arena : Allocator {
         let .{ Some: alloc_end } = self.checked_addr_add(alloc_start, payload)
             else return .None;
         let .{ Some: end } = self.chunk_end(chunk) else return .None;
-        if (alloc_end > end) {
+        if alloc_end > end {
             return .None;
         }
 
@@ -114,7 +114,7 @@ impl &mut Arena : Allocator {
 
     fn release_chain(first: ?&mut Chunk) void {
         let mut chunk = first;
-                while (true) {
+                while true {
             let .{ Some: current } = chunk else return;
             let next = current.next;
             self.backing.free(
@@ -126,8 +126,8 @@ impl &mut Arena : Allocator {
     }
 
     fn grow(layout: Layout) bool {
-        let payload = if (layout.size == 0) 1usize else layout.size;
-        let align = if (layout.align == 0) 1usize else layout.align;
+        let payload = if layout.size == 0 1usize else layout.size;
+        let align = if layout.align == 0 1usize else layout.align;
         let .{ Some: header_payload } = ARENA_CHUNK_HEADER_SIZE.checked_add(payload)
             else return false;
         let .{ Some: min_size } = header_payload.checked_add(align - 1usize) else return false;
@@ -149,20 +149,20 @@ impl &mut Arena : Allocator {
     /// Allocates from the current chunk or grows the arena when needed.
     #[inline]
     pub fn alloc(layout: Layout) ?&mut u8 {
-        if (layout.size == 0) {
+        if layout.size == 0 {
             return .{ Some: arena_dangling_ptr(layout.align) };
         }
 
-        match (self.current) {
+        match self.current {
             .{ Some: current } => {
-                if (self.chunk_can_fit(current, layout)) {
+                if self.chunk_can_fit(current, layout) {
                     return self.alloc_from_chunk(current, layout);
                 }
             },
             .None => {},
         };
 
-        if (!self.grow(layout)) {
+        if !self.grow(layout) {
             return .None;
         }
 
@@ -185,13 +185,13 @@ impl &mut Arena : Allocator {
     /// Design:
     /// marks are for phase-local scratch rollback, not long-lived ownership.
     pub fn mark() ArenaMark {
-        let current_addr = match (self.current) {
+        let current_addr = match self.current {
             .{ Some: current } => current as usize,
             .None => 0usize,
         };
         return .{
             current: current_addr,
-            used: match (self.current) {
+            used: match self.current {
                 .{ Some: current } => current.used,
                 .None => 0usize,
             },
@@ -205,11 +205,11 @@ impl &mut Arena : Allocator {
     /// Returns `false` when the mark no longer belongs to the current arena
     /// state. Rewinding invalidates all marks from the previous generation.
     pub fn rewind(mark: ArenaMark) bool {
-        if (mark.generation != self.generation) {
+        if mark.generation != self.generation {
             return false;
         }
 
-        if (mark.current == 0usize) {
+        if mark.current == 0usize {
             self.release_chain(self.current);
             self.current = .None;
             self.next_chunk_size = mark.next_chunk_size;
@@ -220,16 +220,16 @@ impl &mut Arena : Allocator {
         let target = mark.current.as_mut_ptr[Chunk]();
         let .{ Some: current } = self.current else return false;
 
-        if (current != target) {
+        if current != target {
             // Chunks are linked newest-to-oldest. Cut the chain immediately
             // before the target, release the newer prefix, then restore target
             // as the current allocation frontier.
             let mut newer_tail = self.current;
-                        while (true) {
+                        while true {
                 let .{ Some: tail } = newer_tail else return false;
-                match (tail.next) {
+                match tail.next {
                     .{ Some: next } => {
-                        if (next == target) {
+                        if next == target {
                             tail.next = .None;
                             break;
                         }
@@ -275,7 +275,7 @@ impl &mut Arena : Allocator {
     pub fn set_chunk_size(size: usize) void {
         let size = arena_default_chunk_size(size);
         self.chunk_size = size;
-        match (self.current) {
+        match self.current {
             .None => self.next_chunk_size = size,
             .{ Some: _ } => {},
         };

@@ -77,7 +77,7 @@ scrutinee and arm values have an `Eq` implementation and the arms describe a
 closed local decision:
 
 ```kern
-match (name) {
+match name {
     "utf-8" => return .Utf8,
     "utf-16" => return .Utf16,
     _ => return .Unknown,
@@ -93,23 +93,23 @@ documented.
 In scanner-style code, an empty loop body should still use a real Kern block:
 
 ```kern
-while (index < text.@len() and is_ws(text.[index])) {
+while index < text.@len() and is_ws(text.[index]) {
     index += 1;
 }
 ```
 
 Reserve this mainly for loops whose whole job is to advance until a condition
-fails. Do not generalize the same style to `if (...) {}` by default when a more
+fails. Do not generalize the same style to `if ... {}` by default when a more
 direct expression shape would be clearer.
 
-`while (...);` is not valid Kern syntax and should not appear in repository
+`while ...;` is not valid Kern syntax and should not appear in repository
 code or documentation.
 
 Prefer `for` when the code is simply visiting every item from an iterable
 source:
 
 ```kern
-for (byte: text.iter()) {
+for byte in text.iter() {
     ...
 }
 ```
@@ -133,7 +133,7 @@ by the local context:
 
 ```kern
 let mut i = 0;
-while (i < text.@len()) {
+while i < text.@len() {
     ...
     i += 1;
 }
@@ -161,7 +161,7 @@ good style.
 But when bit width is part of the logic, keep the type visible:
 
 ```kern
-if (byte < 0x20u8) { ... }
+if byte < 0x20u8 { ... }
 ```
 
 This especially applies to byte parsers, masks, shifts, pointer-adjacent code,
@@ -491,7 +491,7 @@ fn main() i32 {
         .target_fps(60);
     defer win.close();
 
-    while (win.is_open()) {
+    while win.is_open() {
         win.frame()
             .clear(raylib.RAYWHITE)
             .text("hello\0", 20, 20, 24, raylib.DARKGRAY)
@@ -531,7 +531,7 @@ test still checks names, receiver types, ownership calls, and non-void
 discarding:
 
 ```kern
-if (false) {
+if false {
     let audio = raylib.audio.open();
     defer audio.close();
 

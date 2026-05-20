@@ -16,7 +16,7 @@ pub struct Attribute {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttributeKind {
-    /// Conditional compilation such as `#[if(os == "linux" and arch == "x86")]`.
+    /// Conditional compilation such as `#[if os == "linux" and arch == "x86"]`.
     /// The payload is stored as a regular expression AST.
     If(Box<Expr>),
 

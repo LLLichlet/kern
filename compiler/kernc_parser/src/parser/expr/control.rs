@@ -161,9 +161,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_if_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
-        self.expect(TokenType::LParen)?;
         let cond = self.parse_expression(Precedence::Lowest)?;
-        self.expect(TokenType::RParen)?;
         let then_branch = self.parse_expression(Precedence::Lowest)?;
         let mut else_branch = None;
         if self.match_token(&[TokenType::Else]) {
@@ -186,20 +184,16 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_for_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
-        self.expect(TokenType::LParen)?;
         let pattern = self.parse_let_pattern()?;
-        self.expect(TokenType::Colon)?;
-        let iter = self.parse_expression(Precedence::Lowest)?;
-        self.expect(TokenType::RParen)?;
+        self.expect(TokenType::In)?;
+        let iter = self.parse_for_iter_expr()?;
 
         let body = self.parse_expression(Precedence::Lowest)?;
         Ok(self.desugar_for_expr(start_span, pattern, iter, body))
     }
 
     pub(super) fn parse_while_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
-        self.expect(TokenType::LParen)?;
         let cond = self.parse_expression(Precedence::Lowest)?;
-        self.expect(TokenType::RParen)?;
         let body = self.parse_expression(Precedence::Lowest)?;
 
         Ok(Expr {
@@ -220,7 +214,7 @@ impl<'a> Parser<'a> {
         body: Expr,
     ) -> Expr {
         let block_id = self.new_id();
-        // `for (p: iter) body` lowers in the parser to a block that owns the
+        // `for p in iter body` lowers in the parser to a block that owns the
         // iterator binding, then repeatedly calls `next()` and breaks on None.
         let iter_sym = self
             .session
@@ -370,6 +364,16 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_for_iter_expr(&mut self) -> ParseResult<Expr> {
+        let expr = self.parse_expression(Precedence::Lowest)?;
+        if self.check(TokenType::Ellipsis) || self.check(TokenType::DotDotEqual) {
+            let op_token = self.advance();
+            self.parse_infix_range_expr(expr, op_token)
+        } else {
+            Ok(expr)
+        }
+    }
+
     fn parse_match_body(&mut self) -> ParseResult<Expr> {
         if self.check(TokenType::LBrace) {
             let t = self.advance();
@@ -382,9 +386,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_match_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
-        self.expect(TokenType::LParen)?;
         let target = self.parse_expression(Precedence::Lowest)?;
-        self.expect(TokenType::RParen)?;
         self.expect(TokenType::LBrace)?;
 
         let mut arms = Vec::new();

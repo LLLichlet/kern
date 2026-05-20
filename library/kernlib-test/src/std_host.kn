@@ -74,7 +74,7 @@ fn check_term[W](t: &mut Report[W]) void
     let _ = term.stderr().is_terminal();
 
     let out_size = term.stdout().size();
-    if (out_size.is_ok()) {
+    if out_size.is_ok() {
         let size = out_size.should_ok().sum(@loc(), t);
         (size.rows != 0).should().sum(@loc(), t);
         (size.cols != 0).should().sum(@loc(), t);

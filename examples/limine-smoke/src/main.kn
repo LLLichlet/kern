@@ -45,13 +45,13 @@ fn serial_can_write() bool {
 }
 
 fn serial_write_byte(byte: u8) void {
-    while (serial_can_write().not()) {}
+    while serial_can_write().not() {}
     outb(COM1, byte);
 }
 
 fn serial_write(text: &[u8]) void {
     let mut i = 0usize;
-    while (i < text.@len()) {
+    while i < text.@len() {
         serial_write_byte(text.[i]);
         i += 1;
     }
@@ -59,7 +59,7 @@ fn serial_write(text: &[u8]) void {
 
 fn debug_write(text: &[u8]) void {
     let mut i = 0usize;
-    while (i < text.@len()) {
+    while i < text.@len() {
         outb(DEBUGCON, text.[i]);
         i += 1;
     }
@@ -70,7 +70,7 @@ fn kmain() void {
     debug_write("limine-smoke: kernel booted\r\n");
     serial_init();
     serial_write("limine-smoke: kernel booted\r\n");
-    while (true) {
+    while true {
         hlt();
     }
 }

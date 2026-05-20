@@ -43,7 +43,7 @@ impl[K, V] &mut Tree[K, V]
         node.len = 0;
 
         let mut i = 0usize;
-        while (i < MAX_CHILDREN) {
+        while i < MAX_CHILDREN {
             set_child[K, V](node, i, dangling_child[K, V]());
 
             i += 1;
@@ -61,8 +61,8 @@ impl[K, V] &mut Tree[K, V]
     /// Returns the first slot whose key is greater than or equal to `key`.
     fn search_slot(node: &mut Node[K, V], key: K) usize {
         let mut index = 0usize;
-        while (index < node.len) {
-            if (self.compare(key_at[K, V](node, index), key) >= 0) {
+        while index < node.len {
+            if self.compare(key_at[K, V](node, index), key) >= 0 {
                 break;
             }
 
@@ -84,17 +84,17 @@ impl[K, V] &mut Tree[K, V]
 
         // The upper half moves into the newly allocated right sibling.
         let mut j = 0usize;
-        while (j < MIN_DEGREE - 1) {
+        while j < MIN_DEGREE - 1 {
             set_key[K, V](right, j, key_at[K, V](child, j + MIN_DEGREE));
             set_value[K, V](right, j, child.values.[j + MIN_DEGREE]);
 
             j += 1;
         }
 
-        if (!child.is_leaf) {
+        if !child.is_leaf {
             // Internal node splits carry the trailing child range with them.
             let mut c = 0usize;
-            while (c < MIN_DEGREE) {
+            while c < MIN_DEGREE {
                 set_child[K, V](right, c, child_at[K, V](child, c + MIN_DEGREE));
 
                 c += 1;
@@ -104,7 +104,7 @@ impl[K, V] &mut Tree[K, V]
         child.len = MIN_DEGREE - 1;
 
         let mut move_child = parent.len + 1;
-        while (move_child > index + 1) {
+        while move_child > index + 1 {
             set_child[K, V](parent, move_child, child_at[K, V](parent, move_child - 1));
 
             move_child -= 1;
@@ -112,7 +112,7 @@ impl[K, V] &mut Tree[K, V]
         set_child[K, V](parent, index + 1, right);
 
         let mut move_key = parent.len;
-        while (move_key > index) {
+        while move_key > index {
             set_key[K, V](parent, move_key, key_at[K, V](parent, move_key - 1));
             set_value[K, V](parent, move_key, parent.values.[move_key - 1]);
 
@@ -134,14 +134,14 @@ impl[K, V] &mut Tree[K, V]
     ) void!AllocError {
         let slot = self.search_slot(node, key);
 
-        if (slot < node.len and self.compare(key_at[K, V](node, slot), key) == 0) {
+        if slot < node.len and self.compare(key_at[K, V](node, slot), key) == 0 {
             set_value[K, V](node, slot, value);
             return .{ Ok: {} };
         }
 
-        if (node.is_leaf) {
+        if node.is_leaf {
             let mut i = node.len;
-            while (i > slot) {
+            while i > slot {
                 set_key[K, V](node, i, key_at[K, V](node, i - 1));
                 set_value[K, V](node, i, node.values.[i - 1]);
 
@@ -157,16 +157,16 @@ impl[K, V] &mut Tree[K, V]
 
         let mut child_index = slot;
         let child = child_at[K, V](node, child_index);
-        if (child.len == MAX_KEYS) {
+        if child.len == MAX_KEYS {
             self.split_child(alloc, node, child_index).?;
 
             // Recompute the descent side against the promoted median key.
             let cmp_mid = self.compare(key_at[K, V](node, child_index), key);
-            if (cmp_mid == 0) {
+            if cmp_mid == 0 {
                 set_value[K, V](node, child_index, value);
                 return .{ Ok: {} };
             }
-            if (cmp_mid < 0) {
+            if cmp_mid < 0 {
                 child_index += 1;
             }
         }
@@ -183,9 +183,9 @@ impl[K, V] &mut Tree[K, V]
     fn deinit_node(alloc: &mut Allocator, node: ?&mut Node[K, V]) void {
         let .{ Some: node } = node else return;
 
-        if (!node.is_leaf) {
+        if !node.is_leaf {
             let mut i = 0usize;
-            while (i <= node.len) {
+            while i <= node.len {
                 self.deinit_node(alloc, some_node[K, V](child_at[K, V](node, i)));
 
                 i += 1;
@@ -200,8 +200,8 @@ impl[K, V] &mut Tree[K, V]
         let .{ Some: node } = node else return;
 
         let mut i = 0usize;
-        while (i < node.len) {
-            if (!node.is_leaf) {
+        while i < node.len {
+            if !node.is_leaf {
                 self.for_each_mut_node(some_node[K, V](child_at[K, V](node, i)), visitor);
             }
             visitor(key_at[K, V](node, i), node.values.[i]..&);
@@ -209,14 +209,14 @@ impl[K, V] &mut Tree[K, V]
             i += 1;
         }
 
-        if (!node.is_leaf) {
+        if !node.is_leaf {
             self.for_each_mut_node(some_node[K, V](child_at[K, V](node, node.len)), visitor);
         }
     }
 
     /// Inserts or replaces a key-value pair.
     pub fn try_insert(alloc: &mut Allocator, key: K, value: V) void!AllocError {
-        let root = match (self.root) {
+        let root = match self.root {
             .{ Some: root } => root,
             .None => {
                 let root = self.alloc_node(alloc, true).?;
@@ -230,7 +230,7 @@ impl[K, V] &mut Tree[K, V]
             }
         };
 
-        if (root.len == MAX_KEYS) {
+        if root.len == MAX_KEYS {
             // Grow the tree height before descending so the recursive insert
             // still receives a non-full root.
             let old_root = root;
@@ -239,7 +239,7 @@ impl[K, V] &mut Tree[K, V]
             set_child[K, V](new_root, 0, old_root);
             self.root = .{ Some: new_root };
 
-            match (self.split_child(alloc, new_root, 0)) {
+            match self.split_child(alloc, new_root, 0) {
                 .{ Ok: _ } => {}
                 .{ Err: err } => {
                     self.root = .{ Some: old_root };
@@ -275,21 +275,21 @@ impl[K, V] &mut Tree[K, V]
         let root = self.root.?;
         let mut node = root;
 
-        while (true) {
+        while true {
             let mut index = 0usize;
-            while (index < node.len) {
+            while index < node.len {
                 let cmp = self.compare(key_at[K, V](node, index), key);
-                if (cmp == 0) {
+                if cmp == 0 {
                     return .{ Some: node.values.[index]..& };
                 }
-                if (cmp > 0) {
+                if cmp > 0 {
                     break;
                 }
 
                 index += 1;
             }
 
-            if (node.is_leaf) {
+            if node.is_leaf {
                 return .None;
             }
 
@@ -329,7 +329,7 @@ impl[K, V] &mut Tree[K, V]
 
     /// Returns a mutable pointer to the first value in key order.
     pub fn first_ptr() ?&mut V {
-        let hit = match (first_hit[K, V](self.root)) {
+        let hit = match first_hit[K, V](self.root) {
             .{ Some: hit } => hit,
             .None => return .None,
         };
@@ -338,7 +338,7 @@ impl[K, V] &mut Tree[K, V]
 
     /// Returns a mutable pointer to the last value in key order.
     pub fn last_ptr() ?&mut V {
-        let hit = match (last_hit[K, V](self.root)) {
+        let hit = match last_hit[K, V](self.root) {
             .{ Some: hit } => hit,
             .None => return .None,
         };
@@ -347,7 +347,7 @@ impl[K, V] &mut Tree[K, V]
 
     /// Returns a mutable pointer to the value at the smallest key greater than or equal to `key`.
     pub fn ceil_ptr(key: K) ?&mut V {
-        let hit = match (ceil_hit[K, V](self.root, key)) {
+        let hit = match ceil_hit[K, V](self.root, key) {
             .{ Some: hit } => hit,
             .None => return .None,
         };
@@ -356,7 +356,7 @@ impl[K, V] &mut Tree[K, V]
 
     /// Returns a mutable pointer to the value at the largest key less than or equal to `key`.
     pub fn floor_ptr(key: K) ?&mut V {
-        let hit = match (floor_hit[K, V](self.root, key)) {
+        let hit = match floor_hit[K, V](self.root, key) {
             .{ Some: hit } => hit,
             .None => return .None,
         };

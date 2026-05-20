@@ -87,6 +87,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 .as_deref()
                 .map(|ty| self.resolve_explicit_type_node(ty))
                 .unwrap_or(TypeId::ERROR),
+            ExprKind::Grouped { expr } => self.expr_type(expr),
             _ => TypeId::ERROR,
         }
     }

@@ -27,7 +27,7 @@ fn read_word(word: union { bytes: [4]u8, int: i32 }) i32 {
 }
 
 fn classify(state: enum: u32 { Off = 0, On = 1, Error: i32 }) i32 {
-    return match (state) {
+    return match state {
         .Off => 0,
         .On => 1,
         .{ Error: code } => code,

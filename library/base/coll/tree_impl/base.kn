@@ -87,7 +87,7 @@ pub.. fn first_hit[K, V](root: ?&mut Node[K, V]) ?SearchHit[K, V] {
     let root = root.?;
 
     let mut node = root;
-        while (!node.is_leaf) {
+        while !node.is_leaf {
         node = child_at[K, V](node, 0usize);
     }
     return .{ Some: SearchHit[K, V].{ node: node, index: 0usize } };
@@ -101,7 +101,7 @@ pub.. fn last_hit[K, V](root: ?&mut Node[K, V]) ?SearchHit[K, V] {
     let root = root.?;
 
     let mut node = root;
-        while (!node.is_leaf) {
+        while !node.is_leaf {
         node = child_at[K, V](node, node.len);
     }
     return .{ Some: SearchHit[K, V].{ node: node, index: node.len - 1 } };
@@ -117,14 +117,14 @@ pub.. fn ceil_hit[K, V](root: ?&mut Node[K, V], key: K) ?SearchHit[K, V]
     let mut node = root;
     let mut found = ?SearchHit[K, V].None;
 
-        while (true) {
+        while true {
         let current = node;
         let mut index = 0usize;
-                while (index < current.len) {
+                while index < current.len {
             let cmp = key_at[K, V](current, index).cmp(key);
-            if (cmp >= 0) {
+            if cmp >= 0 {
                 found = .{ Some: SearchHit[K, V].{ node: current, index: index } };
-                if (cmp == 0 or current.is_leaf) {
+                if cmp == 0 or current.is_leaf {
                     return found;
                 }
                 node = child_at[K, V](current, index);
@@ -134,8 +134,8 @@ pub.. fn ceil_hit[K, V](root: ?&mut Node[K, V], key: K) ?SearchHit[K, V]
             index += 1;
         }
 
-        if (index == current.len) {
-            if (current.is_leaf) {
+        if index == current.len {
+            if current.is_leaf {
                 return found;
             }
             node = child_at[K, V](current, current.len);
@@ -153,22 +153,22 @@ pub.. fn floor_hit[K, V](root: ?&mut Node[K, V], key: K) ?SearchHit[K, V]
     let mut node = root;
     let mut found = ?SearchHit[K, V].None;
 
-        while (true) {
+        while true {
         let mut index = 0usize;
-                while (index < node.len) {
+                while index < node.len {
             let cmp = key_at[K, V](node, index).cmp(key);
-            if (cmp > 0) {
+            if cmp > 0 {
                 break;
             }
             found = .{ Some: SearchHit[K, V].{ node: node, index: index } };
-            if (cmp == 0) {
+            if cmp == 0 {
                 return found;
             }
 
             index += 1;
         }
 
-        if (node.is_leaf) {
+        if node.is_leaf {
             return found;
         }
 

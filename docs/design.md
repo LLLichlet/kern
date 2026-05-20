@@ -330,7 +330,7 @@ struct Point {
   * **Default fields**: `struct Config { port: u16 = 8080, host: u32 = 0 };`
   * **Zero-Cost Memory Layout**: By default, Kern employs a highly optimized physical layout engine. It aggressively reorders struct fields at compile-time (descending by alignment requirements, then size) to eliminate memory padding (empty holes). 
   * **C-ABI Compatibility (`extern`)**: If a struct must strictly maintain its source-code declaration order to interface with C or hardware, it must be prefixed with `extern` (e.g., `extern struct Header { ... };`). This disables reordering and guarantees standard C-ABI layout.
-  * **Field puns in typed initialization**: Explicit field binding remains the canonical form (`x: x`), but typed struct initialization may use field puns when the field name and local binding name match (e.g., `Point.{x, y}`). Untyped `.{ ... }` keeps its existing contextual literal behavior and is not reclassified by syntax alone.
+  * **Field puns in typed initialization**: Explicit field binding remains the canonical form (`x: x`), but typed struct initialization may use field puns when the field name and local binding name match e.g., `Point.{x, y}`. Untyped `.{ ... }` keeps its existing contextual literal behavior and is not reclassified by syntax alone.
   * **Initialization and `undef`**: When initializing a struct using `Type.{ ... }`, any field without a default value **must** be explicitly provided; omitting it is a strict compile-time error. If you intentionally want to leave a field uninitialized, you must explicitly use `undef` (e.g., `priority: undef`). Standalone `undef` expressions require an expected type such as a field type or `let value: Type = undef;`.
 
 ```kern
@@ -403,7 +403,7 @@ a dedicated flag-set model.
 
 ```kern
 let raw_data = inb(0x60); // Read u8 from port
-let color = match (raw_data) {
+let color = match raw_data {
     0 => Color.Red,
     1 => Color.Green,
     2 => Color.Blue,
@@ -431,7 +431,7 @@ impl IsCommand : Pattern[&[u8]] {
     type Bind = void;
 
     fn apply(value: &[u8]) ?Bind {
-        if (value == self.name) {
+        if value == self.name {
             return .{ Some: {} };
         }
         return .None;
@@ -439,7 +439,7 @@ impl IsCommand : Pattern[&[u8]] {
 }
 
 fn classify(text: &[u8]) i32 {
-    return match (text) {
+    return match text {
         IsCommand.{ name: "kern" } => 1,
         IsCommand.{ name: "lang" } => 2,
         _ => 0,
@@ -680,7 +680,7 @@ struct Point[T]
 `if` is an expression.
 
 ```kern
-let a = if (b < 10) 10i32 else 20i32;
+let a = if b < 10 10i32 else 20i32;
 ```
 
 ### 7.2 Match Expressions
@@ -693,7 +693,7 @@ branching logic (integers, strings, and `enum` variants). No fallthrough.
 <!-- end list -->
 
 ```kern
-let result = match (val) {
+let result = match val {
     1...10 => 10,       // 1 to 9
     11, 12, 13 => 20,
     14..=15 => 30,     // 14 and 15
@@ -708,17 +708,17 @@ let result = match (val) {
 Kern has explicit condition loops and iterator loops.
 
 ```kern
-while (cond) { ... }
-while (true) { ... }             // infinite loop
-for (item: values.iter()) { ... }
+while cond { ... }
+while true { ... }             // infinite loop
+for item in values.iter() { ... }
 ```
 
-`for (pat: expr) body` is parser sugar for binding `expr` to a mutable hidden
+`for pat in expr body` is parser sugar for binding `expr` to a mutable hidden
 iterator and repeatedly calling `hidden..&.next()`. Range expressions have no
-special loop privilege: `for (i: 0...n)` works only when the compiled package
+special loop privilege: `for i in 0...n` works only when the compiled package
 provides an ordinary `next()` surface for that builtin range value. The compiler
 and package tools do not depend on `base` or `std` range adapters. Reverse
-iteration follows the same rule: `for (i: (0...n).rev())` is ordinary adapter
+iteration follows the same rule: `for i in (0...n).rev()` is ordinary adapter
 composition, not a second descending range syntax.
 
 ### 7.4 Defer
@@ -777,10 +777,10 @@ mod inline_detail {
 }
 
 // Conditional module compilation (e.g., in std/os/mod.kn)
-#[if(os == "linux")]
+#[if os == "linux"]
 mod linux;
 
-#[if(os == "windows")]
+#[if os == "windows"]
 mod windows;
 ```
 
@@ -803,11 +803,11 @@ Kern supports the Facade pattern via `pub use`. This allows you to construct a c
 
 ```kern
 // host/os/mod.kn
-#[if(os == "linux")]
+#[if os == "linux"]
 mod linux;
 
 // Re-export symbols from the private `linux` module to the public `host.os` API
-#[if(os == "linux")]
+#[if os == "linux"]
 pub use .linux.{Handle, get_stdout_handle, write, exit};
 
 // Re-export a helper to the parent facade subtree.
@@ -864,7 +864,7 @@ This is intentionally compiler-owned and library-independent:
   * `#[test]` functions must not be `extern`, `const`, generic, variadic, or bodyless
   * test functions may be private and may live in nested modules
   * each test case name is its module path plus function name, such as `math::adds`
-  * `#[if(test)]` is enabled only when the driver compiles in test mode
+  * `#[if test]` is enabled only when the driver compiles in test mode
   * the compiler and tools do not depend on `base`, `std`, `rt`, or `kernlib` to discover or dispatch test cases
 
 Tooling should compile one test binary per test target, then invoke that binary once per discovered case. Each invocation selects one case and returns that case's `i32` status. This preserves the simple entry contract while giving tools process isolation, parallel scheduling, and direct failure attribution.
@@ -964,7 +964,7 @@ Where the target type context is strictly explicit (e.g., function returns, argu
 
 ```kern
 fn safe_divide(a: i32, b: i32) i32!i32 {
-    if (b == 0) return .{ Err: -1 }; 
+    if b == 0 return .{ Err: -1 };
     return .{ Ok: a / b };
 }
 ```
@@ -974,7 +974,7 @@ fn safe_divide(a: i32, b: i32) i32!i32 {
 Pattern matching is the only way to access the payload of a `enum` variant. Bindings within a match arm can be made mutable.
 
 ```kern
-match (value) {
+match value {
     .{ Some: mut val } => {
         val += 1; 
         printf("%d\n\0", val);
@@ -1024,14 +1024,14 @@ impl IsEven : Pattern[i32] {
     type Bind = struct { value: i32 };
 
     fn apply(value: i32) ?Bind {
-        if ((value % 2) == 0) {
+        if (value % 2) == 0 {
             return .{ Some: .{ value: value } };
         }
         return .None;
     }
 }
 
-match (n) {
+match n {
     IsEven.{} => value,
     _ => 0,
 }
@@ -1251,13 +1251,13 @@ Kern completely rejects traditional C-style preprocessor macros, substituting th
 
 Kern strictly enforces single-responsibility for attribute brackets. The content inside the brackets `[...]` must be **either** a condition evaluator **or** a list of metadata tags.
 
-#### 1\. Conditional Compilation (`if(...)`)
+#### 1\. Conditional Compilation (`if...`)
 
 Uses a strict boolean evaluator at compile-time. If the condition evaluates to `false`, the target node (or file) is entirely pruned before semantic analysis. It supports logical operators (`and`, `or`, `!`) and checking custom compiler flags (`--define key=value`).
 
 ```kern
-#![if(os == "bare_metal")]
-#[if(!debug_mode)]
+#![if os == "bare_metal"]
+#[if !debug_mode]
 ```
 
 #### 2\. Metadata Tags
@@ -1540,7 +1540,7 @@ let ones = @simdSplat[i32x4](1);
 let as_float = @simdCast[f32x4](ones);
 let bits = @simdBitcast[u32x4](as_float);
 
-if (@simdAny(mask)) {
+if @simdAny(mask) {
     let mixed = @simdSelect(mask, a, b);
     let last = mixed.[3];
 }

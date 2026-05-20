@@ -48,17 +48,17 @@ pub fn is_hex_digit(byte: u8) bool {
 
 /// Returns an ASCII digit value in `0..radix`, for radices `2..=36`.
 pub fn digit_value(byte: u8, radix: u8) ?u8 {
-    if (radix < 2 or radix > 36) return .None;
-    let value = if (byte >= b'0' and byte <= b'9') {
+    if radix < 2 or radix > 36 return .None;
+    let value = if byte >= b'0' and byte <= b'9' {
         byte - b'0'
-    } else if (byte >= b'a' and byte <= b'z') {
+    } else if byte >= b'a' and byte <= b'z' {
         byte - b'a' + 10
-    } else if (byte >= b'A' and byte <= b'Z') {
+    } else if byte >= b'A' and byte <= b'Z' {
         byte - b'A' + 10
     } else {
         return .None;
     };
-    if (value >= radix) return .None;
+    if value >= radix return .None;
     return .{ Some: value };
 }
 

@@ -123,8 +123,8 @@ pub/ fn run(text: &[u8]) i32 {
 ```kern
 pub.. fn count_digits(text: &[u8]) i32 {
     let mut count = 0;
-    for (byte: text.iter()) {
-        if (byte >= b'0' and byte <= b'9') {
+    for byte in text.iter() {
+        if byte >= b'0' and byte <= b'9' {
             count += 1;
         }
     }
@@ -315,7 +315,7 @@ fn accepts_args(argc: i32, argv: &&u8) i32 {
 ```
 
 A test function returns `i32`, just like `main`: `0` passes and any other value
-fails. It may take no arguments or `(argc: i32, argv: &&u8)`. `#[if(test)]`
+fails. It may take no arguments or `(argc: i32, argv: &&u8)`. `#[if test]`
 keeps helper modules or declarations only when compiling in test mode.
 
 Run one repository example:

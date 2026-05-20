@@ -15,10 +15,10 @@ impl[T] &mut [T] {
 
     /// Swaps the elements at `lhs` and `rhs`.
     pub fn swap(lhs: usize, rhs: usize) bool {
-        if (lhs >= self.@len() or rhs >= self.@len()) {
+        if lhs >= self.@len() or rhs >= self.@len() {
             return false;
         }
-        if (lhs == rhs) {
+        if lhs == rhs {
             return true;
         }
 
@@ -30,12 +30,12 @@ impl[T] &mut [T] {
 
     /// Swaps every element with the matching position in `other`.
     pub fn swap_with_slice(other: &mut [T]) bool {
-        if (self.@len() != other.@len()) {
+        if self.@len() != other.@len() {
             return false;
         }
 
                 let mut i = 0usize;
-        while (i < self.@len()) {
+        while i < self.@len() {
             let tmp = self.[i];
             self.[i] = other.[i];
             other.[i] = tmp;
@@ -48,7 +48,7 @@ impl[T] &mut [T] {
     /// Overwrites every element with `value`.
     pub fn fill(value: T) void {
                 let mut i = 0usize;
-        while (i < self.@len()) {
+        while i < self.@len() {
             self.[i] = value;
 
             i += 1;
@@ -58,7 +58,7 @@ impl[T] &mut [T] {
     /// Visits every element mutably.
     pub fn for_each_mut(visitor: &Fn(&mut T) void) void {
                 let mut i = 0usize;
-        while (i < self.@len()) {
+        while i < self.@len() {
             visitor(self.[i]..&);
 
             i += 1;
@@ -67,15 +67,15 @@ impl[T] &mut [T] {
 
     /// Copies all elements from `source` into `self`.
     pub fn copy_from(source: &[T]) bool {
-        if (self.@len() != source.@len()) {
+        if self.@len() != source.@len() {
             return false;
         }
-        if (self.@len() == 0) {
+        if self.@len() == 0 {
             return true;
         }
 
         let elem_size = layout_of[T]().size;
-        if (elem_size == 0) {
+        if elem_size == 0 {
             return true;
         }
 
@@ -92,9 +92,9 @@ impl[T] &mut [T] {
     fn reverse_range(start: usize, end: usize) void {
         let mut left = 0usize;
         let mut right = end - start;
-                while (left < right) {
+                while left < right {
             right -= 1;
-            if (left >= right) {
+            if left >= right {
                 return;
             }
             _ = self.swap(start + left, start + right);
@@ -104,12 +104,12 @@ impl[T] &mut [T] {
 
     /// Rotates the slice left by `amount` elements.
     pub fn rotate_left(amount: usize) void {
-        if (self.@len() == 0) {
+        if self.@len() == 0 {
             return;
         }
 
         let mid = amount % self.@len();
-        if (mid == 0) {
+        if mid == 0 {
             return;
         }
 
@@ -120,12 +120,12 @@ impl[T] &mut [T] {
 
     /// Rotates the slice right by `amount` elements.
     pub fn rotate_right(amount: usize) void {
-        if (self.@len() == 0) {
+        if self.@len() == 0 {
             return;
         }
 
         let mid = amount % self.@len();
-        if (mid == 0) {
+        if mid == 0 {
             return;
         }
 
@@ -136,20 +136,20 @@ impl[T] &mut [T] {
     ///
     /// Overlapping source and destination ranges are supported.
     pub fn copy_within(src_start: usize, src_end: usize, dest_start: usize) bool {
-        if (src_start > src_end or src_end > self.@len()) {
+        if src_start > src_end or src_end > self.@len() {
             return false;
         }
 
         let count = src_end - src_start;
-        if (count > self.@len() or dest_start > self.@len() - count) {
+        if count > self.@len() or dest_start > self.@len() - count {
             return false;
         }
-        if (count == 0) {
+        if count == 0 {
             return true;
         }
 
         let elem_size = layout_of[T]().size;
-        if (elem_size == 0 or src_start == dest_start) {
+        if elem_size == 0 or src_start == dest_start {
             return true;
         }
 
@@ -166,10 +166,10 @@ impl[T] &mut [T] {
     /// high-throughput sorting policy.
     pub fn sort_by(compare: &Fn(T, T) Ordering) void {
         let mut i = 1usize;
-        while (i < self.@len()) {
+        while i < self.@len() {
             let value = self.[i];
             let mut j = i;
-            while (j > 0 and compare(self.[j - 1], value) == GREATER) {
+            while j > 0 and compare(self.[j - 1], value) == GREATER {
                 self.[j] = self.[j - 1];
                 j -= 1;
             }

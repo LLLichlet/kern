@@ -18,9 +18,9 @@ pub struct Owned {
 /// `str` must point to a valid zero-terminated byte sequence.
 fn len(str: &u8) usize {
     let mut len = 0usize;
-        while (true) {
+        while true {
         let current_ptr = str + len;
-        if (current_ptr.* == 0) {
+        if current_ptr.* == 0 {
             return len;
         }
         len += 1;
@@ -39,7 +39,7 @@ impl &u8 {
 }
 
 fn z_string_layout(bytes: &[u8]) ?base.mem.Layout {
-    if (bytes.@len() == base.num.USIZE_MAX) {
+    if bytes.@len() == base.num.USIZE_MAX {
         return .None;
     }
     return array_layout_of[u8](bytes.@len() + 1);
@@ -57,7 +57,7 @@ pub fn owned(alloc: &mut Allocator, bytes: &[u8]) Owned!AllocError {
         else return .{ Err: .OutOfMemory };
 
     let bytes_len = bytes.@len();
-    if (bytes_len > 0) {
+    if bytes_len > 0 {
         @memcpy(ptr, bytes.[0].&, bytes_len);
     }
     (ptr + bytes_len).* = 0;

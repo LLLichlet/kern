@@ -34,7 +34,7 @@ impl Args {
 
     /// Returns the number of arguments as `usize`.
     pub fn len() usize {
-        if (self.count <= 0) {
+        if self.count <= 0 {
             return 0;
         }
         return self.count as usize;
@@ -52,7 +52,7 @@ impl Args {
 
     /// Returns the zero-terminated pointer for one argument.
     pub fn raw(index: usize) ?&u8 {
-        if (index >= self.len()) {
+        if index >= self.len() {
             return .None;
         }
         return .{ Some: (self.values + index).* };
@@ -74,7 +74,7 @@ impl &mut ArgsIter : Iterator {
     type Item = &[u8];
 
     pub fn next() ?Item {
-        if (self.index >= self.args.len()) {
+        if self.index >= self.args.len() {
             return .None;
         }
 

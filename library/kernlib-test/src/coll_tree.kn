@@ -20,10 +20,10 @@ impl Key : Eq[Key] {
 
 impl Key : Comparable[Key] {
     pub fn cmp(other: Key) Ordering {
-        if (self.major < other.major) return LESS;
-        if (self.major > other.major) return GREATER;
-        if (self.minor < other.minor) return LESS;
-        if (self.minor > other.minor) return GREATER;
+        if self.major < other.major return LESS;
+        if self.major > other.major return GREATER;
+        if self.minor < other.minor return LESS;
+        if self.minor > other.minor return GREATER;
         return EQUAL;
     }
 }
@@ -42,7 +42,7 @@ fn check_basic_tree[W](t: &mut Report[W]) void
     let mut lazy_calls = 0i32;
 
     let mut i = 0;
-    while (i < 32) {
+    while i < 32 {
         let key = i as i32;
         map.try_insert(gpa, key, key * 2).should_ok().sum(@loc(), t);
         i += 1;
@@ -156,7 +156,7 @@ fn check_remove[W](t: &mut Report[W]) void
     defer map.deinit(gpa);
 
     let mut i = 1i32;
-    while (i <= 40) {
+    while i <= 40 {
         map.try_insert(gpa, i, i * 10).should_ok().sum(@loc(), t);
         i += 1;
     }
@@ -180,7 +180,7 @@ fn check_remove[W](t: &mut Report[W]) void
     defer ordered.deinit(gpa);
     map.for_each([count = count..&, ordered, gpa](key: i32, _: i32) void {
         count.* += 1;
-        if (key >= 2 and key <= 9) {
+        if key >= 2 and key <= 9 {
             let _ = ordered.try_push_char(gpa, (key as u8) + b'0');
         }
     });

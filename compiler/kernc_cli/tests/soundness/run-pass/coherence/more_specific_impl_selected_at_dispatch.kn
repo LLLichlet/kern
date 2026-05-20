@@ -19,5 +19,5 @@ impl &[u8] : Score {
 
 fn main() i32 {
     let score = "ok".value();
-    return if (score == 2) { 0 } else { 1 };
+    return if score == 2 { 0 } else { 1 };
 }

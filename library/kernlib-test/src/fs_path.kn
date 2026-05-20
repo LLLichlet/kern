@@ -115,7 +115,7 @@ fn check_allocating_paths[W](t: &mut Report[W]) void
     method_reext.as_str().should().eq("/tmp/kern/archive.zip").sum(@loc(), t);
 }
 
-#[if(os == "windows")]
+#[if os == "windows"]
 fn check_windows_paths[W](t: &mut Report[W]) void
     where &mut W: io.Write,
 {
@@ -149,7 +149,7 @@ fn filesystem_paths() i32 {
     let t = report(io.discard())..&;
     check_views(t);
     check_allocating_paths(t);
-    #[if(os == "windows")] {
+    #[if os == "windows"] {
         check_windows_paths(t);
     };
     return 0;

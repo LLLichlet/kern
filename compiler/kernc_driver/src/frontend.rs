@@ -1474,7 +1474,7 @@ mod tests {
 
         db.set_source_override(
             path.clone(),
-            "#[if(feature)]\nfn hidden() i32 { return 7; }\nfn main() i32 { return 1; }\n"
+            "#[if feature]\nfn hidden() i32 { return 7; }\nfn main() i32 { return 1; }\n"
                 .to_string(),
         );
         first_session
@@ -1511,7 +1511,7 @@ mod tests {
 
         db.set_source_override(
             path.clone(),
-            "#[if(feature)]\nfn hidden() i32 { return 7; }\nfn main() i32 { return 1; }\n"
+            "#[if feature]\nfn hidden() i32 { return 7; }\nfn main() i32 { return 1; }\n"
                 .to_string(),
         );
         disabled_session

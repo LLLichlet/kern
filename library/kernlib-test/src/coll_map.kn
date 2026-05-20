@@ -36,7 +36,7 @@ fn check_integer_map[W](t: &mut Report[W]) void
     defer map.deinit(gpa);
 
     let mut i = 0;
-    while (i < 128) {
+    while i < 128 {
         let key = i as i32;
         map.try_insert(gpa, key, key * 3).should_ok().sum(@loc(), t);
         i += 1;
@@ -164,7 +164,7 @@ fn check_get_or_insert[W](t: &mut Report[W]) void
     defer map.deinit(gpa);
     let mut lazy_calls = 0i32;
 
-    for (i: 0i32...6i32) {
+    for i in 0i32...6i32 {
         map.try_insert(gpa, i, i + 10i32).should_ok().sum(@loc(), t);
     }
     map.capacity.should().eq(8usize).sum(@loc(), t);
@@ -243,7 +243,7 @@ fn check_traversal_predicates_and_lists[W](t: &mut Report[W]) void
         return key % 2 == 0;
     }).should().eq(2usize).sum(@loc(), t);
     map.find_map([](key: i32, value: i32) ?i32 {
-        if (key == 4) return .{ Some: value + 4 };
+        if key == 4 return .{ Some: value + 4 };
         return .None;
     }).should_some().eq(48).sum(@loc(), t);
 

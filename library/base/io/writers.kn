@@ -46,10 +46,10 @@ pub/ struct NullWriter {};
 
 impl &mut FixedBufferWriter : Write {
     pub fn write(buf: &[u8]) usize {
-        if (buf.@len() == 0) {
+        if buf.@len() == 0 {
             return 0;
         }
-        if (self.written >= self.buffer.@len()) {
+        if self.written >= self.buffer.@len() {
             self.overflowed = true;
             return 0;
         }
@@ -59,7 +59,7 @@ impl &mut FixedBufferWriter : Write {
         let out = (self.buffer.[0]..& + self.written)..&[0...count];
         _ = out.copy_from(buf.&[0...count]);
         self.written += count;
-        if (count < buf.@len()) {
+        if count < buf.@len() {
             self.overflowed = true;
         }
         return count;
@@ -68,13 +68,13 @@ impl &mut FixedBufferWriter : Write {
 
 impl &mut StringWriter : Write {
     pub fn write(buf: &[u8]) usize {
-        if (buf.@len() == 0) {
+        if buf.@len() == 0 {
             return 0;
         }
-        if (self.failed) {
+        if self.failed {
             return 0;
         }
-        if (self.string.try_push_str(self.alloc, buf).is_err()) {
+        if self.string.try_push_str(self.alloc, buf).is_err() {
             self.failed = true;
             return 0;
         }
@@ -96,18 +96,18 @@ impl &mut CountingWriter : Write {
 
 impl &mut BufWriter : Write {
     pub fn write(buf: &[u8]) usize {
-        if (buf.@len() == 0) {
+        if buf.@len() == 0 {
             return 0;
         }
-        if (self.failed) {
+        if self.failed {
             return 0;
         }
 
         let mut accepted = 0usize;
-        while (accepted < buf.@len()) {
-            if (self.buffer.@len() == 0) {
+        while accepted < buf.@len() {
+            if self.buffer.@len() == 0 {
                 let n = self.inner.write(buf.&[accepted...buf.@len()]);
-                if (n == 0) {
+                if n == 0 {
                     self.failed = true;
                     return accepted;
                 }
@@ -115,7 +115,7 @@ impl &mut BufWriter : Write {
                 continue;
             }
 
-            if (self.len == self.buffer.@len() and !self.flush_buffer()) {
+            if self.len == self.buffer.@len() and !self.flush_buffer() {
                 return accepted;
             }
 
@@ -132,10 +132,10 @@ impl &mut BufWriter : Write {
     }
 
     pub fn flush_write() bool {
-        if (!self.flush_buffer()) {
+        if !self.flush_buffer() {
             return false;
         }
-        if (!self.inner.flush_write()) {
+        if !self.inner.flush_write() {
             self.failed = true;
             return false;
         }
@@ -145,30 +145,30 @@ impl &mut BufWriter : Write {
 
 impl &mut LineWriter : Write {
     pub fn write(buf: &[u8]) usize {
-        if (buf.@len() == 0) {
+        if buf.@len() == 0 {
             return 0;
         }
-        if (self.failed) {
+        if self.failed {
             return 0;
         }
 
         let mut accepted = 0usize;
-        while (accepted < buf.@len()) {
-            if (self.buffer.@len() == 0) {
+        while accepted < buf.@len() {
+            if self.buffer.@len() == 0 {
                 let n = self.inner.write(buf.&[accepted...buf.@len()]);
-                if (n == 0) {
+                if n == 0 {
                     self.failed = true;
                     return accepted;
                 }
                 let saw_newline = contains_newline(buf, accepted, accepted + n);
                 accepted += n;
-                if (saw_newline and !self.flush_inner()) {
+                if saw_newline and !self.flush_inner() {
                     return accepted;
                 }
                 continue;
             }
 
-            if (self.len == self.buffer.@len() and !self.flush_buffer()) {
+            if self.len == self.buffer.@len() and !self.flush_buffer() {
                 return accepted;
             }
 
@@ -180,7 +180,7 @@ impl &mut LineWriter : Write {
             self.len += count;
             accepted += count;
 
-            if (buf.[accepted - 1] == b'\n' and !self.flush_line()) {
+            if buf.[accepted - 1] == b'\n' and !self.flush_line() {
                 return accepted;
             }
         }
@@ -189,7 +189,7 @@ impl &mut LineWriter : Write {
     }
 
     pub fn flush_write() bool {
-        if (!self.flush_buffer()) {
+        if !self.flush_buffer() {
             return false;
         }
         return self.flush_inner();
@@ -270,10 +270,10 @@ impl &LineWriter {
 impl &mut BufWriter {
     fn flush_buffer() bool {
         let mut written = 0usize;
-        while (written < self.len) {
+        while written < self.len {
             let n = self.inner.write(self.buffer.&[written...self.len]);
-            if (n == 0) {
-                if (written > 0) {
+            if n == 0 {
+                if written > 0 {
                     let remaining = self.len - written;
                     let view = self.buffer..&[0...self.len];
                     _ = view.copy_within(written, self.len, 0usize);
@@ -292,10 +292,10 @@ impl &mut BufWriter {
 impl &mut LineWriter {
     fn flush_buffer() bool {
         let mut written = 0usize;
-        while (written < self.len) {
+        while written < self.len {
             let n = self.inner.write(self.buffer.&[written...self.len]);
-            if (n == 0) {
-                if (written > 0) {
+            if n == 0 {
+                if written > 0 {
                     let remaining = self.len - written;
                     let view = self.buffer..&[0...self.len];
                     _ = view.copy_within(written, self.len, 0usize);
@@ -311,7 +311,7 @@ impl &mut LineWriter {
     }
 
     fn flush_inner() bool {
-        if (!self.inner.flush_write()) {
+        if !self.inner.flush_write() {
             self.failed = true;
             return false;
         }
@@ -319,7 +319,7 @@ impl &mut LineWriter {
     }
 
     fn flush_line() bool {
-        if (!self.flush_buffer()) {
+        if !self.flush_buffer() {
             return false;
         }
         return self.flush_inner();
@@ -328,8 +328,8 @@ impl &mut LineWriter {
 
 fn contains_newline(buf: &[u8], start: usize, end: usize) bool {
     let mut i = start;
-    while (i < end) {
-        if (buf.[i] == b'\n') {
+    while i < end {
+        if buf.[i] == b'\n' {
             return true;
         }
         i += 1;
@@ -339,9 +339,9 @@ fn contains_newline(buf: &[u8], start: usize, end: usize) bool {
 
 fn next_line_chunk_len(buf: &[u8], start: usize, limit: usize) usize {
     let mut count = 0usize;
-    while (count < limit) {
+    while count < limit {
         count += 1;
-        if (buf.[start + count - 1] == b'\n') {
+        if buf.[start + count - 1] == b'\n' {
             return count;
         }
     }
@@ -386,9 +386,9 @@ impl &mut Write {
     /// Repeatedly writes until the full buffer has been accepted.
     pub fn write_all(buf: &[u8]) bool {
         let mut written = 0usize;
-        while (written < buf.@len()) {
+        while written < buf.@len() {
             let n = self.write(buf.&[written...buf.@len()]);
-            if (n == 0) {
+            if n == 0 {
                 return false;
             }
             written += n;

@@ -142,7 +142,7 @@ pub enum ExprKind {
         result: Option<Box<Expr>>,
     },
 
-    /// `while (cond) body`
+    /// `while cond body`
     While {
         cond: Box<Expr>,
         body: Box<Expr>,

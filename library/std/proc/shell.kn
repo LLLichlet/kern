@@ -7,7 +7,7 @@ use std.host.os;
 
 extern struct PipeStream {};
 
-#[if(os == "linux")]
+#[if os == "linux"]
 extern {
     #[export_name("popen")]
     fn system_popen(command: &u8, mode: &u8) &mut PipeStream;
@@ -27,7 +27,7 @@ extern {
     fn system_ferror(stream: &mut PipeStream) i32;
 }
 
-#[if(os == "darwin")]
+#[if os == "darwin"]
 extern {
     #[export_name("popen")]
     fn system_popen(command: &u8, mode: &u8) &mut PipeStream;
@@ -60,12 +60,12 @@ pub enum Error {
     ReadFailed,
 };
 
-#[if(os == "darwin")]
+#[if os == "darwin"]
 fn build_shell_command(alloc: &mut Allocator, command: &[u8]) String!Error {
     let mut wrapped = String.{};
-    if (wrapped..&.try_push_str(alloc, "(").is_err()
+    if wrapped..&.try_push_str(alloc, "(").is_err()
         or wrapped..&.try_push_str(alloc, command).is_err()
-        or wrapped..&.try_push_str(alloc, ") 2>&1").is_err())
+        or wrapped..&.try_push_str(alloc, ") 2>&1").is_err()
     {
         wrapped..&.deinit(alloc);
         return .{ Err: .OutOfMemory };
@@ -73,29 +73,29 @@ fn build_shell_command(alloc: &mut Allocator, command: &[u8]) String!Error {
     return .{ Ok: wrapped };
 }
 
-#[if(os == "linux")]
+#[if os == "linux"]
 fn map_shell_capture_error(err: os.Error) Error {
-    if (err.code == 12) {
+    if err.code == 12 {
         return .OutOfMemory;
     }
-    if (err.code == 9 or err.code == 32 or err.code == 5) {
+    if err.code == 9 or err.code == 32 or err.code == 5 {
         return .ReadFailed;
     }
     return .SpawnFailed;
 }
 
-#[if(os == "windows")]
+#[if os == "windows"]
 fn map_shell_capture_error(err: os.Error) Error {
-    if (err.code == 8 or err.code == 14) {
+    if err.code == 8 or err.code == 14 {
         return .OutOfMemory;
     }
-    if (err.code == 5 or err.code == 6 or err.code == 109) {
+    if err.code == 5 or err.code == 6 or err.code == 109 {
         return .ReadFailed;
     }
     return .SpawnFailed;
 }
 
-#[if(os == "darwin")]
+#[if os == "darwin"]
 fn decode_shell_status(raw: i32) i32 {
     return (raw >> 8) & 255;
 }
@@ -110,21 +110,21 @@ impl &[u8] {
     /// `cmd.exe`. Do not pass untrusted input to this function unless every
     /// interpolated value has been quoted for the target shell.
     pub fn shell_capture(alloc: &mut Allocator) Capture!Error {
-        #[if(os == "linux")]
+        #[if os == "linux"]
         {
             let capture = os.shell_capture(alloc, self)
                 .map_err(map_shell_capture_error).?;
             return .{ Ok: .{ output: capture.output, status: capture.status } };
         }
 
-        #[if(os == "windows")]
+        #[if os == "windows"]
         {
             let capture = os.shell_capture(alloc, self)
                 .map_err(map_shell_capture_error).?;
             return .{ Ok: .{ output: capture.output, status: capture.status } };
         }
 
-        #[if(os == "darwin")]
+        #[if os == "darwin"]
         {
             let wrapped = build_shell_command(alloc, self).?..&;
             defer wrapped.deinit(alloc);
@@ -142,30 +142,30 @@ impl &[u8] {
             defer mode.deinit(alloc);
 
             let stream = system_popen(wrapped_c.ptr(), mode.ptr());
-            if ((stream as usize) == 0) {
+            if (stream as usize) == 0 {
                 return .{ Err: .SpawnFailed };
             }
 
             let output = String.{}..&;
             let mut chunk: [1024]u8 = undef;
-            while (true) {
+            while true {
                 let read = system_fread(
                     chunk.[0]..&,
                     1,
                     1024,
                     stream,
                 );
-                if (read == 0) {
+                if read == 0 {
                     break;
                 }
-                if (output.try_push_str(alloc, chunk.&[0...read]).is_err()) {
+                if output.try_push_str(alloc, chunk.&[0...read]).is_err() {
                     _ = system_pclose(stream);
                     output.deinit(alloc);
                     return .{ Err: .OutOfMemory };
                 }
             }
 
-            if (system_ferror(stream) != 0) {
+            if system_ferror(stream) != 0 {
                 _ = system_pclose(stream);
                 output.deinit(alloc);
                 return .{ Err: .ReadFailed };

@@ -96,7 +96,7 @@ The source file may export `_start` directly:
 ```kern
 #[export_name("_start")]
 fn kmain() void {
-    while (true) {}
+    while true {}
     @unreachable();
 }
 ```
@@ -799,7 +799,7 @@ pub fn build(b: &mut builder.Builder) void {
     b.cfg_bool("generated", true);
     b.define_string("entry", "generated");
 
-    match (b.target.os) {
+    match b.target.os {
         .windows => b.link_system_lib("ws2_32"),
         .darwin => b.link_framework("Security"),
         .linux => {},

@@ -7,7 +7,7 @@ fn main() i32 {
 
     view.[1] = b'Z';
 
-    if (data.[1] == b'Z') {
+    if data.[1] == b'Z' {
         return 0;
     }
     return 1;

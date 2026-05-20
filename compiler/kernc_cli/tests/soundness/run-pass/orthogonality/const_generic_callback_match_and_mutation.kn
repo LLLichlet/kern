@@ -7,7 +7,7 @@ enum Pick {
 }
 
 fn choose[N: usize](items: [N]i32, pick: Pick) i32 {
-    return match (pick) {
+    return match pick {
         .{ Index: index } => items.[index],
         .{ Fallback: value } => value,
     };
@@ -16,7 +16,7 @@ fn choose[N: usize](items: [N]i32, pick: Pick) i32 {
 fn apply(cb: &Fn([4]i32, Pick) i32, items: [4]i32) i32 {
     let mut total = 0i32;
     let mut index = 0usize;
-    while (index < 4usize) {
+    while index < 4usize {
         total += cb(items, Pick.{ Index: index });
         index += 1usize;
     }

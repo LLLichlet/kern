@@ -52,7 +52,7 @@ separate function-default-argument syntax for many APIs:
 
 ```kern
 fn connect(options: Config) i32 {
-    if (options.verbose) {
+    if options.verbose {
         return options.port as i32 + options.retries as i32;
     }
     return options.port as i32;
@@ -191,7 +191,7 @@ enum Color: u8 {
 };
 
 fn color_from_byte(raw: u8) Color {
-    return match (raw) {
+    return match raw {
         0 => Color.Red,
         1 => Color.Green,
         2 => Color.Blue,

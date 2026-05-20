@@ -14,7 +14,7 @@ const CONTEXTUAL = contextual_missing();
 const QUALIFIED = qualified_missing();
 
 fn score(value: ?usize) i32 {
-    return match (value) {
+    return match value {
         .{ Some: _ } => 10,
         .None => 0,
     };

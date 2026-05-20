@@ -17,7 +17,7 @@ Kern 没有 C 预处理器式宏系统。需要影响编译、布局、链接、
 ```kern
 #[export_name("_start")]
 fn kmain() void {
-    while (true) {}
+    while true {}
     @unreachable();
 }
 ```
@@ -25,7 +25,7 @@ fn kmain() void {
 内层属性作用在当前词法作用域，常见于文件或模块开头：
 
 ```kern
-#![if(os == "linux")]
+#![if os == "linux"]
 ```
 
 属性内容分两类：条件编译表达式和 metadata tags。不要把两类内容混在同一个 `#[...]` 里。
@@ -35,17 +35,17 @@ fn kmain() void {
 条件属性会在语义分析前裁剪代码：
 
 ```kern
-#[if(os == "linux")]
+#[if os == "linux"]
 mod linux;
 
-#[if(os == "windows")]
+#[if os == "windows"]
 mod windows;
 ```
 
 条件表达式使用 Kern 自己的布尔运算语法：`and`、`or`、`!`。也可以读取编译配置里的定义：
 
 ```kern
-#[if((os == "linux" or os == "darwin") and !libc)]
+#[if os == "linux" or os == "darwin" and !libc]
 mod posix_no_libc;
 ```
 
@@ -112,7 +112,7 @@ fn exit_now(code: i32) ! {
 }
 
 fn expect_nonzero(value: i32) i32 {
-    if (value == 0) {
+    if value == 0 {
         @trap();
     }
     return value;
@@ -227,7 +227,7 @@ let mask = a < b;
 算术、位运算和比较都是逐 lane 运算。比较结果是 `boolxN`，不能直接放进 `if`，需要显式归约：
 
 ```kern
-if (@simdAny(mask)) {
+if @simdAny(mask) {
     @breakpoint();
 }
 ```
@@ -273,7 +273,7 @@ fn first_non_space(chunk: &u8) usize {
         (bytes == @simdSplat[u8x16](b'\t'));
 
     let non_spaces = @simdBitmask(!spaces);
-    if (non_spaces == 0) {
+    if non_spaces == 0 {
         return 16usize;
     }
     return @ctz(non_spaces);

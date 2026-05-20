@@ -27,7 +27,7 @@ pub/ struct BufReader {
 
 impl &mut SliceReader : Read {
     pub fn read(buf: &mut [u8]) usize {
-        if (buf.@len() == 0 or self.pos >= self.data.@len()) {
+        if buf.@len() == 0 or self.pos >= self.data.@len() {
             return 0;
         }
 
@@ -42,7 +42,7 @@ impl &mut SliceReader : Read {
 
 impl &mut LimitReader : Read {
     pub fn read(buf: &mut [u8]) usize {
-        if (buf.@len() == 0 or self.remaining == 0) {
+        if buf.@len() == 0 or self.remaining == 0 {
             return 0;
         }
 
@@ -55,20 +55,20 @@ impl &mut LimitReader : Read {
 
 impl &mut BufReader : Read {
     pub fn read(buf: &mut [u8]) usize {
-        if (buf.@len() == 0) {
+        if buf.@len() == 0 {
             return 0;
         }
 
         let buffered = self.buffered_len();
-        if (buffered > 0) {
+        if buffered > 0 {
             return self.copy_buffered(buf);
         }
 
-        if (self.buffer.@len() == 0 or buf.@len() >= self.buffer.@len()) {
+        if self.buffer.@len() == 0 or buf.@len() >= self.buffer.@len() {
             return self.inner.read(buf);
         }
 
-        if (!self.refill()) {
+        if !self.refill() {
             return 0;
         }
         return self.copy_buffered(buf);
@@ -121,7 +121,7 @@ impl &mut BufReader {
         let target = out..&[0...count];
         _ = target.copy_from(self.buffer.&[self.start...self.start + count]);
         self.start += count;
-        if (self.start == self.end) {
+        if self.start == self.end {
             self.start = 0;
             self.end = 0;
         }
@@ -157,9 +157,9 @@ impl &mut Read {
     /// Reads exactly `buf.@len()` bytes unless the reader reaches EOF first.
     pub fn read_exact(buf: &mut [u8]) bool {
         let mut filled = 0usize;
-        while (filled < buf.@len()) {
+        while filled < buf.@len() {
             let n = self.read((buf.[0]..& + filled)..&[0...buf.@len() - filled]);
-            if (n == 0) {
+            if n == 0 {
                 return false;
             }
             filled += n;
@@ -171,10 +171,10 @@ impl &mut Read {
     pub fn skip(count: usize) usize {
         let mut scratch: [128]u8 = undef;
         let mut skipped = 0usize;
-        while (skipped < count) {
+        while skipped < count {
             let want = (scratch.@len()).min(count - skipped);
             let n = self.read(scratch..&[0...want]);
-            if (n == 0) {
+            if n == 0 {
                 return skipped;
             }
             skipped += n;
@@ -187,16 +187,16 @@ impl &mut Read {
         let mut scratch: [1024]u8 = undef;
         let mut copied = 0usize;
 
-        while (true) {
+        while true {
             let n = self.read(scratch..&[0...1024]);
-            if (n == 0) {
+            if n == 0 {
                 return copied;
             }
 
             let mut written = 0usize;
-            while (written < n) {
+            while written < n {
                 let out = writer.write(scratch.&[written...n]);
-                if (out == 0) {
+                if out == 0 {
                     return copied;
                 }
                 written += out;
@@ -216,12 +216,12 @@ impl &mut Read {
     pub fn read_to_end(alloc: &mut Allocator) List[u8]!AllocError {
         let out = List[u8].{}..&;
         let mut scratch: [256]u8 = undef;
-        while (true) {
+        while true {
             let n = self.read(scratch..&[0...256]);
-            if (n == 0) {
+            if n == 0 {
                 return .{ Ok: out.* };
             }
-            match (out.try_append_slice(alloc, scratch.&[0...n])) {
+            match out.try_append_slice(alloc, scratch.&[0...n]) {
                 .{ Ok: _ } => {},
                 .{ Err: err } => {
                     out.deinit(alloc);

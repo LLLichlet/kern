@@ -9,7 +9,7 @@ enum Mode {
 };
 
 fn parse(flag: bool) usize!i32 {
-    if (flag) {
+    if flag {
         return .{ Ok: 7 };
     }
     return .{ Err: -1 };

@@ -50,8 +50,6 @@ struct Ui {
 struct StepProgress<'a> {
     ui: &'a Ui,
     message: String,
-    index: usize,
-    total: usize,
     start: Instant,
 }
 
@@ -431,11 +429,7 @@ impl Ui {
 
     fn start_step(&self, index: usize, total: usize, message: String) -> StepProgress<'_> {
         if self.verbose || !self.terminal {
-            self.line(format!(
-                "  {} {} {message}",
-                self.paint("1;34", "=>"),
-                self.progress_label(index.saturating_sub(1), total),
-            ));
+            self.line(format!("  {} {message}", self.paint("1;34", "=>")));
         } else {
             let _ = write!(
                 std::io::stderr(),
@@ -447,8 +441,6 @@ impl Ui {
         StepProgress {
             ui: self,
             message,
-            index,
-            total,
             start: Instant::now(),
         }
     }
@@ -461,17 +453,6 @@ impl Ui {
         format!(
             "kernup {} {percent:>3}%",
             self.paint("1;34", &render_progress_bar(completed, total, 18))
-        )
-    }
-
-    fn progress_label(&self, completed: usize, total: usize) -> String {
-        let percent = completed
-            .saturating_mul(100)
-            .checked_div(total.max(1))
-            .unwrap_or(0);
-        format!(
-            "{} {percent:>3}%",
-            render_progress_bar(completed, total, 12)
         )
     }
 
@@ -510,19 +491,15 @@ impl StepProgress<'_> {
         let elapsed = format_duration(self.start.elapsed());
         if self.ui.verbose || !self.ui.terminal {
             self.ui.line(format!(
-                "  {} {} {} {elapsed}",
+                "  {} {} {elapsed}",
                 self.ui.paint(code, marker),
-                self.ui
-                    .progress_label(self.index.min(self.total), self.total),
                 self.message
             ));
         } else {
             let _ = writeln!(
                 std::io::stderr(),
-                "\r\x1b[2K{} {} {} {elapsed}",
+                "\r\x1b[2K{} {} {elapsed}",
                 self.ui.paint(code, marker),
-                self.ui
-                    .progress_line(self.index.min(self.total), self.total),
                 self.message
             );
         }

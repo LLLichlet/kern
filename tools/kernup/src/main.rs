@@ -8,10 +8,13 @@ use shared_ops::{
     OpsError, OpsResult, archive_kind_from_path, configure_path, copy_sdk_contents,
     default_install_root, detect_host_target, download_file, extract_archive_with_system_tool,
     fetch_latest_github_release, infer_release_version_from_archive_name, make_temp_dir,
-    remove_path_if_exists, validate_sdk_root, verify_installed_tools,
+    remove_path_if_exists, set_command_logging_enabled, set_status_logging_enabled,
+    validate_sdk_root, verify_installed_tools,
 };
 use std::env;
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 enum Command {
@@ -29,11 +32,32 @@ struct InstallArgs {
     target: Option<String>,
     github_repo: String,
     no_path: bool,
+    verbose: bool,
 }
 
 #[derive(Debug, Default)]
 struct DoctorArgs {
     dest: Option<PathBuf>,
+    verbose: bool,
+}
+
+struct Ui {
+    verbose: bool,
+    terminal: bool,
+    color: ColorChoice,
+}
+
+struct StepProgress<'a> {
+    ui: &'a Ui,
+    message: String,
+    index: usize,
+    total: usize,
+    start: Instant,
+}
+
+struct OpsLoggingGuard {
+    previous_command: bool,
+    previous_status: bool,
 }
 
 fn main() {
@@ -62,13 +86,14 @@ fn run() -> OpsResult<()> {
 }
 
 fn parse_args(args: Vec<String>) -> OpsResult<Command> {
+    let (verbose, args) = strip_verbose_flags(args);
     let Some(command) = args.first().map(String::as_str) else {
         return Ok(Command::Help);
     };
 
     match command {
-        "install" => parse_install_args(&args[1..]).map(Command::Install),
-        "doctor" => parse_doctor_args(&args[1..]).map(Command::Doctor),
+        "install" => parse_install_args(&args[1..], verbose).map(Command::Install),
+        "doctor" => parse_doctor_args(&args[1..], verbose).map(Command::Doctor),
         "target" => Ok(Command::Target),
         "help" | "--help" | "-h" => Ok(Command::Help),
         other => Err(OpsError::new(format!(
@@ -77,9 +102,23 @@ fn parse_args(args: Vec<String>) -> OpsResult<Command> {
     }
 }
 
-fn parse_install_args(args: &[String]) -> OpsResult<InstallArgs> {
+fn strip_verbose_flags(args: Vec<String>) -> (bool, Vec<String>) {
+    let mut verbose = false;
+    let mut stripped = Vec::new();
+    for arg in args {
+        if arg == "-v" || arg == "--verbose" {
+            verbose = true;
+        } else {
+            stripped.push(arg);
+        }
+    }
+    (verbose, stripped)
+}
+
+fn parse_install_args(args: &[String], verbose: bool) -> OpsResult<InstallArgs> {
     let mut parsed = InstallArgs {
         github_repo: "kern-project/kern".into(),
+        verbose,
         ..InstallArgs::default()
     };
     let mut index = 0;
@@ -123,6 +162,9 @@ fn parse_install_args(args: &[String]) -> OpsResult<InstallArgs> {
             "--no-path" => {
                 parsed.no_path = true;
             }
+            "-v" | "--verbose" => {
+                parsed.verbose = true;
+            }
             "--help" | "-h" => {
                 print!("{}", install_help().render(ColorChoice::Auto));
                 std::process::exit(0);
@@ -138,8 +180,11 @@ fn parse_install_args(args: &[String]) -> OpsResult<InstallArgs> {
     Ok(parsed)
 }
 
-fn parse_doctor_args(args: &[String]) -> OpsResult<DoctorArgs> {
-    let mut parsed = DoctorArgs::default();
+fn parse_doctor_args(args: &[String], verbose: bool) -> OpsResult<DoctorArgs> {
+    let mut parsed = DoctorArgs {
+        verbose,
+        ..DoctorArgs::default()
+    };
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -149,6 +194,9 @@ fn parse_doctor_args(args: &[String]) -> OpsResult<DoctorArgs> {
                     return Err(OpsError::new("`--dest` requires a value"));
                 };
                 parsed.dest = Some(PathBuf::from(value));
+            }
+            "-v" | "--verbose" => {
+                parsed.verbose = true;
             }
             "--help" | "-h" => {
                 print!("{}", doctor_help().render(ColorChoice::Auto));
@@ -166,6 +214,8 @@ fn parse_doctor_args(args: &[String]) -> OpsResult<DoctorArgs> {
 }
 
 fn install(args: InstallArgs) -> OpsResult<()> {
+    let ui = Ui::new(args.verbose);
+    let _logging = OpsLoggingGuard::set(args.verbose, args.verbose);
     let host = detect_host_target()?;
     let target = args
         .target
@@ -181,30 +231,58 @@ fn install(args: InstallArgs) -> OpsResult<()> {
     let install_root = args.dest.clone().unwrap_or(default_install_root(&host)?);
     let temp_root = make_temp_dir("kernup-install-")?;
     let result = (|| -> OpsResult<()> {
-        let (archive, version) = resolve_install_archive(&args, &target, &host, &temp_root)?;
-        let extract_root = temp_root.join("extract");
-        let sdk_root = extract_archive_with_system_tool(
-            &archive,
-            &extract_root,
-            archive_kind_from_path(&archive)?,
+        ui.header("install", &target);
+        ui.meta("dest", install_root.display());
+        let total_steps = install_step_count(&args);
+        let mut step = 0usize;
+        let (archive, version) = resolve_install_archive(
+            &args,
+            &target,
+            &host,
+            &temp_root,
+            &ui,
+            &mut step,
+            total_steps,
         )?;
-        validate_sdk_root(&sdk_root, &target)?;
-        copy_sdk_contents(&sdk_root, &install_root)?;
-        println!("=> Verifying installed tools...");
-        verify_installed_tools(&install_root, &host)?;
+        let extract_root = temp_root.join("extract");
+        step += 1;
+        let sdk_root = ui.step(step, total_steps, "extract", || {
+            extract_archive_with_system_tool(
+                &archive,
+                &extract_root,
+                archive_kind_from_path(&archive)?,
+            )
+        })?;
+        step += 1;
+        ui.step(step, total_steps, "validate", || {
+            validate_sdk_root(&sdk_root, &target).map(|_| ())
+        })?;
+        step += 1;
+        ui.step(step, total_steps, "install", || {
+            copy_sdk_contents(&sdk_root, &install_root)
+        })?;
+        step += 1;
+        ui.step(step, total_steps, "verify", || {
+            verify_installed_tools(&install_root, &host)
+        })?;
         if args.no_path {
-            println!(
-                "=> Skipped PATH configuration. Add `{}` to PATH when ready.",
-                install_root.join("bin").display()
+            ui.status(
+                "path",
+                format!(
+                    "add `{}` to PATH when ready",
+                    install_root.join("bin").display()
+                ),
             );
         } else {
-            println!("=> Configuring PATH...");
-            configure_path(&install_root.join("bin"), &host)?;
+            step += 1;
+            ui.step(step, total_steps, "path", || {
+                configure_path(&install_root.join("bin"), &host)
+            })?;
         }
-        println!(
-            "Kern {version} SDK installed successfully into {}",
+        ui.ok(format!(
+            "Kern {version} SDK installed into {}",
             install_root.display()
-        );
+        ));
         Ok(())
     })();
     let _ = remove_path_if_exists(&temp_root);
@@ -216,55 +294,285 @@ fn resolve_install_archive(
     target: &str,
     host: &shared_ops::HostTarget,
     temp_root: &std::path::Path,
+    ui: &Ui,
+    step: &mut usize,
+    total_steps: usize,
 ) -> OpsResult<(PathBuf, String)> {
     if let Some(archive) = &args.archive {
-        if !archive.is_file() {
-            return Err(OpsError::new(format!(
-                "archive `{}` does not exist",
-                archive.display()
-            )));
-        }
-        let version = args
-            .version
-            .clone()
-            .or_else(|| {
-                archive
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .and_then(|name| infer_release_version_from_archive_name(name, target))
-            })
-            .unwrap_or_else(|| "<local>".to_string());
-        return Ok((archive.clone(), version));
+        *step += 1;
+        return ui.step(*step, total_steps, "resolve archive", || {
+            if !archive.is_file() {
+                return Err(OpsError::new(format!(
+                    "archive `{}` does not exist",
+                    archive.display()
+                )));
+            }
+            let version = args
+                .version
+                .clone()
+                .or_else(|| {
+                    archive
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .and_then(|name| infer_release_version_from_archive_name(name, target))
+                })
+                .unwrap_or_else(|| "<local>".to_string());
+            ui.meta("archive", archive.display());
+            Ok((archive.clone(), version))
+        });
     }
 
-    let version = args
-        .version
-        .clone()
-        .or_else(|| {
-            fetch_latest_github_release(&args.github_repo)
+    let version = if let Some(version) = args.version.clone() {
+        version
+    } else {
+        *step += 1;
+        ui.step(*step, total_steps, "resolve", || {
+            Ok(fetch_latest_github_release(&args.github_repo)
                 .ok()
                 .flatten()
-        })
-        .unwrap_or_else(|| "v0.7.7".to_string());
+                .unwrap_or_else(|| "v0.7.7".to_string()))
+        })?
+    };
     let archive_name = format!("kern-{version}-{target}.{}", host.archive_extension);
     let archive = temp_root.join(&archive_name);
     let url = format!(
         "https://github.com/{}/releases/download/{version}/{archive_name}",
         args.github_repo
     );
-    println!("=> Downloading Kern {version}...");
-    download_file(&url, &archive)?;
+    *step += 1;
+    ui.step(*step, total_steps, format!("download {version}"), || {
+        download_file(&url, &archive)
+    })?;
     Ok((archive, version))
 }
 
 fn doctor(args: DoctorArgs) -> OpsResult<()> {
+    let ui = Ui::new(args.verbose);
+    let _logging = OpsLoggingGuard::set(args.verbose, args.verbose);
     let host = detect_host_target()?;
     let install_root = args.dest.unwrap_or(default_install_root(&host)?);
-    validate_sdk_root(&install_root, &host.archive_target)?;
-    println!("=> SDK manifest and layout are valid.");
-    verify_installed_tools(&install_root, &host)?;
-    println!("kernup doctor: ok");
+    ui.header("doctor", &host.archive_target);
+    ui.meta("dest", install_root.display());
+    ui.step(1, 2, "validate", || {
+        validate_sdk_root(&install_root, &host.archive_target).map(|_| ())
+    })?;
+    ui.step(2, 2, "verify", || {
+        verify_installed_tools(&install_root, &host)
+    })?;
+    ui.ok("SDK installation is healthy");
     Ok(())
+}
+
+fn install_step_count(args: &InstallArgs) -> usize {
+    let mut count = 4usize;
+    if args.archive.is_some() {
+        count += 1;
+    } else {
+        count += if args.version.is_some() { 1 } else { 2 };
+    }
+    if !args.no_path {
+        count += 1;
+    }
+    count
+}
+
+impl Ui {
+    fn new(verbose: bool) -> Self {
+        Self {
+            verbose,
+            terminal: std::io::stderr().is_terminal(),
+            color: ColorChoice::Auto,
+        }
+    }
+
+    fn header(&self, command: &str, target: &str) {
+        self.line(format!(
+            "{} {} {target}",
+            self.paint("1;36", "==>"),
+            self.paint("1;36", command)
+        ));
+    }
+
+    fn meta(&self, label: &str, value: impl std::fmt::Display) {
+        if self.verbose {
+            self.line(format!(
+                "    {} {value}",
+                self.paint("2", &format!("{label:<10}"))
+            ));
+        }
+    }
+
+    fn status(&self, label: &str, value: impl std::fmt::Display) {
+        self.line(format!(
+            "    {} {value}",
+            self.paint("2", &format!("{label:<10}"))
+        ));
+    }
+
+    fn ok(&self, message: impl std::fmt::Display) {
+        self.line(format!("{} {message}", self.paint("1;32", "[ok]")));
+    }
+
+    fn step<T>(
+        &self,
+        index: usize,
+        total: usize,
+        message: impl Into<String>,
+        action: impl FnOnce() -> OpsResult<T>,
+    ) -> OpsResult<T> {
+        let progress = self.start_step(index, total, message.into());
+        let result = action();
+        match &result {
+            Ok(_) => progress.finish_ok(),
+            Err(_) => progress.finish_err(),
+        }
+        result
+    }
+
+    fn start_step(&self, index: usize, total: usize, message: String) -> StepProgress<'_> {
+        if self.verbose || !self.terminal {
+            self.line(format!(
+                "  {} {} {message}",
+                self.paint("1;34", "=>"),
+                self.progress_label(index.saturating_sub(1), total),
+            ));
+        } else {
+            let _ = write!(
+                std::io::stderr(),
+                "\r\x1b[2K{} {message}",
+                self.progress_line(index.saturating_sub(1), total)
+            );
+            let _ = std::io::stderr().flush();
+        }
+        StepProgress {
+            ui: self,
+            message,
+            index,
+            total,
+            start: Instant::now(),
+        }
+    }
+
+    fn progress_line(&self, completed: usize, total: usize) -> String {
+        let percent = completed
+            .saturating_mul(100)
+            .checked_div(total.max(1))
+            .unwrap_or(0);
+        format!(
+            "kernup {} {percent:>3}%",
+            self.paint("1;34", &render_progress_bar(completed, total, 18))
+        )
+    }
+
+    fn progress_label(&self, completed: usize, total: usize) -> String {
+        let percent = completed
+            .saturating_mul(100)
+            .checked_div(total.max(1))
+            .unwrap_or(0);
+        format!(
+            "{} {percent:>3}%",
+            render_progress_bar(completed, total, 12)
+        )
+    }
+
+    fn paint(&self, code: &str, text: &str) -> String {
+        if !self.color_enabled() {
+            return text.to_string();
+        }
+        format!("\x1b[{code}m{text}\x1b[0m")
+    }
+
+    fn color_enabled(&self) -> bool {
+        match self.color {
+            ColorChoice::Always => true,
+            ColorChoice::Never => false,
+            ColorChoice::Auto => self.terminal && env::var_os("NO_COLOR").is_none(),
+        }
+    }
+
+    fn line(&self, line: impl std::fmt::Display) {
+        let mut stderr = std::io::stderr();
+        let _ = writeln!(stderr, "{line}");
+        let _ = stderr.flush();
+    }
+}
+
+impl StepProgress<'_> {
+    fn finish_ok(self) {
+        self.finish("1;32", "[ok]");
+    }
+
+    fn finish_err(self) {
+        self.finish("1;31", "[err]");
+    }
+
+    fn finish(self, code: &str, marker: &str) {
+        let elapsed = format_duration(self.start.elapsed());
+        if self.ui.verbose || !self.ui.terminal {
+            self.ui.line(format!(
+                "  {} {} {} {elapsed}",
+                self.ui.paint(code, marker),
+                self.ui
+                    .progress_label(self.index.min(self.total), self.total),
+                self.message
+            ));
+        } else {
+            let _ = writeln!(
+                std::io::stderr(),
+                "\r\x1b[2K{} {} {} {elapsed}",
+                self.ui.paint(code, marker),
+                self.ui
+                    .progress_line(self.index.min(self.total), self.total),
+                self.message
+            );
+        }
+    }
+}
+
+impl OpsLoggingGuard {
+    fn set(command: bool, status: bool) -> Self {
+        let previous_command = set_command_logging_enabled(command);
+        let previous_status = set_status_logging_enabled(status);
+        Self {
+            previous_command,
+            previous_status,
+        }
+    }
+}
+
+impl Drop for OpsLoggingGuard {
+    fn drop(&mut self) {
+        set_command_logging_enabled(self.previous_command);
+        set_status_logging_enabled(self.previous_status);
+    }
+}
+
+fn render_progress_bar(completed: usize, total: usize, width: usize) -> String {
+    if total == 0 {
+        return format!("[>{}]", "-".repeat(width.saturating_sub(1)));
+    }
+    if completed >= total {
+        return format!("[{}]", "=".repeat(width));
+    }
+    let filled = completed.saturating_mul(width) / total;
+    let head = filled.min(width.saturating_sub(1));
+    format!(
+        "[{}>{}]",
+        "=".repeat(head),
+        "-".repeat(width.saturating_sub(head + 1))
+    )
+}
+
+fn format_duration(duration: Duration) -> String {
+    if duration.as_secs() >= 60 {
+        let mins = duration.as_secs() / 60;
+        let secs = duration.as_secs() % 60;
+        format!("{mins}m{secs:02}s")
+    } else if duration.as_secs() >= 1 {
+        format!("{}s", duration.as_secs())
+    } else {
+        "<1s".to_string()
+    }
 }
 
 fn help() -> HelpDoc {
@@ -308,7 +616,8 @@ fn install_help() -> HelpDoc {
                     "host target label; defaults to the current host",
                 )
                 .entry("--github-repo <repo>", "GitHub repository for release downloads")
-                .entry("--no-path", "skip PATH configuration"),
+                .entry("--no-path", "skip PATH configuration")
+                .entry("-v, --verbose", "print command-level installation details"),
         )
         .note("This command installs release SDK archives; it is not a source-build command.")
 }
@@ -317,8 +626,48 @@ fn doctor_help() -> HelpDoc {
     HelpDoc::new("kernup doctor")
         .summary("Validate a Kern SDK installation.")
         .usage("kernup doctor [--dest <path>]")
-        .section(HelpSection::new("Options").entry(
-            "--dest <path>",
-            "installation directory; defaults to ~/.kern",
-        ))
+        .section(
+            HelpSection::new("Options")
+                .entry(
+                    "--dest <path>",
+                    "installation directory; defaults to ~/.kern",
+                )
+                .entry("-v, --verbose", "print command-level validation details"),
+        )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_verbose_before_or_after_command() {
+        match parse_args(vec!["-v".into(), "doctor".into()]).unwrap() {
+            Command::Doctor(args) => assert!(args.verbose),
+            _ => panic!("expected doctor command"),
+        }
+        match parse_args(vec!["install".into(), "--verbose".into()]).unwrap() {
+            Command::Install(args) => assert!(args.verbose),
+            _ => panic!("expected install command"),
+        }
+    }
+
+    #[test]
+    fn install_step_count_tracks_download_and_path_steps() {
+        let mut args = InstallArgs::default();
+        assert_eq!(install_step_count(&args), 7);
+        args.version = Some("v0.7.7".into());
+        assert_eq!(install_step_count(&args), 6);
+        args.archive = Some(PathBuf::from("kern.tar.gz"));
+        assert_eq!(install_step_count(&args), 6);
+        args.no_path = true;
+        assert_eq!(install_step_count(&args), 5);
+    }
+
+    #[test]
+    fn renders_progress_bar_like_craft() {
+        assert_eq!(render_progress_bar(0, 4, 6), "[>-----]");
+        assert_eq!(render_progress_bar(2, 4, 6), "[===>--]");
+        assert_eq!(render_progress_bar(4, 4, 6), "[======]");
+    }
 }

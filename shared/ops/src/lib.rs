@@ -13,10 +13,13 @@ use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const HOST_TOOL_BINARIES: &[&str] = &["kernc", "craft", "kern-lsp"];
 pub const OFFICIAL_LIBRARY_LAYERS: &[&str] = &["base", "rt", "std"];
+static COMMAND_LOGGING_ENABLED: AtomicBool = AtomicBool::new(true);
+static STATUS_LOGGING_ENABLED: AtomicBool = AtomicBool::new(true);
 
 #[derive(Debug)]
 pub struct OpsError {
@@ -137,6 +140,22 @@ pub fn repo_root() -> OpsResult<PathBuf> {
 
 pub fn read_json_value(path: &Path) -> OpsResult<serde_json::Value> {
     Ok(serde_json::from_str(&fs::read_to_string(path)?)?)
+}
+
+pub fn set_command_logging_enabled(enabled: bool) -> bool {
+    COMMAND_LOGGING_ENABLED.swap(enabled, Ordering::Relaxed)
+}
+
+pub fn set_status_logging_enabled(enabled: bool) -> bool {
+    STATUS_LOGGING_ENABLED.swap(enabled, Ordering::Relaxed)
+}
+
+fn command_logging_enabled() -> bool {
+    COMMAND_LOGGING_ENABLED.load(Ordering::Relaxed)
+}
+
+fn status_logging_enabled() -> bool {
+    STATUS_LOGGING_ENABLED.load(Ordering::Relaxed)
 }
 
 pub fn write_json_value(path: &Path, value: &serde_json::Value) -> OpsResult<()> {
@@ -591,14 +610,16 @@ fn verify_binary_starts_with_env(
         let first = first_non_empty_line(&result.stdout)
             .or_else(|| first_non_empty_line(&result.stderr))
             .unwrap_or("<no version output>");
-        println!(
-            "=> Verified {}: {}",
-            binary_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("<unknown>"),
-            first
-        );
+        if status_logging_enabled() {
+            println!(
+                "=> Verified {}: {}",
+                binary_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("<unknown>"),
+                first
+            );
+        }
         Ok(result)
     } else {
         Err(OpsError::new(format!(
@@ -622,13 +643,15 @@ pub fn run_command_with_env(
     if cmd.is_empty() {
         return Err(OpsError::new("cannot run an empty command"));
     }
-    eprintln!(
-        "=> Running: {}",
-        cmd.iter()
-            .map(|part| part.to_string_lossy())
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
+    if command_logging_enabled() {
+        eprintln!(
+            "=> Running: {}",
+            cmd.iter()
+                .map(|part| part.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+    }
     let mut command = Command::new(&cmd[0]);
     command.args(&cmd[1..]);
     if let Some(cwd) = cwd {
@@ -669,13 +692,15 @@ pub fn run_command_capture_with_env(
     if cmd.is_empty() {
         return Err(OpsError::new("cannot run an empty command"));
     }
-    eprintln!(
-        "=> Running: {}",
-        cmd.iter()
-            .map(|part| part.to_string_lossy())
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
+    if command_logging_enabled() {
+        eprintln!(
+            "=> Running: {}",
+            cmd.iter()
+                .map(|part| part.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+    }
     let mut command = Command::new(&cmd[0]);
     command.args(&cmd[1..]);
     if let Some(cwd) = cwd {
@@ -1399,18 +1424,22 @@ fn configure_unix_path(install_bin: &Path) -> OpsResult<()> {
     let marker = install_bin.to_string_lossy();
     let contents = fs::read_to_string(&rc_file)?;
     if contents.contains(marker.as_ref()) {
-        println!("{} is already in your PATH.", install_bin.display());
+        if status_logging_enabled() {
+            println!("{} is already in your PATH.", install_bin.display());
+        }
         return Ok(());
     }
     let mut file = fs::OpenOptions::new().append(true).open(&rc_file)?;
     writeln!(file)?;
     writeln!(file, "# Kern Programming Language")?;
     writeln!(file, "export PATH=\"{}:$PATH\"", install_bin.display())?;
-    println!(
-        "Added {} to your PATH in {}.",
-        install_bin.display(),
-        rc_file.display()
-    );
+    if status_logging_enabled() {
+        println!(
+            "Added {} to your PATH in {}.",
+            install_bin.display(),
+            rc_file.display()
+        );
+    }
     Ok(())
 }
 
@@ -1433,7 +1462,9 @@ fn configure_windows_path(install_bin: &Path) -> OpsResult<()> {
         ],
         None,
     )?;
-    println!("Added {} to your user PATH.", install_bin.display());
+    if status_logging_enabled() {
+        println!("Added {} to your user PATH.", install_bin.display());
+    }
     Ok(())
 }
 

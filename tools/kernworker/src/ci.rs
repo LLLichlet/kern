@@ -754,17 +754,17 @@ mod tests {
         )
         .unwrap();
 
-        rewrite_kern_versions(&root, "0.7.9").unwrap();
+        rewrite_kern_versions(&root, "0.8.0").unwrap();
 
         assert!(
             fs::read_to_string(root.join("Craft.toml"))
                 .unwrap()
-                .contains("kern = \"0.7\"")
+                .contains("kern = \"0.8\"")
         );
         assert!(
             fs::read_to_string(package.join("Craft.toml"))
                 .unwrap()
-                .contains("    kern = \"0.7\"")
+                .contains("    kern = \"0.8\"")
         );
         remove_path_if_exists(&root).unwrap();
     }

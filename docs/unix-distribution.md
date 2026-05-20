@@ -1,7 +1,7 @@
 # Unix Distribution Guide
 
 This document describes the Linux and macOS host-tool distribution policy for
-the current 0.7.9 toolchain.
+the current 0.8.0 toolchain.
 
 It keeps three concerns separate:
 
@@ -175,15 +175,15 @@ distribution compatibility.
 For release-quality host-native Unix archives:
 
 ```bash
-cargo run -q -p kernworker -- release package --version v0.7.9 --target <host-target>
+cargo run -q -p kernworker -- release package --version v0.8.0 --target <host-target>
 ```
 
 Examples:
 
 ```bash
-cargo run -q -p kernworker -- release package --version v0.7.9 --target x86_64-linux-gnu
-cargo run -q -p kernworker -- release package --version v0.7.9 --target x86_64-apple-darwin
-cargo run -q -p kernworker -- release package --version v0.7.9 --target aarch64-apple-darwin
+cargo run -q -p kernworker -- release package --version v0.8.0 --target x86_64-linux-gnu
+cargo run -q -p kernworker -- release package --version v0.8.0 --target x86_64-apple-darwin
+cargo run -q -p kernworker -- release package --version v0.8.0 --target aarch64-apple-darwin
 ```
 
 The important policy point is that `<host-target>` is a host label, not a free
@@ -196,7 +196,7 @@ The Rust repository worker is the canonical packaging entry
 point:
 
 ```bash
-cargo run -q -p kernworker -- release package --version v0.7.9 --target <host-target>
+cargo run -q -p kernworker -- release package --version v0.8.0 --target <host-target>
 ```
 
 The command should enforce the important Unix-specific rules:

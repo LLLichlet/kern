@@ -595,7 +595,7 @@ pub fn help() -> HelpDoc {
             "run craft release policy fixtures",
         )
         .example(
-            "kernworker release package --version v0.7.9",
+            "kernworker release package --version v0.8.0",
             "build a host-native SDK archive",
         )
 }
@@ -794,7 +794,7 @@ mod tests {
             "release".to_string(),
             "package".to_string(),
             "--version".to_string(),
-            "v0.7.9".to_string(),
+            "v0.8.0".to_string(),
             "--target".to_string(),
             "x86_64-linux-gnu".to_string(),
             "--skip-build".to_string(),
@@ -805,7 +805,7 @@ mod tests {
         let Command::Release(ReleaseCommand::Package(args)) = command else {
             panic!("expected release package command");
         };
-        assert_eq!(args.version.as_deref(), Some("v0.7.9"));
+        assert_eq!(args.version.as_deref(), Some("v0.8.0"));
         assert_eq!(args.target.as_deref(), Some("x86_64-linux-gnu"));
         assert!(args.skip_build);
         assert_eq!(
@@ -820,17 +820,17 @@ mod tests {
             "release".to_string(),
             "bump-version".to_string(),
             "--version".to_string(),
-            "0.7.9".to_string(),
+            "0.8.0".to_string(),
             "--from".to_string(),
-            "0.7.9".to_string(),
+            "0.8.0".to_string(),
             "--check".to_string(),
         ])
         .unwrap();
         let Command::Release(ReleaseCommand::BumpVersion(args)) = command else {
             panic!("expected release bump-version command");
         };
-        assert_eq!(args.version.as_deref(), Some("0.7.9"));
-        assert_eq!(args.from.as_deref(), Some("0.7.9"));
+        assert_eq!(args.version.as_deref(), Some("0.8.0"));
+        assert_eq!(args.from.as_deref(), Some("0.8.0"));
         assert!(args.check);
     }
 

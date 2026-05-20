@@ -29,7 +29,7 @@ hello/
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.8"
 
 [[bin]]
 name = "hello"
@@ -255,7 +255,7 @@ Library package:
 [package]
 name = "mylib"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.8"
 
 [lib]
 root = "src/lib.kn"
@@ -363,7 +363,7 @@ json = { member = "json" }
 
 [workspace.package]
 version = "0.1.0"
-kern = "0.7"
+kern = "0.8"
 license = "MIT"
 authors = ["Example <dev@example.com>"]
 readme = "README.md"

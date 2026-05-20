@@ -2,7 +2,7 @@
 set -eu
 
 DEFAULT_GITHUB_REPO="kern-project/kern"
-DEFAULT_VERSION="v0.7.9"
+DEFAULT_VERSION="v0.8.0"
 
 info() {
     printf '%s\n' "$1"

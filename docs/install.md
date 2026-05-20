@@ -118,7 +118,7 @@ Unix:
 ```sh
 sh ./install.sh \
   --kernup ./kernup \
-  --archive ./kern-v0.7.9-x86_64-linux-gnu.tar.gz
+  --archive ./kern-v0.8.0-x86_64-linux-gnu.tar.gz
 ```
 
 Windows:
@@ -126,7 +126,7 @@ Windows:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 `
   -Kernup .\kernup.exe `
-  -Archive .\kern-v0.7.9-x86_64-windows-msvc.zip
+  -Archive .\kern-v0.8.0-x86_64-windows-msvc.zip
 ```
 
 If the archive filename does not contain the release tag, pass it explicitly.
@@ -134,13 +134,13 @@ If the archive filename does not contain the release tag, pass it explicitly.
 Unix:
 
 ```sh
-sh ./install.sh --kernup ./kernup --version v0.7.9 --archive ./kern.tar.gz
+sh ./install.sh --kernup ./kernup --version v0.8.0 --archive ./kern.tar.gz
 ```
 
 Windows:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Kernup .\kernup.exe -Version v0.7.9 -Archive .\kern.zip
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Kernup .\kernup.exe -Version v0.8.0 -Archive .\kern.zip
 ```
 
 If network access is available and only the SDK archive should be reused, omit
@@ -179,13 +179,13 @@ can depend on stable registry packages without exposing generic crate names.
 Install a release archive directly:
 
 ```sh
-cargo run -p kernup -- install --version v0.7.9
+cargo run -p kernup -- install --version v0.8.0
 ```
 
 Install a local archive:
 
 ```sh
-cargo run -p kernup -- install --archive ./kern-v0.7.9-<host-target>.<tar.gz|zip>
+cargo run -p kernup -- install --archive ./kern-v0.8.0-<host-target>.<tar.gz|zip>
 ```
 
 Print the current host archive target:
@@ -240,16 +240,16 @@ package an SDK archive and install that archive.
 From the repository root:
 
 ```sh
-cargo run -q -p kernworker -- release package --version v0.7.9 --target <host-target>
+cargo run -q -p kernworker -- release package --version v0.8.0 --target <host-target>
 ```
 
 Examples:
 
 ```sh
-cargo run -q -p kernworker -- release package --version v0.7.9 --target x86_64-linux-gnu
-cargo run -q -p kernworker -- release package --version v0.7.9 --target x86_64-apple-darwin
-cargo run -q -p kernworker -- release package --version v0.7.9 --target aarch64-apple-darwin
-cargo run -q -p kernworker -- release package --version v0.7.9 --target x86_64-windows-msvc
+cargo run -q -p kernworker -- release package --version v0.8.0 --target x86_64-linux-gnu
+cargo run -q -p kernworker -- release package --version v0.8.0 --target x86_64-apple-darwin
+cargo run -q -p kernworker -- release package --version v0.8.0 --target aarch64-apple-darwin
+cargo run -q -p kernworker -- release package --version v0.8.0 --target x86_64-windows-msvc
 ```
 
 Then install the archive with either the platform installer or `kernup`.

@@ -69,22 +69,22 @@ For ordinary packages, prefer the minor line:
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.8"
 ```
 
-That declaration accepts any `0.7.PATCH` toolchain. It is the default generated
+That declaration accepts any `0.8.PATCH` toolchain. It is the default generated
 by `craft init` and should be used by ecosystem packages unless they knowingly
 depend on a patch-specific behavior.
 
 A full patch version is still accepted:
 
 ```toml
-kern = "0.7.9"
+kern = "0.8.0"
 ```
 
 Use a full patch version only for packages that require that exact toolchain
-patch level. A manifest from another minor line, such as `kern = "0.8"`, must
-not be accepted by a `0.7.PATCH` toolchain.
+patch level. A manifest from another minor line, such as `kern = "0.9"`, must
+not be accepted by a `0.8.PATCH` toolchain.
 
 ## Source Of Truth
 

@@ -18,6 +18,7 @@ use crate::lockfile;
 use crate::manifest::Manifest;
 use crate::operation_lock::WorkspaceOperationLock;
 use crate::plan::TargetKind;
+use crate::resolver;
 use crate::source::{self, FetchProgress, FetchProgressKind, FetchProgressPhase};
 use crate::style;
 use crate::workspace;
@@ -35,6 +36,103 @@ use super::render::{
     print_link_actions, print_link_actions_for_unit, render_execution_timings,
 };
 use super::{Command, InstallSelection, RunSelection};
+
+#[derive(Clone, Copy)]
+struct PipelineStepDef {
+    label: &'static str,
+    detail: &'static str,
+}
+
+const fn pipeline_step_def(label: &'static str, detail: &'static str) -> PipelineStepDef {
+    PipelineStepDef { label, detail }
+}
+
+const LOAD_PACKAGE_GRAPH_PIPELINE_STEPS: &[PipelineStepDef] = &[
+    pipeline_step_def("manifest", "resolve selected manifest"),
+    pipeline_step_def("manifest", "resolve project manifest"),
+    pipeline_step_def("workspace", "load workspace members"),
+    pipeline_step_def("lock", "wait workspace lock"),
+    pipeline_step_def("graph", "resolve package graph"),
+    pipeline_step_def("lockfile", "sync lockfile"),
+    pipeline_step_def("package", "select requested package"),
+];
+
+const CHECK_PLAN_PIPELINE_STEPS: &[PipelineStepDef] = &[
+    pipeline_step_def("plan", "derive check build graph"),
+    pipeline_step_def("plan", "derive execution actions"),
+];
+
+const CHECK_PREPARE_PIPELINE_STEPS: &[PipelineStepDef] = &[
+    pipeline_step_def("prepare", "materialize generated analysis inputs"),
+    pipeline_step_def("analysis", "sync analysis context"),
+];
+
+const FETCH_PIPELINE_STEPS: &[PipelineStepDef] = &[
+    pipeline_step_def("fetch", "external packages"),
+    pipeline_step_def("fetch", "package resources"),
+];
+
+const PUBLISH_PIPELINE_STEPS: &[PipelineStepDef] = &[
+    pipeline_step_def("manifest", "resolve project manifest"),
+    pipeline_step_def("manifest", "load project manifest"),
+    pipeline_step_def("workspace", "load workspace members"),
+    pipeline_step_def("lock", "wait workspace lock"),
+    pipeline_step_def("publish", "collect publish metadata"),
+    pipeline_step_def("vcs", "check repository state"),
+    pipeline_step_def("graph", "resolve package graph"),
+    pipeline_step_def("lockfile", "verify lockfile"),
+    pipeline_step_def("vcs", "recheck repository state"),
+    pipeline_step_def("format", "check source formatting"),
+    pipeline_step_def("style", "collect source metrics"),
+];
+
+const BUILD_PIPELINE_STEPS: &[PipelineStepDef] = &[
+    pipeline_step_def("plan", "derive build graph"),
+    pipeline_step_def("analysis", "sync analysis context"),
+    pipeline_step_def("plan", "derive execution actions"),
+];
+
+const INSTALL_PIPELINE_STEPS: &[PipelineStepDef] = &[
+    pipeline_step_def("plan", "derive install build graph"),
+    pipeline_step_def("analysis", "sync analysis context"),
+    pipeline_step_def("plan", "derive execution actions"),
+    pipeline_step_def("plan", "select install targets"),
+];
+
+const DOC_PIPELINE_STEPS: &[PipelineStepDef] = &[
+    pipeline_step_def("plan", "derive documentation build graph"),
+    pipeline_step_def("analysis", "sync analysis context"),
+    pipeline_step_def("plan", "derive execution actions"),
+];
+
+const STYLE_PIPELINE_STEPS: &[PipelineStepDef] = &[
+    pipeline_step_def("manifest", "resolve project manifest"),
+    pipeline_step_def("manifest", "resolve selected manifest"),
+    pipeline_step_def("manifest", "load project manifest"),
+    pipeline_step_def("workspace", "load workspace members"),
+    pipeline_step_def("manifest", "load selected manifest"),
+    pipeline_step_def("style", "collect source metrics"),
+];
+
+const UNINSTALL_PIPELINE_STEPS: &[PipelineStepDef] = &[
+    pipeline_step_def("plan", "derive uninstall build graph"),
+    pipeline_step_def("plan", "derive execution actions"),
+    pipeline_step_def("plan", "select uninstall targets"),
+];
+
+const RUN_PIPELINE_STEPS: &[PipelineStepDef] = &[
+    pipeline_step_def("plan", "derive run build graph"),
+    pipeline_step_def("analysis", "sync analysis context"),
+    pipeline_step_def("plan", "derive execution actions"),
+    pipeline_step_def("plan", "select run target"),
+];
+
+const TEST_PIPELINE_STEPS: &[PipelineStepDef] = &[
+    pipeline_step_def("plan", "derive test build graph"),
+    pipeline_step_def("plan", "filter selected tests"),
+    pipeline_step_def("analysis", "sync analysis context"),
+    pipeline_step_def("plan", "derive execution actions"),
+];
 
 pub(super) fn run_command(command: Command) -> Result<()> {
     #[cfg(test)]
@@ -317,8 +415,9 @@ fn run_check(
         &loaded.manifest_path,
         &feature_selection,
     );
-    let mut pipeline = render.pipeline_progress("check", 10);
-    pipeline_step(&pipeline, "plan", "derive check build graph");
+    let mut pipeline = render.pipeline_progress("check");
+    pipeline_plan_step_defs(&pipeline, CHECK_PLAN_PIPELINE_STEPS);
+    pipeline_enter_step(&pipeline, CHECK_PLAN_PIPELINE_STEPS[0]);
     let build_plan = derive_build_plan_with_progress(
         &pipeline,
         &loaded.elaboration,
@@ -326,7 +425,7 @@ fn run_check(
         build_plan::DeriveOptions::default(),
     )?;
     let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
-    pipeline_step(&pipeline, "plan", "derive execution actions");
+    pipeline_enter_step(&pipeline, CHECK_PLAN_PIPELINE_STEPS[1]);
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
     finish_pipeline(&mut pipeline);
 
@@ -443,12 +542,9 @@ fn run_check(
         render.section("generated");
     }
     print_generated_files(&render, &build_plan);
-    let mut pipeline = render.pipeline_progress("check", 2);
-    pipeline_step(
-        &pipeline,
-        "prepare",
-        "materialize generated analysis inputs",
-    );
+    let mut pipeline = render.pipeline_progress("check");
+    pipeline_plan_step_defs(&pipeline, CHECK_PREPARE_PIPELINE_STEPS);
+    pipeline_enter_step(&pipeline, CHECK_PREPARE_PIPELINE_STEPS[0]);
     let mut prepare_progress =
         render.progress("check", staged_execution_progress_plan(&action_plan));
     let prepare = execute::materialize_analysis_inputs_with_progress(
@@ -462,7 +558,7 @@ fn run_check(
         progress.finish();
     }
     prepare?;
-    pipeline_step(&pipeline, "analysis", "sync analysis context");
+    pipeline_enter_step(&pipeline, CHECK_PREPARE_PIPELINE_STEPS[1]);
     let _ = analysis_context::sync_analysis_context(
         &loaded.manifest_path,
         &loaded.elaboration,
@@ -508,13 +604,21 @@ fn run_fetch(
         &loaded.manifest_path,
         &feature_selection,
     );
-    let mut pipeline = render.pipeline_progress("fetch", 10);
-    pipeline_step(&pipeline, "fetch", "external packages");
+    let mut pipeline = render.pipeline_progress("fetch");
+    pipeline_plan_steps(
+        &pipeline,
+        FETCH_PIPELINE_STEPS.len()
+            + fetch_external_package_pipeline_steps(
+                &loaded.elaboration.resolved_graph.external_packages,
+            )
+            + fetch_resource_pipeline_steps(&loaded.elaboration.packages),
+    );
+    pipeline_enter_step(&pipeline, FETCH_PIPELINE_STEPS[0]);
     let fetched = source::fetch_external_packages_with_progress(
         &loaded.elaboration.resolved_graph,
         |event| pipeline_fetch_progress(&pipeline, event),
     )?;
-    pipeline_step(&pipeline, "fetch", "package resources");
+    pipeline_enter_step(&pipeline, FETCH_PIPELINE_STEPS[1]);
     let fetched_resources =
         source::fetch_package_resources_with_progress(&loaded.elaboration, |event| {
             pipeline_fetch_progress(&pipeline, event)
@@ -557,23 +661,24 @@ fn run_publish(
     ui: super::UiOptions,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let mut pipeline = render.pipeline_progress("publish", 11);
-    pipeline_step(&pipeline, "manifest", "resolve project manifest");
+    let mut pipeline = render.pipeline_progress("publish");
+    pipeline_plan_step_defs(&pipeline, PUBLISH_PIPELINE_STEPS);
+    pipeline_enter_step(&pipeline, PUBLISH_PIPELINE_STEPS[0]);
     let manifest_path = discover::resolve_project_manifest_path(path.as_deref())?;
-    pipeline_step(&pipeline, "manifest", "load project manifest");
+    pipeline_enter_step(&pipeline, PUBLISH_PIPELINE_STEPS[1]);
     let manifest = Manifest::load(&manifest_path)?;
     manifest.validate(&manifest_path)?;
-    pipeline_step(&pipeline, "workspace", "load workspace members");
+    pipeline_enter_step(&pipeline, PUBLISH_PIPELINE_STEPS[2]);
     let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
     let workspace_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    pipeline_step(&pipeline, "lock", "wait workspace lock");
+    pipeline_enter_step(&pipeline, PUBLISH_PIPELINE_STEPS[3]);
     let _workspace_lock = WorkspaceOperationLock::acquire(workspace_root, "publish")?;
     #[cfg(test)]
     crate::test_support::hit(crate::test_support::FAILPOINT_AFTER_WORKSPACE_LOCK);
-    pipeline_step(&pipeline, "publish", "collect publish metadata");
+    pipeline_enter_step(&pipeline, PUBLISH_PIPELINE_STEPS[4]);
     let summary = publish_summary(&manifest_path, &manifest, &workspace_members)?;
     validate_publish_metadata(&summary)?;
-    pipeline_step(&pipeline, "vcs", "check repository state");
+    pipeline_enter_step(&pipeline, PUBLISH_PIPELINE_STEPS[5]);
     let preflight_vcs_summary = validate_publish_vcs(
         &manifest_path,
         &manifest,
@@ -591,7 +696,7 @@ fn run_publish(
                 .to_string(),
         });
     }
-    pipeline_step(&pipeline, "graph", "resolve package graph");
+    pipeline_enter_step(&pipeline, PUBLISH_PIPELINE_STEPS[6]);
     let elaboration = elaborate::plan(
         &manifest_path,
         &manifest,
@@ -600,7 +705,7 @@ fn run_publish(
         crate::script::ScriptCommand::Check,
         &feature_selection,
     )?;
-    pipeline_step(&pipeline, "lockfile", "verify lockfile");
+    pipeline_enter_step(&pipeline, PUBLISH_PIPELINE_STEPS[7]);
     let (_, lockfile_write_result) =
         lockfile::check_lockfile_current(&manifest_path, &elaboration)?;
     if lockfile_write_result != lockfile::LockWriteResult::Unchanged {
@@ -610,7 +715,7 @@ fn run_publish(
                 .to_string(),
         });
     }
-    pipeline_step(&pipeline, "vcs", "recheck repository state");
+    pipeline_enter_step(&pipeline, PUBLISH_PIPELINE_STEPS[8]);
     validate_publish_vcs(
         &manifest_path,
         &manifest,
@@ -618,7 +723,7 @@ fn run_publish(
         &summary,
         None,
     )?;
-    pipeline_step(&pipeline, "format", "check source formatting");
+    pipeline_enter_step(&pipeline, PUBLISH_PIPELINE_STEPS[9]);
     let format_summaries = fmt::format_workspace_sources(
         &manifest_path,
         &manifest,
@@ -647,7 +752,7 @@ fn run_publish(
             ),
         });
     }
-    pipeline_step(&pipeline, "style", "collect source metrics");
+    pipeline_enter_step(&pipeline, PUBLISH_PIPELINE_STEPS[10]);
     let style_summaries =
         style::collect_workspace_style_metrics(&manifest_path, &manifest, &workspace_members)?;
     let mut style_total = style::StyleSummary::default();
@@ -788,8 +893,9 @@ fn run_build(
         &loaded.manifest_path,
         &feature_selection,
     );
-    let mut pipeline = render.pipeline_progress("build", 11);
-    pipeline_step(&pipeline, "plan", "derive build graph");
+    let mut pipeline = render.pipeline_progress("build");
+    pipeline_plan_step_defs(&pipeline, BUILD_PIPELINE_STEPS);
+    pipeline_enter_step(&pipeline, BUILD_PIPELINE_STEPS[0]);
     let build_plan = derive_build_plan_with_progress(
         &pipeline,
         &loaded.elaboration,
@@ -797,14 +903,14 @@ fn run_build(
         build_plan::DeriveOptions { include_examples },
     )?;
     let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
-    pipeline_step(&pipeline, "analysis", "sync analysis context");
+    pipeline_enter_step(&pipeline, BUILD_PIPELINE_STEPS[1]);
     let _ = analysis_context::sync_analysis_context(
         &loaded.manifest_path,
         &loaded.elaboration,
         &build_plan,
         &feature_selection,
     );
-    pipeline_step(&pipeline, "plan", "derive execution actions");
+    pipeline_enter_step(&pipeline, BUILD_PIPELINE_STEPS[2]);
     let build_plan = build_plan.filtered_target_kinds(&default_build_target_kinds());
     let target = crate::script::host_target();
     let action_plan = build_plan.derive_actions(&target);
@@ -883,9 +989,10 @@ fn run_install(
         &loaded.manifest_path,
         &feature_selection,
     );
-    let mut pipeline = render.pipeline_progress("install", 12);
+    let mut pipeline = render.pipeline_progress("install");
+    pipeline_plan_step_defs(&pipeline, INSTALL_PIPELINE_STEPS);
     let target_package_id = selected_target_package_id(&loaded, "install")?;
-    pipeline_step(&pipeline, "plan", "derive install build graph");
+    pipeline_enter_step(&pipeline, INSTALL_PIPELINE_STEPS[0]);
     let build_plan = derive_build_plan_with_progress(
         &pipeline,
         &loaded.elaboration,
@@ -894,16 +1001,16 @@ fn run_install(
     )?;
     let build_plan = build_plan
         .filtered_package_closure(&[(graph::BuildDomain::Target, target_package_id.clone())]);
-    pipeline_step(&pipeline, "analysis", "sync analysis context");
+    pipeline_enter_step(&pipeline, INSTALL_PIPELINE_STEPS[1]);
     let _ = analysis_context::sync_analysis_context(
         &loaded.manifest_path,
         &loaded.elaboration,
         &build_plan,
         &feature_selection,
     );
-    pipeline_step(&pipeline, "plan", "derive execution actions");
+    pipeline_enter_step(&pipeline, INSTALL_PIPELINE_STEPS[2]);
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
-    pipeline_step(&pipeline, "plan", "select install targets");
+    pipeline_enter_step(&pipeline, INSTALL_PIPELINE_STEPS[3]);
     let install_units = select_install_units(&build_plan, &target_package_id, &selection)?;
     let install_root = resolve_install_root(root.as_deref())?;
     let install_bin_dir = install_root.join("bin");
@@ -982,8 +1089,9 @@ fn run_doc(
         &loaded.manifest_path,
         &feature_selection,
     );
-    let mut pipeline = render.pipeline_progress("doc", 11);
-    pipeline_step(&pipeline, "plan", "derive documentation build graph");
+    let mut pipeline = render.pipeline_progress("doc");
+    pipeline_plan_step_defs(&pipeline, DOC_PIPELINE_STEPS);
+    pipeline_enter_step(&pipeline, DOC_PIPELINE_STEPS[0]);
     let build_plan = derive_build_plan_with_progress(
         &pipeline,
         &loaded.elaboration,
@@ -991,14 +1099,14 @@ fn run_doc(
         build_plan::DeriveOptions::default(),
     )?;
     let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
-    pipeline_step(&pipeline, "analysis", "sync analysis context");
+    pipeline_enter_step(&pipeline, DOC_PIPELINE_STEPS[1]);
     let _ = analysis_context::sync_analysis_context(
         &loaded.manifest_path,
         &loaded.elaboration,
         &build_plan,
         &feature_selection,
     );
-    pipeline_step(&pipeline, "plan", "derive execution actions");
+    pipeline_enter_step(&pipeline, DOC_PIPELINE_STEPS[2]);
     let build_plan = build_plan.filtered_target_kinds(&default_build_target_kinds());
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
     finish_pipeline(&mut pipeline);
@@ -1079,20 +1187,21 @@ fn run_doc(
 
 fn run_style(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
     let render = Renderer::new(ui);
-    let mut pipeline = render.pipeline_progress("style", 6);
-    pipeline_step(&pipeline, "manifest", "resolve project manifest");
+    let mut pipeline = render.pipeline_progress("style");
+    pipeline_plan_step_defs(&pipeline, STYLE_PIPELINE_STEPS);
+    pipeline_enter_step(&pipeline, STYLE_PIPELINE_STEPS[0]);
     let manifest_path = discover::resolve_project_manifest_path(path.as_deref())?;
-    pipeline_step(&pipeline, "manifest", "resolve selected manifest");
+    pipeline_enter_step(&pipeline, STYLE_PIPELINE_STEPS[1]);
     let selected_manifest_path = path
         .as_deref()
         .map(|path| discover::resolve_manifest_path(Some(path)))
         .transpose()?;
-    pipeline_step(&pipeline, "manifest", "load project manifest");
+    pipeline_enter_step(&pipeline, STYLE_PIPELINE_STEPS[2]);
     let manifest = Manifest::load(&manifest_path)?;
     manifest.validate(&manifest_path)?;
-    pipeline_step(&pipeline, "workspace", "load workspace members");
+    pipeline_enter_step(&pipeline, STYLE_PIPELINE_STEPS[3]);
     let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
-    pipeline_step(&pipeline, "manifest", "load selected manifest");
+    pipeline_enter_step(&pipeline, STYLE_PIPELINE_STEPS[4]);
     let selected_manifest = if let Some(selected_manifest_path) = selected_manifest_path
         && selected_manifest_path != manifest_path
     {
@@ -1102,7 +1211,7 @@ fn run_style(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
     } else {
         None
     };
-    pipeline_step(&pipeline, "style", "collect source metrics");
+    pipeline_enter_step(&pipeline, STYLE_PIPELINE_STEPS[5]);
     let summaries = if let Some((selected_manifest_path, selected_manifest)) = &selected_manifest {
         style::collect_workspace_style_metrics(selected_manifest_path, selected_manifest, &[])?
     } else {
@@ -1241,9 +1350,10 @@ fn run_uninstall(
         &loaded.manifest_path,
         &feature_selection,
     );
-    let mut pipeline = render.pipeline_progress("uninstall", 11);
+    let mut pipeline = render.pipeline_progress("uninstall");
+    pipeline_plan_step_defs(&pipeline, UNINSTALL_PIPELINE_STEPS);
     let target_package_id = selected_target_package_id(&loaded, "uninstall")?;
-    pipeline_step(&pipeline, "plan", "derive uninstall build graph");
+    pipeline_enter_step(&pipeline, UNINSTALL_PIPELINE_STEPS[0]);
     let build_plan = derive_build_plan_with_progress(
         &pipeline,
         &loaded.elaboration,
@@ -1252,9 +1362,9 @@ fn run_uninstall(
     )?;
     let build_plan = build_plan
         .filtered_package_closure(&[(graph::BuildDomain::Target, target_package_id.clone())]);
-    pipeline_step(&pipeline, "plan", "derive execution actions");
+    pipeline_enter_step(&pipeline, UNINSTALL_PIPELINE_STEPS[1]);
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
-    pipeline_step(&pipeline, "plan", "select uninstall targets");
+    pipeline_enter_step(&pipeline, UNINSTALL_PIPELINE_STEPS[2]);
     let uninstall_units = select_install_units(&build_plan, &target_package_id, &selection)?;
     let install_root = resolve_install_root(root.as_deref())?;
     let install_bin_dir = install_root.join("bin");
@@ -1327,8 +1437,9 @@ fn run_target(
         &loaded.manifest_path,
         &feature_selection,
     );
-    let mut pipeline = render.pipeline_progress("run", 12);
-    pipeline_step(&pipeline, "plan", "derive run build graph");
+    let mut pipeline = render.pipeline_progress("run");
+    pipeline_plan_step_defs(&pipeline, RUN_PIPELINE_STEPS);
+    pipeline_enter_step(&pipeline, RUN_PIPELINE_STEPS[0]);
     let build_plan = derive_build_plan_with_progress(
         &pipeline,
         &loaded.elaboration,
@@ -1338,16 +1449,16 @@ fn run_target(
         },
     )?;
     let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
-    pipeline_step(&pipeline, "analysis", "sync analysis context");
+    pipeline_enter_step(&pipeline, RUN_PIPELINE_STEPS[1]);
     let _ = analysis_context::sync_analysis_context(
         &loaded.manifest_path,
         &loaded.elaboration,
         &build_plan,
         &feature_selection,
     );
-    pipeline_step(&pipeline, "plan", "derive execution actions");
+    pipeline_enter_step(&pipeline, RUN_PIPELINE_STEPS[2]);
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
-    pipeline_step(&pipeline, "plan", "select run target");
+    pipeline_enter_step(&pipeline, RUN_PIPELINE_STEPS[3]);
     let run_unit = select_run_unit(&build_plan, &selection)?;
     finish_pipeline(&mut pipeline);
 
@@ -1413,8 +1524,9 @@ fn run_tests(
         &loaded.manifest_path,
         &feature_selection,
     );
-    let mut pipeline = render.pipeline_progress("test", 12);
-    pipeline_step(&pipeline, "plan", "derive test build graph");
+    let mut pipeline = render.pipeline_progress("test");
+    pipeline_plan_step_defs(&pipeline, TEST_PIPELINE_STEPS);
+    pipeline_enter_step(&pipeline, TEST_PIPELINE_STEPS[0]);
     let build_plan = derive_build_plan_with_progress(
         &pipeline,
         &loaded.elaboration,
@@ -1422,16 +1534,16 @@ fn run_tests(
         build_plan::DeriveOptions::default(),
     )?;
     let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
-    pipeline_step(&pipeline, "plan", "filter selected tests");
+    pipeline_enter_step(&pipeline, TEST_PIPELINE_STEPS[1]);
     let build_plan = filter_selected_tests(build_plan, test_name.as_deref())?;
-    pipeline_step(&pipeline, "analysis", "sync analysis context");
+    pipeline_enter_step(&pipeline, TEST_PIPELINE_STEPS[2]);
     let _ = analysis_context::sync_analysis_context(
         &loaded.manifest_path,
         &loaded.elaboration,
         &build_plan,
         &feature_selection,
     );
-    pipeline_step(&pipeline, "plan", "derive execution actions");
+    pipeline_enter_step(&pipeline, TEST_PIPELINE_STEPS[3]);
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
     let tests = units_of_kind(&build_plan, TargetKind::Test);
     finish_pipeline(&mut pipeline);
@@ -1588,6 +1700,37 @@ fn pipeline_step(
     }
 }
 
+fn pipeline_plan_steps(progress: &Option<PipelineProgressDisplay>, count: usize) {
+    if let Some(progress) = progress {
+        progress.plan_steps(count);
+    }
+}
+
+fn pipeline_plan_step_defs(progress: &Option<PipelineProgressDisplay>, steps: &[PipelineStepDef]) {
+    pipeline_plan_steps(progress, steps.len());
+}
+
+fn pipeline_plan_steps_ref(progress: Option<&PipelineProgressDisplay>, count: usize) {
+    if let Some(progress) = progress {
+        progress.plan_steps(count);
+    }
+}
+
+fn pipeline_plan_step_defs_ref(
+    progress: Option<&PipelineProgressDisplay>,
+    steps: &[PipelineStepDef],
+) {
+    pipeline_plan_steps_ref(progress, steps.len());
+}
+
+fn pipeline_enter_step(progress: &Option<PipelineProgressDisplay>, step: PipelineStepDef) {
+    pipeline_step(progress, step.label, step.detail);
+}
+
+fn pipeline_enter_step_ref(progress: Option<&PipelineProgressDisplay>, step: PipelineStepDef) {
+    pipeline_step_ref(progress, step.label, step.detail);
+}
+
 fn pipeline_fetch_progress(progress: &Option<PipelineProgressDisplay>, event: FetchProgress) {
     let kind = match event.kind {
         FetchProgressKind::Package => "package",
@@ -1611,9 +1754,49 @@ fn derive_build_plan_with_progress(
     command: crate::script::ScriptCommand,
     options: build_plan::DeriveOptions,
 ) -> Result<build_plan::BuildPlan> {
+    pipeline_plan_steps(progress, derive_build_plan_pipeline_steps(elaboration));
     build_plan::derive_with_options_and_progress(elaboration, command, options, |event| {
         pipeline_fetch_progress(progress, event);
     })
+}
+
+fn derive_build_plan_pipeline_steps(elaboration: &elaborate::ElaborationPlan) -> usize {
+    fetch_external_package_pipeline_steps(&elaboration.resolved_graph.external_packages)
+        + fetch_resource_pipeline_steps(&elaboration.packages)
+}
+
+fn fetch_external_package_pipeline_steps(packages: &[resolver::ResolvedExternalPackage]) -> usize {
+    packages
+        .iter()
+        .map(|package| fetch_source_pipeline_steps(&package.id.source))
+        .sum()
+}
+
+fn fetch_resource_pipeline_steps(packages: &[elaborate::PackageElaboration]) -> usize {
+    packages
+        .iter()
+        .flat_map(|package| package.plan.resources.values())
+        .map(|resource| {
+            2 + if resource.git.is_some() {
+                // prepare_git_dependency_root reports at least checkout, and may also report
+                // initialize/fetch when the local cache is cold or stale.
+                1
+            } else {
+                0
+            }
+        })
+        .sum()
+}
+
+fn fetch_source_pipeline_steps(source: &graph::SourceId) -> usize {
+    match source {
+        graph::SourceId::PathDependency { .. } => 2,
+        graph::SourceId::GitDependency { .. } => {
+            // resolve + materialize plus the guaranteed git checkout event.
+            3
+        }
+        graph::SourceId::Root | graph::SourceId::WorkspaceMember { .. } => 0,
+    }
 }
 
 fn finish_pipeline(progress: &mut Option<PipelineProgressDisplay>) {
@@ -2074,23 +2257,24 @@ fn load_package_graph(
     operation: &str,
     progress: Option<&PipelineProgressDisplay>,
 ) -> Result<(LoadedPackageGraph, WorkspaceOperationLock)> {
-    pipeline_step_ref(progress, "manifest", "resolve selected manifest");
+    pipeline_plan_step_defs_ref(progress, LOAD_PACKAGE_GRAPH_PIPELINE_STEPS);
+    pipeline_enter_step_ref(progress, LOAD_PACKAGE_GRAPH_PIPELINE_STEPS[0]);
     let selected_manifest_path = path
         .map(|path| discover::resolve_manifest_path(Some(path)))
         .transpose()?;
-    pipeline_step_ref(progress, "manifest", "resolve project manifest");
+    pipeline_enter_step_ref(progress, LOAD_PACKAGE_GRAPH_PIPELINE_STEPS[1]);
     let manifest_path = discover::resolve_project_manifest_path(path)?;
     pipeline_detail_ref(progress, format!("load {}", manifest_path.display()));
     let manifest = Manifest::load(&manifest_path)?;
     manifest.validate(&manifest_path)?;
-    pipeline_step_ref(progress, "workspace", "load workspace members");
+    pipeline_enter_step_ref(progress, LOAD_PACKAGE_GRAPH_PIPELINE_STEPS[2]);
     let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
     let workspace_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    pipeline_step_ref(progress, "lock", "wait workspace lock");
+    pipeline_enter_step_ref(progress, LOAD_PACKAGE_GRAPH_PIPELINE_STEPS[3]);
     let workspace_lock = WorkspaceOperationLock::acquire(workspace_root, operation)?;
     #[cfg(test)]
     crate::test_support::hit(crate::test_support::FAILPOINT_AFTER_WORKSPACE_LOCK);
-    pipeline_step_ref(progress, "graph", "resolve package graph");
+    pipeline_enter_step_ref(progress, LOAD_PACKAGE_GRAPH_PIPELINE_STEPS[4]);
     let elaboration = elaborate::plan(
         &manifest_path,
         &manifest,
@@ -2099,9 +2283,9 @@ fn load_package_graph(
         command,
         feature_selection,
     )?;
-    pipeline_step_ref(progress, "lockfile", "sync lockfile");
+    pipeline_enter_step_ref(progress, LOAD_PACKAGE_GRAPH_PIPELINE_STEPS[5]);
     let (_, lockfile_write_result) = lockfile::sync_lockfile(&manifest_path, &elaboration)?;
-    pipeline_step_ref(progress, "package", "select requested package");
+    pipeline_enter_step_ref(progress, LOAD_PACKAGE_GRAPH_PIPELINE_STEPS[6]);
     let selected_package_id = selected_manifest_path
         .as_ref()
         .filter(|selected| **selected != manifest_path)

@@ -57,8 +57,9 @@ pub(super) struct PipelineProgressReporter {
 
 #[derive(Debug, Clone)]
 struct PipelineProgressState {
-    total_steps: usize,
-    current_step: usize,
+    planned_steps: usize,
+    observed_steps: usize,
+    completed_steps: usize,
     label: String,
     detail: String,
     started_at: Instant,
@@ -67,7 +68,7 @@ struct PipelineProgressState {
 #[derive(Debug, Clone)]
 struct PipelineProgressSnapshot {
     total_steps: usize,
-    current_step: usize,
+    completed_steps: usize,
     label: String,
     detail: String,
     elapsed: Duration,
@@ -214,15 +215,13 @@ impl Renderer {
     pub(super) fn pipeline_progress(
         &self,
         command: &'static str,
-        total_steps: usize,
     ) -> Option<PipelineProgressDisplay> {
-        if self.quiet || self.is_verbose() || !self.terminal_output || total_steps == 0 {
+        if self.quiet || self.is_verbose() || !self.terminal_output {
             return None;
         }
 
         Some(PipelineProgressDisplay::spawn(
             command,
-            total_steps,
             ProgressStyle {
                 color_enabled: self.color_enabled,
             },
@@ -324,8 +323,8 @@ impl Drop for ProgressDisplay {
 }
 
 impl PipelineProgressDisplay {
-    fn spawn(command: &'static str, total_steps: usize, style: ProgressStyle) -> Self {
-        let reporter = PipelineProgressReporter::new(total_steps);
+    fn spawn(command: &'static str, style: ProgressStyle) -> Self {
+        let reporter = PipelineProgressReporter::new();
         let stop = Arc::new(AtomicBool::new(false));
         let wake = Arc::new((Mutex::new(false), Condvar::new()));
         let worker_stop = stop.clone();
@@ -364,10 +363,17 @@ impl PipelineProgressDisplay {
 
     pub(super) fn step(&self, label: impl Into<String>, detail: impl Into<String>) {
         self.reporter.step(label, detail);
+        self.wake.1.notify_all();
+    }
+
+    pub(super) fn plan_steps(&self, count: usize) {
+        self.reporter.plan_steps(count);
+        self.wake.1.notify_all();
     }
 
     pub(super) fn detail(&self, detail: impl Into<String>) {
         self.reporter.detail(detail);
+        self.wake.1.notify_all();
     }
 
     pub(super) fn finish(&mut self) {
@@ -394,11 +400,12 @@ impl Drop for PipelineProgressDisplay {
 }
 
 impl PipelineProgressReporter {
-    fn new(total_steps: usize) -> Self {
+    fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(PipelineProgressState {
-                total_steps,
-                current_step: 0,
+                planned_steps: 0,
+                observed_steps: 0,
+                completed_steps: 0,
                 label: "prepare".to_string(),
                 detail: String::new(),
                 started_at: Instant::now(),
@@ -408,9 +415,19 @@ impl PipelineProgressReporter {
 
     fn step(&self, label: impl Into<String>, detail: impl Into<String>) {
         if let Ok(mut state) = self.state.lock() {
-            state.current_step = state.current_step.saturating_add(1).min(state.total_steps);
+            if state.observed_steps > state.completed_steps {
+                state.completed_steps = state.completed_steps.saturating_add(1);
+            }
+            state.observed_steps = state.observed_steps.saturating_add(1);
+            state.planned_steps = state.planned_steps.max(state.observed_steps);
             state.label = label.into();
             state.detail = detail.into();
+        }
+    }
+
+    fn plan_steps(&self, count: usize) {
+        if let Ok(mut state) = self.state.lock() {
+            state.planned_steps = state.planned_steps.saturating_add(count);
         }
     }
 
@@ -422,7 +439,7 @@ impl PipelineProgressReporter {
 
     fn complete(&self) {
         if let Ok(mut state) = self.state.lock() {
-            state.current_step = state.total_steps;
+            state.completed_steps = state.observed_steps;
         }
     }
 
@@ -432,8 +449,8 @@ impl PipelineProgressReporter {
             .lock()
             .expect("pipeline progress state should not be poisoned");
         PipelineProgressSnapshot {
-            total_steps: state.total_steps,
-            current_step: state.current_step,
+            total_steps: state.planned_steps.max(state.observed_steps),
+            completed_steps: state.completed_steps,
             label: state.label.clone(),
             detail: state.detail.clone(),
             elapsed: state.started_at.elapsed(),
@@ -1091,13 +1108,12 @@ fn render_pipeline_progress_line(
     style: ProgressStyle,
 ) -> String {
     let total_steps = snapshot.total_steps.max(1);
-    let completed_steps = snapshot.current_step;
-    let visual_total = total_steps.max(completed_steps.saturating_add(1));
+    let completed_steps = snapshot.completed_steps.min(total_steps);
     let percent = completed_steps
         .saturating_mul(100)
-        .checked_div(visual_total)
+        .checked_div(total_steps)
         .unwrap_or(0);
-    let bar = render_progress_bar(completed_steps, visual_total, progress_bar_width(columns));
+    let bar = render_progress_bar(completed_steps, total_steps, progress_bar_width(columns));
     let step = format_pipeline_step(&snapshot, completed_steps, total_steps);
     let mut line = format!(
         "{} {} {}  {}  {}",
@@ -1122,23 +1138,7 @@ fn format_pipeline_step(
     completed_steps: usize,
     total_steps: usize,
 ) -> String {
-    let phase_step = match snapshot.label.as_str() {
-        "manifest" => Some((completed_steps.min(2), 2)),
-        "workspace" => Some((1, 1)),
-        "lock" => Some((1, 1)),
-        "graph" => Some((1, 1)),
-        "lockfile" => Some((1, 1)),
-        "package" => Some((1, 1)),
-        "plan" => Some((completed_steps.saturating_sub(7).min(3), 3)),
-        _ => None,
-    };
-    if let Some((current, total)) = phase_step {
-        format!("{} {current}/{total}", snapshot.label)
-    } else if completed_steps == 0 {
-        format!("{} 0/{total_steps}", snapshot.label)
-    } else {
-        snapshot.label.clone()
-    }
+    format!("{} {completed_steps}/{total_steps}", snapshot.label)
 }
 
 fn render_progress_bar(completed: usize, total: usize, width: usize) -> String {
@@ -1385,8 +1385,9 @@ fn display_width(text: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        ProgressStyle, format_action_timing_detail, format_thinlto_link_summary,
-        render_progress_line, truncate_detail,
+        PipelineProgressReporter, ProgressStyle, format_action_timing_detail,
+        format_thinlto_link_summary, render_pipeline_progress_line, render_progress_line,
+        truncate_detail,
     };
     use crate::execute::{
         ActionTiming, ActionTimingKind, ExecutionPhase, ExecutionProgressPlan,
@@ -1571,6 +1572,102 @@ mod tests {
 
         assert!(line.contains("finish 0/1"));
         assert!(!line.contains("100%"));
+    }
+
+    #[test]
+    fn pipeline_progress_starts_current_step_at_zero() {
+        let reporter = PipelineProgressReporter::new();
+        reporter.step("manifest", "resolve project manifest");
+
+        let line = render_pipeline_progress_line(
+            "build",
+            reporter.snapshot(),
+            120,
+            ProgressStyle {
+                color_enabled: false,
+            },
+        );
+
+        assert!(line.contains("  0%"));
+        assert!(line.contains("manifest 0/1"));
+    }
+
+    #[test]
+    fn pipeline_progress_uses_preplanned_step_count() {
+        let reporter = PipelineProgressReporter::new();
+        reporter.plan_steps(6);
+        reporter.step("plan", "derive build graph");
+
+        let line = render_pipeline_progress_line(
+            "build",
+            reporter.snapshot(),
+            120,
+            ProgressStyle {
+                color_enabled: false,
+            },
+        );
+
+        assert!(line.contains("  0%"));
+        assert!(line.contains("plan 0/6"));
+    }
+
+    #[test]
+    fn pipeline_progress_completes_previous_step_on_next_step() {
+        let reporter = PipelineProgressReporter::new();
+        reporter.step("manifest", "resolve project manifest");
+        reporter.step("workspace", "load workspace members");
+
+        let line = render_pipeline_progress_line(
+            "build",
+            reporter.snapshot(),
+            120,
+            ProgressStyle {
+                color_enabled: false,
+            },
+        );
+
+        assert!(line.contains(" 50%"));
+        assert!(line.contains("workspace 1/2"));
+    }
+
+    #[test]
+    fn pipeline_progress_uses_dynamic_step_count_for_fetch_events() {
+        let reporter = PipelineProgressReporter::new();
+        for idx in 0..5 {
+            reporter.step("fetch", format!("resource {idx}"));
+        }
+
+        let line = render_pipeline_progress_line(
+            "build",
+            reporter.snapshot(),
+            120,
+            ProgressStyle {
+                color_enabled: false,
+            },
+        );
+
+        assert!(line.contains("fetch 4/5"));
+        assert!(line.contains(" 80%"));
+    }
+
+    #[test]
+    fn pipeline_progress_completes_observed_steps_on_finish() {
+        let reporter = PipelineProgressReporter::new();
+        reporter.step("plan", "derive build graph");
+        reporter.step("analysis", "sync analysis context");
+        reporter.complete();
+
+        let line = render_pipeline_progress_line(
+            "build",
+            reporter.snapshot(),
+            120,
+            ProgressStyle {
+                color_enabled: false,
+            },
+        );
+
+        assert!(line.contains("100%"));
+        assert!(line.contains("analysis 2/2"));
     }
 
     #[test]

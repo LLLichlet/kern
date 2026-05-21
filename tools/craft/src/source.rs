@@ -15,10 +15,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-const GIT_WAIT_REPORT_DELAY: Duration = Duration::from_secs(15);
-const GIT_WAIT_REPORT_INTERVAL: Duration = Duration::from_secs(30);
 const GIT_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -792,8 +790,6 @@ fn run_git_args(cwd: &Path, args: &[&str]) -> Result<()> {
             ))
         })?;
 
-    let started = Instant::now();
-    let mut last_report = None;
     loop {
         let status = match child.try_wait() {
             Ok(status) => status,
@@ -807,7 +803,6 @@ fn run_git_args(cwd: &Path, args: &[&str]) -> Result<()> {
             }
         };
         let Some(status) = status else {
-            report_git_wait(cwd, &command_line, started, &mut last_report);
             thread::sleep(GIT_WAIT_POLL_INTERVAL);
             continue;
         };
@@ -837,31 +832,6 @@ fn run_git_args(cwd: &Path, args: &[&str]) -> Result<()> {
             cwd.display()
         )));
     }
-}
-
-fn report_git_wait(
-    cwd: &Path,
-    command_line: &str,
-    started: Instant,
-    last_report: &mut Option<Instant>,
-) {
-    let now = Instant::now();
-    let elapsed = now.saturating_duration_since(started);
-    if elapsed < GIT_WAIT_REPORT_DELAY {
-        return;
-    }
-    if let Some(last) = last_report
-        && now.saturating_duration_since(*last) < GIT_WAIT_REPORT_INTERVAL
-    {
-        return;
-    }
-
-    eprintln!(
-        "craft: waiting {}s for `{command_line}` in `{}`",
-        elapsed.as_secs(),
-        cwd.display()
-    );
-    *last_report = Some(now);
 }
 
 fn format_git_command(args: &[&str]) -> String {

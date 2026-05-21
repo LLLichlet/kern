@@ -20,7 +20,7 @@ use crate::resolver::{
     ResolvedPackageNode,
 };
 use crate::script;
-use crate::source;
+use crate::source::{self, FetchProgress};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -39,6 +39,15 @@ pub fn derive_with_options(
     elaboration: &ElaborationPlan,
     command: crate::script::ScriptCommand,
     options: DeriveOptions,
+) -> Result<BuildPlan> {
+    derive_with_options_and_progress(elaboration, command, options, |_| {})
+}
+
+pub fn derive_with_options_and_progress(
+    elaboration: &ElaborationPlan,
+    command: crate::script::ScriptCommand,
+    options: DeriveOptions,
+    mut progress: impl FnMut(FetchProgress),
 ) -> Result<BuildPlan> {
     let host_target = script::host_target();
     let target_target = host_target.clone();
@@ -121,8 +130,9 @@ pub fn derive_with_options(
         &elaboration.resolved_graph.workspace_root.join("Craft.toml"),
         &elaboration.manifest,
         elaboration.profile_selection,
+        &mut progress,
     )?;
-    let resource_index = build_resource_index(elaboration)?;
+    let resource_index = build_resource_index(elaboration, &mut progress)?;
     for package in &mut packages {
         let package_root = package
             .manifest_path
@@ -528,6 +538,7 @@ fn build_external_tool_index(
     manifest_path: &Path,
     manifest: &Manifest,
     profile_selection: script::ProfileSelection,
+    progress: &mut impl FnMut(FetchProgress),
 ) -> Result<BTreeMap<ExternalPackageId, Vec<script::BuildScriptTool>>> {
     let external_packages = packages
         .iter()
@@ -551,7 +562,7 @@ fn build_external_tool_index(
     let mut index = BTreeMap::new();
     let _ = manifest_path;
     let _ = manifest;
-    for fetched in source::fetch_external_packages(&resolved)? {
+    for fetched in source::fetch_external_packages_with_progress(&resolved, &mut *progress)? {
         let external_manifest_path = fetched.cache_path.join("Craft.toml");
         let external_manifest = Manifest::load(&external_manifest_path)?;
         external_manifest.validate(&external_manifest_path)?;
@@ -624,9 +635,10 @@ fn build_tools_for_package(
 
 fn build_resource_index(
     elaboration: &ElaborationPlan,
+    progress: &mut impl FnMut(FetchProgress),
 ) -> Result<BTreeMap<PackageId, BTreeMap<String, script::BuildScriptResource>>> {
     let mut index = BTreeMap::new();
-    for fetched in source::fetch_package_resources(elaboration)? {
+    for fetched in source::fetch_package_resources_with_progress(elaboration, &mut *progress)? {
         index
             .entry(fetched.id.package_id)
             .or_insert_with(BTreeMap::new)

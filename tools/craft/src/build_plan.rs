@@ -19,6 +19,7 @@ use std::path::PathBuf;
 
 pub use self::derive_support::derive;
 pub use self::derive_support::derive_with_options;
+pub use self::derive_support::derive_with_options_and_progress;
 use self::derive_support::resolve_compile_source_input;
 use self::paths::{
     artifact_kind, artifact_name, artifact_path, artifact_root_path, generated_root_path,

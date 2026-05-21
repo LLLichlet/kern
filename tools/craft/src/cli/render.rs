@@ -42,6 +42,11 @@ pub(super) struct PipelineProgressDisplay {
     worker: Option<JoinHandle<()>>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ProgressStyle {
+    color_enabled: bool,
+}
+
 #[derive(Clone)]
 pub(super) struct PipelineProgressReporter {
     state: Arc<Mutex<PipelineProgressState>>,
@@ -194,7 +199,13 @@ impl Renderer {
             return None;
         }
 
-        Some(ProgressDisplay::spawn(command, plan))
+        Some(ProgressDisplay::spawn(
+            command,
+            plan,
+            ProgressStyle {
+                color_enabled: self.color_enabled,
+            },
+        ))
     }
 
     pub(super) fn pipeline_progress(
@@ -206,7 +217,13 @@ impl Renderer {
             return None;
         }
 
-        Some(PipelineProgressDisplay::spawn(command, total_steps))
+        Some(PipelineProgressDisplay::spawn(
+            command,
+            total_steps,
+            ProgressStyle {
+                color_enabled: self.color_enabled,
+            },
+        ))
     }
 
     fn paint(&self, tone: Tone, text: &str) -> String {
@@ -238,7 +255,11 @@ fn test_ui_output_is_suppressed() -> bool {
 }
 
 impl ProgressDisplay {
-    fn spawn(command: &'static str, plan: execute::ExecutionProgressPlan) -> Self {
+    fn spawn(
+        command: &'static str,
+        plan: execute::ExecutionProgressPlan,
+        style: ProgressStyle,
+    ) -> Self {
         let reporter = execute::ProgressReporter::new(plan);
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
@@ -255,7 +276,8 @@ impl ProgressDisplay {
                     }
                 } else {
                     let snapshot = worker_reporter.snapshot();
-                    let line = render_progress_line(command, snapshot, progress_line_columns());
+                    let line =
+                        render_progress_line(command, snapshot, progress_line_columns(), style);
                     if line != last_line {
                         write_progress_line(&line, &mut last_len);
                         last_line = line;
@@ -295,7 +317,7 @@ impl Drop for ProgressDisplay {
 }
 
 impl PipelineProgressDisplay {
-    fn spawn(command: &'static str, total_steps: usize) -> Self {
+    fn spawn(command: &'static str, total_steps: usize, style: ProgressStyle) -> Self {
         let reporter = PipelineProgressReporter::new(total_steps);
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
@@ -305,8 +327,12 @@ impl PipelineProgressDisplay {
             let mut last_line = String::new();
             loop {
                 let snapshot = worker_reporter.snapshot();
-                let line =
-                    render_pipeline_progress_line(command, snapshot, progress_line_columns());
+                let line = render_pipeline_progress_line(
+                    command,
+                    snapshot,
+                    progress_line_columns(),
+                    style,
+                );
                 if line != last_line {
                     write_progress_line(&line, &mut last_len);
                     last_line = line;
@@ -394,6 +420,25 @@ impl PipelineProgressReporter {
             detail: state.detail.clone(),
             elapsed: state.started_at.elapsed(),
         }
+    }
+}
+
+impl ProgressStyle {
+    fn paint(self, tone: Tone, text: &str) -> String {
+        if !self.color_enabled {
+            return text.to_string();
+        }
+
+        let code = match tone {
+            Tone::Accent => "1;36",
+            Tone::Muted => "2",
+            Tone::Ok => "1;32",
+            Tone::Build => "1;34",
+            Tone::Link => "1;35",
+            Tone::Generate => "1;36",
+            Tone::Fetch => "1;32",
+        };
+        format!("\x1b[{code}m{text}\x1b[0m")
     }
 }
 
@@ -980,6 +1025,7 @@ fn render_progress_line(
     command: &str,
     snapshot: execute::ExecutionProgressSnapshot,
     columns: usize,
+    style: ProgressStyle,
 ) -> String {
     let total_steps = snapshot.total_steps();
     let completed_steps = snapshot.completed_steps().min(total_steps);
@@ -1003,7 +1049,13 @@ fn render_progress_line(
         segments.push(format!("eta {}", format_progress_clock(eta)));
     }
 
-    let mut line = format!("{command} {bar} {percent:>3}%  {}", segments.join("  "));
+    let mut line = format!(
+        "{} {} {}  {}",
+        style.paint(Tone::Accent, command),
+        style.paint(Tone::Build, &bar),
+        style.paint(Tone::Muted, &format!("{percent:>3}%")),
+        segments.join("  ")
+    );
     if !snapshot.detail.is_empty() {
         let detail_budget = columns.saturating_sub(display_width(&line) + 2);
         if detail_budget >= MIN_PROGRESS_DETAIL_COLUMNS {
@@ -1018,21 +1070,22 @@ fn render_pipeline_progress_line(
     command: &str,
     snapshot: PipelineProgressSnapshot,
     columns: usize,
+    style: ProgressStyle,
 ) -> String {
     let total_steps = snapshot.total_steps.max(1);
-    let completed_steps = snapshot.current_step.min(total_steps);
+    let completed_steps = snapshot.current_step;
+    let visual_total = total_steps.max(completed_steps.saturating_add(1));
     let percent = completed_steps
         .saturating_mul(100)
-        .checked_div(total_steps)
+        .checked_div(visual_total)
         .unwrap_or(0);
-    let bar = render_progress_bar(completed_steps, total_steps, progress_bar_width(columns));
-    let step = if completed_steps == 0 {
-        format!("{} 0/{total_steps}", snapshot.label)
-    } else {
-        format!("{} {completed_steps}/{total_steps}", snapshot.label)
-    };
+    let bar = render_progress_bar(completed_steps, visual_total, progress_bar_width(columns));
+    let step = format_pipeline_step(&snapshot, completed_steps, total_steps);
     let mut line = format!(
-        "{command} {bar} {percent:>3}%  {}  {}",
+        "{} {} {}  {}  {}",
+        style.paint(Tone::Accent, command),
+        style.paint(Tone::Build, &bar),
+        style.paint(Tone::Muted, &format!("{percent:>3}%")),
         step,
         format_progress_clock(snapshot.elapsed)
     );
@@ -1044,6 +1097,30 @@ fn render_pipeline_progress_line(
         }
     }
     truncate_text(&line, columns)
+}
+
+fn format_pipeline_step(
+    snapshot: &PipelineProgressSnapshot,
+    completed_steps: usize,
+    total_steps: usize,
+) -> String {
+    let phase_step = match snapshot.label.as_str() {
+        "manifest" => Some((completed_steps.min(2), 2)),
+        "workspace" => Some((1, 1)),
+        "lock" => Some((1, 1)),
+        "graph" => Some((1, 1)),
+        "lockfile" => Some((1, 1)),
+        "package" => Some((1, 1)),
+        "plan" => Some((completed_steps.saturating_sub(7).min(3), 3)),
+        _ => None,
+    };
+    if let Some((current, total)) = phase_step {
+        format!("{} {current}/{total}", snapshot.label)
+    } else if completed_steps == 0 {
+        format!("{} 0/{total_steps}", snapshot.label)
+    } else {
+        snapshot.label.clone()
+    }
 }
 
 fn render_progress_bar(completed: usize, total: usize, width: usize) -> String {
@@ -1263,14 +1340,28 @@ fn take_suffix_columns(text: &str, max_columns: usize) -> String {
 }
 
 fn display_width(text: &str) -> usize {
-    text.chars().count()
+    let mut width = 0usize;
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' && chars.peek() == Some(&'[') {
+            let _ = chars.next();
+            for code_ch in chars.by_ref() {
+                if code_ch.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+            continue;
+        }
+        width += 1;
+    }
+    width
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        format_action_timing_detail, format_thinlto_link_summary, render_progress_line,
-        truncate_detail,
+        ProgressStyle, format_action_timing_detail, format_thinlto_link_summary,
+        render_progress_line, truncate_detail,
     };
     use crate::execute::{
         ActionTiming, ActionTimingKind, ExecutionPhase, ExecutionProgressPlan,
@@ -1354,6 +1445,9 @@ mod tests {
                 detail: "demo:bed [bin,target]".to_string(),
             },
             160,
+            ProgressStyle {
+                color_enabled: false,
+            },
         );
 
         assert!(line.contains("build ["));
@@ -1381,6 +1475,9 @@ mod tests {
                 detail: "json:hello_compact [example,target]".to_string(),
             },
             64,
+            ProgressStyle {
+                color_enabled: false,
+            },
         );
 
         assert!(line.len() <= 64);
@@ -1405,6 +1502,9 @@ mod tests {
                 detail: "json:hello_compact [example,target]".to_string(),
             },
             80,
+            ProgressStyle {
+                color_enabled: false,
+            },
         );
 
         assert!(line.len() <= 80);

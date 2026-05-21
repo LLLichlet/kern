@@ -18,7 +18,7 @@ use crate::lockfile;
 use crate::manifest::Manifest;
 use crate::operation_lock::WorkspaceOperationLock;
 use crate::plan::TargetKind;
-use crate::source;
+use crate::source::{self, FetchProgress, FetchProgressKind, FetchProgressPhase};
 use crate::style;
 use crate::workspace;
 use std::fs;
@@ -304,27 +304,32 @@ fn run_check(
     ui: super::UiOptions,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let mut pipeline = render.pipeline_progress("check", 10);
     let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Check,
         &feature_selection,
         "check",
-        pipeline.as_ref(),
+        None,
     )?;
-    pipeline_step(&pipeline, "plan", "derive check build graph");
-    let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Check)?;
-    let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
-    pipeline_step(&pipeline, "plan", "derive execution actions");
-    let action_plan = build_plan.derive_actions(&crate::script::host_target());
-    finish_pipeline(&mut pipeline);
-
     render.header_with_path(
         "check",
         &loaded.manifest,
         &loaded.manifest_path,
         &feature_selection,
     );
+    let mut pipeline = render.pipeline_progress("check", 10);
+    pipeline_step(&pipeline, "plan", "derive check build graph");
+    let build_plan = derive_build_plan_with_progress(
+        &pipeline,
+        &loaded.elaboration,
+        crate::script::ScriptCommand::Check,
+        build_plan::DeriveOptions::default(),
+    )?;
+    let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
+    pipeline_step(&pipeline, "plan", "derive execution actions");
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    finish_pipeline(&mut pipeline);
+
     let edge_count = loaded
         .elaboration
         .package_graph
@@ -490,28 +495,34 @@ fn run_fetch(
     ui: super::UiOptions,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let mut pipeline = render.pipeline_progress("fetch", 10);
     let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Fetch,
         &feature_selection,
         "fetch",
-        pipeline.as_ref(),
+        None,
     )?;
-    pipeline_step(&pipeline, "fetch", "external packages");
-    let fetched = source::fetch_external_packages(&loaded.elaboration.resolved_graph)?;
-    pipeline_step(&pipeline, "fetch", "package resources");
-    let fetched_resources = source::fetch_package_resources(&loaded.elaboration)?;
-    finish_pipeline(&mut pipeline);
-    let summary = source::summarize_fetch(&fetched);
-    let resource_summary = source::summarize_fetch_resources(&fetched_resources);
-
     render.header_with_path(
         "fetch",
         &loaded.manifest,
         &loaded.manifest_path,
         &feature_selection,
     );
+    let mut pipeline = render.pipeline_progress("fetch", 10);
+    pipeline_step(&pipeline, "fetch", "external packages");
+    let fetched = source::fetch_external_packages_with_progress(
+        &loaded.elaboration.resolved_graph,
+        |event| pipeline_fetch_progress(&pipeline, event),
+    )?;
+    pipeline_step(&pipeline, "fetch", "package resources");
+    let fetched_resources =
+        source::fetch_package_resources_with_progress(&loaded.elaboration, |event| {
+            pipeline_fetch_progress(&pipeline, event)
+        })?;
+    finish_pipeline(&mut pipeline);
+    let summary = source::summarize_fetch(&fetched);
+    let resource_summary = source::summarize_fetch_resources(&fetched_resources);
+
     render.summary(
         "packages",
         format!(
@@ -764,16 +775,23 @@ fn run_build(
     include_examples: bool,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let mut pipeline = render.pipeline_progress("build", 11);
     let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Build,
         &feature_selection,
         "build",
-        pipeline.as_ref(),
+        None,
     )?;
+    render.header_with_path(
+        "build",
+        &loaded.manifest,
+        &loaded.manifest_path,
+        &feature_selection,
+    );
+    let mut pipeline = render.pipeline_progress("build", 11);
     pipeline_step(&pipeline, "plan", "derive build graph");
-    let build_plan = build_plan::derive_with_options(
+    let build_plan = derive_build_plan_with_progress(
+        &pipeline,
         &loaded.elaboration,
         crate::script::ScriptCommand::Build,
         build_plan::DeriveOptions { include_examples },
@@ -792,12 +810,6 @@ fn run_build(
     let action_plan = build_plan.derive_actions(&target);
     finish_pipeline(&mut pipeline);
 
-    render.header_with_path(
-        "build",
-        &loaded.manifest,
-        &loaded.manifest_path,
-        &feature_selection,
-    );
     render.summary(
         "plan",
         format!(
@@ -858,17 +870,28 @@ fn run_install(
     root: Option<PathBuf>,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let mut pipeline = render.pipeline_progress("install", 12);
     let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Build,
         &feature_selection,
         "install",
-        pipeline.as_ref(),
+        None,
     )?;
+    render.header_with_path(
+        "install",
+        &loaded.manifest,
+        &loaded.manifest_path,
+        &feature_selection,
+    );
+    let mut pipeline = render.pipeline_progress("install", 12);
     let target_package_id = selected_target_package_id(&loaded, "install")?;
     pipeline_step(&pipeline, "plan", "derive install build graph");
-    let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
+    let build_plan = derive_build_plan_with_progress(
+        &pipeline,
+        &loaded.elaboration,
+        crate::script::ScriptCommand::Build,
+        build_plan::DeriveOptions::default(),
+    )?;
     let build_plan = build_plan
         .filtered_package_closure(&[(graph::BuildDomain::Target, target_package_id.clone())]);
     pipeline_step(&pipeline, "analysis", "sync analysis context");
@@ -886,12 +909,6 @@ fn run_install(
     let install_bin_dir = install_root.join("bin");
     finish_pipeline(&mut pipeline);
 
-    render.header_with_path(
-        "install",
-        &loaded.manifest,
-        &loaded.manifest_path,
-        &feature_selection,
-    );
     render.summary("root", install_root.display());
     render.summary(
         "targets",
@@ -952,16 +969,27 @@ fn run_doc(
     ui: super::UiOptions,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let mut pipeline = render.pipeline_progress("doc", 11);
     let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Build,
         &feature_selection,
         "doc",
-        pipeline.as_ref(),
+        None,
     )?;
+    render.header_with_path(
+        "doc",
+        &loaded.manifest,
+        &loaded.manifest_path,
+        &feature_selection,
+    );
+    let mut pipeline = render.pipeline_progress("doc", 11);
     pipeline_step(&pipeline, "plan", "derive documentation build graph");
-    let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
+    let build_plan = derive_build_plan_with_progress(
+        &pipeline,
+        &loaded.elaboration,
+        crate::script::ScriptCommand::Build,
+        build_plan::DeriveOptions::default(),
+    )?;
     let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
     pipeline_step(&pipeline, "analysis", "sync analysis context");
     let _ = analysis_context::sync_analysis_context(
@@ -975,12 +1003,6 @@ fn run_doc(
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
     finish_pipeline(&mut pipeline);
 
-    render.header_with_path(
-        "doc",
-        &loaded.manifest,
-        &loaded.manifest_path,
-        &feature_selection,
-    );
     render.summary(
         "plan",
         format!(
@@ -1206,17 +1228,28 @@ fn run_uninstall(
 ) -> Result<()> {
     let render = Renderer::new(ui);
     let feature_selection = elaborate::FeatureSelection::default();
-    let mut pipeline = render.pipeline_progress("uninstall", 11);
     let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Build,
         &feature_selection,
         "uninstall",
-        pipeline.as_ref(),
+        None,
     )?;
+    render.header_with_path(
+        "uninstall",
+        &loaded.manifest,
+        &loaded.manifest_path,
+        &feature_selection,
+    );
+    let mut pipeline = render.pipeline_progress("uninstall", 11);
     let target_package_id = selected_target_package_id(&loaded, "uninstall")?;
     pipeline_step(&pipeline, "plan", "derive uninstall build graph");
-    let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
+    let build_plan = derive_build_plan_with_progress(
+        &pipeline,
+        &loaded.elaboration,
+        crate::script::ScriptCommand::Build,
+        build_plan::DeriveOptions::default(),
+    )?;
     let build_plan = build_plan
         .filtered_package_closure(&[(graph::BuildDomain::Target, target_package_id.clone())]);
     pipeline_step(&pipeline, "plan", "derive execution actions");
@@ -1229,12 +1262,6 @@ fn run_uninstall(
     let mut missing = 0usize;
     finish_pipeline(&mut pipeline);
 
-    render.header_with_path(
-        "uninstall",
-        &loaded.manifest,
-        &loaded.manifest_path,
-        &feature_selection,
-    );
     render.summary("root", install_root.display());
     render.summary(
         "targets",
@@ -1287,16 +1314,23 @@ fn run_target(
     runtime_args: Vec<String>,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let mut pipeline = render.pipeline_progress("run", 12);
     let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Run,
         &feature_selection,
         "run",
-        pipeline.as_ref(),
+        None,
     )?;
+    render.header_with_path(
+        "run",
+        &loaded.manifest,
+        &loaded.manifest_path,
+        &feature_selection,
+    );
+    let mut pipeline = render.pipeline_progress("run", 12);
     pipeline_step(&pipeline, "plan", "derive run build graph");
-    let build_plan = build_plan::derive_with_options(
+    let build_plan = derive_build_plan_with_progress(
+        &pipeline,
         &loaded.elaboration,
         crate::script::ScriptCommand::Run,
         build_plan::DeriveOptions {
@@ -1317,12 +1351,6 @@ fn run_target(
     let run_unit = select_run_unit(&build_plan, &selection)?;
     finish_pipeline(&mut pipeline);
 
-    render.header_with_path(
-        "run",
-        &loaded.manifest,
-        &loaded.manifest_path,
-        &feature_selection,
-    );
     render.summary("target", format_unit_label(run_unit));
     render.summary(
         "plan",
@@ -1372,16 +1400,27 @@ fn run_tests(
     runtime_args: Vec<String>,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let mut pipeline = render.pipeline_progress("test", 12);
     let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Test,
         &feature_selection,
         "test",
-        pipeline.as_ref(),
+        None,
     )?;
+    render.header_with_path(
+        "test",
+        &loaded.manifest,
+        &loaded.manifest_path,
+        &feature_selection,
+    );
+    let mut pipeline = render.pipeline_progress("test", 12);
     pipeline_step(&pipeline, "plan", "derive test build graph");
-    let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Test)?;
+    let build_plan = derive_build_plan_with_progress(
+        &pipeline,
+        &loaded.elaboration,
+        crate::script::ScriptCommand::Test,
+        build_plan::DeriveOptions::default(),
+    )?;
     let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
     pipeline_step(&pipeline, "plan", "filter selected tests");
     let build_plan = filter_selected_tests(build_plan, test_name.as_deref())?;
@@ -1397,12 +1436,6 @@ fn run_tests(
     let tests = units_of_kind(&build_plan, TargetKind::Test);
     finish_pipeline(&mut pipeline);
 
-    render.header_with_path(
-        "test",
-        &loaded.manifest,
-        &loaded.manifest_path,
-        &feature_selection,
-    );
     render.summary(
         "tests",
         format!(
@@ -1550,6 +1583,34 @@ fn pipeline_step(
     if let Some(progress) = progress {
         progress.step(label, detail);
     }
+}
+
+fn pipeline_fetch_progress(progress: &Option<PipelineProgressDisplay>, event: FetchProgress) {
+    let kind = match event.kind {
+        FetchProgressKind::Package => "package",
+        FetchProgressKind::Resource => "resource",
+    };
+    let phase = match event.phase {
+        FetchProgressPhase::Resolve => "resolve",
+        FetchProgressPhase::Git => "git",
+        FetchProgressPhase::Materialize => "sync",
+    };
+    pipeline_step(
+        progress,
+        "fetch",
+        format!("{phase} {kind} {} ({})", event.name, event.source),
+    );
+}
+
+fn derive_build_plan_with_progress(
+    progress: &Option<PipelineProgressDisplay>,
+    elaboration: &elaborate::ElaborationPlan,
+    command: crate::script::ScriptCommand,
+    options: build_plan::DeriveOptions,
+) -> Result<build_plan::BuildPlan> {
+    build_plan::derive_with_options_and_progress(elaboration, command, options, |event| {
+        pipeline_fetch_progress(progress, event);
+    })
 }
 
 fn finish_pipeline(progress: &mut Option<PipelineProgressDisplay>) {

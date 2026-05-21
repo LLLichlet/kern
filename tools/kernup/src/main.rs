@@ -5,11 +5,12 @@
 
 use shared_cli::{ColorChoice, ErrorReport, HelpDoc, HelpSection};
 use shared_ops::{
-    OpsError, OpsResult, archive_kind_from_path, configure_path, copy_sdk_contents,
-    default_install_root, detect_host_target, download_file, extract_archive_with_system_tool,
-    fetch_latest_github_release, infer_release_version_from_archive_name, make_temp_dir,
-    remove_path_if_exists, set_command_logging_enabled, set_status_logging_enabled,
-    validate_sdk_root, verify_installed_tools,
+    DownloadProgress, OpsError, OpsResult, archive_kind_from_path, configure_path,
+    copy_sdk_contents, default_install_root, detect_host_target, download_file_with_progress,
+    extract_archive_with_system_tool, fetch_latest_github_release,
+    infer_release_version_from_archive_name, make_temp_dir, remove_path_if_exists,
+    set_command_logging_enabled, set_status_logging_enabled, validate_sdk_root,
+    verify_installed_tools,
 };
 use std::env;
 use std::io::{IsTerminal, Write};
@@ -338,9 +339,7 @@ fn resolve_install_archive(
         args.github_repo
     );
     *step += 1;
-    ui.step(*step, total_steps, format!("download {version}"), || {
-        download_file(&url, &archive)
-    })?;
+    ui.download_step(&url, &archive, *step, total_steps, &version)?;
     Ok((archive, version))
 }
 
@@ -420,6 +419,46 @@ impl Ui {
     ) -> OpsResult<T> {
         let progress = self.start_step(index, total, message.into());
         let result = action();
+        match &result {
+            Ok(_) => progress.finish_ok(),
+            Err(_) => progress.finish_err(),
+        }
+        result
+    }
+
+    fn download_step(
+        &self,
+        url: &str,
+        archive: &std::path::Path,
+        index: usize,
+        total: usize,
+        version: &str,
+    ) -> OpsResult<()> {
+        let progress = self.start_step(index, total, format!("download {version}"));
+        let start = Instant::now();
+        let mut last_render = Instant::now()
+            .checked_sub(Duration::from_secs(1))
+            .unwrap_or_else(Instant::now);
+        let result = download_file_with_progress(url, archive, |download| {
+            if self.verbose || !self.terminal {
+                return;
+            }
+            let now = Instant::now();
+            let done = download
+                .total
+                .is_some_and(|total| total > 0 && download.downloaded >= total);
+            if !done && now.duration_since(last_render) < Duration::from_millis(120) {
+                return;
+            }
+            last_render = now;
+            let _ = write!(
+                std::io::stderr(),
+                "\r\x1b[2K{} download {version}  {}",
+                self.progress_line(index.saturating_sub(1), total),
+                render_download_progress(download, start.elapsed())
+            );
+            let _ = std::io::stderr().flush();
+        });
         match &result {
             Ok(_) => progress.finish_ok(),
             Err(_) => progress.finish_err(),
@@ -549,6 +588,55 @@ fn format_duration(duration: Duration) -> String {
         format!("{}s", duration.as_secs())
     } else {
         "<1s".to_string()
+    }
+}
+
+fn render_download_progress(progress: DownloadProgress, elapsed: Duration) -> String {
+    let downloaded = format_bytes(progress.downloaded);
+    let rate = if elapsed.as_secs_f64() > 0.0 {
+        Some((progress.downloaded as f64 / elapsed.as_secs_f64()) as u64)
+    } else {
+        None
+    };
+    let rate_text = rate
+        .map(|bytes| format!("{}/s", format_bytes(bytes)))
+        .unwrap_or_else(|| "--/s".to_string());
+    if let Some(total) = progress.total {
+        let percent = progress
+            .downloaded
+            .saturating_mul(100)
+            .checked_div(total.max(1))
+            .unwrap_or(0)
+            .min(100);
+        let eta = rate.and_then(|rate| {
+            (rate > 0 && progress.downloaded < total)
+                .then(|| Duration::from_secs((total - progress.downloaded) / rate))
+        });
+        let eta_text = eta
+            .map(|duration| format!(" eta {}", format_duration(duration)))
+            .unwrap_or_default();
+        format!(
+            "{downloaded}/{} {percent:>3}% {rate_text}{eta_text}",
+            format_bytes(total)
+        )
+    } else {
+        format!("{downloaded} {rate_text}")
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+    let value = bytes as f64;
+    if value >= GIB {
+        format!("{:.1} GiB", value / GIB)
+    } else if value >= MIB {
+        format!("{:.1} MiB", value / MIB)
+    } else if value >= KIB {
+        format!("{:.1} KiB", value / KIB)
+    } else {
+        format!("{bytes} B")
     }
 }
 

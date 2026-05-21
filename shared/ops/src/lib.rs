@@ -10,6 +10,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::io;
+use std::io::Read;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -111,6 +112,12 @@ pub struct CommandResult {
     pub status_code: Option<i32>,
     pub stdout: String,
     pub stderr: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DownloadProgress {
+    pub downloaded: u64,
+    pub total: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -487,87 +494,128 @@ pub fn configure_path(install_bin: &Path, host: &HostTarget) -> OpsResult<()> {
 }
 
 pub fn download_file(url: &str, dest: &Path) -> OpsResult<()> {
+    download_file_with_progress(url, dest, |_| {})
+}
+
+pub fn download_file_with_progress(
+    url: &str,
+    dest: &Path,
+    mut progress: impl FnMut(DownloadProgress),
+) -> OpsResult<()> {
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent)?;
     }
-    if cfg!(windows) {
-        let escaped_url = powershell_quote(url);
-        let escaped_dest = powershell_quote(&dest.display().to_string());
-        let script = format!(
-            "Invoke-WebRequest -Uri {escaped_url} -OutFile {escaped_dest} -UseBasicParsing"
-        );
-        run_command(
-            &[
-                OsString::from("powershell"),
-                OsString::from("-NoProfile"),
-                OsString::from("-ExecutionPolicy"),
-                OsString::from("Bypass"),
-                OsString::from("-Command"),
-                OsString::from(script),
-            ],
-            None,
-        )
-    } else {
-        run_command(
-            &[
-                OsString::from("curl"),
-                OsString::from("-fsSL"),
-                OsString::from(url),
-                OsString::from("-o"),
-                dest.as_os_str().to_owned(),
-            ],
-            None,
-        )
+
+    let client = http_client()?;
+    let mut response = client
+        .get(url)
+        .send()
+        .map_err(|err| OpsError::new(format!("failed to download `{url}`: {err}")))?;
+    if !response.status().is_success() {
+        return Err(OpsError::new(format!(
+            "failed to download `{url}`: HTTP {}",
+            response.status()
+        )));
     }
+
+    let total = response.content_length();
+    let temp_path = temp_download_path(dest);
+    let mut file = fs::File::create(&temp_path).map_err(|err| {
+        OpsError::new(format!(
+            "failed to create download file `{}`: {err}",
+            temp_path.display()
+        ))
+    })?;
+    let mut downloaded = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    progress(DownloadProgress { downloaded, total });
+    let transfer_result = loop {
+        let read = match response.read(&mut buffer) {
+            Ok(read) => read,
+            Err(err) => {
+                break Err(OpsError::new(format!(
+                    "failed while reading download `{url}`: {err}"
+                )));
+            }
+        };
+        if read == 0 {
+            break Ok(());
+        }
+        if let Err(err) = file.write_all(&buffer[..read]) {
+            break Err(OpsError::new(format!(
+                "failed to write download file `{}`: {err}",
+                temp_path.display()
+            )));
+        }
+        downloaded += read as u64;
+        progress(DownloadProgress { downloaded, total });
+    };
+    if let Err(err) = transfer_result {
+        let _ = remove_path_if_exists(&temp_path);
+        return Err(err);
+    }
+    if let Err(err) = file.flush() {
+        let _ = remove_path_if_exists(&temp_path);
+        return Err(OpsError::new(format!(
+            "failed to flush download file `{}`: {err}",
+            temp_path.display()
+        )));
+    }
+    drop(file);
+    if let Some(total) = total
+        && downloaded != total
+    {
+        let _ = remove_path_if_exists(&temp_path);
+        return Err(OpsError::new(format!(
+            "downloaded {downloaded} byte(s) from `{url}`, expected {total}"
+        )));
+    }
+    fs::rename(&temp_path, dest).map_err(|err| {
+        OpsError::new(format!(
+            "failed to move download `{}` to `{}`: {err}",
+            temp_path.display(),
+            dest.display()
+        ))
+    })?;
+    Ok(())
 }
 
 pub fn fetch_latest_github_release(github_repo: &str) -> OpsResult<Option<String>> {
-    if cfg!(windows) {
-        let script = format!(
-            "(Invoke-RestMethod -Uri {}).tag_name",
-            powershell_quote(&format!(
-                "https://api.github.com/repos/{github_repo}/releases/latest"
-            ))
-        );
-        let result = run_command_capture(
-            &[
-                OsString::from("powershell"),
-                OsString::from("-NoProfile"),
-                OsString::from("-ExecutionPolicy"),
-                OsString::from("Bypass"),
-                OsString::from("-Command"),
-                OsString::from(script),
-            ],
-            None,
-        )?;
-        if result.status_code == Some(0) {
-            let tag = result.stdout.trim();
-            return Ok((!tag.is_empty()).then(|| tag.to_string()));
-        }
+    let url = format!("https://api.github.com/repos/{github_repo}/releases/latest");
+    let response = match http_client()?.get(&url).send() {
+        Ok(response) => response,
+        Err(_) => return Ok(None),
+    };
+    if !response.status().is_success() {
         return Ok(None);
     }
-
-    let result = run_command_capture(
-        &[
-            OsString::from("curl"),
-            OsString::from("-fsSLI"),
-            OsString::from("-o"),
-            OsString::from("/dev/null"),
-            OsString::from("-w"),
-            OsString::from("%{url_effective}"),
-            OsString::from(format!("https://github.com/{github_repo}/releases/latest")),
-        ],
-        None,
-    )?;
-    if result.status_code != Some(0) {
-        return Ok(None);
-    }
-    let resolved = result.stdout.trim();
-    Ok(resolved
-        .split("/releases/tag/")
-        .nth(1)
+    let value = match response.json::<serde_json::Value>() {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+    Ok(value
+        .get("tag_name")
+        .and_then(|tag| tag.as_str())
         .filter(|tag| !tag.is_empty())
         .map(str::to_string))
+}
+
+fn http_client() -> OpsResult<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .user_agent(format!("kernup/{}", env!("CARGO_PKG_VERSION")))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|err| OpsError::new(format!("failed to initialize HTTP client: {err}")))
+}
+
+fn temp_download_path(dest: &Path) -> PathBuf {
+    let mut name = dest
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("download")
+        .to_string();
+    name.push_str(&format!(".part-{}", unique_suffix()));
+    dest.with_file_name(name)
 }
 
 pub fn infer_release_version_from_archive_name(name: &str, target: &str) -> Option<String> {

@@ -342,6 +342,17 @@ impl CompilerDriver {
             .arg(&self.options.output_file);
 
         if cc_compiler.contains("clang") {
+            if !self.options.linker_cmd_explicit
+                && let Some(toolchain_root) = resolved_toolchain_root(&self.options)
+            {
+                let resource_dir = clang_resource_dir_in_root(&toolchain_root).ok_or_else(|| {
+                    format!(
+                        "Kern SDK clang resource headers were not found under `{}`. C-family build scripts need Clang's builtin headers such as `stdarg.h`. Reinstall or repair the Kern SDK, set KERN_TOOLCHAIN_ROOT/--toolchain-root to a complete toolchain, or explicitly use a host C driver with CC.",
+                        toolchain_root.join("lib").join("clang").display()
+                    )
+                })?;
+                cmd.arg(format!("--resource-dir={}", resource_dir.display()));
+            }
             cmd.arg(format!("--target={}", target.triple));
         }
 
@@ -1027,6 +1038,17 @@ fn sdk_toolchain_root_from_sdk_root(sdk_root: &std::path::Path) -> Option<PathBu
     (manifest.is_file() && toolchain_root.is_dir()).then_some(toolchain_root)
 }
 
+fn clang_resource_dir_in_root(root: &std::path::Path) -> Option<PathBuf> {
+    let base = root.join("lib").join("clang");
+    let mut candidates = fs::read_dir(&base)
+        .ok()?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.join("include").join("stdarg.h").is_file())
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
+    candidates.pop()
+}
+
 fn find_llvm_tool(
     options: &kernc_utils::config::CompileOptions,
     tool: &str,
@@ -1395,8 +1417,11 @@ mod tests {
                 .as_nanos()
         ));
         let bin_dir = root.join("bin");
+        let resource_dir = root.join("lib").join("clang").join("21");
         fs::create_dir_all(&bin_dir).unwrap();
+        fs::create_dir_all(resource_dir.join("include")).unwrap();
         fs::write(bin_dir.join("clang"), "").unwrap();
+        fs::write(resource_dir.join("include").join("stdarg.h"), "").unwrap();
 
         let driver = CompilerDriver::new(CompileOptions {
             input_file: Some(root.join("demo.c").to_string_lossy().to_string()),
@@ -1419,6 +1444,76 @@ mod tests {
                 .iter()
                 .any(|arg| arg == &format!("--target={}", target.triple))
         );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cc_compile_passes_controlled_clang_resource_dir() {
+        let root = std::env::temp_dir().join(format!(
+            "kern_cc_resource_dir_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bin_dir = root.join("bin");
+        let resource_dir = root.join("lib").join("clang").join("21");
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::create_dir_all(resource_dir.join("include")).unwrap();
+        fs::write(bin_dir.join("clang"), "").unwrap();
+        fs::write(resource_dir.join("include").join("stdarg.h"), "").unwrap();
+
+        let driver = CompilerDriver::new(CompileOptions {
+            input_file: Some(root.join("demo.c").to_string_lossy().to_string()),
+            output_file: root.join("demo.o").to_string_lossy().to_string(),
+            driver_mode: kernc_utils::config::DriverMode::CcCompile,
+            toolchain_root: Some(root.to_string_lossy().to_string()),
+            ..CompileOptions::default()
+        });
+        let target = driver.normalized_target();
+        let cmd = driver
+            .build_cc_compile_command(driver.options.input_file.as_deref().unwrap(), &target)
+            .unwrap();
+        let args = command_args(&cmd);
+
+        assert!(
+            args.iter()
+                .any(|arg| { arg == &format!("--resource-dir={}", resource_dir.display()) })
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cc_compile_rejects_controlled_clang_without_resource_headers() {
+        let root = std::env::temp_dir().join(format!(
+            "kern_cc_missing_resource_dir_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bin_dir = root.join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::write(bin_dir.join("clang"), "").unwrap();
+
+        let driver = CompilerDriver::new(CompileOptions {
+            input_file: Some(root.join("demo.c").to_string_lossy().to_string()),
+            output_file: root.join("demo.o").to_string_lossy().to_string(),
+            driver_mode: kernc_utils::config::DriverMode::CcCompile,
+            toolchain_root: Some(root.to_string_lossy().to_string()),
+            ..CompileOptions::default()
+        });
+        let target = driver.normalized_target();
+        let err = driver
+            .build_cc_compile_command(driver.options.input_file.as_deref().unwrap(), &target)
+            .unwrap_err();
+
+        assert!(err.contains("Kern SDK clang resource headers were not found"));
+        assert!(err.contains("stdarg.h"));
 
         let _ = fs::remove_dir_all(&root);
     }

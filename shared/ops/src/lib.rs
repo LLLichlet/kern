@@ -326,6 +326,7 @@ pub fn validate_sdk_toolchain_manifest(sdk_root: &Path) -> OpsResult<()> {
                 )));
             }
         }
+        validate_sdk_clang_resource_headers(sdk_root, components)?;
         for (component, entry) in components {
             validate_component_record(sdk_root, component, entry, "SDK bundled component")?;
         }
@@ -344,6 +345,33 @@ pub fn validate_sdk_toolchain_manifest(sdk_root: &Path) -> OpsResult<()> {
                 &check.kind,
             )?;
         }
+    }
+    Ok(())
+}
+
+fn validate_sdk_clang_resource_headers(
+    sdk_root: &Path,
+    components: &serde_json::Map<String, serde_json::Value>,
+) -> OpsResult<()> {
+    let Some(entry) = components.get("clang_resource_dir") else {
+        return Err(OpsError::new(
+            "SDK manifest is missing bundled component `clang_resource_dir`",
+        ));
+    };
+    let relative_path = entry
+        .as_object()
+        .and_then(|obj| obj.get("path"))
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| OpsError::new("SDK bundled component `clang_resource_dir` has no path"))?;
+    let stdarg = sdk_root
+        .join(relative_path)
+        .join("include")
+        .join("stdarg.h");
+    if !stdarg.is_file() {
+        return Err(OpsError::new(format!(
+            "SDK clang resource headers are incomplete; missing `{}`",
+            stdarg.display()
+        )));
     }
     Ok(())
 }
@@ -2121,5 +2149,85 @@ mod tests {
         assert!(required.contains(&"clang"));
         assert!(required.contains(&"lld"));
         assert!(required.contains(&"clang_resource_dir"));
+    }
+
+    #[test]
+    fn sdk_validation_rejects_missing_clang_resource_headers() {
+        let root = make_temp_dir("shared-ops-sdk-resource-test-").unwrap();
+        fs::create_dir_all(root.join("bin")).unwrap();
+        for binary in HOST_TOOL_BINARIES {
+            fs::write(root.join("bin").join(binary), "").unwrap();
+        }
+        let library_root = root.join("lib").join("kern");
+        fs::create_dir_all(&library_root).unwrap();
+        fs::write(library_root.join("Craft.toml"), "").unwrap();
+        for layer in OFFICIAL_LIBRARY_LAYERS {
+            fs::create_dir_all(library_root.join(layer)).unwrap();
+            fs::write(library_root.join(layer).join("mod.kn"), "").unwrap();
+        }
+        fs::create_dir_all(library_root.join("craft")).unwrap();
+        fs::write(library_root.join("craft").join("mod.kn"), "").unwrap();
+        fs::create_dir_all(root.join("toolchain").join("host").join("bin")).unwrap();
+        fs::create_dir_all(
+            root.join("toolchain")
+                .join("host")
+                .join("lib")
+                .join("clang")
+                .join("21"),
+        )
+        .unwrap();
+        let manifest_dir = root.join("manifest");
+        fs::create_dir_all(&manifest_dir).unwrap();
+        write_json_value(
+            &manifest_dir.join("sdk.json"),
+            &serde_json::json!({
+                "schema_version": 1,
+                "sdk_version": "v0.8.0",
+                "host_target": "x86_64-linux-gnu",
+                "binaries": HOST_TOOL_BINARIES,
+                "libraries": OFFICIAL_LIBRARY_LAYERS,
+                "toolchain": {
+                    "bundled": true,
+                    "components": {
+                        "clang": {"path": "toolchain/host/bin/clang", "kind": "file"},
+                        "lld": {"path": "toolchain/host/bin/ld.lld", "kind": "file"},
+                        "clang_resource_dir": {
+                            "path": "toolchain/host/lib/clang/21",
+                            "kind": "directory"
+                        }
+                    },
+                    "required_components": ["clang", "lld", "clang_resource_dir"],
+                    "health_checks": [
+                        {"component": "clang_resource_dir", "kind": "exists"}
+                    ]
+                }
+            }),
+        )
+        .unwrap();
+        fs::write(
+            root.join("toolchain")
+                .join("host")
+                .join("bin")
+                .join("clang"),
+            "",
+        )
+        .unwrap();
+        fs::write(
+            root.join("toolchain")
+                .join("host")
+                .join("bin")
+                .join("ld.lld"),
+            "",
+        )
+        .unwrap();
+
+        let err = validate_sdk_root(&root, "x86_64-linux-gnu").unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("SDK clang resource headers are incomplete")
+        );
+        assert!(err.to_string().contains("stdarg.h"));
+        remove_path_if_exists(&root).unwrap();
     }
 }

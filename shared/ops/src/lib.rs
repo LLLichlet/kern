@@ -1023,6 +1023,13 @@ pub fn sdk_manifest_json(
             ];
         }
         required_components = sdk_runtime_required_components(archive_target);
+        if components.contains_key("runtime_lib_dir")
+            && !required_components
+                .iter()
+                .any(|component| component == "runtime_lib_dir")
+        {
+            required_components.push("runtime_lib_dir".into());
+        }
         health_checks = toolchain_component_health_checks_json(&required_components);
     }
     serde_json::json!({
@@ -2149,6 +2156,53 @@ mod tests {
         assert!(required.contains(&"clang"));
         assert!(required.contains(&"lld"));
         assert!(required.contains(&"clang_resource_dir"));
+    }
+
+    #[test]
+    fn sdk_manifest_requires_runtime_lib_dir_when_bundled() {
+        let mut records = serde_json::Map::new();
+        records.insert(
+            "runtime_lib_dir".into(),
+            serde_json::json!({
+                "path": "toolchain/host/lib",
+                "kind": "directory",
+                "sha256": "abc"
+            }),
+        );
+        let manifest = sdk_manifest_json(
+            "v0.8.1",
+            "x86_64-linux-gnu",
+            Some(&BundledToolchain {
+                source_label: "test".into(),
+                prefix: PathBuf::from("/toolchain"),
+                bindir: PathBuf::from("/toolchain/bin"),
+                libdir: PathBuf::from("/toolchain/lib"),
+                includedir: PathBuf::from("/toolchain/include"),
+                version: "21.1.8".into(),
+                tools: serde_json::Map::new(),
+                resource_dir: Some(PathBuf::from("/toolchain/lib/clang/21")),
+                sysroot_dir: None,
+            }),
+            Some(&records),
+        );
+        let toolchain = manifest.get("toolchain").unwrap();
+        let required = toolchain
+            .get("required_components")
+            .and_then(|required| required.as_array())
+            .unwrap()
+            .iter()
+            .filter_map(|item| item.as_str())
+            .collect::<Vec<_>>();
+        let health_checks = toolchain
+            .get("health_checks")
+            .and_then(|checks| checks.as_array())
+            .unwrap();
+
+        assert!(required.contains(&"runtime_lib_dir"));
+        assert!(health_checks.iter().any(|check| {
+            check.get("component").and_then(|value| value.as_str()) == Some("runtime_lib_dir")
+                && check.get("kind").and_then(|value| value.as_str()) == Some("exists")
+        }));
     }
 
     #[test]

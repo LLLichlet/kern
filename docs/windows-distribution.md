@@ -211,23 +211,29 @@ The command currently enforces the important Windows-specific rules:
   `target/release/`
 - it packages the default SDK with the minimal runtime LLVM/Clang tool set:
   `clang.exe`, `lld-link.exe`, and `llvm-lib.exe`
+- it packages Clang's resource headers so package build scripts can compile C
+  family sources with the bundled SDK clang
 - it leaves full LLVM development assets in the standalone
   `package-toolchain` artifact, not in the default user SDK
 
 The default SDK deliberately omits source-build assets such as `clang++.exe`,
-`llvm-ar.exe`, `llvm-config.exe`, LLVM headers, LLVM libraries, and the Clang
-resource directory. Those files belong in the standalone toolchain artifact
-unless the installed-user flow requires them. The current Windows installed-user
-path uses Clang as a linker driver, `lld-link.exe` as the MSVC linker backend,
-and `llvm-lib.exe` for Windows archive/relocatable-link operations.
+`llvm-ar.exe`, `llvm-config.exe`, LLVM development headers, and LLVM libraries.
+Those files belong in the standalone toolchain artifact unless the
+installed-user flow requires them. The default SDK does include Clang's resource
+headers because C-family compilation from package build scripts needs compiler
+builtin headers such as `stdarg.h`. The current Windows installed-user path
+uses Clang as a linker driver, `lld-link.exe` as the MSVC linker backend, and
+`llvm-lib.exe` for Windows archive/relocatable-link operations.
 
 The SDK manifest makes that boundary explicit. `manifest/sdk.json` records the
 resolved LLVM provenance, the bundled runtime component set, and the health
 checks expected for each bundled tool. For Windows that means the default SDK
-requires `clang`, `lld`, and `llvm_lib`, while the standalone
-`manifest/toolchain.json` from `package-toolchain` requires the full development
-prefix components such as `clangxx`, `llvm_ar`, `llvm_config`, `lib_dir`, and
-`include_dir`.
+requires `clang`, `lld`, `llvm_lib`, and `clang_resource_dir`, while the
+standalone `manifest/toolchain.json` from `package-toolchain` requires the full
+development prefix components such as `clangxx`, `llvm_ar`, `llvm_config`,
+`lib_dir`, and `include_dir`. If a platform SDK also needs copied non-system
+runtime libraries, those libraries are recorded as `runtime_lib_dir` and
+checked as part of the same manifest health model.
 
 ## Installation Model
 

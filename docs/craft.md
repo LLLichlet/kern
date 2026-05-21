@@ -177,12 +177,13 @@ All machine-local state owned by `craft` lives under `.craft/`. That tree is
 derived state, not part of the reproducibility surface, and does not belong in
 version control.
 
-Build outputs are arranged under `.craft/build/<profile>/<domain-target>/`.
-The `<domain-target>` segment combines the build domain (`host` or `target`)
-with the resolved target layout key, including architecture, vendor, operating
-system, and environment. This keeps host tools, target artifacts, and ABI
-variants isolated without pushing package outputs through extra nested
-directories.
+Build outputs are arranged under `.craft/build/<profile>/<domain>/` for the
+current host target. The domain is either `target` for final package artifacts
+or `host` for build-time tools. When an explicit non-host target is selected,
+`craft` expands the domain to `<domain>-<target-key>`, where the target key
+includes architecture, vendor, operating system, and environment. This keeps
+host tools, target artifacts, and ABI variants isolated without making the
+default local development path noisy.
 
 Within that target-specific root, local workspace packages use the package
 name as their artifact directory. External package identities that can collide

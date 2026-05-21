@@ -680,10 +680,7 @@ fn demo_executable_name() -> String {
 }
 
 fn target_build_root(root: &Path) -> PathBuf {
-    root.join(".craft").join("build").join("dev").join(format!(
-        "target-{}",
-        crate::script::host_target().layout_key()
-    ))
+    root.join(".craft").join("build").join("dev").join("target")
 }
 
 fn package_build_dir(root: &Path, area: &str, package: &str, kind: &str) -> PathBuf {

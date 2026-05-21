@@ -38,7 +38,7 @@ root = "src/main.kn"
     let artifact = &actions.link_actions[0].artifact_path;
     let artifact_text = artifact.to_string_lossy().replace('\\', "/");
 
-    assert!(artifact_text.contains("/.craft/build/dev/target-"));
+    assert!(artifact_text.contains("/.craft/build/dev/target/"));
     assert!(artifact_text.contains("/out/demo/bin/demo"));
     assert!(!artifact_text.contains("demo-0.1.0"));
     assert_eq!(build_plan.packages[0].layout_key, "demo");
@@ -92,6 +92,43 @@ fn target_layout_key_separates_environment_variants() {
     assert_eq!(gnu.layout_key(), "x86_64-unknown-linux-gnu");
     assert_eq!(musl.layout_key(), "x86_64-unknown-linux-musl");
     assert_ne!(gnu.layout_key(), musl.layout_key());
+}
+
+#[test]
+fn host_target_uses_short_domain_build_roots() {
+    let root = temp_dir("craft-build-plan-short-host-target-root");
+    let host = crate::script::host_target();
+
+    assert_eq!(
+        workspace_build_root(&root, "dev", BuildDomain::Target, &host),
+        root.join(".craft").join("build").join("dev").join("target")
+    );
+    assert_eq!(
+        workspace_build_root(&root, "dev", BuildDomain::Host, &host),
+        root.join(".craft").join("build").join("dev").join("host")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn non_host_target_keeps_explicit_target_layout_key() {
+    let root = temp_dir("craft-build-plan-explicit-cross-target-root");
+    let host = crate::script::host_target();
+    let target = crate::script::ScriptTarget {
+        env: format!("{}-alt", host.env),
+        ..host
+    };
+
+    assert_eq!(
+        workspace_build_root(&root, "dev", BuildDomain::Target, &target),
+        root.join(".craft")
+            .join("build")
+            .join("dev")
+            .join(format!("target-{}", target.layout_key()))
+    );
+
+    let _ = fs::remove_dir_all(root);
 }
 
 #[test]

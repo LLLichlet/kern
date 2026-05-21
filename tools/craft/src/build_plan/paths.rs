@@ -56,7 +56,15 @@ pub(super) fn workspace_build_root(
         .join(".craft")
         .join("build")
         .join(profile)
-        .join(format!("{}-{}", domain.as_str(), target.layout_key()))
+        .join(build_domain_layout_segment(domain, target))
+}
+
+fn build_domain_layout_segment(domain: BuildDomain, target: &script::ScriptTarget) -> String {
+    if *target == script::host_target() {
+        domain.as_str().to_string()
+    } else {
+        format!("{}-{}", domain.as_str(), target.layout_key())
+    }
 }
 
 pub(super) fn object_path(

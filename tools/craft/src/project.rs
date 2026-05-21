@@ -152,7 +152,6 @@ impl AnalysisProject {
                 .collect();
             resolved_package = Some(matched.package);
             resolved_target_kind = Some(matched.target_kind);
-            resolved_target_name = matched.target_name;
             for (name, path) in &matched.package.module_aliases {
                 compile_options
                     .module_aliases
@@ -160,9 +159,13 @@ impl AnalysisProject {
                     .or_insert_with(|| path.to_string_lossy().to_string());
             }
             insert_self_library_alias(&mut compile_options, matched.package, matched.target_kind);
-            if matched.target_kind == TargetKind::Lib {
-                compile_options.root_module_name = Some(matched.package.id.name.clone());
-            }
+            apply_root_module_name(
+                &mut compile_options,
+                matched.package,
+                matched.target_kind,
+                matched.target_name.as_deref(),
+            );
+            resolved_target_name = matched.target_name;
             if matched.target_kind == TargetKind::Test {
                 compile_options.test_mode = true;
             }
@@ -187,8 +190,13 @@ impl AnalysisProject {
                     .entry(name.clone())
                     .or_insert_with(|| path.to_string_lossy().to_string());
             }
-            if resolved_target_kind == Some(TargetKind::Lib) {
-                compile_options.root_module_name = Some(package.id.name.clone());
+            if let Some(target_kind) = resolved_target_kind {
+                apply_root_module_name(
+                    &mut compile_options,
+                    package,
+                    target_kind,
+                    resolved_target_name.as_deref(),
+                );
             }
             if resolved_target_kind == Some(TargetKind::Test) {
                 compile_options.test_mode = true;
@@ -269,9 +277,12 @@ impl AnalysisProject {
                         .or_insert_with(|| path.to_string_lossy().to_string());
                 }
                 insert_self_library_alias(&mut compile_options, package, unit.target_kind);
-                if unit.target_kind == TargetKind::Lib {
-                    compile_options.root_module_name = Some(package.id.name.clone());
-                }
+                apply_root_module_name(
+                    &mut compile_options,
+                    package,
+                    unit.target_kind,
+                    unit.target_name.as_deref(),
+                );
                 if unit.target_kind == TargetKind::Test {
                     compile_options.test_mode = true;
                 }
@@ -622,6 +633,70 @@ fn insert_self_library_alias(
         .module_aliases
         .entry(package.id.name.clone())
         .or_insert_with(|| lib_root.to_string_lossy().to_string());
+}
+
+fn apply_root_module_name(
+    compile_options: &mut CompileOptions,
+    package: &AnalysisPackage,
+    target_kind: TargetKind,
+    target_name: Option<&str>,
+) {
+    if let Some(name) = official_library_root_module_name(package, target_kind, target_name) {
+        compile_options.root_module_name = Some(name);
+        return;
+    }
+
+    if target_kind == TargetKind::Lib {
+        compile_options.root_module_name = Some(package.id.name.clone());
+    }
+}
+
+fn official_library_root_module_name(
+    package: &AnalysisPackage,
+    target_kind: TargetKind,
+    target_name: Option<&str>,
+) -> Option<String> {
+    if !package_is_in_official_library_workspace(package) {
+        return None;
+    }
+
+    match package.id.name.as_str() {
+        "base" | "std" | "rt" if target_kind == TargetKind::Lib => Some(package.id.name.clone()),
+        "kernlib-test" if target_kind == TargetKind::Test => Some(
+            target_name
+                .map(sanitize_root_module_name)
+                .unwrap_or_else(|| "kernlib_test".to_string()),
+        ),
+        _ => None,
+    }
+}
+
+fn package_is_in_official_library_workspace(package: &AnalysisPackage) -> bool {
+    package
+        .manifest_path
+        .parent()
+        .and_then(Path::parent)
+        .is_some_and(|root| {
+            root.join("base").join("mod.kn").is_file()
+                && root.join("std").join("mod.kn").is_file()
+                && root.join("rt").join("mod.kn").is_file()
+        })
+}
+
+fn sanitize_root_module_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for ch in name.chars() {
+        if ch == '_' || ch.is_ascii_alphanumeric() {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() {
+        "root".to_string()
+    } else {
+        out
+    }
 }
 
 pub fn resolve_project_manifest_path(input: Option<&Path>) -> Result<PathBuf> {

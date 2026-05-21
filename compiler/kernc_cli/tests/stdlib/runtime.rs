@@ -458,6 +458,7 @@ fn main(argc: i32, argv: &&u8) i32 {
     let mut seen = 0usize;
     let mut saw_alpha = false;
     let mut saw_spaced = false;
+    let mut saw_enumerated_name = false;
     for arg in args.iter() {
         if seen == 1 and arg == "alpha" {
             saw_alpha = true;
@@ -467,6 +468,13 @@ fn main(argc: i32, argv: &&u8) i32 {
         }
         seen += 1;
     }
+    let mut skipped = 0usize;
+    for arg in args.skip(1).enumerate() {
+        if arg.index == 2 and arg.value == "--name" {
+            saw_enumerated_name = true;
+        }
+        skipped += 1;
+    }
     if seen != args.len() {
         return 5;
     }
@@ -475,6 +483,12 @@ fn main(argc: i32, argv: &&u8) i32 {
     }
     if !saw_spaced {
         return 7;
+    }
+    if skipped != 5 {
+        return 8;
+    }
+    if !saw_enumerated_name {
+        return 9;
     }
     return 0;
 }

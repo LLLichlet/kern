@@ -24,9 +24,11 @@ import {
     isPathWithin,
     manifestWorkingDirectory,
     parseCraftBuildPackageArgs,
+    parseCraftRunTargetArgs,
     parseCraftTestTargetArgs,
     taskEnvironment,
     type CraftBuildPackageArgs,
+    type CraftRunTargetArgs,
     type CraftTestTargetArgs,
 } from "./craftCommands";
 import {
@@ -98,6 +100,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(
         vscode.commands.registerCommand("kern.craft.buildPackage", async (args) => {
             await runCraftTargetCommand("build", args);
+        }),
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand("kern.craft.runTarget", async (args) => {
+            await runCraftTargetCommand("run", args);
         }),
     );
     context.subscriptions.push(
@@ -534,13 +541,10 @@ async function refreshCraftAnalysisContext(
 }
 
 async function runCraftTargetCommand(
-    mode: "build" | "test",
+    mode: "build" | "run" | "test",
     rawArgs: unknown,
 ): Promise<void> {
-    const args =
-        mode === "build"
-            ? parseCraftBuildPackageArgs(rawArgs)
-            : parseCraftTestTargetArgs(rawArgs);
+    const args = parseCraftTargetArgs(mode, rawArgs);
     if (!args.manifestPath) {
         void vscode.window.showErrorMessage("Missing Craft manifest path for code lens command.");
         return;
@@ -556,6 +560,23 @@ async function runCraftTargetCommand(
         "--project-path",
         args.manifestPath,
     ];
+    if (mode === "run") {
+        const runArgs = args as CraftRunTargetArgs;
+        if (runArgs.targetKind === "bin") {
+            if (runArgs.targetName) {
+                craftArgs.push("--bin", runArgs.targetName);
+            }
+        } else if (runArgs.targetKind === "example") {
+            if (!runArgs.targetName) {
+                void vscode.window.showErrorMessage("Missing Craft example target name.");
+                return;
+            }
+            craftArgs.push("--example", runArgs.targetName);
+        } else {
+            void vscode.window.showErrorMessage("Unsupported Craft run target kind.");
+            return;
+        }
+    }
     if (mode === "test") {
         const targetName = (args as CraftTestTargetArgs).targetName;
         if (!targetName) {
@@ -571,7 +592,7 @@ async function runCraftTargetCommand(
 
     setStatus(
         `craft-${mode}`,
-        mode === "build" ? "Running craft build" : "Running craft test",
+        craftModeMessage(mode, "Running"),
         vscode.LanguageStatusSeverity.Information,
     );
     appendOutput(`Running ${command} ${craftArgs.join(" ")} in ${cwd}`);
@@ -582,24 +603,56 @@ async function runCraftTargetCommand(
             craftArgs,
             cwd,
             env,
-            mode === "build" ? "Kern Craft Build" : "Kern Craft Test",
+            craftModeTerminalName(mode),
         );
         setStatus(
             `craft-${mode}-complete`,
-            mode === "build" ? "Craft build completed" : "Craft test completed",
+            craftModeMessage(mode, "Craft", "completed"),
             vscode.LanguageStatusSeverity.Information,
         );
     } catch (error) {
         appendOutput(`Craft ${mode} failed: ${formatError(error)}`);
         setStatus(
             `craft-${mode}-failed`,
-            mode === "build" ? "Craft build failed" : "Craft test failed",
+            craftModeMessage(mode, "Craft", "failed"),
             vscode.LanguageStatusSeverity.Error,
         );
         void vscode.window.showErrorMessage(
             `Craft ${mode} failed. See the Kern Language Server output for details.`,
         );
     }
+}
+
+function parseCraftTargetArgs(
+    mode: "build" | "run" | "test",
+    rawArgs: unknown,
+): CraftBuildPackageArgs | CraftRunTargetArgs | CraftTestTargetArgs {
+    if (mode === "build") {
+        return parseCraftBuildPackageArgs(rawArgs);
+    }
+    if (mode === "run") {
+        return parseCraftRunTargetArgs(rawArgs);
+    }
+    return parseCraftTestTargetArgs(rawArgs);
+}
+
+function craftModeTerminalName(mode: "build" | "run" | "test"): string {
+    if (mode === "build") {
+        return "Kern Craft Build";
+    }
+    if (mode === "run") {
+        return "Kern Craft Run";
+    }
+    return "Kern Craft Test";
+}
+
+function craftModeMessage(
+    mode: "build" | "run" | "test",
+    prefix: string,
+    suffix?: string,
+): string {
+    const noun = mode === "build" ? "build" : mode === "run" ? "run" : "test";
+    return suffix ? `${prefix} ${noun} ${suffix}` : `${prefix} craft ${noun}`;
 }
 
 function runCraftCommand(

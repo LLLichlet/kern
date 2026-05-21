@@ -135,6 +135,99 @@ root = \"src/lib.kn\"
 }
 
 #[test]
+fn official_library_test_targets_resolve_base_and_std_aliases() {
+    let root = temp_dir("craft-project-official-kernlib");
+    for package in ["base", "std", "rt"] {
+        fs::create_dir_all(root.join(package)).unwrap();
+        fs::write(
+            root.join(package).join("Craft.toml"),
+            format!(
+                "\
+[package]
+name = \"{package}\"
+version = \"0.8.2\"
+kern = \"0.8.2\"
+
+[lib]
+root = \"mod.kn\"
+"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join(package).join("mod.kn"),
+            "pub fn marker() void {}\n",
+        )
+        .unwrap();
+    }
+
+    fs::create_dir_all(root.join("kernlib-test/src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        "\
+[workspace]
+name = \"workspace\"
+members = [\"base\", \"kernlib-test\", \"std\", \"rt\"]
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("kernlib-test/Craft.toml"),
+        "\
+[package]
+name = \"kernlib-test\"
+version = \"0.8.2\"
+kern = \"0.8.2\"
+
+[test]
+roots = [\"src/coll_seq.kn\"]
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("kernlib-test/src/coll_seq.kn"),
+        "use base;\nuse std;\n#[test]\nfn smoke() void {}\n",
+    )
+    .unwrap();
+
+    let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
+    let resolved = project.resolve_for_file(
+        &root.join("kernlib-test/src/coll_seq.kn"),
+        &CompileOptions::default(),
+    );
+
+    assert!(resolved.compile_options.test_mode);
+    assert_eq!(
+        resolved.compile_options.root_module_name,
+        Some("coll_seq".to_string())
+    );
+    assert_eq!(
+        resolved
+            .compile_options
+            .module_aliases
+            .get("base")
+            .and_then(|path| normalize_test_optional_path(Some(path))),
+        Some(normalize_test_path(&root.join("base/mod.kn")))
+    );
+    assert_eq!(
+        resolved
+            .compile_options
+            .module_aliases
+            .get("std")
+            .and_then(|path| normalize_test_optional_path(Some(path))),
+        Some(normalize_test_path(&root.join("std/mod.kn")))
+    );
+    assert_eq!(
+        resolved
+            .compile_options
+            .module_aliases
+            .get("rt")
+            .and_then(|path| normalize_test_optional_path(Some(path))),
+        Some(normalize_test_path(&root.join("rt/mod.kn")))
+    );
+}
+
+#[test]
 fn bin_analysis_maps_current_package_name_to_local_library_root() {
     let root = temp_dir("craft-project-bin-self-alias");
     fs::create_dir_all(root.join("src")).unwrap();

@@ -8,6 +8,29 @@ pub trait Iterator {
     fn next() ?Item;
 };
 
+pub struct SkipIter[T] {
+    inner: &mut Iterator[Item = T],
+    remaining: usize,
+};
+
+pub struct EnumerateItem[T] {
+    pub index: usize,
+    pub value: T,
+};
+
+pub struct EnumerateIter[T] {
+    inner: &mut Iterator[Item = T],
+    index: usize = 0,
+};
+
+pub fn skip_iter[T](it: &mut Iterator[Item = T], count: usize) SkipIter[T] {
+    return .{ inner: it, remaining: count };
+}
+
+pub fn enumerate_iter[T](it: &mut Iterator[Item = T]) EnumerateIter[T] {
+    return .{ inner: it };
+}
+
 pub.. fn consume_count[T](it: &mut Iterator[Item = T]) usize {
     let mut total = 0usize;
     while true {
@@ -17,6 +40,48 @@ pub.. fn consume_count[T](it: &mut Iterator[Item = T]) usize {
         }
     }
     return total;
+}
+
+impl[T] &mut SkipIter[T] : Iterator {
+    type Item = T;
+
+    pub fn next() ?Item {
+        while self.remaining != 0 {
+            match self.inner.next() {
+                .{ Some: _ } => self.remaining -= 1,
+                .None => {
+                    self.remaining = 0;
+                    return .None;
+                },
+            }
+        }
+        return self.inner.next();
+    }
+}
+
+impl[T] &mut SkipIter[T] {
+    pub fn skip(count: usize) SkipIter[T] {
+        self.remaining += count;
+        return self.*;
+    }
+
+    pub fn enumerate() EnumerateIter[T] {
+        return enumerate_iter[T]((self as &mut Iterator[Item = T]));
+    }
+}
+
+impl[T] &mut EnumerateIter[T] : Iterator {
+    type Item = EnumerateItem[T];
+
+    pub fn next() ?Item {
+        let value = match self.inner.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
 }
 
 pub.. fn consume_nth[T](it: &mut Iterator[Item = T], n: usize) ?T {
@@ -129,6 +194,21 @@ pub struct SliceIter[T] {
     index: usize = 0,
 };
 
+pub struct SliceSkipIter[T] {
+    inner: SliceIter[T],
+    remaining: usize,
+};
+
+pub struct SliceEnumerateIter[T] {
+    inner: SliceIter[T],
+    index: usize = 0,
+};
+
+pub struct SliceSkipEnumerateIter[T] {
+    inner: SliceSkipIter[T],
+    index: usize = 0,
+};
+
 impl[T] &mut SliceIter[T] : Iterator {
     type Item = T;
 
@@ -181,10 +261,105 @@ impl[T] &mut SliceIter[T] {
     pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
         return consume_find_map[T, U]((self as &mut Iterator[Item = T]), call_back);
     }
+
+    pub fn skip(count: usize) SkipIter[T] {
+        return skip_iter[T]((self as &mut Iterator[Item = T]), count);
+    }
+
+    pub fn enumerate() EnumerateIter[T] {
+        return enumerate_iter[T]((self as &mut Iterator[Item = T]));
+    }
+}
+
+impl[T] SliceIter[T] {
+    pub fn skip(count: usize) SliceSkipIter[T] {
+        return .{ inner: self, remaining: count };
+    }
+
+    pub fn enumerate() SliceEnumerateIter[T] {
+        return .{ inner: self };
+    }
+}
+
+impl[T] &mut SliceSkipIter[T] : Iterator {
+    type Item = T;
+
+    pub fn next() ?Item {
+        while self.remaining != 0 {
+            match self.inner..&.next() {
+                .{ Some: _ } => self.remaining -= 1,
+                .None => {
+                    self.remaining = 0;
+                    return .None;
+                },
+            }
+        }
+        return self.inner..&.next();
+    }
+}
+
+impl[T] &mut SliceSkipIter[T] {
+    pub fn skip(count: usize) SliceSkipIter[T] {
+        self.remaining += count;
+        return self.*;
+    }
+
+    pub fn enumerate() SliceSkipEnumerateIter[T] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[T] SliceSkipIter[T] {
+    pub fn enumerate() SliceSkipEnumerateIter[T] {
+        return .{ inner: self };
+    }
+}
+
+impl[T] &mut SliceEnumerateIter[T] : Iterator {
+    type Item = EnumerateItem[T];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
+
+impl[T] &mut SliceSkipEnumerateIter[T] : Iterator {
+    type Item = EnumerateItem[T];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
 }
 
 pub struct SliceMutIter[T] {
     pub.. data: &mut [T],
+    index: usize = 0,
+};
+
+pub struct SliceMutSkipIter[T] {
+    inner: SliceMutIter[T],
+    remaining: usize,
+};
+
+pub struct SliceMutEnumerateIter[T] {
+    inner: SliceMutIter[T],
+    index: usize = 0,
+};
+
+pub struct SliceMutSkipEnumerateIter[T] {
+    inner: SliceMutSkipIter[T],
     index: usize = 0,
 };
 
@@ -239,5 +414,85 @@ impl[T] &mut SliceMutIter[T] {
 
     pub fn find_map[U](call_back: &Fn(&mut T) ?U) ?U {
         return consume_find_map[&mut T, U]((self as &mut Iterator[Item = &mut T]), call_back);
+    }
+
+    pub fn skip(count: usize) SkipIter[&mut T] {
+        return skip_iter[&mut T]((self as &mut Iterator[Item = &mut T]), count);
+    }
+
+    pub fn enumerate() EnumerateIter[&mut T] {
+        return enumerate_iter[&mut T]((self as &mut Iterator[Item = &mut T]));
+    }
+}
+
+impl[T] SliceMutIter[T] {
+    pub fn skip(count: usize) SliceMutSkipIter[T] {
+        return .{ inner: self, remaining: count };
+    }
+
+    pub fn enumerate() SliceMutEnumerateIter[T] {
+        return .{ inner: self };
+    }
+}
+
+impl[T] &mut SliceMutSkipIter[T] : Iterator {
+    type Item = &mut T;
+
+    pub fn next() ?Item {
+        while self.remaining != 0 {
+            match self.inner..&.next() {
+                .{ Some: _ } => self.remaining -= 1,
+                .None => {
+                    self.remaining = 0;
+                    return .None;
+                },
+            }
+        }
+        return self.inner..&.next();
+    }
+}
+
+impl[T] &mut SliceMutSkipIter[T] {
+    pub fn skip(count: usize) SliceMutSkipIter[T] {
+        self.remaining += count;
+        return self.*;
+    }
+
+    pub fn enumerate() SliceMutSkipEnumerateIter[T] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[T] SliceMutSkipIter[T] {
+    pub fn enumerate() SliceMutSkipEnumerateIter[T] {
+        return .{ inner: self };
+    }
+}
+
+impl[T] &mut SliceMutEnumerateIter[T] : Iterator {
+    type Item = EnumerateItem[&mut T];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
+
+impl[T] &mut SliceMutSkipEnumerateIter[T] : Iterator {
+    type Item = EnumerateItem[&mut T];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
     }
 }

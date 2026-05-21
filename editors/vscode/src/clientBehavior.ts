@@ -231,6 +231,9 @@ function isCodePosition(document: AutoSuggestDocument, position: TextPosition): 
                 if (ch === "/" && next === "/") {
                     return false;
                 }
+                if (ch === "\\" && next === "\\") {
+                    return false;
+                }
                 if (ch === "/" && next === "*") {
                     state = "blockComment";
                     index += 2;
@@ -303,6 +306,9 @@ function scanLine(line: string, initialState: LexState): LexState {
         switch (state) {
             case "code":
                 if (ch === "/" && next === "/") {
+                    return "code";
+                }
+                if (ch === "\\" && next === "\\") {
                     return "code";
                 }
                 if (ch === "/" && next === "*") {

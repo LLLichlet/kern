@@ -86,6 +86,27 @@ fn main(argc: i32, argv: &&u8) i32
 `argv` is the low-level C-style process ABI. Ordinary code usually uses
 higher-level wrappers from `std.proc`.
 
+For simple command-line tools, wrap the raw ABI at the start of `main`.
+`argv[0]` is the program path or name, so user-provided arguments normally start
+at `args.skip(1)`:
+
+```kern
+use std.io;
+use std.proc;
+
+fn main(argc: i32, argv: &&u8) i32 {
+    let args = proc.args(argc, argv);
+
+    for item in args.skip(1).enumerate() {
+        io.print("arg ");
+        io.println(item.index);
+        io.println(item.value);
+    }
+
+    return 0;
+}
+```
+
 Rules for `main` are intentionally narrow:
 
 - it must live in the target root module;

@@ -44,7 +44,7 @@ use self::ide::{
 use self::navigation::{
     KnownReferenceLocationQuery, ReferenceLocationQuery, analysis_completion_to_ide_item,
     analysis_signature_help_to_ide_help, analysis_symbol_to_document_symbol,
-    analysis_symbol_to_workspace_symbols_cancelable, analysis_type_hint_to_ide_hint,
+    analysis_symbol_to_workspace_symbols_cancelable, analysis_type_hint_to_ide_hint_for_source,
     build_rename_changes, find_call_hierarchy_incoming_calls, find_call_hierarchy_item,
     find_call_hierarchy_outgoing_calls, find_definition_location, find_document_highlights,
     find_hover, find_implementation_locations, find_reference_locations_cancelable,

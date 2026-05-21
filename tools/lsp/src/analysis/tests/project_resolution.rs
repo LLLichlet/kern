@@ -1337,8 +1337,10 @@ fn main() i32 {
 
     let lenses = analysis.code_lenses(&uri).unwrap();
     assert_eq!(lenses.len(), 1, "{lenses:#?}");
-    assert_eq!(lenses[0].title, "Build bin app");
-    assert_eq!(lenses[0].command, "kern.craft.buildPackage");
+    assert_eq!(lenses[0].title, "Run bin app");
+    assert_eq!(lenses[0].command, "kern.craft.runTarget");
+    assert_eq!(lenses[0].arguments[0]["targetKind"], "bin");
+    assert_eq!(lenses[0].arguments[0]["targetName"], "app");
     assert_eq!(lenses[0].range.start.line, 2);
 }
 

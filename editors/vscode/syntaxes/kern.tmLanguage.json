@@ -114,6 +114,22 @@
     "strings": {
       "patterns": [
         {
+          "name": "string.quoted.multiline.kern",
+          "begin": "^[ \\t]*\\\\\\\\",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.kern"
+            }
+          },
+          "end": "^(?![ \\t]*\\\\\\\\)",
+          "patterns": [
+            {
+              "name": "punctuation.definition.string.begin.kern",
+              "match": "^[ \\t]*\\\\\\\\"
+            }
+          ]
+        },
+        {
           "name": "string.quoted.double.kern",
           "begin": "\"",
           "beginCaptures": {

@@ -74,6 +74,25 @@ fn main(argc: i32, argv: &&u8) i32
 
 这个 `argv` 是底层 C 风格进程 ABI。普通代码一般不直接处理它，而是使用 `std.proc` 里提供的高层包装。
 
+写简单命令行程序时，通常在 `main` 一开始包装这个底层 ABI。`argv[0]` 是程序路径或程序名，所以用户传入的业务参数一般从 `args.skip(1)` 开始：
+
+```kern
+use std.io;
+use std.proc;
+
+fn main(argc: i32, argv: &&u8) i32 {
+    let args = proc.args(argc, argv);
+
+    for item in args.skip(1).enumerate() {
+        io.print("arg ");
+        io.println(item.index);
+        io.println(item.value);
+    }
+
+    return 0;
+}
+```
+
 `main` 的规则很窄：
 
 - 必须在 target 根模块里。

@@ -138,6 +138,86 @@ pub(super) fn analysis_type_hint_to_ide_hint(
     }
 }
 
+pub(super) fn analysis_type_hint_to_ide_hint_for_source(
+    session: &kernc_utils::Session,
+    hint: &AnalysisTypeHint,
+    source: &str,
+) -> IdeInlayHint {
+    let mut ide_hint = analysis_type_hint_to_ide_hint(session, hint);
+    if hint.kind == AnalysisTypeHintKind::Variable
+        && let Some(position) = variable_type_hint_position_in_source(session, hint, source)
+    {
+        ide_hint.position = position;
+    }
+    ide_hint
+}
+
+fn variable_type_hint_position_in_source(
+    session: &kernc_utils::Session,
+    hint: &AnalysisTypeHint,
+    source: &str,
+) -> Option<IdePosition> {
+    let file = session.source_manager.get_file(hint.span.file)?;
+    let compiler_source = file.src.as_ref();
+    let span_text = compiler_source.get(hint.span.start..hint.span.end)?;
+    if !is_identifier(span_text) {
+        return None;
+    }
+
+    let mut search_start = hint.span.start.min(source.len());
+    while search_start > 0 && !source.is_char_boundary(search_start) {
+        search_start -= 1;
+    }
+
+    for offset in same_line_identifier_offsets(source, span_text, search_start) {
+        return Some(super::byte_offset_to_position(
+            &kernc_utils::SourceFile::new(file.path.clone(), source.to_string()),
+            offset + span_text.len(),
+        ));
+    }
+
+    None
+}
+
+fn same_line_identifier_offsets<'a>(
+    source: &'a str,
+    ident: &'a str,
+    preferred_offset: usize,
+) -> impl Iterator<Item = usize> + 'a {
+    let line_start = source[..preferred_offset]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let line_end = source[preferred_offset..]
+        .find('\n')
+        .map(|index| preferred_offset + index)
+        .unwrap_or(source.len());
+    source[line_start..line_end]
+        .match_indices(ident)
+        .filter_map(move |(relative, _)| {
+            let offset = line_start + relative;
+            identifier_at(source, offset, ident.len()).then_some(offset)
+        })
+}
+
+fn identifier_at(source: &str, offset: usize, len: usize) -> bool {
+    let before = source[..offset].chars().next_back();
+    let after = source[offset + len..].chars().next();
+    !before.is_some_and(is_identifier_continue) && !after.is_some_and(is_identifier_continue)
+}
+
+fn is_identifier(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic()) && chars.all(is_identifier_continue)
+}
+
+fn is_identifier_continue(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphanumeric()
+}
+
 fn ide_inlay_hint_kind(kind: AnalysisTypeHintKind) -> IdeInlayHintKind {
     match kind {
         AnalysisTypeHintKind::Variable

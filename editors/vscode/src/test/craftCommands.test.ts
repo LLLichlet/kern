@@ -4,6 +4,7 @@ import {
     isPathWithin,
     manifestWorkingDirectory,
     parseCraftBuildPackageArgs,
+    parseCraftRunTargetArgs,
     parseCraftTestTargetArgs,
     taskEnvironment,
 } from "../craftCommands";
@@ -15,6 +16,24 @@ test("craft code lens command args are parsed defensively", () => {
     });
     assert.deepEqual(parseCraftBuildPackageArgs({ manifestPath: 7 }), {
         manifestPath: undefined,
+    });
+
+    assert.deepEqual(
+        parseCraftRunTargetArgs({
+            manifestPath: "/app/Craft.toml",
+            targetKind: "example",
+            targetName: "demo",
+        }),
+        {
+            manifestPath: "/app/Craft.toml",
+            targetKind: "example",
+            targetName: "demo",
+        },
+    );
+    assert.deepEqual(parseCraftRunTargetArgs({ targetKind: 7 }), {
+        manifestPath: undefined,
+        targetKind: undefined,
+        targetName: undefined,
     });
 
     assert.deepEqual(

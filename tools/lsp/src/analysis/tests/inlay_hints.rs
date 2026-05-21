@@ -41,6 +41,51 @@ fn inlay_hints_include_inferred_let_binding_types() {
 }
 
 #[test]
+fn inlay_hints_stay_after_binding_name_when_let_becomes_mut() {
+    let mut analysis = AnalysisEngine::default();
+    let clean = concat!(
+        "fn helper() usize { return 1usize; }\n",
+        "fn main() i32 {\n",
+        "    let value = helper();\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    let dirty = clean.replacen("let value", "let mut value", 1);
+    let uri = temp_file_uri("inlay_hints_let_mut_dirty", clean);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    let _ = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
+    let _ = analysis.change_document_state(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.clone(),
+        }],
+    });
+
+    let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
+
+    assert!(hints.iter().any(|hint| {
+        hint.label == ": usize"
+            && hint.position == inlay_position_of_nth(&dirty, "value", 0, "value".len() as u32)
+    }));
+    assert!(!hints.iter().any(|hint| {
+        hint.label == ": usize"
+            && hint.position == inlay_position_of_nth(&dirty, "mut", 0, "mut".len() as u32)
+    }));
+}
+
+#[test]
 fn inlay_hints_build_semantic_classification_artifact_after_tokens() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

@@ -152,6 +152,19 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
     text.strip_prefix("kern-").should_some().eq("lang").sum(@loc(), t);
     text.strip_suffix("-lang").should_some().eq("kern").sum(@loc(), t);
 
+    let mut skipped = text.as_str().iter().skip(5);
+    skipped..&.next().should_some().eq(b'l').sum(@loc(), t);
+
+    let mut enumerated = text.as_str().iter().enumerate();
+    let first = enumerated..&.next().should_some().sum(@loc(), t);
+    first.index.should().eq(0usize).sum(@loc(), t);
+    first.value.should().eq(b'k').sum(@loc(), t);
+
+    let mut skipped_enumerated = text.as_str().iter().skip(5).enumerate();
+    let first_skipped = skipped_enumerated..&.next().should_some().sum(@loc(), t);
+    first_skipped.index.should().eq(0usize).sum(@loc(), t);
+    first_skipped.value.should().eq(b'l').sum(@loc(), t);
+
     let exact = string()..&;
     defer exact.deinit(gpa);
     exact.try_reserve_exact(gpa, 3).should_ok().sum(@loc(), t);

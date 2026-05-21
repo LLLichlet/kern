@@ -4,6 +4,12 @@ export type CraftBuildPackageArgs = {
     manifestPath?: string;
 };
 
+export type CraftRunTargetArgs = {
+    manifestPath?: string;
+    targetKind?: string;
+    targetName?: string;
+};
+
 export type CraftTestTargetArgs = {
     manifestPath?: string;
     targetName?: string;
@@ -17,6 +23,19 @@ export function parseCraftBuildPackageArgs(raw: unknown): CraftBuildPackageArgs 
     return {
         manifestPath:
             typeof value.manifestPath === "string" ? value.manifestPath : undefined,
+    };
+}
+
+export function parseCraftRunTargetArgs(raw: unknown): CraftRunTargetArgs {
+    if (!raw || typeof raw !== "object") {
+        return {};
+    }
+    const value = raw as Record<string, unknown>;
+    return {
+        manifestPath:
+            typeof value.manifestPath === "string" ? value.manifestPath : undefined,
+        targetKind: typeof value.targetKind === "string" ? value.targetKind : undefined,
+        targetName: typeof value.targetName === "string" ? value.targetName : undefined,
     };
 }
 

@@ -16,9 +16,20 @@ use base.cmp.Ord;
 use base.hash.Hash;
 
 pub use .iter.{
+    EnumerateItem,
+    EnumerateIter,
     Iterator,
+    SkipIter,
+    SliceEnumerateIter,
     SliceIter,
+    SliceMutEnumerateIter,
     SliceMutIter,
+    SliceMutSkipEnumerateIter,
+    SliceMutSkipIter,
+    SliceSkipEnumerateIter,
+    SliceSkipIter,
+    enumerate_iter,
+    skip_iter,
 };
 pub use .list_impl.{InsertError, List};
 pub use .map_impl.Map;

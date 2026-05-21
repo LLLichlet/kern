@@ -1703,6 +1703,45 @@ fn build_command_waits_for_workspace_lock() {
 }
 
 #[test]
+fn run_command_waits_for_workspace_lock() {
+    let root = temp_dir("craft-cli-run-workspace-lock");
+    write_minimal_bin_package(&root);
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let root_for_holder = root.clone();
+
+    let holder = thread::spawn(move || {
+        let _lock = WorkspaceOperationLock::acquire(&root_for_holder, "build").unwrap();
+        ready_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+    });
+
+    ready_rx.recv().unwrap();
+    let root_for_run = root.clone();
+    let start = Instant::now();
+    let waiter = thread::spawn(move || {
+        run_command(Command::Run {
+            path: Some(root_for_run),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+            selection: RunSelection::DefaultBin,
+            runtime_args: Vec::new(),
+        })
+        .unwrap();
+        start.elapsed()
+    });
+
+    thread::sleep(Duration::from_millis(200));
+    release_tx.send(()).unwrap();
+
+    holder.join().unwrap();
+    let waited = waiter.join().unwrap();
+    assert!(waited >= Duration::from_millis(150));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn check_command_recovers_from_invalid_workspace_lock() {
     let root = temp_dir("craft-cli-check-invalid-workspace-lock");
     write_minimal_bin_package(&root);

@@ -103,7 +103,7 @@ pub(super) fn assemble_packages(
 
     let mut packages = Vec::new();
     for entry in package_entries {
-        let module_aliases = graph_index
+        let mut module_aliases = graph_index
             .get(&entry.id)
             .map(|node| {
                 let mut aliases = BTreeMap::new();
@@ -119,6 +119,7 @@ pub(super) fn assemble_packages(
                 aliases
             })
             .unwrap_or_default();
+        add_official_workspace_aliases(package_graph, entry, &mut module_aliases);
         packages.push(AnalysisPackage {
             id: entry.id.clone(),
             manifest: entry.manifest.clone(),
@@ -133,6 +134,33 @@ pub(super) fn assemble_packages(
 
     let _ = manifest_path;
     packages
+}
+
+fn add_official_workspace_aliases(
+    package_graph: &PackageGraph,
+    entry: &PackageEntry,
+    aliases: &mut BTreeMap<String, PathBuf>,
+) {
+    if !is_official_library_workspace(&package_graph.workspace_root) {
+        return;
+    }
+
+    for name in ["base", "std", "rt"] {
+        aliases
+            .entry(name.to_string())
+            .or_insert_with(|| package_graph.workspace_root.join(name).join("mod.kn"));
+    }
+
+    if entry.id.name == "kernlib-test" {
+        aliases.remove("kernlib-test");
+    }
+}
+
+fn is_official_library_workspace(root: &Path) -> bool {
+    root.join("Craft.toml").is_file()
+        && root.join("base").join("mod.kn").is_file()
+        && root.join("std").join("mod.kn").is_file()
+        && root.join("rt").join("mod.kn").is_file()
 }
 
 fn craft_sdk_aliases() -> BTreeMap<String, PathBuf> {

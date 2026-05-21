@@ -3155,6 +3155,54 @@ root = \"src/lib.kn\"
 }
 
 #[test]
+fn code_lens_request_returns_run_command_for_bin_targets() {
+    let root = unique_temp_dir("server_code_lens_bin_target");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{}\"\n
+[[bin]]
+name = \"app\"
+root = \"src/main.kn\"
+",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    let source = "fn main() i32 { return 0; }\n";
+    fs::write(root.join("src/main.kn"), source).unwrap();
+    let uri = file_path_to_uri_for_test(&root.join("src/main.kn"));
+
+    let mut state = initialized_state();
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(208)),
+            method: Some("textDocument/codeLens".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(208));
+    let lenses = response["result"].as_array().unwrap();
+    assert_eq!(lenses.len(), 1, "{lenses:#?}");
+    assert!(lenses[0].get("command").is_none(), "{lenses:#?}");
+    assert_eq!(lenses[0]["data"]["title"], "Run bin app");
+    assert_eq!(lenses[0]["data"]["command"], "kern.craft.runTarget");
+    assert_eq!(lenses[0]["data"]["arguments"][0]["targetKind"], "bin");
+    assert_eq!(lenses[0]["data"]["arguments"][0]["targetName"], "app");
+}
+
+#[test]
 fn code_lens_resolve_materializes_craft_target_command() {
     let root = unique_temp_dir("server_code_lens_resolve");
     fs::create_dir_all(root.join("src")).unwrap();

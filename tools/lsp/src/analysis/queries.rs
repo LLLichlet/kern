@@ -445,9 +445,24 @@ impl AnalysisEngine {
                         })],
                     });
                 }
-                craft::plan::TargetKind::Lib
-                | craft::plan::TargetKind::Bin
-                | craft::plan::TargetKind::Example => {
+                craft::plan::TargetKind::Lib => {
+                    let label = target
+                        .name
+                        .as_ref()
+                        .map(|name| format!("{} {name}", target.kind.as_str()))
+                        .unwrap_or_else(|| target.kind.as_str().to_string());
+                    lenses.push(IdeCodeLens {
+                        range: file_header_range.clone(),
+                        title: format!("Build {label}"),
+                        command: "kern.craft.buildPackage".to_string(),
+                        arguments: vec![serde_json::json!({
+                            "manifestPath": manifest,
+                            "targetKind": target.kind.as_str(),
+                            "targetName": target.name,
+                        })],
+                    });
+                }
+                craft::plan::TargetKind::Bin | craft::plan::TargetKind::Example => {
                     let range = match target.kind {
                         craft::plan::TargetKind::Bin | craft::plan::TargetKind::Example => {
                             main_function_line_range(&file)
@@ -462,8 +477,8 @@ impl AnalysisEngine {
                         .unwrap_or_else(|| target.kind.as_str().to_string());
                     lenses.push(IdeCodeLens {
                         range,
-                        title: format!("Build {label}"),
-                        command: "kern.craft.buildPackage".to_string(),
+                        title: format!("Run {label}"),
+                        command: "kern.craft.runTarget".to_string(),
                         arguments: vec![serde_json::json!({
                             "manifestPath": manifest,
                             "targetKind": target.kind.as_str(),
@@ -1373,7 +1388,9 @@ impl AnalysisEngine {
                     .get_file_path(hint.span.file)?;
                 (normalize_path(path) == target_path).then_some(hint)
             })
-            .map(|hint| analysis_type_hint_to_ide_hint(&artifact.session, hint))
+            .map(|hint| {
+                analysis_type_hint_to_ide_hint_for_source(&artifact.session, hint, &target_doc.text)
+            })
             .filter(|hint| {
                 let hint_range = IdeRange {
                     start: hint.position.clone(),

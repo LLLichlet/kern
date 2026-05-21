@@ -10,7 +10,7 @@ version = "0.8.2"
 source = "workspace-member"
 source-value = "base"
 manifest = "base/Craft.toml"
-manifest-digest = "fnv1a64:098d2ee66bd2f610"
+manifest-digest = "fnv1a64:6e7807b0fda4b378"
 
 [[package]]
 id = "kernlib-test 0.8.2 workspace-member:kernlib-test"
@@ -19,7 +19,7 @@ version = "0.8.2"
 source = "workspace-member"
 source-value = "kernlib-test"
 manifest = "kernlib-test/Craft.toml"
-manifest-digest = "fnv1a64:cedb7c3ed9798e25"
+manifest-digest = "fnv1a64:32d0b45d5b3e214d"
 
 [[package]]
 id = "rt 0.8.2 workspace-member:rt"
@@ -28,7 +28,7 @@ version = "0.8.2"
 source = "workspace-member"
 source-value = "rt"
 manifest = "rt/Craft.toml"
-manifest-digest = "fnv1a64:6ad0fda0b3a57d14"
+manifest-digest = "fnv1a64:e71fb046eceb518c"
 
 [[package]]
 id = "std 0.8.2 workspace-member:std"
@@ -37,7 +37,7 @@ version = "0.8.2"
 source = "workspace-member"
 source-value = "std"
 manifest = "std/Craft.toml"
-manifest-digest = "fnv1a64:23ef30844b0d6989"
+manifest-digest = "fnv1a64:146a496dcd57be11"
 
 [[package-target]]
 package = "base 0.8.2 workspace-member:base"

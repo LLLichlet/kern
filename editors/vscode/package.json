@@ -31,6 +31,7 @@
     "onCommand:kern.restartLanguageServer",
     "onCommand:kern.showLanguageServerOutput",
     "onCommand:kern.craft.buildPackage",
+    "onCommand:kern.craft.runTarget",
     "onCommand:kern.craft.testTarget",
     "workspaceContains:**/*.kn"
   ],
@@ -142,6 +143,10 @@
       {
         "command": "kern.craft.buildPackage",
         "title": "Kern: Build Package"
+      },
+      {
+        "command": "kern.craft.runTarget",
+        "title": "Kern: Run Target"
       },
       {
         "command": "kern.craft.testTarget",

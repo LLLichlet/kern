@@ -4,7 +4,7 @@
 //! views and iterators. Higher-level CLI parsing belongs in ordinary libraries.
 
 use base.abi;
-use base.coll.Iterator;
+use base.coll.{EnumerateItem, Iterator};
 
 /// A borrowed unmanaged view over process arguments.
 ///
@@ -18,6 +18,12 @@ pub struct Args {
 /// Iterator over borrowed process argument slices.
 pub struct ArgsIter {
     args: Args,
+    index: usize = 0,
+};
+
+/// Iterator over indexed process argument slices.
+pub struct ArgsEnumerateIter {
+    inner: ArgsIter,
     index: usize = 0,
 };
 
@@ -68,6 +74,15 @@ impl Args {
     pub fn iter() ArgsIter {
         return .{ args: self };
     }
+
+    /// Returns an iterator over arguments after the first `count` entries.
+    ///
+    /// `args.skip(1)` is the usual entry point for user-provided CLI
+    /// arguments because `argv[0]` is the program path/name.
+    pub fn skip(count: usize) ArgsIter {
+        let start = if count > self.len() self.len() else count;
+        return .{ args: self, index: start };
+    }
 }
 
 impl &mut ArgsIter : Iterator {
@@ -81,5 +96,43 @@ impl &mut ArgsIter : Iterator {
         let value = self.args.get(self.index).?;
         self.index += 1;
         return .{ Some: value };
+    }
+
+    pub fn skip(count: usize) ArgsIter {
+        self.index += count;
+        if self.index > self.args.len() {
+            self.index = self.args.len();
+        }
+        return self.*;
+    }
+
+    pub fn enumerate() ArgsEnumerateIter {
+        return .{ inner: self.* };
+    }
+}
+
+impl ArgsIter {
+    pub fn skip(count: usize) ArgsIter {
+        let mut iter = self;
+        _ = iter..&.skip(count);
+        return iter;
+    }
+
+    pub fn enumerate() ArgsEnumerateIter {
+        return .{ inner: self };
+    }
+}
+
+impl &mut ArgsEnumerateIter : Iterator {
+    type Item = EnumerateItem[&[u8]];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
     }
 }

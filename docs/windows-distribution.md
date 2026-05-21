@@ -67,6 +67,25 @@ In practice:
 - local development may use ordinary `cargo build --release`
 - official Windows distribution must use static CRT
 
+## Supported Windows Baseline
+
+Official Windows host-tool support is for modern, supported Windows systems:
+
+- Windows 10 and Windows 11
+- currently available GitHub-hosted Windows runner baselines used by CI, such
+  as Windows Server 2022 and newer
+
+Windows 7 is not an official support target. It is end-of-life, it is not
+covered by GitHub-hosted CI runners, and the project should not hold back host
+tooling, packaging, HTTP, TLS, process, filesystem, or terminal behavior to
+preserve unverified Windows 7 compatibility.
+
+Community-maintained Windows 7 compatibility can be considered only when it is
+isolated, does not weaken modern Windows behavior, does not add a continuing
+maintenance burden to the core toolchain, and comes with practical verification
+outside the GitHub-hosted runner set, for example a self-hosted runner or a
+clearly documented manual test path.
+
 ## What Static CRT Solves
 
 Static CRT for the host tools removes the need for the VC++ redistributable and
@@ -289,6 +308,8 @@ host tools support every old Windows API baseline.
 The current safe statement is:
 
 - official host-tool archives target modern Windows systems
+- Windows 7 is unsupported unless a community-maintained compatibility path is
+  provided and kept verified
 - very old Windows versions should not be promised implicitly
 
 ## Failure Modes And First Checks
@@ -360,4 +381,4 @@ The practical rules are:
 - Official Windows archives must use static CRT.
 - Official Windows packaging must build for `x86_64-pc-windows-msvc` and package from that target directory.
 - Remaining Win32 system DLL imports are normal host-OS ABI dependencies.
-- Removing dynamic CRT dependency does not automatically imply support for very old Windows versions.
+- Removing dynamic CRT dependency does not imply Windows 7 support.

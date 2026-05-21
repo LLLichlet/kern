@@ -3,6 +3,19 @@
 use super::*;
 use craft::project::AnalysisProject;
 
+fn generated_app_bin_main(root: &PathBuf) -> PathBuf {
+    root.join(".craft")
+        .join("build")
+        .join("dev")
+        .join("target")
+        .join("gen")
+        .join("app")
+        .join("bin")
+        .join("app")
+        .join("src")
+        .join("main.kn")
+}
+
 #[test]
 fn resolve_analysis_uses_workspace_package_root_and_local_aliases() {
     let root = unique_temp_dir("analysis_workspace");
@@ -329,17 +342,7 @@ pub fn build(b: &mut builder.Builder) void {
     .unwrap();
     analysis_context::sync_project_analysis_context(&root.join("Craft.toml"), true, &[]).unwrap();
 
-    let generated_main = root
-        .join(".craft")
-        .join("build")
-        .join("dev")
-        .join("target")
-        .join("gen")
-        .join("app-0.1.0")
-        .join("bin")
-        .join("app")
-        .join("src")
-        .join("main.kn");
+    let generated_main = generated_app_bin_main(&root);
     let uri = file_path_to_uri(&root.join("src/main.kn")).unwrap();
     let mut analysis = AnalysisEngine::default();
     let _ = analysis.open_document(DidOpenTextDocumentParams {
@@ -928,17 +931,7 @@ pub fn build(b: &mut builder.Builder) void {
 
     analysis_context::sync_project_analysis_context(&root.join("Craft.toml"), true, &[]).unwrap();
 
-    let generated_path = root
-        .join(".craft")
-        .join("build")
-        .join("dev")
-        .join("target")
-        .join("gen")
-        .join("app-0.1.0")
-        .join("bin")
-        .join("app")
-        .join("src")
-        .join("main.kn");
+    let generated_path = generated_app_bin_main(&root);
     let project =
         craft::project::AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
     let direct = project.resolve_for_file(&generated_path, &CompileOptions::default());
@@ -1051,17 +1044,7 @@ pub fn build(b: &mut builder.Builder) void {
 
     analysis_context::sync_project_analysis_context(&root.join("Craft.toml"), true, &[]).unwrap();
 
-    let generated_main = root
-        .join(".craft")
-        .join("build")
-        .join("dev")
-        .join("target")
-        .join("gen")
-        .join("app-0.1.0")
-        .join("bin")
-        .join("app")
-        .join("src")
-        .join("main.kn");
+    let generated_main = generated_app_bin_main(&root);
     assert!(generated_main.is_file());
     assert!(
         generated_main

@@ -266,20 +266,9 @@ pub fn bundle_sdk_runtime_toolchain(
         rewrite_macos_toolchain_load_commands(&host_root, &original_libdirs)?;
     }
 
+    let should_record_runtime_lib_dir = !runtime_libs.is_empty();
     for (component, path) in &copied_tools {
         verify_sdk_runtime_tool_starts(component, path, &lib_dir, host)?;
-    }
-    if !is_empty_dir(&lib_dir)? {
-        insert_record(
-            &mut records,
-            "runtime_lib_dir",
-            ArtifactRecord {
-                path: path_relative_to(&lib_dir, dist_dir)?,
-                kind: "directory".into(),
-                sha256: Some(sha256_directory(&lib_dir)?),
-                size: None,
-            },
-        );
     }
 
     if let Some(resource_dir) = &bundled_toolchain.resource_dir
@@ -304,6 +293,10 @@ pub fn bundle_sdk_runtime_toolchain(
         );
     }
 
+    if should_record_runtime_lib_dir {
+        insert_runtime_lib_dir_record(&mut records, dist_dir, &lib_dir)?;
+    }
+
     fs::write(
         dist_dir.join("toolchain").join("README.md"),
         format!(
@@ -318,6 +311,24 @@ pub fn bundle_sdk_runtime_toolchain(
         ),
     )?;
     Ok(records)
+}
+
+fn insert_runtime_lib_dir_record(
+    records: &mut serde_json::Map<String, serde_json::Value>,
+    dist_dir: &Path,
+    lib_dir: &Path,
+) -> OpsResult<()> {
+    insert_record(
+        records,
+        "runtime_lib_dir",
+        ArtifactRecord {
+            path: path_relative_to(lib_dir, dist_dir)?,
+            kind: "directory".into(),
+            sha256: Some(sha256_directory(lib_dir)?),
+            size: None,
+        },
+    );
+    Ok(())
 }
 
 fn tool_paths(bundled_toolchain: &BundledToolchain) -> OpsResult<Vec<(String, PathBuf)>> {
@@ -523,6 +534,44 @@ mod tests {
                 PathBuf::from("/source/toolchain/bin/ld64.lld"),
             ]
         );
+    }
+
+    #[test]
+    fn runtime_lib_dir_record_hashes_final_lib_tree_after_resource_headers() {
+        let root = make_temp_dir("kernworker-sdk-runtime-lib-hash-").unwrap();
+        let dist = root.join("dist");
+        let lib_dir = dist.join("toolchain").join("host").join("lib");
+        fs::create_dir_all(lib_dir.join("clang").join("21").join("include")).unwrap();
+        fs::write(lib_dir.join("libclang.so.21.1"), "runtime lib\n").unwrap();
+        fs::write(
+            lib_dir
+                .join("clang")
+                .join("21")
+                .join("include")
+                .join("stdarg.h"),
+            "/* resource header */\n",
+        )
+        .unwrap();
+
+        let mut records = serde_json::Map::new();
+        insert_runtime_lib_dir_record(&mut records, &dist, &lib_dir).unwrap();
+
+        let runtime_lib_dir = records
+            .get("runtime_lib_dir")
+            .and_then(|value| value.as_object())
+            .expect("expected runtime_lib_dir record");
+        assert_eq!(
+            runtime_lib_dir.get("path").and_then(|value| value.as_str()),
+            Some("toolchain/host/lib")
+        );
+        let expected = sha256_directory(&lib_dir).unwrap();
+        assert_eq!(
+            runtime_lib_dir
+                .get("sha256")
+                .and_then(|value| value.as_str()),
+            Some(expected.as_str())
+        );
+        remove_path_if_exists(&root).unwrap();
     }
 
     #[cfg(unix)]

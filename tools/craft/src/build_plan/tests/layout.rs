@@ -13,7 +13,7 @@ fn artifact_layout_keeps_versions_out_of_local_package_directories() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.0"
+kern = "0.8.1"
 
 [[bin]]
 name = "demo"
@@ -152,7 +152,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.0"
+kern = "0.8.1"
 
 [lib]
 root = "src/lib.kn"
@@ -227,7 +227,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.0"
+kern = "0.8.1"
 
 [[bin]]
 name = "app"
@@ -245,7 +245,7 @@ util = { path = "../util" }
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.8.0"
+kern = "0.8.1"
 
 [lib]
 root = "src/lib.kn"
@@ -310,7 +310,7 @@ fn build_run_and_test_only_include_relevant_target_kinds() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.0"
+kern = "0.8.1"
 
 [lib]
 root = "src/lib.kn"
@@ -397,7 +397,7 @@ fn build_can_include_examples_when_requested() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.0"
+kern = "0.8.1"
 
 [lib]
 root = "src/lib.kn"
@@ -450,7 +450,7 @@ fn run_can_select_examples_without_building_bins() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.0"
+kern = "0.8.1"
 
 [lib]
 root = "src/lib.kn"

@@ -329,7 +329,7 @@ fn resolve_install_archive(
             Ok(fetch_latest_github_release(&args.github_repo)
                 .ok()
                 .flatten()
-                .unwrap_or_else(|| "v0.8.0".to_string()))
+                .unwrap_or_else(|| "v0.8.1".to_string()))
         })?
     };
     let archive_name = format!("kern-{version}-{target}.{}", host.archive_extension);
@@ -652,11 +652,11 @@ fn help() -> HelpDoc {
                 .entry("help", "Show this help text"),
         )
         .example(
-            "kernup install --archive ./kern-v0.8.0-x86_64-linux-gnu.tar.gz",
+            "kernup install --archive ./kern-v0.8.1-x86_64-linux-gnu.tar.gz",
             "install a local SDK archive",
         )
         .example(
-            "kernup install --version v0.8.0",
+            "kernup install --version v0.8.1",
             "download and install a release SDK",
         )
         .example("kernup doctor", "verify the default installation")
@@ -721,7 +721,7 @@ mod tests {
     fn install_step_count_tracks_download_and_path_steps() {
         let mut args = InstallArgs::default();
         assert_eq!(install_step_count(&args), 7);
-        args.version = Some("v0.8.0".into());
+        args.version = Some("v0.8.1".into());
         assert_eq!(install_step_count(&args), 6);
         args.archive = Some(PathBuf::from("kern.tar.gz"));
         assert_eq!(install_step_count(&args), 6);

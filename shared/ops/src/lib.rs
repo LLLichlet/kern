@@ -2084,11 +2084,11 @@ mod tests {
     #[test]
     fn archive_kind_accepts_release_archive_extensions() {
         assert_eq!(
-            archive_kind_from_path(Path::new("kern-v0.8.0-x86_64-linux-gnu.tar.gz")).unwrap(),
+            archive_kind_from_path(Path::new("kern-v0.8.1-x86_64-linux-gnu.tar.gz")).unwrap(),
             ArchiveKind::TarGz
         );
         assert_eq!(
-            archive_kind_from_path(Path::new("kern-v0.8.0-x86_64-windows-msvc.zip")).unwrap(),
+            archive_kind_from_path(Path::new("kern-v0.8.1-x86_64-windows-msvc.zip")).unwrap(),
             ArchiveKind::Zip
         );
         assert!(archive_kind_from_path(Path::new("kern.tar")).is_err());
@@ -2099,11 +2099,11 @@ mod tests {
         let root = make_temp_dir("shared-ops-version-test-").unwrap();
         fs::write(
             root.join("Cargo.toml"),
-            "[package]\nversion = \"9.9.9\"\n\n[workspace.package]\nversion = \"0.8.0\"\n",
+            "[package]\nversion = \"9.9.9\"\n\n[workspace.package]\nversion = \"0.8.1\"\n",
         )
         .unwrap();
 
-        assert_eq!(load_workspace_version(&root).unwrap(), "0.8.0");
+        assert_eq!(load_workspace_version(&root).unwrap(), "0.8.1");
         remove_path_if_exists(&root).unwrap();
     }
 
@@ -2122,7 +2122,7 @@ mod tests {
     #[test]
     fn sdk_manifest_requires_clang_resource_dir() {
         let manifest = sdk_manifest_json(
-            "v0.8.0",
+            "v0.8.1",
             "x86_64-linux-gnu",
             Some(&BundledToolchain {
                 source_label: "test".into(),
@@ -2182,7 +2182,7 @@ mod tests {
             &manifest_dir.join("sdk.json"),
             &serde_json::json!({
                 "schema_version": 1,
-                "sdk_version": "v0.8.0",
+                "sdk_version": "v0.8.1",
                 "host_target": "x86_64-linux-gnu",
                 "binaries": HOST_TOOL_BINARIES,
                 "libraries": OFFICIAL_LIBRARY_LAYERS,

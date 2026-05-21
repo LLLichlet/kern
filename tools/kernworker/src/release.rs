@@ -166,7 +166,7 @@ fn normalize_release_semver(value: &str, label: &str) -> OpsResult<String> {
         return Ok(raw.to_string());
     }
     Err(OpsError::new(format!(
-        "`{label}` must be a simple semantic version like 0.8.0"
+        "`{label}` must be a simple semantic version like 0.8.1"
     )))
 }
 

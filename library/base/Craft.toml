@@ -1,6 +1,6 @@
 [package]
 name = "base"
-version = "0.8.0"
+version = "0.8.1"
 kern = "0.8"
 description = "Freestanding primitives and data structures for Kern"
 readme = "README.md"

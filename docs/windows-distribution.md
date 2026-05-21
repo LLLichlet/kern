@@ -1,7 +1,7 @@
 # Windows Distribution Guide
 
 This document describes the Windows host-tool distribution policy for the
-current 0.8.0 toolchain.
+current 0.8.1 toolchain.
 
 It keeps three concerns separate:
 
@@ -116,7 +116,7 @@ needs a complete LLVM development prefix. The installed end-user Kern SDK is not
 enough for this because it intentionally omits `llvm-config.exe`, LLVM headers,
 LLVM libraries, `clang++.exe`, and other source-build assets.
 
-Install or unpack the LLVM 21 toolchain first. The current 0.8.0 source tree
+Install or unpack the LLVM 21 toolchain first. The current 0.8.1 source tree
 uses `llvm-sys = "211.0.0"`, so the expected LLVM major version is 21. CI uses
 LLVM 21.1.8.
 
@@ -198,7 +198,7 @@ The Rust repository worker is the canonical Windows packaging
 entry point:
 
 ```powershell
-cargo run -q -p kernworker -- release package --version v0.8.0 --target x86_64-windows-msvc
+cargo run -q -p kernworker -- release package --version v0.8.1 --target x86_64-windows-msvc
 ```
 
 The command currently enforces the important Windows-specific rules:

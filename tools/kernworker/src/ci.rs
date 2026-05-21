@@ -754,7 +754,7 @@ mod tests {
         )
         .unwrap();
 
-        rewrite_kern_versions(&root, "0.8.0").unwrap();
+        rewrite_kern_versions(&root, "0.8.1").unwrap();
 
         assert!(
             fs::read_to_string(root.join("Craft.toml"))

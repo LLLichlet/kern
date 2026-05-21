@@ -1,6 +1,6 @@
 [package]
 name = "kernlib-test"
-version = "0.8.0"
+version = "0.8.1"
 kern = "0.8"
 description = "Internal Kern tests for the official kernlib workspace"
 

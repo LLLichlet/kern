@@ -4,138 +4,138 @@ manifest = "Craft.toml"
 manifest-digest = "fnv1a64:5e934dd73f512dfe"
 
 [[package]]
-id = "base 0.8.0 workspace-member:base"
+id = "base 0.8.1 workspace-member:base"
 name = "base"
-version = "0.8.0"
+version = "0.8.1"
 source = "workspace-member"
 source-value = "base"
 manifest = "base/Craft.toml"
 manifest-digest = "fnv1a64:098d2ee66bd2f610"
 
 [[package]]
-id = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+id = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 name = "kernlib-test"
-version = "0.8.0"
+version = "0.8.1"
 source = "workspace-member"
 source-value = "kernlib-test"
 manifest = "kernlib-test/Craft.toml"
 manifest-digest = "fnv1a64:cedb7c3ed9798e25"
 
 [[package]]
-id = "rt 0.8.0 workspace-member:rt"
+id = "rt 0.8.1 workspace-member:rt"
 name = "rt"
-version = "0.8.0"
+version = "0.8.1"
 source = "workspace-member"
 source-value = "rt"
 manifest = "rt/Craft.toml"
 manifest-digest = "fnv1a64:6ad0fda0b3a57d14"
 
 [[package]]
-id = "std 0.8.0 workspace-member:std"
+id = "std 0.8.1 workspace-member:std"
 name = "std"
-version = "0.8.0"
+version = "0.8.1"
 source = "workspace-member"
 source-value = "std"
 manifest = "std/Craft.toml"
 manifest-digest = "fnv1a64:23ef30844b0d6989"
 
 [[package-target]]
-package = "base 0.8.0 workspace-member:base"
+package = "base 0.8.1 workspace-member:base"
 kind = "lib"
 root = "mod.kn"
 
 [[package-target]]
-package = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+package = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 kind = "test"
 name = "abi"
 root = "src/abi.kn"
 
 [[package-target]]
-package = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+package = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 kind = "test"
 name = "alloc"
 root = "src/alloc.kn"
 
 [[package-target]]
-package = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+package = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 kind = "test"
 name = "coll_map"
 root = "src/coll_map.kn"
 
 [[package-target]]
-package = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+package = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 kind = "test"
 name = "coll_seq"
 root = "src/coll_seq.kn"
 
 [[package-target]]
-package = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+package = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 kind = "test"
 name = "coll_tree"
 root = "src/coll_tree.kn"
 
 [[package-target]]
-package = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+package = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 kind = "test"
 name = "fs_io"
 root = "src/fs_io.kn"
 
 [[package-target]]
-package = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+package = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 kind = "test"
 name = "fs_path"
 root = "src/fs_path.kn"
 
 [[package-target]]
-package = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+package = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 kind = "test"
 name = "io"
 root = "src/io.kn"
 
 [[package-target]]
-package = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+package = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 kind = "test"
 name = "num"
 root = "src/num.kn"
 
 [[package-target]]
-package = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+package = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 kind = "test"
 name = "std_host"
 root = "src/std_host.kn"
 
 [[package-target]]
-package = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+package = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 kind = "test"
 name = "sync"
 root = "src/sync.kn"
 
 [[package-target]]
-package = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+package = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 kind = "test"
 name = "test"
 root = "src/test.kn"
 
 [[package-target]]
-package = "kernlib-test 0.8.0 workspace-member:kernlib-test"
+package = "kernlib-test 0.8.1 workspace-member:kernlib-test"
 kind = "test"
 name = "text"
 root = "src/text.kn"
 
 [[package-target]]
-package = "rt 0.8.0 workspace-member:rt"
+package = "rt 0.8.1 workspace-member:rt"
 kind = "lib"
 root = "mod.kn"
 
 [[package-target]]
-package = "std 0.8.0 workspace-member:std"
+package = "std 0.8.1 workspace-member:std"
 kind = "lib"
 root = "mod.kn"
 
 [[dependency]]
-from = "std 0.8.0 workspace-member:std"
+from = "std 0.8.1 workspace-member:std"
 kind = "normal"
 name = "base"
 package = "base"
 target = "local"
-target-id = "base 0.8.0 workspace-member:base"
+target-id = "base 0.8.1 workspace-member:base"

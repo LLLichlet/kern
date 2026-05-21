@@ -421,7 +421,7 @@ debug = false
 Manifest rules:
 
 - targets are explicit, except that package tests default to direct `tests/*.kn` roots when `[test].roots` is absent
-- `[package].kern` declares the compatible Kern minor line, such as `0.8`; a full patch version such as `0.8.0` is also accepted for patch-specific packages
+- `[package].kern` declares the compatible Kern minor line, such as `0.8`; a full patch version such as `0.8.1` is also accepted for patch-specific packages
 - `[package].name` is always package-local; workspace inheritance never names a member package
 - a root `Craft.toml` cannot be both a package and a workspace
 - `Craft.toml` does not expose an `edition` field before Kern 1.0

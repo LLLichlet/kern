@@ -8,6 +8,11 @@ use base.coll.SliceMutIter;
 use base.cmp.{Ord, Ordering, GREATER};
 
 impl[T] &mut [T] {
+    /// Returns a shared view of this mutable slice.
+    pub fn shared() &[T] {
+        return self as &[T];
+    }
+
     /// Returns an iterator over mutable element pointers.
     pub fn iter() SliceMutIter[T] {
         return .{ data: self };

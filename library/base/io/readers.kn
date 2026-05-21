@@ -59,7 +59,7 @@ impl &mut BufReader : Read {
             return 0;
         }
 
-        let buffered = self.buffered_len();
+        let buffered = self.shared().buffered_len();
         if buffered > 0 {
             return self.copy_buffered(buf);
         }
@@ -117,7 +117,7 @@ impl &mut BufReader {
     }
 
     fn copy_buffered(out: &mut [u8]) usize {
-        let count = out.@len().min(self.buffered_len());
+        let count = out.@len().min(self.shared().buffered_len());
         let target = out..&[0...count];
         _ = target.copy_from(self.buffer.&[self.start...self.start + count]);
         self.start += count;

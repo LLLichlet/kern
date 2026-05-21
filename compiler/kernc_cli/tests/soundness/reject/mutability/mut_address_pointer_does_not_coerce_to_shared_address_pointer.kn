@@ -1,0 +1,13 @@
+// source: mutable address pointers must be explicitly narrowed before passing to shared address pointer parameters
+// stderr: mismatched types
+// stderr: expected `^i32`
+// stderr: found `^mut i32`
+
+fn read(_: ^i32) i32 {
+    return 0;
+}
+
+fn main() i32 {
+    let ptr = 1usize as ^mut i32;
+    return read(ptr);
+}

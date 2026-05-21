@@ -540,12 +540,14 @@ fn main() i32 {
 }
 
 #[test]
-fn accepts_immutable_trait_object_from_mut_pointer_when_shared_impl_exists() {
-    let output = build_and_run_source(
+fn accepts_immutable_trait_object_from_explicit_shared_pointer_when_shared_impl_exists() {
+    let output = build_and_run_source_with_std(
         r#"
 trait Base {
     fn get() i32;
 };
+
+use base.mem.{.};
 
 struct Cell {
     value: i32,
@@ -559,7 +561,7 @@ impl &Cell : Base {
 
 fn main() i32 {
     let mut cell = Cell.{ value: 7 };
-    let obj = (cell..& as &Base);
+    let obj = (cell..&.shared() as &Base);
     return obj.get() - 7;
 }
 "#,
@@ -665,8 +667,8 @@ fn main() i32 {
 }
 
 #[test]
-fn accepts_implicit_immutable_trait_object_from_mut_pointer_when_shared_impl_exists() {
-    let output = build_and_run_source(
+fn rejects_implicit_immutable_trait_object_from_mut_pointer_when_shared_impl_exists() {
+    let output = compile_source(
         r#"
 trait Base {
     fn get() i32;
@@ -694,10 +696,17 @@ fn main() i32 {
     );
 
     assert!(
-        output.status.success(),
-        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mismatched types"),
+        "unexpected stderr:\n{}",
+        stderr
     );
 }
 

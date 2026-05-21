@@ -78,6 +78,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return packed;
         }
 
+        if self.is_slice_mutability_narrowing(l.ty, syntax_target_ty) {
+            return MastExpr::new(target_ty, l.kind, span);
+        }
+
         let cast_kind = self.determine_cast_kind(l.ty, syntax_target_ty);
 
         MastExpr::new(
@@ -87,6 +91,27 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 operand: Box::new(l),
             },
             span,
+        )
+    }
+
+    fn is_slice_mutability_narrowing(&mut self, from: TypeId, to: TypeId) -> bool {
+        let from_norm = self.ctx.type_registry.normalize(from);
+        let to_norm = self.ctx.type_registry.normalize(to);
+        matches!(
+            (
+                self.ctx.type_registry.get(from_norm).clone(),
+                self.ctx.type_registry.get(to_norm).clone()
+            ),
+            (
+                TypeKind::Slice {
+                    is_mut: true,
+                    elem: from_elem
+                },
+                TypeKind::Slice {
+                    is_mut: false,
+                    elem: to_elem
+                }
+            ) if self.ctx.type_registry.normalize(from_elem) == self.ctx.type_registry.normalize(to_elem)
         )
     }
 
@@ -220,7 +245,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         // 2. Implicit thin-pointer-to-trait-object packing.
         if let TypeKind::Pointer {
-            is_mut: e_mut,
+            is_mut: _,
             elem: e_inner,
         } = exp_kind
         {
@@ -264,56 +289,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     );
                 }
 
-                let (data_ptr_expr, data_ptr_ty) = if !e_mut {
-                    match conc_kind {
-                        TypeKind::Pointer { is_mut: true, elem } => {
-                            let shared_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
-                                is_mut: false,
-                                elem,
-                            });
-                            (
-                                MastExpr::new(
-                                    shared_ptr_ty,
-                                    MastExprKind::Cast {
-                                        kind: MastCastKind::Bitcast,
-                                        operand: Box::new(MastExpr::new(
-                                            concrete_ty,
-                                            mast_kind,
-                                            span,
-                                        )),
-                                    },
-                                    span,
-                                ),
-                                shared_ptr_ty,
-                            )
-                        }
-                        TypeKind::VolatilePtr { is_mut: true, elem } => {
-                            let shared_ptr_ty =
-                                self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                                    is_mut: false,
-                                    elem,
-                                });
-                            (
-                                MastExpr::new(
-                                    shared_ptr_ty,
-                                    MastExprKind::Cast {
-                                        kind: MastCastKind::Bitcast,
-                                        operand: Box::new(MastExpr::new(
-                                            concrete_ty,
-                                            mast_kind,
-                                            span,
-                                        )),
-                                    },
-                                    span,
-                                ),
-                                shared_ptr_ty,
-                            )
-                        }
-                        _ => (MastExpr::new(concrete_ty, mast_kind, span), concrete_ty),
-                    }
-                } else {
-                    (MastExpr::new(concrete_ty, mast_kind, span), concrete_ty)
-                };
+                let data_ptr_expr = MastExpr::new(concrete_ty, mast_kind, span);
+                let data_ptr_ty = concrete_ty;
 
                 let vtable_id = self.get_or_create_vtable(data_ptr_ty, data_ptr_ty, e_inner_norm);
                 let Some(meta_expr) = self.vtable_global_meta_expr(vtable_id, span) else {

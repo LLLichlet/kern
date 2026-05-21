@@ -129,7 +129,7 @@ impl &[u8] {
             let wrapped = build_shell_command(alloc, self).?..&;
             defer wrapped.deinit(alloc);
 
-            let wrapped_c = abi.cstr.owned(alloc, wrapped.as_str())
+            let wrapped_c = abi.cstr.owned(alloc, wrapped.shared().as_str())
                 .map_err([](_: base.mem.alloc.AllocError) Error {
                     return .OutOfMemory;
                 }).?..&;
@@ -141,7 +141,7 @@ impl &[u8] {
                 }).?..&;
             defer mode.deinit(alloc);
 
-            let stream = system_popen(wrapped_c.ptr(), mode.ptr());
+            let stream = system_popen(wrapped_c.shared().ptr(), mode.shared().ptr());
             if (stream as usize) == 0 {
                 return .{ Err: .SpawnFailed };
             }

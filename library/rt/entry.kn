@@ -187,7 +187,7 @@ fn build_windows_utf8_argv(argc: usize, argv_wide: &mut &mut u16) i32 {
 
         let arg_start = out_len;
         let arg_wide = (argv_wide + utf8_argc).*;
-        let arg_len = utf16_z_len(arg_wide);
+        let arg_len = utf16_z_len(arg_wide.shared());
         // The final byte of WINDOWS_ARG_BUF is reserved for the zero terminator
         // written below, so conversion only receives the `[out_len, 32767)`
         // window. Oversized argv is truncated rather than writing past statics.
@@ -277,7 +277,7 @@ fn kern_entry_windows() i32 {
     suppress_error_dialogs();
     let cmd_line = GetCommandLineW();
     let mut wide_argc = 0i32;
-    let argv_wide = CommandLineToArgvW(cmd_line, wide_argc..&);
+    let argv_wide = CommandLineToArgvW(cmd_line.shared(), wide_argc..&);
     if (argv_wide as usize) == 0 {
         WINDOWS_ARGV_PTRS.[0] = 0;
         return __kern_main_adapter(0, WINDOWS_ARGV_PTRS.[0]..& as &&u8);

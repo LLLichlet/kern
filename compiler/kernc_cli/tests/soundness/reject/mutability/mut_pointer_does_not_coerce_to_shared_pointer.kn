@@ -1,0 +1,17 @@
+// source: mutable object pointers must be explicitly narrowed before passing to shared pointer parameters
+// stderr: mismatched types
+// stderr: expected `&Cell`
+// stderr: found `&mut Cell`
+
+struct Cell {
+    value: i32,
+};
+
+fn read(cell: &Cell) i32 {
+    return cell.value;
+}
+
+fn main() i32 {
+    let mut cell = Cell.{ value: 7 };
+    return read(cell..&);
+}

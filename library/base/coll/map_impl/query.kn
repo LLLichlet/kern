@@ -246,7 +246,7 @@ impl[K, V] &Map[K, V]
             return true;
         };
         _ = visit_full[K, V](
-            self.ctrl,
+            self.ctrl.shared(),
             self.entries,
             self.capacity,
             visit,
@@ -264,7 +264,7 @@ impl[K, V] &Map[K, V]
             return true;
         };
         _ = visit_full[K, V](
-            self.ctrl,
+            self.ctrl.shared(),
             self.entries,
             self.capacity,
             visit,
@@ -283,7 +283,7 @@ impl[K, V] &Map[K, V]
             return true;
         };
         _ = visit_full[K, V](
-            self.ctrl,
+            self.ctrl.shared(),
             self.entries,
             self.capacity,
             visit,
@@ -301,7 +301,7 @@ impl[K, V] &Map[K, V]
             return true;
         };
         _ = visit_full[K, V](
-            self.ctrl,
+            self.ctrl.shared(),
             self.entries,
             self.capacity,
             visit,
@@ -317,7 +317,7 @@ impl[K, V] &Map[K, V]
             return true;
         };
         _ = visit_full[K, V](
-            self.ctrl,
+            self.ctrl.shared(),
             self.entries,
             self.capacity,
             visit,
@@ -339,7 +339,7 @@ impl[K, V] &Map[K, V]
             return true;
         };
         _ = visit_full[K, V](
-            self.ctrl,
+            self.ctrl.shared(),
             self.entries,
             self.capacity,
             visit_entry,
@@ -363,7 +363,7 @@ impl[K, V] &Map[K, V]
             return true;
         };
         _ = visit_full[K, V](
-            self.ctrl,
+            self.ctrl.shared(),
             self.entries,
             self.capacity,
             visit,
@@ -390,7 +390,7 @@ impl[K, V] &Map[K, V]
             return true;
         };
         _ = visit_full[K, V](
-            self.ctrl,
+            self.ctrl.shared(),
             self.entries,
             self.capacity,
             visit,
@@ -431,7 +431,7 @@ impl[K, V] &Map[K, V]
 
         let hash = key_hash(key);
         let slot = find_index_with_hash[K, V](
-            self.ctrl,
+            self.ctrl.shared(),
             self.entries,
             self.capacity,
             key,

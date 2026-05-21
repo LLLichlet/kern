@@ -327,9 +327,9 @@ impl[K, V] &mut Tree[K, V]
             return .None;
         }
 
-        set_len[K, V](self, self.len() - 1);
+        set_len[K, V](self, self.shared().len() - 1);
 
-        if self.len() == 0 {
+        if self.shared().len() == 0 {
             // The final delete can free the root outright.
             self.delete_free_node(alloc, root);
             self.root = .None;

@@ -44,32 +44,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let from_norm = self.resolve_tv(from);
         let proof_ty = match self.ctx.type_registry.get(from_norm).clone() {
-            TypeKind::Pointer {
-                is_mut: from_mut,
-                elem: from_elem,
-            } => {
-                if !is_mut && from_mut {
-                    self.ctx.type_registry.intern(TypeKind::Pointer {
-                        is_mut: false,
-                        elem: from_elem,
-                    })
-                } else {
-                    from
-                }
-            }
-            TypeKind::VolatilePtr {
-                is_mut: from_mut,
-                elem: from_elem,
-            } => {
-                if !is_mut && from_mut {
-                    self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                        is_mut: false,
-                        elem: from_elem,
-                    })
-                } else {
-                    from
-                }
-            }
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } => from,
             _ => return to,
         };
         let enriched_elem =
@@ -128,7 +103,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
             );
 
-        // 1. Allow pointer reinterpretation and explicit fat-pointer packaging
+        // 1. Allow explicit mutable-to-shared slice narrowing.
+        if self.is_slice_mutability_narrowing(f_norm, t_norm) {
+            return;
+        }
+
+        // 2. Allow pointer reinterpretation and explicit fat-pointer packaging
         // such as `value..& as &mut Trait` or `state..& as &Fn(...) T`.
         if is_f_ptr && is_t_ptr {
             if self.is_slice_pointer_value_type(t_norm) {
@@ -174,7 +154,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return;
         }
 
-        // 2. Allow pointer -> integer casts and integer -> address-pointer casts.
+        // 3. Allow pointer -> integer casts and integer -> address-pointer casts.
         let f_norm = self.constrain_pointer_cast_integer(from);
         let is_f_ptr_int = f_norm == TypeId::USIZE
             || f_norm == TypeId::ISIZE
@@ -209,14 +189,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return;
         }
 
-        // 3. Allow all numeric casts, including int/float cross-casts and `bool -> int`.
+        // 4. Allow all numeric casts, including int/float cross-casts and `bool -> int`.
         let is_f_numeric = is_f_int || is_f_float || f_norm == TypeId::BOOL;
         let is_t_numeric = is_t_int || is_t_float;
         if is_f_numeric && is_t_numeric {
             return;
         }
 
-        // 4. Reject everything else with a proper diagnostic.
+        // 5. Reject everything else with a proper diagnostic.
         let from_str = self.ctx.ty_to_string(from);
         let to_str = self.ctx.ty_to_string(to);
         self.ctx
@@ -225,6 +205,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .with_hint("for trait objects, cast a compatible pointer with `as`; for slices, use slice syntax")
             .with_hint(format!("attempted to cast from `{}` to `{}`", from_str, to_str))
             .emit();
+    }
+
+    fn is_slice_mutability_narrowing(&mut self, from: TypeId, to: TypeId) -> bool {
+        matches!(
+            (
+                self.ctx.type_registry.get(from).clone(),
+                self.ctx.type_registry.get(to).clone()
+            ),
+            (
+                TypeKind::Slice {
+                    is_mut: true,
+                    elem: from_elem
+                },
+                TypeKind::Slice {
+                    is_mut: false,
+                    elem: to_elem
+                }
+            ) if self.resolve_tv(from_elem) == self.resolve_tv(to_elem)
+        )
     }
 
     fn is_object_pointer_type(&self, ty: TypeId) -> bool {

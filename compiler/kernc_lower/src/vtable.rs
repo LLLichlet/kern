@@ -419,61 +419,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     fn vtable_receiver_search_types(&mut self, source_ty: TypeId) -> Vec<TypeId> {
-        let mut search_tys = Vec::new();
-        let mut current_ty = self.ctx.type_registry.normalize(source_ty);
-
-        loop {
-            if !search_tys.contains(&current_ty) {
-                search_tys.push(current_ty);
-            }
-
-            let Some(next_ty) = self.vtable_downgraded_search_type(current_ty) else {
-                break;
-            };
-            current_ty = self.ctx.type_registry.normalize(next_ty);
-        }
-
-        search_tys
-    }
-
-    fn vtable_downgraded_search_type(&mut self, source_ty: TypeId) -> Option<TypeId> {
-        match self.ctx.type_registry.get(source_ty).clone() {
-            TypeKind::Pointer { is_mut: true, elem } => {
-                Some(self.ctx.type_registry.intern(TypeKind::Pointer {
-                    is_mut: false,
-                    elem,
-                }))
-            }
-            TypeKind::Pointer { is_mut, elem } => {
-                self.vtable_downgraded_search_type(elem).map(|down_elem| {
-                    self.ctx.type_registry.intern(TypeKind::Pointer {
-                        is_mut,
-                        elem: down_elem,
-                    })
-                })
-            }
-            TypeKind::VolatilePtr { is_mut: true, elem } => {
-                Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                    is_mut: false,
-                    elem,
-                }))
-            }
-            TypeKind::VolatilePtr { is_mut, elem } => {
-                self.vtable_downgraded_search_type(elem).map(|down_elem| {
-                    self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                        is_mut,
-                        elem: down_elem,
-                    })
-                })
-            }
-            TypeKind::Slice { is_mut: true, elem } => {
-                Some(self.ctx.type_registry.intern(TypeKind::Slice {
-                    is_mut: false,
-                    elem,
-                }))
-            }
-            _ => None,
-        }
+        vec![self.ctx.type_registry.normalize(source_ty)]
     }
 
     fn lower_vtable_method_self_arg(

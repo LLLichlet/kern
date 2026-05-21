@@ -17,10 +17,9 @@
 //! - methods made available through active generic bounds
 //! - inherent and trait impl methods
 //!
-//! Search is receiver-oriented rather than syntax-oriented. For mutable
-//! receivers, the query also considers the corresponding immutable shape where
-//! the language permits shared-method reuse, which keeps method lookup aligned
-//! with the ordinary receiver coercion rules used elsewhere in sema.
+//! Search is receiver-oriented rather than syntax-oriented. Pointer-like
+//! receiver mutability is part of the concrete receiver type: `&T`, `&mut T`,
+//! `&[T]`, and `&mut [T]` have distinct method sets.
 //!
 //! Ambiguity reporting still belongs to the calling checker. This module
 //! collects and resolves candidates, but the surrounding expression checker
@@ -222,8 +221,7 @@ impl SearchTypes {
         }
 
         if let Some(slot) = self.values.get_mut(self.len) {
-            // Search sets are intentionally tiny: receiver, normalized receiver,
-            // and possibly immutable/shared view.
+            // Search sets are intentionally tiny: receiver plus normalized/base forms.
             *slot = ty;
             self.len += 1;
         }
@@ -478,25 +476,6 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         let receiver_norm = self.ctx.type_registry.normalize(receiver_ty);
         let base_norm = base_type(self.ctx, receiver_ty);
         let mut search_tys = SearchTypes::new(receiver_norm);
-
-        let downgraded = match self.ctx.type_registry.get(receiver_norm) {
-            TypeKind::Pointer { is_mut: true, elem } => Some(TypeKind::Pointer {
-                is_mut: false,
-                elem: *elem,
-            }),
-            TypeKind::VolatilePtr { is_mut: true, elem } => Some(TypeKind::VolatilePtr {
-                is_mut: false,
-                elem: *elem,
-            }),
-            TypeKind::Slice { is_mut: true, elem } => Some(TypeKind::Slice {
-                is_mut: false,
-                elem: *elem,
-            }),
-            _ => None,
-        };
-        if let Some(ty) = downgraded {
-            search_tys.push_if_absent(self.ctx.type_registry.intern(ty));
-        }
 
         search_tys.push_if_absent(base_norm);
 

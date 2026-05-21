@@ -23,24 +23,24 @@ fn check_atomics[W](t: &mut Report[W]) void
     where &mut W: io.Write,
 {
     let mut byte = atomic[u8](0);
-    byte..&.load[ACQUIRE]().should().eq(0u8).sum(@loc(), t);
+    byte..&.shared().load[ACQUIRE]().should().eq(0u8).sum(@loc(), t);
     byte..&.store[RELEASE](1);
-    byte..&.load[ACQUIRE]().should().eq(1u8).sum(@loc(), t);
+    byte..&.shared().load[ACQUIRE]().should().eq(1u8).sum(@loc(), t);
     byte..&.exchange[ACQ_REL](0).should().eq(1u8).sum(@loc(), t);
     let byte_cas = byte..&.compare_exchange[ACQ_REL, ACQUIRE](0, 1);
     byte_cas.success.should().sum(@loc(), t);
     byte_cas.value.should().eq(0u8).sum(@loc(), t);
 
     let mut flag = atomic[bool](false);
-    flag..&.load[ACQUIRE]().not().should().sum(@loc(), t);
+    flag..&.shared().load[ACQUIRE]().not().should().sum(@loc(), t);
     flag..&.store[RELEASE](true);
-    flag..&.load[ACQUIRE]().should().sum(@loc(), t);
+    flag..&.shared().load[ACQUIRE]().should().sum(@loc(), t);
     flag..&.exchange[ACQ_REL](false).should().sum(@loc(), t);
-    flag..&.load[ACQUIRE]().not().should().sum(@loc(), t);
+    flag..&.shared().load[ACQUIRE]().not().should().sum(@loc(), t);
 
     let mut counter = atomic[usize](1);
     counter..&.fetch_add[SEQ_CST](2).should().eq(1usize).sum(@loc(), t);
-    counter..&.load[ACQUIRE]().should().eq(3usize).sum(@loc(), t);
+    counter..&.shared().load[ACQUIRE]().should().eq(3usize).sum(@loc(), t);
     counter..&.fetch_sub[ACQ_REL](1).should().eq(3usize).sum(@loc(), t);
     counter..&.exchange[SEQ_CST](10).should().eq(2usize).sum(@loc(), t);
     let cas = counter..&.compare_exchange[ACQ_REL, ACQUIRE](10, 12);
@@ -52,28 +52,28 @@ fn check_atomics[W](t: &mut Report[W]) void
     counter..&.fetch_or[ACQ_REL](3).should().eq(12usize).sum(@loc(), t);
     counter..&.fetch_and[ACQ_REL](7).should().eq(15usize).sum(@loc(), t);
     counter..&.fetch_xor[ACQ_REL](2).should().eq(7usize).sum(@loc(), t);
-    counter..&.load[ACQUIRE]().should().eq(5usize).sum(@loc(), t);
+    counter..&.shared().load[ACQUIRE]().should().eq(5usize).sum(@loc(), t);
     counter..&.fetch_nand[ACQ_REL](3usize).should().eq(5usize).sum(@loc(), t);
-    counter..&.load[ACQUIRE]().should().eq(~(5usize & 3usize)).sum(@loc(), t);
+    counter..&.shared().load[ACQUIRE]().should().eq(~(5usize & 3usize)).sum(@loc(), t);
     counter..&.exchange[SEQ_CST](20usize).should().eq(~(5usize & 3usize)).sum(@loc(), t);
     counter..&.fetch_max[ACQ_REL](10usize).should().eq(20usize).sum(@loc(), t);
-    counter..&.load[ACQUIRE]().should().eq(20usize).sum(@loc(), t);
+    counter..&.shared().load[ACQUIRE]().should().eq(20usize).sum(@loc(), t);
     counter..&.fetch_min[ACQ_REL](7usize).should().eq(20usize).sum(@loc(), t);
-    counter..&.load[ACQUIRE]().should().eq(7usize).sum(@loc(), t);
+    counter..&.shared().load[ACQUIRE]().should().eq(7usize).sum(@loc(), t);
     counter..&.fetch_umax[ACQ_REL](12usize).should().eq(7usize).sum(@loc(), t);
-    counter..&.load[ACQUIRE]().should().eq(12usize).sum(@loc(), t);
+    counter..&.shared().load[ACQUIRE]().should().eq(12usize).sum(@loc(), t);
     counter..&.fetch_umin[ACQ_REL](9usize).should().eq(12usize).sum(@loc(), t);
-    counter..&.load[ACQUIRE]().should().eq(9usize).sum(@loc(), t);
+    counter..&.shared().load[ACQUIRE]().should().eq(9usize).sum(@loc(), t);
 
     let mut left = 1usize;
     let mut right = 2usize;
     let mut ptr = atomic[&mut usize](left..&);
-    (ptr..&.load[ACQUIRE]() == left..&).should().sum(@loc(), t);
+    (ptr..&.shared().load[ACQUIRE]() == left..&).should().sum(@loc(), t);
     ptr..&.store[RELEASE](right..&);
-    (ptr..&.load[ACQUIRE]() == right..&).should().sum(@loc(), t);
+    (ptr..&.shared().load[ACQUIRE]() == right..&).should().sum(@loc(), t);
     let old_ptr = ptr..&.exchange[ACQ_REL](left..&);
     (old_ptr == right..&).should().sum(@loc(), t);
-    (ptr..&.load[ACQUIRE]() == left..&).should().sum(@loc(), t);
+    (ptr..&.shared().load[ACQUIRE]() == left..&).should().sum(@loc(), t);
     let ptr_cas = ptr..&.compare_exchange[ACQ_REL, ACQUIRE](left..&, right..&);
     ptr_cas.success.should().sum(@loc(), t);
     (ptr_cas.value == left..&).should().sum(@loc(), t);

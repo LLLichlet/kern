@@ -91,7 +91,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     act_kind
             {
                 let actual_elem_norm = self.resolve_tv(*elem);
-                if Self::pointer_mutability_allows(*e_mut, *is_mut)
+                if Self::pointer_mutability_matches(*e_mut, *is_mut)
                     && matches!(
                         self.ctx.type_registry.get(actual_elem_norm),
                         TypeKind::TraitObject(..)
@@ -115,8 +115,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         false
     }
 
-    fn pointer_mutability_allows(expected_mut: bool, actual_mut: bool) -> bool {
-        !expected_mut || actual_mut
+    fn pointer_mutability_matches(expected_mut: bool, actual_mut: bool) -> bool {
+        expected_mut == actual_mut
     }
 
     fn check_pointer_to_pointer_coercion(
@@ -134,7 +134,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return false;
         };
 
-        if !Self::pointer_mutability_allows(expected_mut, *actual_mut) {
+        if !Self::pointer_mutability_matches(expected_mut, *actual_mut) {
             return false;
         }
 
@@ -157,19 +157,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
-        if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(expected_elem) {
-            let trait_source_ty = if !expected_mut && *actual_mut {
-                self.ctx.type_registry.intern(TypeKind::Pointer {
-                    is_mut: false,
-                    elem: *actual_elem,
-                })
-            } else {
-                actual_ty
-            };
-
-            if self.check_trait_impl(trait_source_ty, expected_elem) {
-                return true;
-            }
+        if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(expected_elem)
+            && self.check_trait_impl(actual_ty, expected_elem)
+        {
+            return true;
         }
 
         false
@@ -402,7 +393,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     is_mut: act_mut,
                     elem: act_elem,
                 },
-            ) => (!exp_mut || act_mut) && self.resolve_tv(exp_elem) == self.resolve_tv(act_elem),
+            ) => exp_mut == act_mut && self.resolve_tv(exp_elem) == self.resolve_tv(act_elem),
             (
                 TypeKind::Slice {
                     is_mut: false,
@@ -487,7 +478,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 is_mut: a_mut,
                 elem: a_inner,
             } = act_kind
-            && (!*e_mut || *a_mut)
+            && *e_mut == *a_mut
         {
             let e_norm = self.resolve_tv(*e_inner);
             let a_norm = self.resolve_tv(*a_inner);
@@ -534,7 +525,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 is_mut: act_mut,
                 elem: act_elem,
             } = act_kind
-                && (!*e_mut || *act_mut)
+                && *e_mut == *act_mut
                 && self.resolve_tv(*exp_elem) == self.resolve_tv(*act_elem)
             {
                 return true;

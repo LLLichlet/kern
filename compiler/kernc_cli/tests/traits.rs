@@ -1097,14 +1097,14 @@ fn main() i32 {
     list.try_push(gpa, 1).is_ok().should().sum(@loc(), t);
     list.try_push(gpa, 2).is_ok().should().sum(@loc(), t);
     list.try_push(gpa, 3).is_ok().should().sum(@loc(), t);
-    list.as_slice().eq([3]i32.{ 1, 2, 3 }).should().sum(@loc(), t);
+    list.shared().as_slice().eq([3]i32.{ 1, 2, 3 }).should().sum(@loc(), t);
 
     let text = string()..&;
     defer text.deinit(gpa);
     text.try_push_str(gpa, "Hello").is_ok().should().sum(@loc(), t);
     text.try_push_str(gpa, ", ").is_ok().should().sum(@loc(), t);
     text.try_push_str(gpa, "Kern").is_ok().should().sum(@loc(), t);
-    text.as_str().eq("Hello, Kern").should().sum(@loc(), t);
+    text.shared().as_str().eq("Hello, Kern").should().sum(@loc(), t);
 
     return 0;
 }

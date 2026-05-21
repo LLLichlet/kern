@@ -88,6 +88,11 @@ impl[T] &T {
 }
 
 impl[T] &mut T {
+    /// Returns a shared view of this mutable pointer.
+    pub fn shared() &T {
+        return self as &T;
+    }
+
     pub fn is_null() bool {
         return (self as usize) == 0;
     }
@@ -118,6 +123,11 @@ impl[T] ^T {
 }
 
 impl[T] ^mut T {
+    /// Returns a shared address pointer view.
+    pub fn shared() ^T {
+        return self as ^T;
+    }
+
     pub fn is_null() bool {
         return (self as usize) == 0;
     }

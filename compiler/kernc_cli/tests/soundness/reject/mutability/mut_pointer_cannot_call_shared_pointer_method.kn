@@ -1,0 +1,17 @@
+// source: mutable object pointers do not inherit shared pointer method sets
+// stderr: no field or method named `get` found on type `&mut Cell`
+
+struct Cell {
+    value: i32,
+};
+
+impl &Cell {
+    pub fn get() i32 {
+        return self.value;
+    }
+}
+
+fn main() i32 {
+    let mut cell = Cell.{ value: 7 };
+    return cell..&.get();
+}

@@ -50,17 +50,17 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
     defer items.deinit(gpa);
 
     items.try_reserve(gpa, 6).should_ok().sum(@loc(), t);
-    (items.capacity() >= 6).should().sum(@loc(), t);
+    (items.shared().capacity() >= 6).should().sum(@loc(), t);
     items.try_push(gpa, 1).should_ok().sum(@loc(), t);
     items.try_push(gpa, 2).should_ok().sum(@loc(), t);
     items.try_push(gpa, 3).should_ok().sum(@loc(), t);
     items.try_insert(gpa, 1, 9).should_ok().sum(@loc(), t);
     items.remove(2).should_some().eq(2).sum(@loc(), t);
 
-    let prefix = items.as_slice();
+    let prefix = items.shared().as_slice();
     items.try_append_slice(gpa, prefix).should_ok().sum(@loc(), t);
 
-    let data = items.as_slice();
+    let data = items.shared().as_slice();
     (data == [6]i32.{1, 9, 3, 1, 9, 3}).should().sum(@loc(), t);
     data.starts_with([3]i32.{1, 9, 3}).should().sum(@loc(), t);
     data.ends_with([3]i32.{1, 9, 3}).should().sum(@loc(), t);
@@ -75,25 +75,25 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
         item.* += 1;
     }
     items.truncate(4);
-    (items.as_slice() == [4]i32.{2, 9, 4, 2}).should().sum(@loc(), t);
-    items.contains([2]i32.{9, 4}).should().sum(@loc(), t);
-    (items.lex_cmp([4]i32.{2, 9, 4, 3}) == LESS).should().sum(@loc(), t);
-    items.position([](value: i32) bool { return value > 3; }).should_some().eq(1usize).sum(@loc(), t);
-    items.rposition([](value: i32) bool { return value > 3; }).should_some().eq(2usize).sum(@loc(), t);
-    items.any([](value: i32) bool { return value == 9; }).should().sum(@loc(), t);
-    items.all([](value: i32) bool { return value < 9; }).not().should().sum(@loc(), t);
-    items.strip_prefix([2]i32.{2, 9}).should_some().eq([2]i32.{4, 2}).sum(@loc(), t);
-    items.strip_suffix([2]i32.{4, 2}).should_some().eq([2]i32.{2, 9}).sum(@loc(), t);
+    (items.shared().as_slice() == [4]i32.{2, 9, 4, 2}).should().sum(@loc(), t);
+    items.shared().contains([2]i32.{9, 4}).should().sum(@loc(), t);
+    (items.shared().lex_cmp([4]i32.{2, 9, 4, 3}) == LESS).should().sum(@loc(), t);
+    items.shared().position([](value: i32) bool { return value > 3; }).should_some().eq(1usize).sum(@loc(), t);
+    items.shared().rposition([](value: i32) bool { return value > 3; }).should_some().eq(2usize).sum(@loc(), t);
+    items.shared().any([](value: i32) bool { return value == 9; }).should().sum(@loc(), t);
+    items.shared().all([](value: i32) bool { return value < 9; }).not().should().sum(@loc(), t);
+    items.shared().strip_prefix([2]i32.{2, 9}).should_some().eq([2]i32.{4, 2}).sum(@loc(), t);
+    items.shared().strip_suffix([2]i32.{4, 2}).should_some().eq([2]i32.{2, 9}).sum(@loc(), t);
 
     let insert_alias = list[u8]()..&;
     defer insert_alias.deinit(gpa);
     for value in 0u8...8u8 {
         insert_alias.try_push(gpa, value).should_ok().sum(@loc(), t);
     }
-    insert_alias.try_insert_slice(gpa, 1usize, insert_alias.as_slice())
+    insert_alias.try_insert_slice(gpa, 1usize, insert_alias.shared().as_slice())
         .should_ok()
         .sum(@loc(), t);
-    (insert_alias.as_slice() == [16]u8.{ 0, 0, 1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 4, 5, 6, 7 })
+    (insert_alias.shared().as_slice() == [16]u8.{ 0, 0, 1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 4, 5, 6, 7 })
         .should()
         .sum(@loc(), t);
 
@@ -102,15 +102,15 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
     for value in 0u8...8u8 {
         append_alias.try_push(gpa, value).should_ok().sum(@loc(), t);
     }
-    append_alias.try_append_slice(gpa, append_alias.as_slice())
+    append_alias.try_append_slice(gpa, append_alias.shared().as_slice())
         .should_ok()
         .sum(@loc(), t);
-    (append_alias.as_slice() == [16]u8.{ 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7 })
+    (append_alias.shared().as_slice() == [16]u8.{ 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7 })
         .should()
         .sum(@loc(), t);
 
     items.reverse();
-    (items.as_slice() == [4]i32.{2, 4, 9, 2}).should().sum(@loc(), t);
+    (items.shared().as_slice() == [4]i32.{2, 4, 9, 2}).should().sum(@loc(), t);
 
     let mut kept = 0i32;
     items.retain([counter = kept..&](value: i32) bool {
@@ -118,11 +118,11 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
         return value >= 4;
     });
     kept.should().eq(4).sum(@loc(), t);
-    (items.as_slice() == [2]i32.{4, 9}).should().sum(@loc(), t);
+    (items.shared().as_slice() == [2]i32.{4, 9}).should().sum(@loc(), t);
     items.try_shrink_to_fit(gpa).should_ok().sum(@loc(), t);
-    items.capacity().should().eq(items.len()).sum(@loc(), t);
-    items.count([](value: i32) bool { return value >= 4; }).should().eq(2usize).sum(@loc(), t);
-    items.find_map([](value: i32) ?i32 {
+    items.shared().capacity().should().eq(items.shared().len()).sum(@loc(), t);
+    items.shared().count([](value: i32) bool { return value >= 4; }).should().eq(2usize).sum(@loc(), t);
+    items.shared().find_map([](value: i32) ?i32 {
         if value > 4 {
             return .{ Some: value * 10 };
         }
@@ -132,7 +132,7 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
     for item in items.iter() {
         item.* += 1;
     }
-    (items.as_slice() == [2]i32.{5, 10}).should().sum(@loc(), t);
+    (items.shared().as_slice() == [2]i32.{5, 10}).should().sum(@loc(), t);
     let mut readonly_total = 0i32;
     for item in (items as &List[i32]).iter() {
         readonly_total += item;
@@ -150,36 +150,36 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
     let text = string()..&;
     defer text.deinit(gpa);
     text.try_reserve(gpa, 16).should_ok().sum(@loc(), t);
-    (text.capacity() >= 16).should().sum(@loc(), t);
+    (text.shared().capacity() >= 16).should().sum(@loc(), t);
     text.try_push_str(gpa, "kern").should_ok().sum(@loc(), t);
     text.try_push_char(gpa, b'-').should_ok().sum(@loc(), t);
     text.try_push_str(gpa, "lang").should_ok().sum(@loc(), t);
-    text.starts_with("kern").should().sum(@loc(), t);
-    text.ends_with("lang").should().sum(@loc(), t);
-    text.contains("-la").should().sum(@loc(), t);
-    text.find("lang").should_some().eq(5usize).sum(@loc(), t);
-    text.find_byte(b'-').should_some().eq(4usize).sum(@loc(), t);
-    (text.lex_cmp("kern-lang") == EQUAL).should().sum(@loc(), t);
-    (text.lex_cmp("kern-lano") == LESS).should().sum(@loc(), t);
-    (text.lex_cmp("kern-lanf") == GREATER).should().sum(@loc(), t);
-    text.strip_prefix("kern-").should_some().eq("lang").sum(@loc(), t);
-    text.strip_suffix("-lang").should_some().eq("kern").sum(@loc(), t);
+    text.shared().starts_with("kern").should().sum(@loc(), t);
+    text.shared().ends_with("lang").should().sum(@loc(), t);
+    text.shared().contains("-la").should().sum(@loc(), t);
+    text.shared().find("lang").should_some().eq(5usize).sum(@loc(), t);
+    text.shared().find_byte(b'-').should_some().eq(4usize).sum(@loc(), t);
+    (text.shared().lex_cmp("kern-lang") == EQUAL).should().sum(@loc(), t);
+    (text.shared().lex_cmp("kern-lano") == LESS).should().sum(@loc(), t);
+    (text.shared().lex_cmp("kern-lanf") == GREATER).should().sum(@loc(), t);
+    text.shared().strip_prefix("kern-").should_some().eq("lang").sum(@loc(), t);
+    text.shared().strip_suffix("-lang").should_some().eq("kern").sum(@loc(), t);
 
-    let mut skipped = text.as_str().iter().skip(5);
+    let mut skipped = text.shared().as_str().iter().skip(5);
     skipped..&.next().should_some().eq(b'l').sum(@loc(), t);
 
-    let mut enumerated = text.as_str().iter().enumerate();
+    let mut enumerated = text.shared().as_str().iter().enumerate();
     let first = enumerated..&.next().should_some().sum(@loc(), t);
     first.index.should().eq(0usize).sum(@loc(), t);
     first.value.should().eq(b'k').sum(@loc(), t);
 
-    let mut skipped_enumerated = text.as_str().iter().skip(5).enumerate();
+    let mut skipped_enumerated = text.shared().as_str().iter().skip(5).enumerate();
     let first_skipped = skipped_enumerated..&.next().should_some().sum(@loc(), t);
     first_skipped.index.should().eq(0usize).sum(@loc(), t);
     first_skipped.value.should().eq(b'l').sum(@loc(), t);
 
     let mut byte_sum = 0usize;
-    for byte in text.iter() {
+    for byte in text.shared().iter() {
         byte_sum += byte as usize;
     }
     byte_sum.should().eq(895usize).sum(@loc(), t);
@@ -187,13 +187,13 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
     let exact = string()..&;
     defer exact.deinit(gpa);
     exact.try_reserve_exact(gpa, 3).should_ok().sum(@loc(), t);
-    exact.capacity().should().eq(3usize).sum(@loc(), t);
+    exact.shared().capacity().should().eq(3usize).sum(@loc(), t);
     exact.try_push_str(gpa, "abc").should_ok().sum(@loc(), t);
-    exact.as_str().should().eq("abc").sum(@loc(), t);
+    exact.shared().as_str().should().eq("abc").sum(@loc(), t);
 
     let shaped = string()..&;
     defer shaped.deinit(gpa);
-    shaped.try_clone_from_string(gpa, text).should_ok().sum(@loc(), t);
+    shaped.try_clone_from_string(gpa, text.shared()).should_ok().sum(@loc(), t);
     shaped.try_insert_char(gpa, 4, b'_').should_ok().sum(@loc(), t);
     shaped.try_insert_str(gpa, 5, "std").should_ok().sum(@loc(), t);
     (shaped.* == "kern_std-lang").should().sum(@loc(), t);

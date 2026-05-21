@@ -1,0 +1,50 @@
+// source: explicit shared narrows mutable pointer-shaped values to shared views
+
+trait Read {
+    fn get() i32;
+};
+
+struct Cell {
+    value: i32,
+};
+
+impl &Cell {
+    pub fn get_value() i32 {
+        return self.value;
+    }
+}
+
+impl &Cell : Read {
+    pub fn get() i32 {
+        return self.value;
+    }
+}
+
+fn read_cell(cell: &Cell) i32 {
+    return cell.get_value();
+}
+
+fn slice_len(values: &[i32]) i32 {
+    return values.@len() as i32;
+}
+
+fn read_addr(_: ^i32) i32 {
+    return 5;
+}
+
+fn read_trait(reader: &Read) i32 {
+    return reader.get();
+}
+
+fn main() i32 {
+    let mut cell = Cell.{ value: 7 };
+    let mut values = [3]i32.{ 1, 2, 3 };
+    let addr = 1usize as ^mut i32;
+
+    let a = read_cell(cell..&.shared());
+    let b = cell..&.shared().get_value();
+    let c = slice_len(values..&[0...3].shared());
+    let d = read_addr(addr.shared());
+    let e = read_trait(cell..&.shared() as &Read);
+    return a + b + c + d + e - 29;
+}

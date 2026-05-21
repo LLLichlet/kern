@@ -67,7 +67,7 @@ pub fn owned(alloc: &mut Allocator, bytes: &[u8]) Owned!AllocError {
 impl &Owned {
     /// Returns the zero-terminated pointer.
     pub fn ptr() &u8 {
-        return self.raw;
+        return self.raw.shared();
     }
 
     /// Returns the byte length excluding the terminator.

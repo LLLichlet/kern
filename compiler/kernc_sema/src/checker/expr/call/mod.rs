@@ -822,36 +822,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
                 | TypeKind::ArrayInfer { elem: actual_elem },
             ) if self.resolve_tv(*expected_elem) == self.resolve_tv(*actual_elem) => Some(1),
-            (
-                TypeKind::Slice {
-                    is_mut: false,
-                    elem: expected_elem,
-                },
-                TypeKind::Slice {
-                    is_mut: true,
-                    elem: actual_elem,
-                },
-            ) if self.resolve_tv(*expected_elem) == self.resolve_tv(*actual_elem) => Some(1),
-            (
-                TypeKind::Pointer {
-                    is_mut: false,
-                    elem: expected_elem,
-                },
-                TypeKind::Pointer {
-                    is_mut: true,
-                    elem: actual_elem,
-                },
-            ) if self.resolve_tv(*expected_elem) == self.resolve_tv(*actual_elem) => Some(1),
-            (
-                TypeKind::VolatilePtr {
-                    is_mut: false,
-                    elem: expected_elem,
-                },
-                TypeKind::VolatilePtr {
-                    is_mut: true,
-                    elem: actual_elem,
-                },
-            ) if self.resolve_tv(*expected_elem) == self.resolve_tv(*actual_elem) => Some(1),
             _ => None,
         }
     }
@@ -870,27 +840,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
         let mut search_tys = vec![receiver_norm];
 
-        let downgraded = match self.ctx.type_registry.get(receiver_norm).clone() {
-            TypeKind::Pointer { is_mut: true, elem } => Some(TypeKind::Pointer {
-                is_mut: false,
-                elem,
-            }),
-            TypeKind::VolatilePtr { is_mut: true, elem } => Some(TypeKind::VolatilePtr {
-                is_mut: false,
-                elem,
-            }),
-            TypeKind::Slice { is_mut: true, elem } => Some(TypeKind::Slice {
-                is_mut: false,
-                elem,
-            }),
-            _ => None,
-        };
-        if let Some(kind) = downgraded {
-            let ty = self.ctx.type_registry.intern(kind);
-            if !search_tys.contains(&ty) {
-                search_tys.push(ty);
-            }
-        }
         if let TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem } =
             self.ctx.type_registry.get(receiver_norm).clone()
         {

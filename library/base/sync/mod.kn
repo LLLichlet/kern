@@ -200,7 +200,7 @@ impl[T] &mut SpinLock[T] {
 
     /// Returns whether the lock is currently held.
     pub fn is_locked() bool {
-        return self.locked..&.load[ACQUIRE]();
+        return (self.locked..& as &Atomic[bool]).load[ACQUIRE]();
     }
 
     /// Runs `call_back` while holding the lock.
@@ -232,7 +232,7 @@ impl &Once {
 
 impl &mut Once {
     fn wait_until_done() void {
-        while self.state..&.load[ACQUIRE]() != ONCE_DONE {}
+        while (self.state..& as &Atomic[usize]).load[ACQUIRE]() != ONCE_DONE {}
     }
 
     /// Runs `call_back` exactly once, waiting if another caller is running it.
@@ -268,6 +268,6 @@ impl &mut Once {
 
     /// Returns whether the one-time function has completed.
     pub fn is_completed() bool {
-        return self.state..&.load[ACQUIRE]() == ONCE_DONE;
+        return (self.state..& as &Atomic[usize]).load[ACQUIRE]() == ONCE_DONE;
     }
 }

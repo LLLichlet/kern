@@ -953,30 +953,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let param_offset = if is_method { 1 } else { 0 };
 
             if is_method {
-                let mut stripped_recv = self.resolve_tv(receiver_ty);
+                let stripped_recv = self.resolve_tv(receiver_ty);
                 let expected_recv =
                     self.resolve_tv(raw_params.first().copied().unwrap_or(TypeId::ERROR));
-                if let TypeKind::Pointer { is_mut: false, .. } =
-                    self.ctx.type_registry.get(expected_recv)
-                {
-                    if let TypeKind::Pointer { is_mut: true, elem } =
-                        self.ctx.type_registry.get(stripped_recv).clone()
-                    {
-                        stripped_recv = self.ctx.type_registry.intern(TypeKind::Pointer {
-                            is_mut: false,
-                            elem,
-                        });
-                    }
-                } else if let TypeKind::VolatilePtr { is_mut: false, .. } =
-                    self.ctx.type_registry.get(expected_recv)
-                    && let TypeKind::VolatilePtr { is_mut: true, elem } =
-                        self.ctx.type_registry.get(stripped_recv).clone()
-                {
-                    stripped_recv = self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                        is_mut: false,
-                        elem,
-                    });
-                }
 
                 self.unify(expected_recv, stripped_recv, &mut map);
                 self.infer_generic_args_from_types(

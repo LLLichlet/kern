@@ -13,7 +13,7 @@ use kernc_utils::llvm_bitcode::file_has_llvm_bitcode_magic;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Output};
 
 const ARCHIVE_MAGIC: &[u8] = b"!<arch>\n";
 
@@ -303,8 +303,8 @@ impl CompilerDriver {
             }
         };
         self.maybe_print_cc_command(&cmd);
-        match cmd.status() {
-            Ok(status) if status.success() => {
+        match cmd.output() {
+            Ok(output) if output.status.success() => {
                 if self.options.report_progress {
                     println!(
                         "Successfully compiled C-family source to `{}`",
@@ -313,8 +313,8 @@ impl CompilerDriver {
                 }
                 true
             }
-            Ok(status) => {
-                eprintln!("Error: C compiler failed with exit code {}", status);
+            Ok(output) => {
+                self.print_failed_cc_output(&cmd, &output);
                 false
             }
             Err(err) => {
@@ -325,6 +325,19 @@ impl CompilerDriver {
                 );
                 false
             }
+        }
+    }
+
+    fn print_failed_cc_output(&self, cmd: &Command, output: &Output) {
+        eprintln!("Error: C compiler failed with exit code {}", output.status);
+        eprintln!("       Command: {}", self.format_command(cmd));
+        if !output.stdout.is_empty() {
+            eprintln!("       stdout:");
+            eprint_indented_bytes(&output.stdout);
+        }
+        if !output.stderr.is_empty() {
+            eprintln!("       stderr:");
+            eprint_indented_bytes(&output.stderr);
         }
     }
 
@@ -351,7 +364,7 @@ impl CompilerDriver {
                         toolchain_root.join("lib").join("clang").display()
                     )
                 })?;
-                cmd.arg(format!("--resource-dir={}", resource_dir.display()));
+                cmd.arg(format!("-resource-dir={}", resource_dir.display()));
             }
             cmd.arg(format!("--target={}", target.triple));
         }
@@ -946,6 +959,12 @@ fn llvm_bitcode_file(path: &str) -> bool {
     file_has_llvm_bitcode_magic(std::path::Path::new(path))
 }
 
+fn eprint_indented_bytes(bytes: &[u8]) {
+    for line in String::from_utf8_lossy(bytes).lines() {
+        eprintln!("         {line}");
+    }
+}
+
 fn ensure_output_dir(path: &std::path::Path, label: &str) -> bool {
     if path.is_file() && fs::remove_file(path).is_err() {
         eprintln!(
@@ -1480,7 +1499,7 @@ mod tests {
 
         assert!(
             args.iter()
-                .any(|arg| { arg == &format!("--resource-dir={}", resource_dir.display()) })
+                .any(|arg| { arg == &format!("-resource-dir={}", resource_dir.display()) })
         );
 
         let _ = fs::remove_dir_all(&root);

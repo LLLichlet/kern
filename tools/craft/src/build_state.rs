@@ -11,8 +11,6 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const ACTION_STATE_VERSION: u32 = 3;
-
 static CURRENT_PROCESS_DIGEST: OnceLock<String> = OnceLock::new();
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionState {
@@ -28,6 +26,16 @@ struct ActionStatePath {
     len: Option<u64>,
     modified_nanos: Option<u128>,
     changed_nanos: Option<u128>,
+}
+
+impl ActionStatePath {
+    fn has_required_fields(&self) -> bool {
+        !self.path.as_os_str().is_empty() && !self.digest.is_empty()
+    }
+
+    fn supports_metadata_fast_path(&self) -> bool {
+        self.len.is_some() && self.modified_nanos.is_some() && self.changed_nanos.is_some()
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -160,7 +168,7 @@ fn digest_path(path: &Path) -> Result<Option<DigestedPath>> {
             digest_file_contents(path)?,
             Some(metadata.len()),
             Some(modified_nanos),
-            file_changed_nanos(&metadata),
+            file_changed_nanos(path, &metadata),
         )));
     }
     if path.is_dir() {
@@ -184,12 +192,13 @@ fn path_matches_digest(path: &Path, entry: &ActionStatePath) -> Result<bool> {
         if !metadata.is_file() || metadata.len() != expected_len {
             return Ok(false);
         }
-        if let (Some(expected_modified_nanos), Some(expected_changed_nanos)) =
-            (entry.modified_nanos, entry.changed_nanos)
+        if entry.supports_metadata_fast_path()
+            && let (Some(expected_modified_nanos), Some(expected_changed_nanos)) =
+                (entry.modified_nanos, entry.changed_nanos)
         {
             let modified_nanos =
                 metadata_modified_nanos(&metadata.modified().map_err(Error::from_io_plain)?)?;
-            let changed_nanos = file_changed_nanos(&metadata);
+            let changed_nanos = file_changed_nanos(path, &metadata);
             if modified_nanos == expected_modified_nanos
                 && changed_nanos == Some(expected_changed_nanos)
             {
@@ -265,7 +274,7 @@ fn metadata_modified_nanos(modified: &SystemTime) -> Result<u128> {
 }
 
 #[cfg(unix)]
-fn file_changed_nanos(metadata: &fs::Metadata) -> Option<u128> {
+fn file_changed_nanos(_path: &Path, metadata: &fs::Metadata) -> Option<u128> {
     use std::os::unix::fs::MetadataExt;
 
     let seconds = u128::try_from(metadata.ctime()).ok()?;
@@ -273,8 +282,32 @@ fn file_changed_nanos(metadata: &fs::Metadata) -> Option<u128> {
     Some(seconds.saturating_mul(1_000_000_000).saturating_add(nanos))
 }
 
-#[cfg(not(unix))]
-fn file_changed_nanos(_metadata: &fs::Metadata) -> Option<u128> {
+#[cfg(windows)]
+fn file_changed_nanos(path: &Path, _metadata: &fs::Metadata) -> Option<u128> {
+    use std::mem::MaybeUninit;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx,
+    };
+
+    let file = fs::File::open(path).ok()?;
+    let mut info = MaybeUninit::<FILE_BASIC_INFO>::uninit();
+    let ok = unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileBasicInfo,
+            info.as_mut_ptr().cast(),
+            u32::try_from(std::mem::size_of::<FILE_BASIC_INFO>()).ok()?,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    u128::try_from(unsafe { info.assume_init() }.ChangeTime).ok()
+}
+
+#[cfg(not(any(unix, windows)))]
+fn file_changed_nanos(_path: &Path, _metadata: &fs::Metadata) -> Option<u128> {
     None
 }
 
@@ -285,7 +318,6 @@ impl ActionState {
             inputs: Vec::new(),
             outputs: Vec::new(),
         };
-        let mut version = 0_u32;
         let mut section = Section::Root;
 
         for raw_line in source.lines() {
@@ -334,14 +366,6 @@ impl ActionState {
 
             match section {
                 Section::Root => match key {
-                    "version" => {
-                        version = parse_u32(raw_value).map_err(|message| {
-                            Error::Execution(format!(
-                                "failed to parse build state `{}`: {message}",
-                                path.display()
-                            ))
-                        })?
-                    }
                     "fingerprint" => {
                         state.fingerprint = parse_string(raw_value).map_err(|message| {
                             Error::Execution(format!(
@@ -470,7 +494,13 @@ impl ActionState {
             }
         }
 
-        if version != ACTION_STATE_VERSION || state.fingerprint.is_empty() {
+        if state.fingerprint.is_empty()
+            || state
+                .inputs
+                .iter()
+                .chain(&state.outputs)
+                .any(|entry| !entry.has_required_fields())
+        {
             return Err(Error::Execution(format!(
                 "failed to parse build state `{}`: invalid or missing required fields",
                 path.display()
@@ -482,7 +512,6 @@ impl ActionState {
 
     fn render(&self) -> String {
         let mut out = String::new();
-        out.push_str(&format!("version = {ACTION_STATE_VERSION}\n"));
         push_string_line(&mut out, "fingerprint", &self.fingerprint);
 
         for entry in &self.inputs {
@@ -567,12 +596,6 @@ fn split_key_value(line: &str) -> std::result::Result<(&str, &str), String> {
         return Err(format!("expected `key = value`, found `{line}`"));
     }
     Ok((key, value))
-}
-
-fn parse_u32(raw: &str) -> std::result::Result<u32, String> {
-    raw.trim()
-        .parse::<u32>()
-        .map_err(|_| format!("expected unsigned integer, found `{}`", raw.trim()))
 }
 
 fn parse_u64(raw: &str) -> std::result::Result<u64, String> {
@@ -751,10 +774,9 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
     #[test]
-    fn action_state_v2_metadata_is_not_enough_for_fast_path() {
-        let root = temp_dir("craft-build-state-v2");
+    fn action_state_without_complete_metadata_uses_digest_path() {
+        let root = temp_dir("craft-build-state-metadata");
         let input = root.join("input.txt");
         let output = root.join("output.txt");
 
@@ -769,13 +791,42 @@ mod tests {
         .unwrap();
         let state_path = super::action_state_path(&output);
         let mut state = fs::read_to_string(&state_path).unwrap();
-        state = state.replace("version = 3", "version = 2");
         state = state
             .lines()
             .filter(|line| !line.trim_start().starts_with("changed-nanos"))
             .collect::<Vec<_>>()
             .join("\n");
         state.push('\n');
+        fs::write(&state_path, state).unwrap();
+
+        assert!(action_state_is_current(&output, "fingerprint").unwrap());
+
+        thread::sleep(Duration::from_millis(20));
+        fs::write(&input, "bravo").unwrap();
+
+        assert!(!action_state_is_current(&output, "fingerprint").unwrap());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn action_state_rejects_legacy_version_field() {
+        let root = temp_dir("craft-build-state-legacy-version");
+        let input = root.join("input.txt");
+        let output = root.join("output.txt");
+
+        fs::write(&input, "input").unwrap();
+        fs::write(&output, "output").unwrap();
+        record_action_state(
+            &output,
+            "fingerprint".to_string(),
+            std::slice::from_ref(&input),
+            std::slice::from_ref(&output),
+        )
+        .unwrap();
+        let state_path = super::action_state_path(&output);
+        let mut state = fs::read_to_string(&state_path).unwrap();
+        state.insert_str(0, "version = 3\n");
         fs::write(&state_path, state).unwrap();
 
         assert!(!action_state_is_current(&output, "fingerprint").unwrap());

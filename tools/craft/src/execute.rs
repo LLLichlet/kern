@@ -36,7 +36,7 @@ use self::external::{
 };
 use self::fingerprint::{
     base_compile_action_label, build_fingerprint, compile_action_detail_tags,
-    compile_action_fingerprint, compile_action_label, link_action_detail_tags,
+    compile_action_fingerprint, compile_action_label, compile_state_path, link_action_detail_tags,
     link_action_fingerprint, link_action_label, rt_compile_action_label,
     rt_entry_compile_action_label, runtime_compile_detail_tags, std_compile_action_label,
     write_compile_action_state,
@@ -427,7 +427,8 @@ fn build_compile_action_if_needed(
 ) -> Result<bool> {
     // The output lock and fingerprint check make compile actions idempotent even when the build
     // graph reaches the same unit from multiple dependent targets.
-    let compile_lock_target = action.metadata_path.as_ref().unwrap_or(&action.object_path);
+    let state_path = compile_state_path(action, &options);
+    let compile_lock_target = action.metadata_path.as_ref().unwrap_or(&state_path);
     let _compile_lock = OutputOperationLock::acquire(compile_lock_target, "compile-action")?;
 
     let toolchain_digest = build_state::current_process_digest()?;
@@ -436,7 +437,7 @@ fn build_compile_action_if_needed(
     let compile_tags = compile_action_detail_tags(&options);
 
     let cache_check_started = Instant::now();
-    if build_state::action_state_is_current(&action.object_path, &fingerprint)? {
+    if build_state::action_state_is_current(&state_path, &fingerprint)? {
         let cache_check_duration = cache_check_started.elapsed();
         execution_summary.record_compile_cache_hit();
         execution_summary.record_phase_timing(PhaseTiming {

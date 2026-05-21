@@ -91,6 +91,73 @@ return answer();
 }
 
 #[test]
+fn check_cache_survives_intervening_build() {
+    let root = temp_dir("craft-exec-check-build-check-cache");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.8.0"
+
+[lib]
+root = "src/lib.kn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.kn"),
+        r#"
+pub fn answer() i32 {
+return 42;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let check_elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Check,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let check_plan =
+        build_plan::derive(&check_elaboration, crate::script::ScriptCommand::Check).unwrap();
+    let check_actions = check_plan.derive_actions(&crate::script::host_target());
+
+    let first_check = check(&check_plan, &check_actions).unwrap();
+    assert_eq!(first_check.compile_actions, 1);
+
+    let build_elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan =
+        build_plan::derive(&build_elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let build_actions = build_plan.derive_actions(&crate::script::host_target());
+    let built = build(&build_plan, &build_actions).unwrap();
+    assert!(built.compile_actions > 0);
+
+    let second_check = check(&check_plan, &check_actions).unwrap();
+    assert_eq!(second_check.compile_actions, 0);
+    assert!(second_check.action_cache_stats.compile_hits >= 1);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn builds_compile_and_link_actions() {
     let root = temp_dir("craft-exec-build");
     fs::create_dir_all(root.join("src")).unwrap();

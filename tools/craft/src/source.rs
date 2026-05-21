@@ -15,9 +15,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const GIT_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(200);
+const GIT_LOCK_WAIT_REPORT_DELAY: Duration = Duration::from_secs(1);
+const GIT_LOCK_WAIT_REPORT_INTERVAL: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FetchSummary {
@@ -150,6 +152,7 @@ pub fn fetch_external_packages_with_progress(
             source: resolved_source.identity.locator.clone(),
         });
         let cache_path = cache_path_for_external(&cache_root, &package.id)?;
+        let _cache_lock = CacheOperationLock::acquire(&cache_path, "materialize-source")?;
         let status = materialize_tree(&resolved_source.source_path, &cache_path)?;
         validate_fetched_manifest(&cache_path, &package.id.package_name)?;
         publish::validate_git_dependency_publish_proof(
@@ -219,6 +222,7 @@ pub fn fetch_package_resources_with_progress(
                 source: resolved_source.identity.locator.clone(),
             });
             let cache_path = cache_path_for_resource(&cache_root, &package.package_id, name);
+            let _cache_lock = CacheOperationLock::acquire(&cache_path, "materialize-resource")?;
             let status = materialize_tree(&resolved_source.source_path, &cache_path)?;
             fetched.push(FetchedResource {
                 id: ResourceId {
@@ -776,6 +780,25 @@ fn run_git<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<()> {
 
 fn run_git_args(cwd: &Path, args: &[&str]) -> Result<()> {
     let command_line = format_git_command(args);
+    let mut wait_started = None;
+    let mut last_report_at = None;
+    loop {
+        match run_git_args_once(cwd, args, &command_line)? {
+            GitRunStatus::Success => return Ok(()),
+            GitRunStatus::RetryAfterLock => {
+                report_git_lock_wait(cwd, &command_line, &mut wait_started, &mut last_report_at);
+                thread::sleep(GIT_WAIT_POLL_INTERVAL);
+            }
+        }
+    }
+}
+
+enum GitRunStatus {
+    Success,
+    RetryAfterLock,
+}
+
+fn run_git_args_once(cwd: &Path, args: &[&str], command_line: &str) -> Result<GitRunStatus> {
     let mut child = Command::new("git")
         .args(args)
         .current_dir(cwd)
@@ -809,7 +832,7 @@ fn run_git_args(cwd: &Path, args: &[&str]) -> Result<()> {
 
         if status.success() {
             let _ = child.wait_with_output();
-            return Ok(());
+            return Ok(GitRunStatus::Success);
         }
 
         let output = child.wait_with_output().map_err(|err| {
@@ -827,11 +850,53 @@ fn run_git_args(cwd: &Path, args: &[&str]) -> Result<()> {
         } else {
             String::new()
         };
+        if git_failure_is_lock_contention(stderr.trim())
+            || git_failure_is_lock_contention(stdout.trim())
+        {
+            return Ok(GitRunStatus::RetryAfterLock);
+        }
+
         return Err(Error::Execution(format!(
             "`{command_line}` failed with status {status} in `{}`{detail}",
             cwd.display()
         )));
     }
+}
+
+fn git_failure_is_lock_contention(output: &str) -> bool {
+    let output = output.to_ascii_lowercase();
+    output.contains("could not lock config file")
+        || output.contains(".git/config.lock")
+        || output.contains("index.lock")
+        || output.contains("another git process seems to be running")
+        || (output.contains("unable to create")
+            && output.contains(".lock")
+            && output.contains("file exists"))
+}
+
+fn report_git_lock_wait(
+    cwd: &Path,
+    command_line: &str,
+    wait_started: &mut Option<Instant>,
+    last_report_at: &mut Option<Instant>,
+) {
+    let now = Instant::now();
+    let started = wait_started.get_or_insert(now);
+    let waited = now.saturating_duration_since(*started);
+    if waited < GIT_LOCK_WAIT_REPORT_DELAY {
+        return;
+    }
+    if let Some(last) = last_report_at
+        && now.saturating_duration_since(*last) < GIT_LOCK_WAIT_REPORT_INTERVAL
+    {
+        return;
+    }
+    eprintln!(
+        "craft: waiting {}s for git lock while running `{command_line}` in `{}`",
+        waited.as_secs(),
+        cwd.display()
+    );
+    *last_report_at = Some(now);
 }
 
 fn format_git_command(args: &[&str]) -> String {
@@ -1180,6 +1245,19 @@ mod tests {
             format_git_command(&["clone", "https://example.test/repo", "/tmp/space path"]),
             "git clone https://example.test/repo \"/tmp/space path\""
         );
+    }
+
+    #[test]
+    fn git_lock_contention_detection_is_specific() {
+        assert!(super::git_failure_is_lock_contention(
+            "error: could not lock config file .git/config: File exists"
+        ));
+        assert!(super::git_failure_is_lock_contention(
+            "fatal: Unable to create '.git/index.lock': File exists.\n\nAnother git process seems to be running in this repository."
+        ));
+        assert!(!super::git_failure_is_lock_contention(
+            "fatal: unable to create temporary file: No space left on device"
+        ));
     }
 
     #[test]

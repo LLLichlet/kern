@@ -143,6 +143,9 @@ pub fn bundle_host_toolchain(
     {
         let resource_dest = dist_dir.join(bundled_resource_dir_path(bundled_toolchain)?);
         if !resource_dest.exists() {
+            if let Some(parent) = resource_dest.parent() {
+                fs::create_dir_all(parent)?;
+            }
             copy_dir_recursive(resource_dir, &resource_dest)?;
         }
         insert_record(
@@ -218,6 +221,7 @@ pub fn bundle_sdk_runtime_toolchain(
         bundled_toolchain.source_label,
         bundled_toolchain.prefix.display()
     );
+    fs::create_dir_all(&lib_dir)?;
 
     let runtime_tools = sdk_runtime_tool_paths(host, bundled_toolchain)?;
     let runtime_tool_roots = runtime_tool_source_roots(&runtime_tools);
@@ -278,10 +282,32 @@ pub fn bundle_sdk_runtime_toolchain(
         );
     }
 
+    if let Some(resource_dir) = &bundled_toolchain.resource_dir
+        && resource_dir.exists()
+    {
+        let resource_dest = dist_dir.join(bundled_resource_dir_path(bundled_toolchain)?);
+        if !resource_dest.exists() {
+            if let Some(parent) = resource_dest.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            copy_dir_recursive(resource_dir, &resource_dest)?;
+        }
+        insert_record(
+            &mut records,
+            "clang_resource_dir",
+            ArtifactRecord {
+                path: path_relative_to(&resource_dest, dist_dir)?,
+                kind: "directory".into(),
+                sha256: Some(sha256_directory(&resource_dest)?),
+                size: None,
+            },
+        );
+    }
+
     fs::write(
         dist_dir.join("toolchain").join("README.md"),
         format!(
-            "# Bundled Host Toolchain\n\nThis SDK bundles the minimal host LLVM/Clang runtime needed by installed Kern tools.\n\n- Source: {}\n- Version: {}\n- Bundled runtime tools: {}\n\nThis is intentionally smaller than the standalone toolchain artifact.\nEnd-user SDKs omit the Clang resource dir because Kern only uses Clang as a linker driver here.\nHeaders, llvm-config, and the full LLVM development prefix are not part of the end-user SDK.\nClone the repository and configure the host environment directly for source builds.\n",
+            "# Bundled Host Toolchain\n\nThis SDK bundles the minimal host LLVM/Clang runtime needed by installed Kern tools.\n\n- Source: {}\n- Version: {}\n- Bundled runtime tools: {}\n\nThis is intentionally smaller than the standalone toolchain artifact.\nThe SDK includes Clang's resource headers so package `build.kn` C-family compilation can use the bundled SDK clang.\nllvm-config, C++ compiler tools, LLVM libraries for source builds, and the full LLVM development prefix are not part of the end-user SDK.\nClone the repository and configure the host environment directly for source builds.\n",
             bundled_toolchain.source_label,
             bundled_toolchain.version,
             copied_tools
@@ -438,7 +464,7 @@ fn verify_sdk_runtime_tool_starts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared_ops::make_temp_dir;
+    use shared_ops::{BundledToolchain, make_temp_dir};
 
     #[test]
     fn copy_runtime_library_skips_existing_library_with_same_contents() {
@@ -497,5 +523,63 @@ mod tests {
                 PathBuf::from("/source/toolchain/bin/ld64.lld"),
             ]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sdk_runtime_bundle_includes_clang_resource_dir() {
+        let root = make_temp_dir("kernworker-sdk-resource-dir-").unwrap();
+        let source = root.join("source");
+        let dist = root.join("dist");
+        let bin = source.join("bin");
+        let lib = source.join("lib");
+        let include = source.join("include");
+        let resource = lib.join("clang").join("21");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(&lib).unwrap();
+        fs::create_dir_all(&include).unwrap();
+        fs::create_dir_all(resource.join("include")).unwrap();
+        fs::write(resource.join("include").join("stdarg.h"), "/* builtin */\n").unwrap();
+
+        let clang = PathBuf::from("/bin/true");
+        let lld = PathBuf::from("/bin/echo");
+
+        let mut tools = serde_json::Map::new();
+        tools.insert(
+            "clang".into(),
+            serde_json::Value::String(clang.display().to_string()),
+        );
+        tools.insert(
+            "lld".into(),
+            serde_json::Value::String(lld.display().to_string()),
+        );
+
+        let bundled = BundledToolchain {
+            source_label: "test".into(),
+            prefix: source,
+            bindir: bin,
+            libdir: lib,
+            includedir: include,
+            version: "21.1.8".into(),
+            tools,
+            resource_dir: Some(resource),
+            sysroot_dir: None,
+        };
+        let host = shared_ops::HostTarget {
+            archive_target: "x86_64-linux-gnu".into(),
+            cargo_target: None,
+            exe_suffix: "",
+            archive_extension: "tar.gz".into(),
+            is_windows: false,
+        };
+
+        let records = bundle_sdk_runtime_toolchain(&dist, &host, &bundled).unwrap();
+
+        assert!(
+            dist.join("toolchain/host/lib/clang/21/include/stdarg.h")
+                .is_file()
+        );
+        assert!(records.contains_key("clang_resource_dir"));
+        remove_path_if_exists(&root).unwrap();
     }
 }

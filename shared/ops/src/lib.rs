@@ -1482,11 +1482,11 @@ fn select_unix_rc_file() -> OpsResult<PathBuf> {
 }
 
 fn sdk_runtime_required_components(target: &str) -> Vec<String> {
+    let mut components = vec!["clang".into(), "lld".into(), "clang_resource_dir".into()];
     if target.ends_with("windows-msvc") {
-        vec!["clang".into(), "lld".into(), "llvm_lib".into()]
-    } else {
-        vec!["clang".into(), "lld".into()]
+        components.push("llvm_lib".into());
     }
+    components
 }
 
 fn full_toolchain_required_components(target: &str) -> Vec<String> {
@@ -2041,5 +2041,37 @@ mod tests {
 
         assert_eq!(fs::read_to_string(&file).unwrap(), "contents");
         remove_path_if_exists(&root).unwrap();
+    }
+
+    #[test]
+    fn sdk_manifest_requires_clang_resource_dir() {
+        let manifest = sdk_manifest_json(
+            "v0.8.0",
+            "x86_64-linux-gnu",
+            Some(&BundledToolchain {
+                source_label: "test".into(),
+                prefix: PathBuf::from("/toolchain"),
+                bindir: PathBuf::from("/toolchain/bin"),
+                libdir: PathBuf::from("/toolchain/lib"),
+                includedir: PathBuf::from("/toolchain/include"),
+                version: "21.1.8".into(),
+                tools: serde_json::Map::new(),
+                resource_dir: Some(PathBuf::from("/toolchain/lib/clang/21")),
+                sysroot_dir: None,
+            }),
+            Some(&serde_json::Map::new()),
+        );
+        let required = manifest
+            .get("toolchain")
+            .and_then(|toolchain| toolchain.get("required_components"))
+            .and_then(|required| required.as_array())
+            .unwrap()
+            .iter()
+            .filter_map(|item| item.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(required.contains(&"clang"));
+        assert!(required.contains(&"lld"));
+        assert!(required.contains(&"clang_resource_dir"));
     }
 }

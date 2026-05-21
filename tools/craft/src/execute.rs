@@ -696,9 +696,6 @@ fn ensure_link_action_built(
         session.state.execution_summary,
         session.state.progress.as_ref(),
     )?;
-    if let Some(progress) = &session.state.progress {
-        progress.record_link_action();
-    }
 
     session.state.linked.insert(action.artifact_path.clone());
 
@@ -710,6 +707,9 @@ fn ensure_link_action_built(
         None,
         session,
     )?;
+    if let Some(progress) = &session.state.progress {
+        progress.record_link_action();
+    }
     Ok(linked_now)
 }
 

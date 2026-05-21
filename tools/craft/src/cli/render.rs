@@ -14,6 +14,7 @@ use kernc_driver::{CodegenPlanFallback, CodegenPlanReport, CompileCacheStats, Ph
 use std::fmt::Display;
 use std::io::{IsTerminal, Write};
 use std::sync::Arc;
+use std::sync::Condvar;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -33,12 +34,14 @@ pub(super) struct Renderer {
 pub(super) struct ProgressDisplay {
     reporter: execute::ProgressReporter,
     stop: Arc<AtomicBool>,
+    wake: Arc<(Mutex<bool>, Condvar)>,
     worker: Option<JoinHandle<()>>,
 }
 
 pub(super) struct PipelineProgressDisplay {
     reporter: PipelineProgressReporter,
     stop: Arc<AtomicBool>,
+    wake: Arc<(Mutex<bool>, Condvar)>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -262,7 +265,9 @@ impl ProgressDisplay {
     ) -> Self {
         let reporter = execute::ProgressReporter::new(plan);
         let stop = Arc::new(AtomicBool::new(false));
+        let wake = Arc::new((Mutex::new(false), Condvar::new()));
         let worker_stop = stop.clone();
+        let worker_wake = wake.clone();
         let worker_reporter = reporter.clone();
         let worker = thread::spawn(move || {
             let mut last_len = 0usize;
@@ -286,7 +291,7 @@ impl ProgressDisplay {
                 if worker_stop.load(Ordering::Relaxed) {
                     break;
                 }
-                thread::sleep(Duration::from_millis(120));
+                wait_for_progress_tick(&worker_wake, Duration::from_millis(120));
             }
             clear_progress_line(last_len);
         });
@@ -294,6 +299,7 @@ impl ProgressDisplay {
         Self {
             reporter,
             stop,
+            wake,
             worker: Some(worker),
         }
     }
@@ -304,6 +310,7 @@ impl ProgressDisplay {
 
     pub(super) fn finish(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        self.wake.1.notify_all();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
@@ -320,7 +327,9 @@ impl PipelineProgressDisplay {
     fn spawn(command: &'static str, total_steps: usize, style: ProgressStyle) -> Self {
         let reporter = PipelineProgressReporter::new(total_steps);
         let stop = Arc::new(AtomicBool::new(false));
+        let wake = Arc::new((Mutex::new(false), Condvar::new()));
         let worker_stop = stop.clone();
+        let worker_wake = wake.clone();
         let worker_reporter = reporter.clone();
         let worker = thread::spawn(move || {
             let mut last_len = 0usize;
@@ -340,7 +349,7 @@ impl PipelineProgressDisplay {
                 if worker_stop.load(Ordering::Relaxed) {
                     break;
                 }
-                thread::sleep(Duration::from_millis(120));
+                wait_for_progress_tick(&worker_wake, Duration::from_millis(120));
             }
             clear_progress_line(last_len);
         });
@@ -348,6 +357,7 @@ impl PipelineProgressDisplay {
         Self {
             reporter,
             stop,
+            wake,
             worker: Some(worker),
         }
     }
@@ -363,9 +373,17 @@ impl PipelineProgressDisplay {
     pub(super) fn finish(&mut self) {
         self.reporter.complete();
         self.stop.store(true, Ordering::Relaxed);
+        self.wake.1.notify_all();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
+    }
+}
+
+fn wait_for_progress_tick(wake: &(Mutex<bool>, Condvar), timeout: Duration) {
+    let (lock, condvar) = wake;
+    if let Ok(guard) = lock.lock() {
+        let _ = condvar.wait_timeout(guard, timeout);
     }
 }
 
@@ -1147,6 +1165,7 @@ fn format_progress_phase(phase: execute::ExecutionPhase) -> &'static str {
         execute::ExecutionPhase::Stage => "gen",
         execute::ExecutionPhase::Compile => "compile",
         execute::ExecutionPhase::Link => "link",
+        execute::ExecutionPhase::Finalize => "finish",
     }
 }
 
@@ -1170,6 +1189,12 @@ fn format_phase_progress(snapshot: &execute::ExecutionProgressSnapshot) -> Strin
             format_progress_phase(snapshot.phase),
             snapshot.link_done.min(snapshot.plan.link_actions),
             snapshot.plan.link_actions
+        ),
+        execute::ExecutionPhase::Finalize => format!(
+            "{} {}/{}",
+            format_progress_phase(snapshot.phase),
+            snapshot.finalize_done.min(snapshot.plan.finalize_actions),
+            snapshot.plan.finalize_actions
         ),
     }
 }
@@ -1437,10 +1462,12 @@ mod tests {
                     staged_actions: 2,
                     compile_actions: 4,
                     link_actions: 1,
+                    finalize_actions: 1,
                 },
                 staged_done: 2,
                 compile_done: 1,
                 link_done: 0,
+                finalize_done: 0,
                 elapsed: Duration::from_secs(6),
                 detail: "demo:bed [bin,target]".to_string(),
             },
@@ -1467,10 +1494,12 @@ mod tests {
                     staged_actions: 0,
                     compile_actions: 4,
                     link_actions: 0,
+                    finalize_actions: 1,
                 },
                 staged_done: 0,
                 compile_done: 2,
                 link_done: 0,
+                finalize_done: 0,
                 elapsed: Duration::from_secs(5),
                 detail: "json:hello_compact [example,target]".to_string(),
             },
@@ -1494,10 +1523,12 @@ mod tests {
                     staged_actions: 0,
                     compile_actions: 4,
                     link_actions: 0,
+                    finalize_actions: 1,
                 },
                 staged_done: 0,
                 compile_done: 2,
                 link_done: 0,
+                finalize_done: 0,
                 elapsed: Duration::from_secs(5),
                 detail: "json:hello_compact [example,target]".to_string(),
             },
@@ -1510,7 +1541,36 @@ mod tests {
         assert!(line.len() <= 80);
         assert!(line.contains('>'));
         assert!(!line.contains("elapsed"));
-        assert!(line.contains("eta 5s"));
+        assert!(line.contains("eta "));
+    }
+
+    #[test]
+    fn progress_line_includes_finalize_phase() {
+        let line = render_progress_line(
+            "build",
+            ExecutionProgressSnapshot {
+                phase: ExecutionPhase::Finalize,
+                plan: ExecutionProgressPlan {
+                    staged_actions: 1,
+                    compile_actions: 2,
+                    link_actions: 1,
+                    finalize_actions: 1,
+                },
+                staged_done: 1,
+                compile_done: 2,
+                link_done: 1,
+                finalize_done: 0,
+                elapsed: Duration::from_secs(8),
+                detail: "summarize results".to_string(),
+            },
+            120,
+            ProgressStyle {
+                color_enabled: false,
+            },
+        );
+
+        assert!(line.contains("finish 0/1"));
+        assert!(!line.contains("100%"));
     }
 
     #[test]

@@ -23,11 +23,12 @@ pub struct ExecutionProgressPlan {
     pub staged_actions: usize,
     pub compile_actions: usize,
     pub link_actions: usize,
+    pub finalize_actions: usize,
 }
 
 impl ExecutionProgressPlan {
     pub fn total_steps(self) -> usize {
-        self.staged_actions + self.compile_actions + self.link_actions
+        self.staged_actions + self.compile_actions + self.link_actions + self.finalize_actions
     }
 
     pub fn is_empty(self) -> bool {
@@ -42,6 +43,7 @@ pub enum ExecutionPhase {
     Stage,
     Compile,
     Link,
+    Finalize,
 }
 
 impl ExecutionPhase {
@@ -51,6 +53,7 @@ impl ExecutionPhase {
             Self::Stage => 1,
             Self::Compile => 2,
             Self::Link => 3,
+            Self::Finalize => 4,
         }
     }
 
@@ -59,6 +62,7 @@ impl ExecutionPhase {
             1 => Self::Stage,
             2 => Self::Compile,
             3 => Self::Link,
+            4 => Self::Finalize,
             _ => Self::Bootstrap,
         }
     }
@@ -71,6 +75,7 @@ pub struct ExecutionProgressSnapshot {
     pub staged_done: usize,
     pub compile_done: usize,
     pub link_done: usize,
+    pub finalize_done: usize,
     pub elapsed: Duration,
     pub detail: String,
 }
@@ -80,6 +85,7 @@ impl ExecutionProgressSnapshot {
         self.staged_done.min(self.plan.staged_actions)
             + self.compile_done.min(self.plan.compile_actions)
             + self.link_done.min(self.plan.link_actions)
+            + self.finalize_done.min(self.plan.finalize_actions)
     }
 
     pub fn total_steps(&self) -> usize {
@@ -110,6 +116,7 @@ struct ProgressState {
     staged_done: AtomicUsize,
     compile_done: AtomicUsize,
     link_done: AtomicUsize,
+    finalize_done: AtomicUsize,
     suspended: AtomicUsize,
     started_at: Instant,
     detail: Mutex<String>,
@@ -131,6 +138,7 @@ impl ProgressReporter {
                 staged_done: AtomicUsize::new(0),
                 compile_done: AtomicUsize::new(0),
                 link_done: AtomicUsize::new(0),
+                finalize_done: AtomicUsize::new(0),
                 suspended: AtomicUsize::new(0),
                 started_at: Instant::now(),
                 detail: Mutex::new(String::new()),
@@ -145,6 +153,7 @@ impl ProgressReporter {
             staged_done: self.state.staged_done.load(Ordering::Relaxed),
             compile_done: self.state.compile_done.load(Ordering::Relaxed),
             link_done: self.state.link_done.load(Ordering::Relaxed),
+            finalize_done: self.state.finalize_done.load(Ordering::Relaxed),
             elapsed: self.state.started_at.elapsed(),
             detail: recover_progress_detail_lock(&self.state.detail).clone(),
         }
@@ -164,6 +173,10 @@ impl ProgressReporter {
 
     pub(crate) fn record_link_action(&self) {
         self.state.link_done.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_finalize_action(&self) {
+        self.state.finalize_done.fetch_add(1, Ordering::Relaxed);
     }
 
     pub(crate) fn set_detail(&self, detail: impl Into<String>) {

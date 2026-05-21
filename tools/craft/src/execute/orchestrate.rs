@@ -330,7 +330,14 @@ pub(super) fn build_with_command(
     }
 
     if command == crate::script::ScriptCommand::Check {
+        if let Some(progress) = &progress {
+            progress.set_phase(ExecutionPhase::Finalize);
+            progress.set_detail("summarize results");
+        }
         external_summary.absorb(local_summary);
+        if let Some(progress) = &progress {
+            progress.record_finalize_action();
+        }
         return Ok(external_summary);
     }
 
@@ -404,6 +411,13 @@ pub(super) fn build_with_command(
         }
     }
 
+    if let Some(progress) = &progress {
+        progress.set_phase(ExecutionPhase::Finalize);
+        progress.set_detail("summarize results");
+    }
     external_summary.absorb(local_summary);
+    if let Some(progress) = &progress {
+        progress.record_finalize_action();
+    }
     Ok(external_summary)
 }

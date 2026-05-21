@@ -1552,6 +1552,7 @@ fn staged_execution_progress_plan(
         staged_actions: action_plan.build_nodes.len(),
         compile_actions: 0,
         link_actions: 0,
+        finalize_actions: 0,
     }
 }
 
@@ -1562,6 +1563,7 @@ fn compile_execution_progress_plan(
         staged_actions: 0,
         compile_actions: action_plan.compile_count(),
         link_actions: 0,
+        finalize_actions: 1,
     }
 }
 
@@ -1572,6 +1574,7 @@ fn full_execution_progress_plan(
         staged_actions: action_plan.build_nodes.len(),
         compile_actions: action_plan.compile_count(),
         link_actions: action_plan.link_count(),
+        finalize_actions: 1,
     }
 }
 

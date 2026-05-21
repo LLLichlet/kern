@@ -14,10 +14,11 @@ use kernc_driver::{CodegenPlanFallback, CodegenPlanReport, CompileCacheStats, Ph
 use std::fmt::Display;
 use std::io::{IsTerminal, Write};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::{ColorChoice, UiOptions, Verbosity};
 
@@ -33,6 +34,35 @@ pub(super) struct ProgressDisplay {
     reporter: execute::ProgressReporter,
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
+}
+
+pub(super) struct PipelineProgressDisplay {
+    reporter: PipelineProgressReporter,
+    stop: Arc<AtomicBool>,
+    worker: Option<JoinHandle<()>>,
+}
+
+#[derive(Clone)]
+pub(super) struct PipelineProgressReporter {
+    state: Arc<Mutex<PipelineProgressState>>,
+}
+
+#[derive(Debug, Clone)]
+struct PipelineProgressState {
+    total_steps: usize,
+    current_step: usize,
+    label: String,
+    detail: String,
+    started_at: Instant,
+}
+
+#[derive(Debug, Clone)]
+struct PipelineProgressSnapshot {
+    total_steps: usize,
+    current_step: usize,
+    label: String,
+    detail: String,
+    elapsed: Duration,
 }
 
 const PROGRESS_BAR_WIDTH: usize = 24;
@@ -167,6 +197,18 @@ impl Renderer {
         Some(ProgressDisplay::spawn(command, plan))
     }
 
+    pub(super) fn pipeline_progress(
+        &self,
+        command: &'static str,
+        total_steps: usize,
+    ) -> Option<PipelineProgressDisplay> {
+        if self.quiet || self.is_verbose() || !self.terminal_output || total_steps == 0 {
+            return None;
+        }
+
+        Some(PipelineProgressDisplay::spawn(command, total_steps))
+    }
+
     fn paint(&self, tone: Tone, text: &str) -> String {
         if !self.color_enabled {
             return text.to_string();
@@ -249,6 +291,109 @@ impl ProgressDisplay {
 impl Drop for ProgressDisplay {
     fn drop(&mut self) {
         self.finish();
+    }
+}
+
+impl PipelineProgressDisplay {
+    fn spawn(command: &'static str, total_steps: usize) -> Self {
+        let reporter = PipelineProgressReporter::new(total_steps);
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = stop.clone();
+        let worker_reporter = reporter.clone();
+        let worker = thread::spawn(move || {
+            let mut last_len = 0usize;
+            let mut last_line = String::new();
+            loop {
+                let snapshot = worker_reporter.snapshot();
+                let line =
+                    render_pipeline_progress_line(command, snapshot, progress_line_columns());
+                if line != last_line {
+                    write_progress_line(&line, &mut last_len);
+                    last_line = line;
+                }
+                if worker_stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(120));
+            }
+            clear_progress_line(last_len);
+        });
+
+        Self {
+            reporter,
+            stop,
+            worker: Some(worker),
+        }
+    }
+
+    pub(super) fn step(&self, label: impl Into<String>, detail: impl Into<String>) {
+        self.reporter.step(label, detail);
+    }
+
+    pub(super) fn detail(&self, detail: impl Into<String>) {
+        self.reporter.detail(detail);
+    }
+
+    pub(super) fn finish(&mut self) {
+        self.reporter.complete();
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+impl Drop for PipelineProgressDisplay {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
+impl PipelineProgressReporter {
+    fn new(total_steps: usize) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(PipelineProgressState {
+                total_steps,
+                current_step: 0,
+                label: "prepare".to_string(),
+                detail: String::new(),
+                started_at: Instant::now(),
+            })),
+        }
+    }
+
+    fn step(&self, label: impl Into<String>, detail: impl Into<String>) {
+        if let Ok(mut state) = self.state.lock() {
+            state.current_step = state.current_step.saturating_add(1).min(state.total_steps);
+            state.label = label.into();
+            state.detail = detail.into();
+        }
+    }
+
+    fn detail(&self, detail: impl Into<String>) {
+        if let Ok(mut state) = self.state.lock() {
+            state.detail = detail.into();
+        }
+    }
+
+    fn complete(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.current_step = state.total_steps;
+        }
+    }
+
+    fn snapshot(&self) -> PipelineProgressSnapshot {
+        let state = self
+            .state
+            .lock()
+            .expect("pipeline progress state should not be poisoned");
+        PipelineProgressSnapshot {
+            total_steps: state.total_steps,
+            current_step: state.current_step,
+            label: state.label.clone(),
+            detail: state.detail.clone(),
+            elapsed: state.started_at.elapsed(),
+        }
     }
 }
 
@@ -859,6 +1004,38 @@ fn render_progress_line(
     }
 
     let mut line = format!("{command} {bar} {percent:>3}%  {}", segments.join("  "));
+    if !snapshot.detail.is_empty() {
+        let detail_budget = columns.saturating_sub(display_width(&line) + 2);
+        if detail_budget >= MIN_PROGRESS_DETAIL_COLUMNS {
+            line.push_str("  ");
+            line.push_str(&truncate_detail(&snapshot.detail, detail_budget));
+        }
+    }
+    truncate_text(&line, columns)
+}
+
+fn render_pipeline_progress_line(
+    command: &str,
+    snapshot: PipelineProgressSnapshot,
+    columns: usize,
+) -> String {
+    let total_steps = snapshot.total_steps.max(1);
+    let completed_steps = snapshot.current_step.min(total_steps);
+    let percent = completed_steps
+        .saturating_mul(100)
+        .checked_div(total_steps)
+        .unwrap_or(0);
+    let bar = render_progress_bar(completed_steps, total_steps, progress_bar_width(columns));
+    let step = if completed_steps == 0 {
+        format!("{} 0/{total_steps}", snapshot.label)
+    } else {
+        format!("{} {completed_steps}/{total_steps}", snapshot.label)
+    };
+    let mut line = format!(
+        "{command} {bar} {percent:>3}%  {}  {}",
+        step,
+        format_progress_clock(snapshot.elapsed)
+    );
     if !snapshot.detail.is_empty() {
         let detail_budget = columns.saturating_sub(display_width(&line) + 2);
         if detail_budget >= MIN_PROGRESS_DETAIL_COLUMNS {

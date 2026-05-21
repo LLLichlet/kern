@@ -5,12 +5,12 @@
 
 use shared_cli::{ColorChoice, ErrorReport, HelpDoc, HelpSection};
 use shared_ops::{
-    DownloadProgress, OpsError, OpsResult, archive_kind_from_path, configure_path,
-    copy_sdk_contents, default_install_root, detect_host_target, download_file_with_progress,
-    extract_archive_with_system_tool, fetch_latest_github_release,
-    infer_release_version_from_archive_name, make_temp_dir, remove_path_if_exists,
-    set_command_logging_enabled, set_status_logging_enabled, validate_sdk_root,
-    verify_installed_tools,
+    ArchiveExtractProgress, DownloadProgress, OpsError, OpsResult, SdkValidationProgress,
+    archive_kind_from_path, configure_path, copy_sdk_contents, default_install_root,
+    detect_host_target, download_file_with_progress, extract_archive_with_progress,
+    fetch_latest_github_release, infer_release_version_from_archive_name, make_temp_dir,
+    remove_path_if_exists, set_command_logging_enabled, set_status_logging_enabled,
+    validate_sdk_root, validate_sdk_root_with_progress, verify_installed_tools,
 };
 use std::env;
 use std::io::{IsTerminal, Write};
@@ -245,17 +245,9 @@ fn install(args: InstallArgs) -> OpsResult<()> {
         )?;
         let extract_root = temp_root.join("extract");
         step += 1;
-        let sdk_root = ui.step(step, total_steps, "extract", || {
-            extract_archive_with_system_tool(
-                &archive,
-                &extract_root,
-                archive_kind_from_path(&archive)?,
-            )
-        })?;
+        let sdk_root = ui.extract_step(&archive, &extract_root, step, total_steps)?;
         step += 1;
-        ui.step(step, total_steps, "validate", || {
-            validate_sdk_root(&sdk_root, &target).map(|_| ())
-        })?;
+        ui.validate_step(&sdk_root, &target, step, total_steps)?;
         step += 1;
         ui.step(step, total_steps, "install", || {
             copy_sdk_contents(&sdk_root, &install_root)
@@ -329,7 +321,7 @@ fn resolve_install_archive(
             Ok(fetch_latest_github_release(&args.github_repo)
                 .ok()
                 .flatten()
-                .unwrap_or_else(|| "v0.8.1".to_string()))
+                .unwrap_or_else(|| "v0.8.2".to_string()))
         })?
     };
     let archive_name = format!("kern-{version}-{target}.{}", host.archive_extension);
@@ -454,11 +446,101 @@ impl Ui {
             let _ = write!(
                 std::io::stderr(),
                 "\r\x1b[2K{} download {version}  {}",
-                self.progress_line(index.saturating_sub(1), total),
+                self.progress_line_fraction(
+                    index.saturating_sub(1),
+                    total,
+                    download_fraction(download)
+                ),
                 render_download_progress(download, start.elapsed())
             );
             let _ = std::io::stderr().flush();
         });
+        match &result {
+            Ok(_) => progress.finish_ok(),
+            Err(_) => progress.finish_err(),
+        }
+        result
+    }
+
+    fn extract_step(
+        &self,
+        archive: &std::path::Path,
+        extract_root: &std::path::Path,
+        index: usize,
+        total: usize,
+    ) -> OpsResult<PathBuf> {
+        let progress = self.start_step(index, total, "extract".to_string());
+        let start = Instant::now();
+        let mut last_render = Instant::now()
+            .checked_sub(Duration::from_secs(1))
+            .unwrap_or_else(Instant::now);
+        let result = extract_archive_with_progress(
+            archive,
+            extract_root,
+            archive_kind_from_path(archive)?,
+            |extract| {
+                if self.verbose || !self.terminal {
+                    return;
+                }
+                let now = Instant::now();
+                if now.duration_since(last_render) < Duration::from_millis(120) {
+                    return;
+                }
+                last_render = now;
+                let _ = write!(
+                    std::io::stderr(),
+                    "\r\x1b[2K{} extract  {}",
+                    self.progress_line_fraction(
+                        index.saturating_sub(1),
+                        total,
+                        extract_fraction(extract)
+                    ),
+                    render_extract_progress(extract, start.elapsed())
+                );
+                let _ = std::io::stderr().flush();
+            },
+        );
+        match &result {
+            Ok(_) => progress.finish_ok(),
+            Err(_) => progress.finish_err(),
+        }
+        result
+    }
+
+    fn validate_step(
+        &self,
+        sdk_root: &std::path::Path,
+        target: &str,
+        index: usize,
+        total: usize,
+    ) -> OpsResult<()> {
+        let progress = self.start_step(index, total, "validate".to_string());
+        let start = Instant::now();
+        let mut last_render = Instant::now()
+            .checked_sub(Duration::from_secs(1))
+            .unwrap_or_else(Instant::now);
+        let result = validate_sdk_root_with_progress(sdk_root, target, |validation| {
+            if self.verbose || !self.terminal {
+                return;
+            }
+            let now = Instant::now();
+            if now.duration_since(last_render) < Duration::from_millis(120) {
+                return;
+            }
+            last_render = now;
+            let _ = write!(
+                std::io::stderr(),
+                "\r\x1b[2K{} validate  {}",
+                self.progress_line_fraction(
+                    index.saturating_sub(1),
+                    total,
+                    validation_fraction(validation)
+                ),
+                render_validation_progress(validation, start.elapsed())
+            );
+            let _ = std::io::stderr().flush();
+        })
+        .map(|_| ());
         match &result {
             Ok(_) => progress.finish_ok(),
             Err(_) => progress.finish_err(),
@@ -485,13 +567,25 @@ impl Ui {
     }
 
     fn progress_line(&self, completed: usize, total: usize) -> String {
-        let percent = completed
-            .saturating_mul(100)
-            .checked_div(total.max(1))
-            .unwrap_or(0);
+        self.progress_line_fraction(completed, total, None)
+    }
+
+    fn progress_line_fraction(
+        &self,
+        completed: usize,
+        total: usize,
+        current_fraction: Option<f64>,
+    ) -> String {
+        let total = total.max(1);
+        let completed_units = completed as f64 + current_fraction.unwrap_or(0.0).clamp(0.0, 1.0);
+        let percent = ((completed_units / total as f64) * 100.0).round() as usize;
+        let filled = ((completed_units / total as f64) * 18.0).floor() as usize;
         format!(
             "kernup {} {percent:>3}%",
-            self.paint("1;34", &render_progress_bar(completed, total, 18))
+            self.paint(
+                "1;34",
+                &render_fractional_progress_bar(filled, completed >= total, 18)
+            )
         )
     }
 
@@ -579,6 +673,42 @@ fn render_progress_bar(completed: usize, total: usize, width: usize) -> String {
     )
 }
 
+fn render_fractional_progress_bar(filled: usize, complete: bool, width: usize) -> String {
+    if complete || filled >= width {
+        return format!("[{}]", "=".repeat(width));
+    }
+    let head = filled.min(width.saturating_sub(1));
+    format!(
+        "[{}>{}]",
+        "=".repeat(head),
+        "-".repeat(width.saturating_sub(head + 1))
+    )
+}
+
+fn download_fraction(progress: DownloadProgress) -> Option<f64> {
+    progress
+        .total
+        .filter(|total| *total > 0)
+        .map(|total| progress.downloaded as f64 / total as f64)
+}
+
+fn extract_fraction(progress: ArchiveExtractProgress) -> Option<f64> {
+    if let Some(total_bytes) = progress.total_bytes.filter(|total| *total > 0) {
+        return Some(progress.bytes as f64 / total_bytes as f64);
+    }
+    progress
+        .total_entries
+        .filter(|total| *total > 0)
+        .map(|total| progress.entries as f64 / total as f64)
+}
+
+fn validation_fraction(progress: SdkValidationProgress) -> Option<f64> {
+    progress
+        .total
+        .filter(|total| *total > 0)
+        .map(|total| progress.completed as f64 / total as f64)
+}
+
 fn format_duration(duration: Duration) -> String {
     if duration.as_secs() >= 60 {
         let mins = duration.as_secs() / 60;
@@ -624,6 +754,44 @@ fn render_download_progress(progress: DownloadProgress, elapsed: Duration) -> St
     }
 }
 
+fn render_extract_progress(progress: ArchiveExtractProgress, elapsed: Duration) -> String {
+    let rate = if elapsed.as_secs_f64() > 0.0 {
+        Some((progress.bytes as f64 / elapsed.as_secs_f64()) as u64)
+    } else {
+        None
+    };
+    let rate_text = rate
+        .map(|bytes| format!("{}/s", format_bytes(bytes)))
+        .unwrap_or_else(|| "--/s".to_string());
+    format!(
+        "{} item(s), {} {rate_text}",
+        progress.entries,
+        format_bytes(progress.bytes)
+    )
+}
+
+fn render_validation_progress(progress: SdkValidationProgress, elapsed: Duration) -> String {
+    let elapsed = format_duration(elapsed);
+    match progress.total {
+        Some(total) if total > 0 => {
+            let percent = progress
+                .completed
+                .saturating_mul(100)
+                .checked_div(total)
+                .unwrap_or(0)
+                .min(100);
+            format!(
+                "{percent:>3}% {}/{} {} {elapsed}",
+                progress.completed, total, progress.current
+            )
+        }
+        _ => format!(
+            "{} check(s), {} {elapsed}",
+            progress.completed, progress.current
+        ),
+    }
+}
+
 fn format_bytes(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = KIB * 1024.0;
@@ -652,11 +820,11 @@ fn help() -> HelpDoc {
                 .entry("help", "Show this help text"),
         )
         .example(
-            "kernup install --archive ./kern-v0.8.1-x86_64-linux-gnu.tar.gz",
+            "kernup install --archive ./kern-v0.8.2-x86_64-linux-gnu.tar.gz",
             "install a local SDK archive",
         )
         .example(
-            "kernup install --version v0.8.1",
+            "kernup install --version v0.8.2",
             "download and install a release SDK",
         )
         .example("kernup doctor", "verify the default installation")
@@ -721,7 +889,7 @@ mod tests {
     fn install_step_count_tracks_download_and_path_steps() {
         let mut args = InstallArgs::default();
         assert_eq!(install_step_count(&args), 7);
-        args.version = Some("v0.8.1".into());
+        args.version = Some("v0.8.2".into());
         assert_eq!(install_step_count(&args), 6);
         args.archive = Some(PathBuf::from("kern.tar.gz"));
         assert_eq!(install_step_count(&args), 6);

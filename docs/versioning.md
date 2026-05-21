@@ -51,8 +51,8 @@ When a planned minor line needs release-candidate validation, use ordinary
 SemVer pre-release labels:
 
 ```text
-0.8.1-rc.1
-0.8.1-rc.2
+0.8.2-rc.1
+0.8.2-rc.2
 ```
 
 Do not publish pre-release crates or Marketplace extensions unless the release
@@ -79,7 +79,7 @@ depend on a patch-specific behavior.
 A full patch version is still accepted:
 
 ```toml
-kern = "0.8.1"
+kern = "0.8.2"
 ```
 
 Use a full patch version only for packages that require that exact toolchain

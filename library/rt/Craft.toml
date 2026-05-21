@@ -1,6 +1,6 @@
 [package]
 name = "rt"
-version = "0.8.1"
+version = "0.8.2"
 kern = "0.8"
 description = "Runtime startup glue and compiler-required fallbacks for Kern"
 readme = "README.md"

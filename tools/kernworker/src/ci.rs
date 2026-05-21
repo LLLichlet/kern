@@ -9,8 +9,8 @@ use crate::args::{
 };
 use shared_ops::{
     OpsError, OpsResult, archive_kind_from_path, copy_dir_recursive, copy_path, detect_host_target,
-    expected_archive_sha256, extract_archive_with_system_tool, first_non_empty_line,
-    format_policy_value, load_workspace_version, make_temp_dir, remove_path_if_exists, repo_root,
+    expected_archive_sha256, extract_archive, first_non_empty_line, format_policy_value,
+    load_workspace_version, make_temp_dir, remove_path_if_exists, repo_root,
     resolve_bundled_toolchain, resolve_ci_toolchain_policy, run_command, run_command_capture,
     runner_os_for_host, runner_os_for_target, validate_toolchain_root, verify_archive_checksum,
 };
@@ -370,7 +370,7 @@ pub fn verify_packaged_toolchain(args: PackagedToolchainVerifyArgs) -> OpsResult
     let target = args.target.unwrap_or(host.archive_target);
     let temp = make_temp_dir("kern-toolchain-verify-")?;
     let result = (|| -> OpsResult<()> {
-        let root = extract_archive_with_system_tool(
+        let root = extract_archive(
             &archive,
             &temp.join("extract"),
             archive_kind_from_path(&archive)?,
@@ -394,7 +394,7 @@ pub fn install_packaged_toolchain(args: PackagedToolchainInstallArgs) -> OpsResu
     let target = args.target.unwrap_or(host.archive_target);
     let temp = make_temp_dir("kern-toolchain-install-")?;
     let result = (|| -> OpsResult<()> {
-        let root = extract_archive_with_system_tool(
+        let root = extract_archive(
             &archive,
             &temp.join("extract"),
             archive_kind_from_path(&archive)?,
@@ -754,7 +754,7 @@ mod tests {
         )
         .unwrap();
 
-        rewrite_kern_versions(&root, "0.8.1").unwrap();
+        rewrite_kern_versions(&root, "0.8.2").unwrap();
 
         assert!(
             fs::read_to_string(root.join("Craft.toml"))

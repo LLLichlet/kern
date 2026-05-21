@@ -186,7 +186,7 @@ shared = { git = "https://example.com/shared.git", branch = "stable", version = 
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -207,7 +207,7 @@ limine = { git = "https://example.com/limine.git", branch = "main" }
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 "#,
         )
         .unwrap();
@@ -279,7 +279,7 @@ shared = { git = "https://example.com/shared.git", tag = "v2", version = "2" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [dependencies]
 shared = { workspace = true }
@@ -329,7 +329,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 "#,
         )
         .unwrap();
@@ -376,7 +376,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 "#,
         )
         .unwrap();
@@ -406,7 +406,7 @@ kern = "0.8.1"
 [package]
 name = "app"
 version = "0.2.0"
-kern = "0.8.1"
+kern = "0.8.2"
 "#,
         )
         .unwrap();
@@ -449,7 +449,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 "#,
         )
         .unwrap();
@@ -503,7 +503,7 @@ shared = { git = "https://example.com/shared.git", branch = "stable", version = 
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [dependencies]
 shared = { workspace = true }

@@ -11,7 +11,7 @@ fn release_build_dead_strips_unused_std_sections() {
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "hello"
@@ -119,7 +119,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -150,7 +150,7 @@ return 1;
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -230,7 +230,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -268,7 +268,7 @@ fn main() i32 {
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -348,7 +348,7 @@ fn builds_and_runs_package_with_resource_c_source() {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -448,7 +448,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -479,7 +479,7 @@ return 1;
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -537,7 +537,7 @@ fn builds_library_package_with_runtime_section_without_requiring_main() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -603,7 +603,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -634,7 +634,7 @@ return 1;
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"

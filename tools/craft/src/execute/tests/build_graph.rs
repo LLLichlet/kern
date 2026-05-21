@@ -12,7 +12,7 @@ fn check_runs_semantic_pipeline_without_object_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -100,7 +100,7 @@ fn check_cache_survives_intervening_build() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -167,7 +167,7 @@ fn builds_compile_and_link_actions() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -216,7 +216,7 @@ fn incremental_build_recovers_from_invalid_compile_output_lock_file() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -284,7 +284,7 @@ fn incremental_build_skips_unchanged_actions() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -345,7 +345,7 @@ fn incremental_build_recovers_from_corrupted_action_state_files() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -408,7 +408,7 @@ fn incremental_build_recompiles_when_loaded_submodule_changes() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -486,7 +486,7 @@ fn incremental_build_recovers_when_primary_object_is_missing() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -558,7 +558,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -575,7 +575,7 @@ util = { path = "../util" }
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -670,7 +670,7 @@ fn incremental_build_rebuilds_when_runtime_manifest_options_change() {
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 entry = "crt"
@@ -711,7 +711,7 @@ root = "src/main.kn"
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -767,7 +767,7 @@ members = ["plain", "staged"]
 [package]
 name = "plain"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "plain"
@@ -786,7 +786,7 @@ root = "src/main.kn"
 [package]
 name = "staged"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "staged"
@@ -860,7 +860,7 @@ members = ["native", "thin"]
 [package]
 name = "native"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [profile.release]
 lto = "none"
@@ -882,7 +882,7 @@ root = "src/main.kn"
 [package]
 name = "thin"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [profile.release]
 lto = "thin"
@@ -952,7 +952,7 @@ members = ["util", "extra", "app"]
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -974,7 +974,7 @@ pub fn answer() i32 {
 [package]
 name = "extra"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -996,7 +996,7 @@ pub fn truth() bool {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -1112,7 +1112,7 @@ members = ["util", "app_a", "app_b"]
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -1137,7 +1137,7 @@ pub fn answer() i32 {
 [package]
 name = "{name}"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "{name}"
@@ -1205,7 +1205,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [profile.release]
 codegen-units = 2
@@ -1236,7 +1236,7 @@ fn main() i32 {
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [profile.release]
 codegen-units = 2

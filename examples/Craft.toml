@@ -1,6 +1,6 @@
 [package]
 name = "examples"
-version = "0.8.1"
+version = "0.8.2"
 kern = "0.8"
 description = "Small runnable Kern examples for first-time learners"
 readme = "README.md"

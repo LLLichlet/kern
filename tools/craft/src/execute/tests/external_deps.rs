@@ -15,7 +15,7 @@ fn builds_package_with_direct_external_path_dependency() {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -44,7 +44,7 @@ return 1;
 [package]
 name = "log"
 version = "1"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -93,7 +93,7 @@ fn builds_package_with_direct_external_git_dependency_in_release_profile() {
 [package]
 name = "log"
 version = "1"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -112,7 +112,7 @@ return 42;
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -179,7 +179,7 @@ members = ["json"]
 
 [workspace.package]
 version = "1"
-kern = "0.8.1"
+kern = "0.8.2"
 description = "JSON workspace"
 license = "MIT"
 authors = ["Craft Tests <craft-tests@example.invalid>"]
@@ -201,7 +201,7 @@ json = {{ member = "json" }}
 [package]
 name = "json"
 version = "1"
-kern = "0.8.1"
+kern = "0.8.2"
 description = "JSON package"
 license = "MIT"
 authors = ["Craft Tests <craft-tests@example.invalid>"]
@@ -241,7 +241,7 @@ return 42;
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -299,7 +299,7 @@ fn release_build_preserves_thinlto_bitcode_for_external_git_library() {
 [package]
 name = "log"
 version = "1"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [profile.release]
 opt = 3
@@ -323,7 +323,7 @@ return 42;
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [profile.release]
 opt = 3
@@ -418,7 +418,7 @@ fn release_build_refreshes_updated_external_git_thinlto_library() {
 [package]
 name = "log"
 version = "1"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [profile.release]
 opt = 3
@@ -442,7 +442,7 @@ return 42;
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [profile.release]
 opt = 3
@@ -588,7 +588,7 @@ fn builds_and_runs_hosted_package_with_transitive_external_path_dependency() {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -617,7 +617,7 @@ return 1;
 [package]
 name = "log"
 version = "1"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -642,7 +642,7 @@ return corelog.base() + 1;
 [package]
 name = "corelog"
 version = "1"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -699,7 +699,7 @@ fn builds_and_runs_external_package_with_nested_path_dependency() {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -728,7 +728,7 @@ return 1;
 [package]
 name = "log"
 version = "1"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -753,7 +753,7 @@ return corelog.base() + 1;
 [package]
 name = "corelog"
 version = "1"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"

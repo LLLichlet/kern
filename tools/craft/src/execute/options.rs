@@ -473,7 +473,7 @@ mod tests {
         let manifest_path = root.join("Craft.toml");
         fs::write(
             &manifest_path,
-            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nkern = \"0.8.1\"\n",
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nkern = \"0.8.2\"\n",
         )
         .unwrap();
         let source_path = root.join("src/main.kn");
@@ -535,7 +535,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 bundle = "base"
@@ -587,7 +587,7 @@ root = "src/lib.kn"
 [package]
 name = "base"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 bundle = "base"
@@ -632,7 +632,7 @@ root = "src/lib.kn"
 [package]
 name = "rt"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 bundle = "none"
@@ -677,7 +677,7 @@ root = "src/lib.kn"
 [package]
 name = "std"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 bundle = "std"

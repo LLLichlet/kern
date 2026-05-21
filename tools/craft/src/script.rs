@@ -633,7 +633,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 "#,
             std::path::Path::new("Craft.toml"),
         )
@@ -657,7 +657,7 @@ kern = "0.8.1"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [profile.release]
 codegen-units = 7
@@ -677,7 +677,7 @@ codegen-units = 7
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [profile.release]
 lto = "full"
@@ -697,7 +697,7 @@ lto = "full"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [profile.release]
 code-model = "kernel"

@@ -2,7 +2,7 @@
   "name": "kern-language",
   "displayName": "Kern",
   "description": "VS Code support for the Kern programming language.",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "publisher": "kern-project",
   "icon": "icons/kern.png",
   "license": "MIT",

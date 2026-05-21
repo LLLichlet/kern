@@ -268,7 +268,7 @@ fn build_release_hello_workspace(root: &Path, profile_body: &str) -> super::Exec
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 {profile_body}
 
@@ -358,7 +358,7 @@ fn build_succeeds_for_linux_freestanding_bin_without_program_main() {
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 entry = "none"
@@ -425,7 +425,7 @@ fn build_reports_invalid_pointer_static_initializer_failure() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -490,7 +490,7 @@ fn build_script_can_attach_relative_link_arg_path_for_freestanding_bin() {
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 entry = "none"
@@ -587,7 +587,7 @@ fn freestanding_link_rebuilds_when_link_arg_path_contents_change() {
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 entry = "none"
@@ -695,7 +695,7 @@ fn build_script_can_link_native_static_library_from_root_package_path() {
 [package]
 name = "native"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -789,7 +789,7 @@ fn build_script_can_compile_and_link_c_source() {
 [package]
 name = "native"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -924,7 +924,7 @@ fn relinks_when_project_local_native_library_changes() {
 [package]
 name = "native"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -1042,7 +1042,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -1153,7 +1153,7 @@ int craft_appears_value(void) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -1283,9 +1283,9 @@ fn add_repository_to_manifest(manifest: &str, repo: &Path) -> String {
         return manifest.to_string();
     }
     manifest.replacen(
-        "kern = \"0.8.1\"",
+        "kern = \"0.8.2\"",
         &format!(
-            "kern = \"0.8.1\"\ndescription = \"Test package\"\nlicense = \"MIT\"\nauthors = [\"Craft Tests <craft-tests@example.invalid>\"]\nreadme = \"README.md\"\nrepository = \"{}\"",
+            "kern = \"0.8.2\"\ndescription = \"Test package\"\nlicense = \"MIT\"\nauthors = [\"Craft Tests <craft-tests@example.invalid>\"]\nreadme = \"README.md\"\nrepository = \"{}\"",
             toml_string_literal(repo)
         ),
         1,

@@ -231,7 +231,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [features]
 default = ["missing"]
@@ -281,7 +281,7 @@ members = ["app", "driver"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 "#,
         )
         .unwrap();
@@ -292,7 +292,7 @@ kern = "0.8.1"
 [package]
 name = "driver"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 "#,
         )
         .unwrap();

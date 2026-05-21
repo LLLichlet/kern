@@ -12,7 +12,7 @@ fn builds_and_executes_test_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [test]
 roots = ["tests/smoke.kn"]
@@ -66,7 +66,7 @@ fn executes_all_test_units_before_reporting_failures() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [test]
 roots = ["tests/alpha.kn", "tests/beta.kn", "tests/gamma.kn"]
@@ -153,7 +153,7 @@ fn executes_all_cases_inside_one_test_target() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [test]
 roots = ["tests/smoke.kn"]
@@ -235,7 +235,7 @@ fn builds_and_executes_release_thinlto_test_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [profile.release]
 opt = 3
@@ -296,7 +296,7 @@ fn tests_can_import_their_own_package_library() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -366,7 +366,7 @@ fn package_runtime_applies_to_test_targets() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -435,7 +435,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [test]
 roots = ["tests/cwd.kn"]
@@ -520,7 +520,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [test]
 roots = ["tests/env.kn"]
@@ -607,7 +607,7 @@ fn test_targets_receive_name_and_temporary_directory_env() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [test]
 roots = ["tests/env.kn"]
@@ -706,7 +706,7 @@ fn test_cases_receive_case_name_env() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 
 [test]
 roots = ["tests/cases.kn"]

@@ -370,7 +370,7 @@ kern = "0.8"
 [package]
 name = "tools-demo"
 version = "0.1.0"
-kern = "0.8.1"
+kern = "0.8.2"
 "#,
         )
         .unwrap();

@@ -88,8 +88,8 @@ impl[T] &T {
 }
 
 impl[T] &mut T {
-    /// Returns a shared view of this mutable pointer.
-    pub fn shared() &T {
+    /// Returns a read-only view of this mutable pointer.
+    pub fn view() &T {
         return self as &T;
     }
 
@@ -123,8 +123,8 @@ impl[T] ^T {
 }
 
 impl[T] ^mut T {
-    /// Returns a shared address pointer view.
-    pub fn shared() ^T {
+    /// Returns a read-only address pointer view.
+    pub fn view() ^T {
         return self as ^T;
     }
 

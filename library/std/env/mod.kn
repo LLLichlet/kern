@@ -108,7 +108,7 @@ fn get_posix(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
     let c_name = abi.cstr.owned(alloc, name).?..&;
     defer c_name.deinit(alloc);
 
-    let .{ Some: value_ptr } = os.find_environment_value(c_name.shared().ptr())
+    let .{ Some: value_ptr } = os.find_environment_value(c_name.view().ptr())
         else return .{ Ok: .None };
     let value = clone_c_value(alloc, value_ptr, value_ptr.cstr_len()).?;
     return .{ Ok: .{ Some: value } };
@@ -119,7 +119,7 @@ fn get_windows(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
     let c_name = abi.cstr.owned(alloc, name).?..&;
     defer c_name.deinit(alloc);
 
-    let required = os.get_environment_variable(c_name.shared().ptr(), null_mut_ptr[u8](), 0) as usize;
+    let required = os.get_environment_variable(c_name.view().ptr(), null_mut_ptr[u8](), 0) as usize;
     if required == 0 {
         return .{ Ok: .None };
     }
@@ -128,12 +128,12 @@ fn get_windows(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
     let buffer = alloc.alloc(layout).ok_or(.OutOfMemory).?;
     defer alloc.free(buffer, layout);
 
-    let written = os.get_environment_variable(c_name.shared().ptr(), buffer, required as u32) as usize;
+    let written = os.get_environment_variable(c_name.view().ptr(), buffer, required as u32) as usize;
     if written == 0 {
         return .{ Ok: .None };
     }
 
-    let value = clone_c_value(alloc, buffer.shared(), written).?;
+    let value = clone_c_value(alloc, buffer.view(), written).?;
     return .{ Ok: .{ Some: value } };
 }
 
@@ -178,7 +178,7 @@ fn visit_windows(visitor: &Fn(Var) bool) usize {
     let mut cursor = block;
     let mut total = 0usize;
         while true {
-        let len = cursor.shared().cstr_len();
+        let len = cursor.view().cstr_len();
         if len == 0 {
             return total;
         }

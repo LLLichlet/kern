@@ -1,4 +1,4 @@
-// source: mutable address pointers must be explicitly narrowed before passing to shared address pointer parameters
+// source: mutable address pointers must be explicitly narrowed before passing to read-only address pointer parameters
 // stderr: mismatched types
 // stderr: expected `^i32`
 // stderr: found `^mut i32`

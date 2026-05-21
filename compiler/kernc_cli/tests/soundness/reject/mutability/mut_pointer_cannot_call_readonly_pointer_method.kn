@@ -1,4 +1,4 @@
-// source: mutable object pointers do not inherit shared pointer method sets
+// source: mutable object pointers do not inherit read-only pointer method sets
 // stderr: no field or method named `get` found on type `&mut Cell`
 
 struct Cell {

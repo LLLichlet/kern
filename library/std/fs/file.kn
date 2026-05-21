@@ -162,7 +162,7 @@ fn open_path(
 
     let c_path = c_path(alloc, path).?..&;
     defer c_path.deinit(alloc);
-    return open_with_c_path(c_path.shared().ptr(), options);
+    return open_with_c_path(c_path.view().ptr(), options);
 }
 
 /// Returns a borrowed wrapper around standard input.
@@ -363,21 +363,21 @@ impl Path {
         let new_c_path = c_path(alloc, new_path).?..&;
         defer new_c_path.deinit(alloc);
 
-        return rename_with_c_paths(old_c_path.shared().ptr(), new_c_path.shared().ptr());
+        return rename_with_c_paths(old_c_path.view().ptr(), new_c_path.view().ptr());
     }
 
     /// Returns metadata for this path.
     pub fn metadata(alloc: &mut Allocator) Metadata!Error {
         let c_path = c_path(alloc, self.raw).?..&;
         defer c_path.deinit(alloc);
-        return metadata_with_c_path(c_path.shared().ptr());
+        return metadata_with_c_path(c_path.view().ptr());
     }
 
     /// Returns `true` when this path exists.
     pub fn exists(alloc: &mut Allocator) bool!Error {
         let c_path = c_path(alloc, self.raw).?..&;
         defer c_path.deinit(alloc);
-        return os.metadata(c_path.shared().ptr())
+        return os.metadata(c_path.view().ptr())
             .map(metadata_exists)
             .map_err(wrap_os_error)
             .or_else(not_found_is_false);
@@ -411,7 +411,7 @@ impl Path {
     pub fn remove_file(alloc: &mut Allocator) bool!Error {
         let c_path = c_path(alloc, self.raw).?..&;
         defer c_path.deinit(alloc);
-        return os.remove_file(c_path.shared().ptr()).map_err(wrap_os_error);
+        return os.remove_file(c_path.view().ptr()).map_err(wrap_os_error);
     }
 
     /// Removes this file and treats a missing path as `Ok(false)`.

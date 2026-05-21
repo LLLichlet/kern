@@ -540,7 +540,7 @@ fn main() i32 {
 }
 
 #[test]
-fn accepts_immutable_trait_object_from_explicit_shared_pointer_when_shared_impl_exists() {
+fn accepts_immutable_trait_object_from_explicit_readonly_view_when_readonly_impl_exists() {
     let output = build_and_run_source_with_std(
         r#"
 trait Base {
@@ -561,7 +561,7 @@ impl &Cell : Base {
 
 fn main() i32 {
     let mut cell = Cell.{ value: 7 };
-    let obj = (cell..&.shared() as &Base);
+    let obj = (cell..&.view() as &Base);
     return obj.get() - 7;
 }
 "#,
@@ -667,7 +667,7 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_implicit_immutable_trait_object_from_mut_pointer_when_shared_impl_exists() {
+fn rejects_implicit_immutable_trait_object_from_mut_pointer_when_readonly_impl_exists() {
     let output = compile_source(
         r#"
 trait Base {

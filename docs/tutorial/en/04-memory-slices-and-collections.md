@@ -243,16 +243,16 @@ dereference. Kern does not auto-dereference pointer targets.
 `&T` and `&mut T` are distinct concrete types with distinct method sets.
 Library authors usually put read-only methods on `impl &T` and mutating methods
 on `impl &mut T`. When a caller has `&mut T` and wants to call a read-only
-receiver method, it must first narrow the pointer explicitly to a shared view:
+receiver method, it must first narrow the pointer explicitly to a read-only view:
 
 ```kern
-let read_view = write_ptr.shared();
+let read_view = write_ptr.view();
 ```
 
-Likewise, `&mut [T]` can narrow to `&[T]` with `.shared()`, and `^mut T` can
-narrow to `^T` with `.shared()`. Keeping that narrowing explicit prevents
-writable permission and shared views from collapsing into the same type-system
-meaning.
+Likewise, `&mut [T]` can narrow to `&[T]` with `.view()`, and `^mut T` can
+narrow to `^T` with `.view()`. Keeping that narrowing explicit prevents
+writable permission and read-only views from collapsing into the same
+type-system meaning.
 
 ## `defer` And Explicit Release
 
@@ -314,7 +314,7 @@ The important pieces are:
 - `..&` obtains a writable receiver for `push` and `deinit`.
 - `push(gpa, value)` may allocate, so the allocator is explicit.
 - `deinit(gpa)` releases backing storage; the container does not magically know which allocator to use.
-- `numbers.shared().len()` explicitly narrows `&mut List[i32]` to a shared view before calling a read-only receiver method.
+- `numbers.view().len()` explicitly narrows `&mut List[i32]` to a read-only view before calling a read-only receiver method.
 
 This differs from C++ RAII: release is not automatically tied to object
 lifetime. The common Kern style is to keep the resource value in the current

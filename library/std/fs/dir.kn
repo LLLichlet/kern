@@ -205,7 +205,7 @@ fn free_dir_search_path(
 fn create_dir(alloc: &mut Allocator, path: &[u8]) bool!Error {
     let c_path = c_path(alloc, path).?..&;
     defer c_path.deinit(alloc);
-    return os.create_dir(c_path.shared().ptr()).map_err(wrap_os_error);
+    return os.create_dir(c_path.view().ptr()).map_err(wrap_os_error);
 }
 
 /// Creates a single directory and treats an existing directory as `Ok(false)`.
@@ -278,7 +278,7 @@ fn read_dir(
         return visitor(DirEntry.{ name: name, file_type: file_type });
     };
 
-    return os.scan_dir(c_path.shared().ptr(), search_c_path.shared(), bridge)
+    return os.scan_dir(c_path.view().ptr(), search_c_path.view(), bridge)
         .map_err(wrap_os_error);
 }
 
@@ -495,7 +495,7 @@ fn walk_dirs(
 fn remove_dir(alloc: &mut Allocator, path: &[u8]) bool!Error {
     let c_path = c_path(alloc, path).?..&;
     defer c_path.deinit(alloc);
-    return os.remove_dir(c_path.shared().ptr()).map_err(wrap_os_error);
+    return os.remove_dir(c_path.view().ptr()).map_err(wrap_os_error);
 }
 
 /// Removes a single empty directory and treats a missing path as `Ok(false)`.

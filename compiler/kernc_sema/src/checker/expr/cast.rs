@@ -103,7 +103,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
             );
 
-        // 1. Allow explicit mutable-to-shared slice narrowing.
+        // 1. Allow explicit mutable-to-read-only slice narrowing.
         if self.is_slice_mutability_narrowing(f_norm, t_norm) {
             return;
         }

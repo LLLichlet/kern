@@ -191,7 +191,7 @@ pub/ fn spawn(control: &mut ThreadControl, stack: &mut [u8]) ?usize {
 pub/ fn join(handle: usize, control: &mut ThreadControl) bool {
     #[if os == "linux" and arch == "x86_64"] {
         let _ = handle;
-        while @atomicLoad[i32](control.exited..&.shared(), ACQUIRE) != 0 {
+        while @atomicLoad[i32](control.exited..&.view(), ACQUIRE) != 0 {
             wait_word.wait_linux_shared(control.exited..&, 1i32);
         }
         return true;

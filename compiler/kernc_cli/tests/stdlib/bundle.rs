@@ -133,13 +133,13 @@ fn main() i32 {
     let writer = (fixed..& as &mut Write);
 
     "base {} {}".fmt(.{ "io", 7usize, }).write_to(writer);
-    if (fixed..&.shared().as_slice() != "base io 7") {
+    if (fixed..&.view().as_slice() != "base io 7") {
         return 1;
     }
     if (!writer.write_all("!")) {
         return 2;
     }
-    if (fixed..&.shared().as_slice() != "base io 7!") {
+    if (fixed..&.view().as_slice() != "base io 7!") {
         return 3;
     }
     return 0;

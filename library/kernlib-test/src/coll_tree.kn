@@ -49,12 +49,12 @@ fn check_basic_tree[W](t: &mut Report[W]) void
     }
 
     map.try_insert(gpa, 7, 99).should_ok().sum(@loc(), t);
-    map.shared().get(7).should_some().eq(99).sum(@loc(), t);
-    map.shared().get(31).should_some().eq(62).sum(@loc(), t);
+    map.view().get(7).should_some().eq(99).sum(@loc(), t);
+    map.view().get(31).should_some().eq(62).sum(@loc(), t);
 
     let value_ptr = map.get_ptr(7).should_some().sum(@loc(), t);
     value_ptr.* = 123;
-    map.shared().get(7).should_some().eq(123).sum(@loc(), t);
+    map.view().get(7).should_some().eq(123).sum(@loc(), t);
 
     let mut iter_count = 0usize;
     let mut iter_key_sum = 0i32;
@@ -80,8 +80,8 @@ fn check_basic_tree[W](t: &mut Report[W]) void
     for entry in map.iter() {
         entry.value.* += entry.key;
     }
-    map.shared().get(7).should_some().eq(130).sum(@loc(), t);
-    map.shared().get(31).should_some().eq(93).sum(@loc(), t);
+    map.view().get(7).should_some().eq(130).sum(@loc(), t);
+    map.view().get(31).should_some().eq(93).sum(@loc(), t);
 
     let mut mut_index_sum = 0usize;
     for entry in map.iter().skip(30usize).enumerate() {
@@ -107,9 +107,9 @@ fn check_basic_tree[W](t: &mut Report[W]) void
     lazy_inserted.*.should().eq(900).sum(@loc(), t);
     lazy_calls.should().eq(1).sum(@loc(), t);
 
-    map.shared().contains(15).should().sum(@loc(), t);
-    map.shared().contains(1000).not().should().sum(@loc(), t);
-    map.shared().len().should().eq(34usize).sum(@loc(), t);
+    map.view().contains(15).should().sum(@loc(), t);
+    map.view().contains(1000).not().should().sum(@loc(), t);
+    map.view().len().should().eq(34usize).sum(@loc(), t);
 }
 
 fn check_custom_key_tree[W](t: &mut Report[W]) void
@@ -127,10 +127,10 @@ fn check_custom_key_tree[W](t: &mut Report[W]) void
     map.try_insert(gpa, Key.{ major: 1, minor: 2 }, 12).should_ok().sum(@loc(), t);
     map.try_insert(gpa, Key.{ major: 1, minor: 0 }, 99).should_ok().sum(@loc(), t);
 
-    map.shared().get(Key.{ major: 1, minor: 0 }).should_some().eq(99).sum(@loc(), t);
-    map.shared().get(Key.{ major: 0, minor: 8 }).should_some().eq(8).sum(@loc(), t);
-    map.shared().contains(Key.{ major: 2, minor: 0 }).not().should().sum(@loc(), t);
-    map.shared().len().should().eq(3usize).sum(@loc(), t);
+    map.view().get(Key.{ major: 1, minor: 0 }).should_some().eq(99).sum(@loc(), t);
+    map.view().get(Key.{ major: 0, minor: 8 }).should_some().eq(8).sum(@loc(), t);
+    map.view().contains(Key.{ major: 2, minor: 0 }).not().should().sum(@loc(), t);
+    map.view().len().should().eq(3usize).sum(@loc(), t);
 }
 
 fn check_traversal_and_boundaries[W](t: &mut Report[W]) void
@@ -150,33 +150,33 @@ fn check_traversal_and_boundaries[W](t: &mut Report[W]) void
 
     let order = string()..&;
     defer order.deinit(gpa);
-    map.shared().for_each([order, gpa](key: i32, _: i32) void {
+    map.view().for_each([order, gpa](key: i32, _: i32) void {
         let _ = order.try_push_char(gpa, (key as u8) + b'0');
     });
     (order.* == "1234").should().sum(@loc(), t);
 
-    map.shared().fold(0i32, [](accum: i32, key: i32, value: i32) i32 {
+    map.view().fold(0i32, [](accum: i32, key: i32, value: i32) i32 {
         return accum + key * value;
     }).should().eq(300).sum(@loc(), t);
 
     map.for_each_mut([](key: i32, value: &mut i32) void {
         value.* += key;
     });
-    map.shared().get(1).should_some().eq(11).sum(@loc(), t);
-    map.shared().get(2).should_some().eq(22).sum(@loc(), t);
-    map.shared().get(3).should_some().eq(33).sum(@loc(), t);
-    map.shared().get(4).should_some().eq(44).sum(@loc(), t);
+    map.view().get(1).should_some().eq(11).sum(@loc(), t);
+    map.view().get(2).should_some().eq(22).sum(@loc(), t);
+    map.view().get(3).should_some().eq(33).sum(@loc(), t);
+    map.view().get(4).should_some().eq(44).sum(@loc(), t);
 
-    map.shared().first_key().should_some().eq(1).sum(@loc(), t);
-    map.shared().first().should_some().eq(11).sum(@loc(), t);
-    map.shared().last_key().should_some().eq(4).sum(@loc(), t);
-    map.shared().last().should_some().eq(44).sum(@loc(), t);
-    map.shared().ceil_key(0).should_some().eq(1).sum(@loc(), t);
-    map.shared().ceil(2).should_some().eq(22).sum(@loc(), t);
-    map.shared().floor_key(5).should_some().eq(4).sum(@loc(), t);
-    map.shared().floor(3).should_some().eq(33).sum(@loc(), t);
-    map.shared().ceil_key(5).should_none().sum(@loc(), t);
-    map.shared().floor_key(0).should_none().sum(@loc(), t);
+    map.view().first_key().should_some().eq(1).sum(@loc(), t);
+    map.view().first().should_some().eq(11).sum(@loc(), t);
+    map.view().last_key().should_some().eq(4).sum(@loc(), t);
+    map.view().last().should_some().eq(44).sum(@loc(), t);
+    map.view().ceil_key(0).should_some().eq(1).sum(@loc(), t);
+    map.view().ceil(2).should_some().eq(22).sum(@loc(), t);
+    map.view().floor_key(5).should_some().eq(4).sum(@loc(), t);
+    map.view().floor(3).should_some().eq(33).sum(@loc(), t);
+    map.view().ceil_key(5).should_none().sum(@loc(), t);
+    map.view().floor_key(0).should_none().sum(@loc(), t);
 }
 
 fn check_remove[W](t: &mut Report[W]) void
@@ -196,23 +196,23 @@ fn check_remove[W](t: &mut Report[W]) void
     }
 
     map.remove(gpa, 20).should_some().eq(200).sum(@loc(), t);
-    map.shared().contains(20).not().should().sum(@loc(), t);
+    map.view().contains(20).not().should().sum(@loc(), t);
     map.remove(gpa, 1).should_some().eq(10).sum(@loc(), t);
-    map.shared().contains(1).not().should().sum(@loc(), t);
+    map.view().contains(1).not().should().sum(@loc(), t);
     map.remove(gpa, 40).should_some().eq(400).sum(@loc(), t);
-    map.shared().contains(40).not().should().sum(@loc(), t);
+    map.view().contains(40).not().should().sum(@loc(), t);
     map.remove(gpa, 99).should_none().sum(@loc(), t);
-    map.shared().len().should().eq(37usize).sum(@loc(), t);
+    map.view().len().should().eq(37usize).sum(@loc(), t);
 
-    map.shared().first_key().should_some().eq(2).sum(@loc(), t);
-    map.shared().last_key().should_some().eq(39).sum(@loc(), t);
-    map.shared().ceil_key(20).should_some().eq(21).sum(@loc(), t);
-    map.shared().floor_key(20).should_some().eq(19).sum(@loc(), t);
+    map.view().first_key().should_some().eq(2).sum(@loc(), t);
+    map.view().last_key().should_some().eq(39).sum(@loc(), t);
+    map.view().ceil_key(20).should_some().eq(21).sum(@loc(), t);
+    map.view().floor_key(20).should_some().eq(19).sum(@loc(), t);
 
     let mut count = 0i32;
     let ordered = string()..&;
     defer ordered.deinit(gpa);
-    map.shared().for_each([count = count..&, ordered, gpa](key: i32, _: i32) void {
+    map.view().for_each([count = count..&, ordered, gpa](key: i32, _: i32) void {
         count.* += 1;
         if key >= 2 and key <= 9 {
             let _ = ordered.try_push_char(gpa, (key as u8) + b'0');
@@ -229,9 +229,9 @@ fn check_remove[W](t: &mut Report[W]) void
     small.remove(gpa, 2).should_some().eq(20).sum(@loc(), t);
     small.remove(gpa, 1).should_some().eq(10).sum(@loc(), t);
     small.remove(gpa, 3).should_some().eq(30).sum(@loc(), t);
-    small.shared().is_empty().should().sum(@loc(), t);
-    small.shared().first().should_none().sum(@loc(), t);
-    small.shared().last().should_none().sum(@loc(), t);
+    small.view().is_empty().should().sum(@loc(), t);
+    small.view().first().should_none().sum(@loc(), t);
+    small.view().last().should_none().sum(@loc(), t);
 }
 
 #[test]

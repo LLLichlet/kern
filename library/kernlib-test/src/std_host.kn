@@ -101,7 +101,7 @@ fn check_std_sync_reexports[W](t: &mut Report[W]) void
 
     let mut value = atomic[usize](1usize);
     value..&.fetch_add[SEQ_CST](2usize).should().eq(1usize).sum(@loc(), t);
-    value..&.shared().load[ACQUIRE]().should().eq(3usize).sum(@loc(), t);
+    value..&.view().load[ACQUIRE]().should().eq(3usize).sum(@loc(), t);
 }
 
 fn check_std_sync_blocking_primitives[W](t: &mut Report[W]) void

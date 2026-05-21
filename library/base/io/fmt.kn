@@ -185,7 +185,7 @@ fn rendered_len(arg: &Formatable, spec: FormatSpec) usize {
     let mut counter = sink_writer.counting();
     let counter_writer = (counter..& as &mut Write);
     arg.write_fmt(spec, counter_writer);
-    return counter..&.shared().bytes_written();
+    return counter..&.view().bytes_written();
 }
 
 fn write_fill(
@@ -254,7 +254,7 @@ fn limited_rendered_len(
         alternate: spec.alternate,
         presentation: spec.presentation,
     }, limited_writer);
-    return counter..&.shared().bytes_written();
+    return counter..&.view().bytes_written();
 }
 
 fn formatted_len(arg: &Formatable, spec: FormatSpec) usize {

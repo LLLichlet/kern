@@ -8,8 +8,8 @@ use base.coll.SliceMutIter;
 use base.cmp.{Ord, Ordering, GREATER};
 
 impl[T] &mut [T] {
-    /// Returns a shared view of this mutable slice.
-    pub fn shared() &[T] {
+    /// Returns a read-only view of this mutable slice.
+    pub fn view() &[T] {
         return self as &[T];
     }
 

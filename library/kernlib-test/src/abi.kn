@@ -16,9 +16,9 @@ fn abi_helpers() i32 {
     let text = abi.cstr.owned(gpa, "kern").should_ok().sum(@loc(), t)..&;
     defer text.deinit(gpa);
 
-    text.shared().len().should().eq(4usize).sum(@loc(), t);
-    text.shared().ptr().cstr_len().should().eq(4usize).sum(@loc(), t);
-    ((text.shared().ptr() + 4usize).* == 0u8).should().sum(@loc(), t);
+    text.view().len().should().eq(4usize).sum(@loc(), t);
+    text.view().ptr().cstr_len().should().eq(4usize).sum(@loc(), t);
+    ((text.view().ptr() + 4usize).* == 0u8).should().sum(@loc(), t);
 
     return 0;
 }

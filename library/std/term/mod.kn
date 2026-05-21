@@ -103,7 +103,7 @@ impl &mut RawMode {
             return .{ Ok: true };
         }
 
-        let restored = os.restore_terminal_mode(self.handle, self.state..&.shared())
+        let restored = os.restore_terminal_mode(self.handle, self.state..&.view())
             .map_err(wrap_os_error).?;
         self.active = false;
         return .{ Ok: restored };

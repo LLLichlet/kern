@@ -1,4 +1,4 @@
-// source: mutable element address must not be synthesized through a shared slice view
+// source: mutable element address must not be synthesized through a read-only slice view
 // stderr: cannot take mutable address `..&` of immutable memory
 // stderr-not: LLVM IR Verification Failed
 

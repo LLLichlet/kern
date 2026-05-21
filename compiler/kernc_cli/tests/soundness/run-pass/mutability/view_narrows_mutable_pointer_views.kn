@@ -1,4 +1,4 @@
-// source: explicit shared narrows mutable pointer-shaped values to shared views
+// source: view narrows mutable pointer-shaped values to read-only views
 
 trait Read {
     fn get() i32;
@@ -41,10 +41,10 @@ fn main() i32 {
     let mut values = [3]i32.{ 1, 2, 3 };
     let addr = 1usize as ^mut i32;
 
-    let a = read_cell(cell..&.shared());
-    let b = cell..&.shared().get_value();
-    let c = slice_len(values..&[0...3].shared());
-    let d = read_addr(addr.shared());
-    let e = read_trait(cell..&.shared() as &Read);
+    let a = read_cell(cell..&.view());
+    let b = cell..&.view().get_value();
+    let c = slice_len(values..&[0...3].view());
+    let d = read_addr(addr.view());
+    let e = read_trait(cell..&.view() as &Read);
     return a + b + c + d + e - 29;
 }

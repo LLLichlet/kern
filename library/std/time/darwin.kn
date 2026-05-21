@@ -61,7 +61,7 @@ pub/ fn sleep_nanos(nanos: u64) void {
     let mut rem = Timespec.{ tv_sec: 0, tv_nsec: 0 };
 
         while true {
-        if system_nanosleep(req..&.shared(), rem..&) == 0 {
+        if system_nanosleep(req..&.view(), rem..&) == 0 {
             return;
         }
         if system_errno().* == EINTR {

@@ -1,4 +1,4 @@
-// source: mutable object pointers must be explicitly narrowed before passing to shared pointer parameters
+// source: mutable object pointers must be explicitly narrowed before passing to read-only pointer parameters
 // stderr: mismatched types
 // stderr: expected `&Cell`
 // stderr: found `&mut Cell`

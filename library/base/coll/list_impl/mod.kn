@@ -118,7 +118,7 @@ impl[T] &mut List[T] {
 
         if self.cap > 0 and self.len > 0 {
             let old_layout = self.fixed_layout(self.cap, elem_size);
-            @memcpy(new_ptr as &mut u8, (self.ptr as &mut u8).shared(), self.len * elem_size);
+            @memcpy(new_ptr as &mut u8, (self.ptr as &mut u8).view(), self.len * elem_size);
             alloc.free(self.ptr as &mut u8, old_layout);
         } else if self.cap > 0 {
             let old_layout = self.fixed_layout(self.cap, elem_size);
@@ -154,7 +154,7 @@ impl[T] &mut List[T] {
 
         if self.cap > 0 and self.len > 0 {
             let old_layout = self.fixed_layout(self.cap, elem_size);
-            @memcpy(new_ptr as &mut u8, (self.ptr as &mut u8).shared(), self.len * elem_size);
+            @memcpy(new_ptr as &mut u8, (self.ptr as &mut u8).view(), self.len * elem_size);
             alloc.free(self.ptr as &mut u8, old_layout);
         } else if self.cap > 0 {
             let old_layout = self.fixed_layout(self.cap, elem_size);
@@ -406,7 +406,7 @@ impl[T] &mut List[T] {
                 // `try_reserve` may have moved the backing allocation. When the
                 // source slice originally pointed into this list, remap it into
                 // the post-reserve buffer before copying.
-                src_ptr = (self.ptr + offset).shared();
+                src_ptr = (self.ptr + offset).view();
             }
             .None => {},
         };
@@ -551,7 +551,7 @@ impl[T] &mut List[T] {
 
         let new_ptr = new_ptr_u8 as &mut T;
 
-        @memcpy(new_ptr as &mut u8, (self.ptr as &mut u8).shared(), exact_layout.size);
+        @memcpy(new_ptr as &mut u8, (self.ptr as &mut u8).view(), exact_layout.size);
         let .{ Some: old_layout } = self.buffer_layout(self.cap)
             else return .{ Err: .CapacityOverflow };
         alloc.free(self.ptr as &mut u8, old_layout);

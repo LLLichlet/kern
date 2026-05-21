@@ -445,11 +445,11 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
     let command_line = build_shell_command_line(alloc, command).?..&;
     defer command_line.deinit(alloc);
 
-    let command_line_c = abi.cstr.owned(alloc, command_line.shared().as_str())
+    let command_line_c = abi.cstr.owned(alloc, command_line.view().as_str())
         .map_err(wrap_alloc_error).?..&;
     defer command_line_c.deinit(alloc);
 
-    let wide_command_line = utf8_z_to_wide(command_line_c.shared().ptr()).?;
+    let wide_command_line = utf8_z_to_wide(command_line_c.view().ptr()).?;
     defer free_wide_units(wide_command_line);
 
     let mut startup = StartupInfoW.{
@@ -783,7 +783,7 @@ pub fn metadata(path: &u8) Metadata!Error {
     defer free_wide_units(wide_path);
 
     let mut data: Win32FileAttributeData = undef;
-    if GetFileAttributesExW(wide_path.shared(), GET_FILE_EX_INFO_STANDARD, data..&) == 0 {
+    if GetFileAttributesExW(wide_path.view(), GET_FILE_EX_INFO_STANDARD, data..&) == 0 {
         return .{ Err: last_error() };
     }
 
@@ -841,7 +841,7 @@ pub fn scan_dir(path: &u8, search_path: &u8, visitor: &Fn(&[u8], FileType) bool)
     defer free_wide_units(wide_search_path);
 
     let mut data: Win32FindDataW = undef;
-    let handle = FindFirstFileW(wide_search_path.shared(), data..&);
+    let handle = FindFirstFileW(wide_search_path.view(), data..&);
     if handle == invalid_handle() {
         return .{ Err: last_error() };
     }
@@ -900,7 +900,7 @@ pub fn open_file(
     };
 
     let handle = CreateFileW(
-        wide_path.shared(),
+        wide_path.view(),
         access,
         FILE_SHARE_READ | FILE_SHARE_WRITE,
         0usize as &mut SecurityAttributes,
@@ -919,7 +919,7 @@ pub fn create_dir(path: &u8) bool!Error {
     let wide_path = utf8_z_to_wide(path).?;
     defer free_wide_units(wide_path);
 
-    if CreateDirectoryW(wide_path.shared(), 0usize as &mut SecurityAttributes) == 0 {
+    if CreateDirectoryW(wide_path.view(), 0usize as &mut SecurityAttributes) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -930,7 +930,7 @@ pub fn remove_dir(path: &u8) bool!Error {
     let wide_path = utf8_z_to_wide(path).?;
     defer free_wide_units(wide_path);
 
-    if RemoveDirectoryW(wide_path.shared()) == 0 {
+    if RemoveDirectoryW(wide_path.view()) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -941,7 +941,7 @@ pub fn remove_file(path: &u8) bool!Error {
     let wide_path = utf8_z_to_wide(path).?;
     defer free_wide_units(wide_path);
 
-    if DeleteFileW(wide_path.shared()) == 0 {
+    if DeleteFileW(wide_path.view()) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -955,7 +955,7 @@ pub fn rename(old_path: &u8, new_path: &u8) bool!Error {
     let wide_new_path = utf8_z_to_wide(new_path).?;
     defer free_wide_units(wide_new_path);
 
-    if MoveFileExW(wide_old_path.shared(), wide_new_path.shared(), MOVEFILE_REPLACE_EXISTING) == 0 {
+    if MoveFileExW(wide_old_path.view(), wide_new_path.view(), MOVEFILE_REPLACE_EXISTING) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };

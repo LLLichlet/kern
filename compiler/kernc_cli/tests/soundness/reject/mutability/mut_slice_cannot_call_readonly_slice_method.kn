@@ -1,4 +1,4 @@
-// source: mutable slices do not inherit shared slice method sets
+// source: mutable slices do not inherit read-only slice method sets
 // stderr: no field or method named `is_empty` found on type `&mut [i32]`
 
 fn main() i32 {

@@ -436,9 +436,9 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
 
     if pid == 0 {
         let mut argv = [4]usize.{
-            sh_arg.shared().ptr() as usize,
-            dash_lc.shared().ptr() as usize,
-            command_c.shared().ptr() as usize,
+            sh_arg.view().ptr() as usize,
+            dash_lc.view().ptr() as usize,
+            command_c.view().ptr() as usize,
             0,
         };
         let envp = environment_entries().map_or(0usize, [](envp: &&u8) usize {
@@ -460,7 +460,7 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
         _ = close_file(write_end);
         _ = syscall3_raw(
             SYS_EXECVE,
-            sh_path.shared().ptr() as usize,
+            sh_path.view().ptr() as usize,
             argv.[0]..& as usize,
             envp,
         );

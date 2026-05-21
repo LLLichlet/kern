@@ -150,7 +150,7 @@ impl[K, V] &mut Map[K, V]
         let mut probes = 0usize;
 
                 while probes < capacity {
-            if ctrl_at(ctrl.shared(), index) != FULL {
+            if ctrl_at(ctrl.view(), index) != FULL {
                 let entry = entry_ptr[K, V](entries, index);
                 entry.hash64 = hash;
                 entry.key = key;
@@ -174,7 +174,7 @@ impl[K, V] &mut Map[K, V]
 
         let mut i = 0usize;
         while i < self.capacity {
-            if ctrl_at(self.ctrl.shared(), i) != FULL {
+            if ctrl_at(self.ctrl.view(), i) != FULL {
                 i += 1;
                 continue;
             }
@@ -213,11 +213,11 @@ impl[K, V] &mut Map[K, V]
             return self.rebuild(alloc, self.capacity);
         }
 
-        if additional > USIZE_MAX - self.shared().len() {
+        if additional > USIZE_MAX - self.view().len() {
             return .{ Err: .CapacityOverflow };
         }
 
-        let required_len = self.shared().len() + additional;
+        let required_len = self.view().len() + additional;
         let .{ Some: required_occupied } = required_len.checked_add(self.tombstones)
             else return .{ Err: .CapacityOverflow };
         let .{ Some: target } = self.capacity_for_len(required_occupied)
@@ -241,7 +241,7 @@ impl[K, V] &mut Map[K, V]
         let mut probes = 0usize;
 
                 while probes < self.capacity {
-            let state = ctrl_at(self.ctrl.shared(), index);
+            let state = ctrl_at(self.ctrl.view(), index);
             if state == EMPTY {
                 if first_deleted < self.capacity {
                     return .{ Some: first_deleted };
@@ -271,12 +271,12 @@ impl[K, V] &mut Map[K, V]
         value: V,
     ) &mut V {
         let entry = entry_ptr[K, V](self.entries, slot);
-        let prev_state = ctrl_at(self.ctrl.shared(), slot);
+        let prev_state = ctrl_at(self.ctrl.view(), slot);
         entry.hash64 = hash;
         entry.key = key;
         entry.value = value;
         set_ctrl(self.ctrl, slot, FULL);
-        set_len[K, V](self, self.shared().len() + 1);
+        set_len[K, V](self, self.view().len() + 1);
         if prev_state == DELETED {
             self.tombstones -= 1;
         }
@@ -295,12 +295,12 @@ impl[K, V] &mut Map[K, V]
 
     /// Shrinks table capacity toward the current number of entries.
     pub fn try_shrink_to_fit(alloc: &mut Allocator) void!AllocError {
-        if self.shared().len() == 0 {
+        if self.view().len() == 0 {
             self.deinit(alloc);
             return .{ Ok: {} };
         }
 
-        let .{ Some: target } = self.capacity_for_len(self.shared().len())
+        let .{ Some: target } = self.capacity_for_len(self.view().len())
             else return .{ Err: .CapacityOverflow };
 
         if target == self.capacity and self.tombstones == 0 {
@@ -314,7 +314,7 @@ impl[K, V] &mut Map[K, V]
     pub fn try_insert(alloc: &mut Allocator, key: K, value: V) void!AllocError {
         let hash = key_hash(key);
         if self.capacity > 0 {
-            match find_index_with_hash[K, V](self.ctrl.shared(), self.entries, self.capacity, key, hash) {
+            match find_index_with_hash[K, V](self.ctrl.view(), self.entries, self.capacity, key, hash) {
                 .{ Some: index } => {
                     let entry = entry_ptr[K, V](self.entries, index);
                     entry.value = value;
@@ -341,7 +341,7 @@ impl[K, V] &mut Map[K, V]
     pub fn try_get_or_insert(alloc: &mut Allocator, key: K, value: V) (&mut V)!AllocError {
         let hash = key_hash(key);
         if self.capacity > 0 {
-            match find_index_with_hash[K, V](self.ctrl.shared(), self.entries, self.capacity, key, hash) {
+            match find_index_with_hash[K, V](self.ctrl.view(), self.entries, self.capacity, key, hash) {
                 .{ Some: index } => {
                     let entry = entry_ptr[K, V](self.entries, index);
                     return .{ Ok: entry.value..& };
@@ -365,7 +365,7 @@ impl[K, V] &mut Map[K, V]
     ) (&mut V)!AllocError {
         let hash = key_hash(key);
         if self.capacity > 0 {
-            match find_index_with_hash[K, V](self.ctrl.shared(), self.entries, self.capacity, key, hash) {
+            match find_index_with_hash[K, V](self.ctrl.view(), self.entries, self.capacity, key, hash) {
                 .{ Some: index } => {
                     let entry = entry_ptr[K, V](self.entries, index);
                     return .{ Ok: entry.value..& };
@@ -388,7 +388,7 @@ impl[K, V] &mut Map[K, V]
 
         let hash = key_hash(key);
         let .{ Some: slot } = find_index_with_hash[K, V](
-            self.ctrl.shared(),
+            self.ctrl.view(),
             self.entries,
             self.capacity,
             key,
@@ -406,7 +406,7 @@ impl[K, V] &mut Map[K, V]
             return true;
         };
         _ = visit_full[K, V](
-            self.ctrl.shared(),
+            self.ctrl.view(),
             self.entries,
             self.capacity,
             visit,
@@ -417,7 +417,7 @@ impl[K, V] &mut Map[K, V]
     pub fn retain_mut(pred: &Fn(K, &mut V) bool) void {
                 let mut i = 0usize;
         while i < self.capacity {
-            if ctrl_at(self.ctrl.shared(), i) != FULL {
+            if ctrl_at(self.ctrl.view(), i) != FULL {
                 i += 1;
                 continue;
             }
@@ -427,7 +427,7 @@ impl[K, V] &mut Map[K, V]
                 continue;
             }
             set_ctrl(self.ctrl, i, DELETED);
-            set_len[K, V](self, self.shared().len() - 1);
+            set_len[K, V](self, self.view().len() - 1);
             self.tombstones += 1;
 
             i += 1;
@@ -440,7 +440,7 @@ impl[K, V] &mut Map[K, V]
 
         let hash = key_hash(key);
         let .{ Some: slot } = find_index_with_hash[K, V](
-            self.ctrl.shared(),
+            self.ctrl.view(),
             self.entries,
             self.capacity,
             key,
@@ -450,7 +450,7 @@ impl[K, V] &mut Map[K, V]
         let entry = entry_ptr[K, V](self.entries, slot);
         let removed = entry.value;
         set_ctrl(self.ctrl, slot, DELETED);
-        set_len[K, V](self, self.shared().len() - 1);
+        set_len[K, V](self, self.view().len() - 1);
         self.tombstones += 1;
         return .{ Some: removed };
     }
@@ -459,7 +459,7 @@ impl[K, V] &mut Map[K, V]
     pub fn remove_where(pred: &Fn(K, V) bool) ?V {
                 let mut i = 0usize;
         while i < self.capacity {
-            if ctrl_at(self.ctrl.shared(), i) != FULL {
+            if ctrl_at(self.ctrl.view(), i) != FULL {
                 i += 1;
                 continue;
             }
@@ -470,7 +470,7 @@ impl[K, V] &mut Map[K, V]
             }
             let removed = entry.value;
             set_ctrl(self.ctrl, i, DELETED);
-            set_len[K, V](self, self.shared().len() - 1);
+            set_len[K, V](self, self.view().len() - 1);
             self.tombstones += 1;
             return .{ Some: removed };
 
@@ -483,7 +483,7 @@ impl[K, V] &mut Map[K, V]
     pub fn retain(pred: &Fn(K, V) bool) void {
                 let mut i = 0usize;
         while i < self.capacity {
-            if ctrl_at(self.ctrl.shared(), i) != FULL {
+            if ctrl_at(self.ctrl.view(), i) != FULL {
                 i += 1;
                 continue;
             }
@@ -493,7 +493,7 @@ impl[K, V] &mut Map[K, V]
                 continue;
             }
             set_ctrl(self.ctrl, i, DELETED);
-            set_len[K, V](self, self.shared().len() - 1);
+            set_len[K, V](self, self.view().len() - 1);
             self.tombstones += 1;
 
             i += 1;

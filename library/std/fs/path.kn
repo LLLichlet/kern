@@ -164,8 +164,8 @@ fn append_path_segment(
     sep: u8,
     segment: &[u8],
 ) bool {
-    let out_len = out.shared().len();
-    if out_len > 0 and !is_path_separator(out.shared().as_str().[out_len - 1]) and (prefix_len == 0 or out_len > prefix_len) {
+    let out_len = out.view().len();
+    if out_len > 0 and !is_path_separator(out.view().as_str().[out_len - 1]) and (prefix_len == 0 or out_len > prefix_len) {
         if out.try_push_char(alloc, sep).is_err() {
             return false;
         }
@@ -319,7 +319,7 @@ pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
         }
 
         if segment == ".." {
-            let can_pop = segments.shared().last().is_some_and([](last: &[u8]) bool {
+            let can_pop = segments.view().last().is_some_and([](last: &[u8]) bool {
                 return last != "..";
             });
             if can_pop {
@@ -339,7 +339,7 @@ pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
         out..&.try_push_str(alloc, path.&[0...prefix_len]).map_err(wrap_alloc_error).?;
     }
 
-    if segments.shared().is_empty() {
+    if segments.view().is_empty() {
         if prefix_len > 0 {
             return .{ Ok: out };
         }
@@ -348,8 +348,8 @@ pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
     }
 
     let mut seg_index = 0usize;
-    while seg_index < segments.shared().len() {
-        let .{ Some: segment } = segments.shared().get(seg_index) else {
+    while seg_index < segments.view().len() {
+        let .{ Some: segment } = segments.view().get(seg_index) else {
             seg_index += 1;
             continue;
         };

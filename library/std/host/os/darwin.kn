@@ -350,7 +350,7 @@ pub fn enable_raw_mode(handle: Handle) TerminalState!Error {
     system_cfmakeraw(state..&);
     state.c_cc.[VMIN] = 0;
     state.c_cc.[VTIME] = 1;
-    if system_tcsetattr(handle, TCSAFLUSH, state..&.shared()) < 0 {
+    if system_tcsetattr(handle, TCSAFLUSH, state..&.view()) < 0 {
         return .{ Err: last_error() };
     }
 

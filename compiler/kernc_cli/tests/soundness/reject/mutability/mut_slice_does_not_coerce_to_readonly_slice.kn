@@ -1,4 +1,4 @@
-// source: mutable slices must be explicitly narrowed before passing to shared slice parameters
+// source: mutable slices must be explicitly narrowed before passing to read-only slice parameters
 // stderr: mismatched types
 // stderr: expected `&[i32]`
 // stderr: found `&mut [i32]`

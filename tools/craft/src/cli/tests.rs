@@ -679,6 +679,17 @@ fn demo_executable_name() -> String {
     format!("demo{}", std::env::consts::EXE_SUFFIX)
 }
 
+fn target_build_root(root: &Path) -> PathBuf {
+    root.join(".craft").join("build").join("dev").join(format!(
+        "target-{}",
+        crate::script::host_target().layout_key()
+    ))
+}
+
+fn package_build_dir(root: &Path, area: &str, package: &str, kind: &str) -> PathBuf {
+    target_build_root(root).join(area).join(package).join(kind)
+}
+
 #[test]
 fn parses_check_with_path_and_feature_options() {
     let cmd = parse_args([
@@ -1732,7 +1743,7 @@ fn build_command_recovers_from_invalid_workspace_lock() {
 
     assert!(!root.join(".craft/lock/workspace.lock").exists());
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(demo_executable_name())
             .is_file()
     );
@@ -1749,23 +1760,14 @@ fn build_command_recovers_after_killed_process_leaves_partial_generated_state() 
         KillRecoveryMode::Build,
         FAILPOINT_AFTER_STAGED_OUTPUT_WRITE,
     );
+    let generated_src = package_build_dir(&root, "gen", "demo", "bin")
+        .join("demo")
+        .join("src");
+    assert!(generated_src.join("main.kn").exists());
+    assert!(generated_src.join("main.kn").is_file());
+    assert!(generated_src.join("helper.kn").is_file());
     assert!(
-        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("main.kn")
-            .exists()
-    );
-    assert!(
-        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("main.kn")
-            .is_file()
-    );
-    assert!(
-        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("helper.kn")
-            .is_file()
-    );
-    assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(demo_executable_name())
             .is_file()
     );
@@ -1785,17 +1787,17 @@ fn build_command_recovers_after_killed_process_leaves_partial_compile_state() {
     );
 
     assert!(
-        root.join(".craft/build/dev/target/obj/demo-0.1.0/bin")
+        package_build_dir(&root, "obj", "demo", "bin")
             .join("demo.o")
             .is_file()
     );
     assert!(
-        root.join(".craft/build/dev/target/obj/demo-0.1.0/bin")
+        package_build_dir(&root, "obj", "demo", "bin")
             .join(".demo.o.craft-state")
             .is_file()
     );
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(demo_executable_name())
             .is_file()
     );
@@ -1815,12 +1817,12 @@ fn build_command_recovers_after_killed_process_leaves_partial_link_state() {
     );
 
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(demo_executable_name())
             .is_file()
     );
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(format!(".{}.craft-state", demo_executable_name()))
             .is_file()
     );
@@ -1839,20 +1841,14 @@ fn check_command_recovers_after_killed_process_leaves_partial_generated_state() 
         FAILPOINT_AFTER_STAGED_OUTPUT_WRITE,
     );
 
-    assert!(
-        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("main.kn")
-            .is_file()
-    );
-    assert!(
-        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("helper.kn")
-            .is_file()
-    );
+    let generated_src = package_build_dir(&root, "gen", "demo", "bin")
+        .join("demo")
+        .join("src");
+    assert!(generated_src.join("main.kn").is_file());
+    assert!(generated_src.join("helper.kn").is_file());
     assert!(root.join(".craft/analysis.toml").is_file());
     assert!(
-        !root
-            .join(".craft/build/dev/target/obj/demo-0.1.0/bin")
+        !package_build_dir(&root, "obj", "demo", "bin")
             .join("demo.o")
             .exists()
     );
@@ -1872,14 +1868,12 @@ fn check_command_recovers_after_killed_process_leaves_partial_analysis_context()
     );
 
     assert!(root.join(".craft/analysis.toml").is_file());
+    let generated_src = package_build_dir(&root, "gen", "demo", "bin")
+        .join("demo")
+        .join("src");
+    assert!(generated_src.join("main.kn").is_file());
     assert!(
-        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("main.kn")
-            .is_file()
-    );
-    assert!(
-        !root
-            .join(".craft/build/dev/target/obj/demo-0.1.0/bin")
+        !package_build_dir(&root, "obj", "demo", "bin")
             .join("demo.o")
             .exists()
     );
@@ -1899,7 +1893,7 @@ fn run_command_recovers_after_killed_process_leaves_partial_link_state() {
     );
 
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(demo_executable_name())
             .is_file()
     );
@@ -1918,7 +1912,7 @@ fn test_command_recovers_after_killed_process_leaves_partial_link_state() {
         FAILPOINT_AFTER_LINK_STATE_WRITE,
     );
 
-    let test_out_dir = root.join(".craft/build/dev/target/out/demo-0.1.0/test");
+    let test_out_dir = package_build_dir(&root, "out", "demo", "test");
     assert!(test_out_dir.is_dir());
     assert!(
         fs::read_dir(&test_out_dir)
@@ -2072,13 +2066,13 @@ fn build_command_skips_test_targets() {
     .unwrap();
 
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(format!("demo{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
     assert!(
-        !root
-            .join(".craft/build/dev/target/out/demo-0.1.0/test/smoke")
+        !package_build_dir(&root, "out", "demo", "test")
+            .join("smoke")
             .exists()
     );
 
@@ -2099,12 +2093,12 @@ fn build_command_can_include_examples() {
     .unwrap();
 
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(format!("demo{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/example")
+        package_build_dir(&root, "out", "demo", "example")
             .join(format!("sample{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
@@ -2193,13 +2187,12 @@ fn run_command_can_execute_selected_example() {
     .unwrap();
 
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/example")
+        package_build_dir(&root, "out", "demo", "example")
             .join(format!("sample{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
     assert!(
-        !root
-            .join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        !package_build_dir(&root, "out", "demo", "bin")
             .join(format!("demo{}", std::env::consts::EXE_SUFFIX))
             .exists()
     );
@@ -2281,13 +2274,12 @@ fn test_command_can_execute_selected_test_target() {
     .unwrap();
 
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/test")
+        package_build_dir(&root, "out", "demo", "test")
             .join(format!("beta{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
     assert!(
-        !root
-            .join(".craft/build/dev/target/out/demo-0.1.0/test")
+        !package_build_dir(&root, "out", "demo", "test")
             .join(format!("alpha{}", std::env::consts::EXE_SUFFIX))
             .exists()
     );
@@ -2418,7 +2410,7 @@ root = "src/main.kn"
     .unwrap();
 
     assert!(
-        root.join(".craft/build/dev/target/out/member-0.1.0/bin")
+        package_build_dir(&root, "out", "member", "bin")
             .join(format!("member{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
@@ -2443,7 +2435,7 @@ fn build_command_member_path_uses_workspace_lock_and_output_root() {
     .unwrap();
 
     assert!(
-        root.join(".craft/build/dev/target/out/member-0.1.0/bin")
+        package_build_dir(&root, "out", "member", "bin")
             .join(format!("member{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );

@@ -359,7 +359,7 @@ root = "src/main.kn"
         &build_plan.workspace_root,
         &crate::script::host_target(),
         crate::graph::BuildDomain::Host,
-        &host_tool_package.package_id,
+        &host_tool_package.units[0].layout_key,
         &host_tool_package.units[0].profile.name,
         TargetKind::Bin,
         "codegen",
@@ -462,7 +462,7 @@ root = "src/beta.kn"
         &build_plan.workspace_root,
         &crate::script::host_target(),
         crate::graph::BuildDomain::Host,
-        &host_tool_package.package_id,
+        &host_tool_package.units[0].layout_key,
         &host_tool_package.units[0].profile.name,
         TargetKind::Bin,
         "beta",
@@ -556,6 +556,11 @@ root = "src/main.kn"
         .iter()
         .find(|unit| unit.target_kind == TargetKind::Bin)
         .unwrap();
+    let codegen_id = PackageId {
+        name: "codegen".to_string(),
+        version: "1".to_string(),
+        source: crate::graph::SourceId::Root,
+    };
     let expected_tool_path = artifact_path(
         &root
             .join(".craft")
@@ -565,13 +570,7 @@ root = "src/main.kn"
             .join("codegen"),
         &crate::script::host_target(),
         crate::graph::BuildDomain::Target,
-        &PackageId {
-            name: "codegen".to_string(),
-            version: "1".to_string(),
-            source: crate::graph::SourceId::PathDependency {
-                path: "vendor/codegen".to_string(),
-            },
-        },
+        &package_layout_key(&codegen_id),
         "dev",
         TargetKind::Bin,
         "codegen",

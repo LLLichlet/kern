@@ -303,7 +303,7 @@ root = "src/main.kn"
 #[test]
 fn release_thinlto_build_produces_runnable_binary() {
     let root = temp_dir("craft-release-thinlto-run");
-    let _summary = build_release_hello_workspace(
+    build_release_hello_workspace(
         &root,
         r#"
 [profile.release]
@@ -313,15 +313,31 @@ lto = "thin"
 "#,
     );
 
-    let executable = root
-        .join(".craft")
-        .join("build")
-        .join("release")
-        .join("target")
-        .join("out")
-        .join("hello-0.1.0")
-        .join("bin")
-        .join("hello");
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        true,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..FeatureSelection::default()
+        },
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let executable = action_plan
+        .link_actions
+        .iter()
+        .find(|action| {
+            action.package_id.name == "hello" && action.target_kind == crate::plan::TargetKind::Bin
+        })
+        .map(|action| action.artifact_path.clone())
+        .expect("expected hello executable");
     let output = run_binary_with_retry(&executable, 0);
     assert!(output.status.success());
 

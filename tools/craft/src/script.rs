@@ -148,6 +148,18 @@ pub struct ScriptTarget {
     pub env: String,
 }
 
+impl ScriptTarget {
+    pub fn layout_key(&self) -> String {
+        sanitize_layout_segment(&format!(
+            "{}-{}-{}-{}",
+            self.arch,
+            self.vendor,
+            self.os.as_str(),
+            self.env
+        ))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptProfile {
     pub name: String,
@@ -481,6 +493,15 @@ fn target_value(
 }
 
 impl ScriptOs {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Linux => "linux",
+            Self::Windows => "windows",
+            Self::Darwin => "darwin",
+        }
+    }
+
     fn tag(self) -> i128 {
         match self {
             Self::Unknown => SCRIPT_OS_UNKNOWN_TAG,
@@ -488,6 +509,23 @@ impl ScriptOs {
             Self::Windows => SCRIPT_OS_WINDOWS_TAG,
             Self::Darwin => SCRIPT_OS_DARWIN_TAG,
         }
+    }
+}
+
+fn sanitize_layout_segment(raw: &str) -> String {
+    let mut out = String::new();
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        "unknown".to_string()
+    } else {
+        trimmed.to_string()
     }
 }
 

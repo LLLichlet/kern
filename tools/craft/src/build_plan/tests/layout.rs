@@ -3,6 +3,98 @@
 use super::*;
 
 #[test]
+fn artifact_layout_keeps_versions_out_of_local_package_directories() {
+    let root = temp_dir("craft-build-plan-artifact-layout");
+    fs::create_dir_all(root.join("src")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.8.0"
+
+[[bin]]
+name = "demo"
+root = "src/main.kn"
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let actions = build_plan.derive_actions(&crate::script::host_target());
+    let artifact = &actions.link_actions[0].artifact_path;
+    let artifact_text = artifact.to_string_lossy().replace('\\', "/");
+
+    assert!(artifact_text.contains("/.craft/build/dev/target-"));
+    assert!(artifact_text.contains("/out/demo/bin/demo"));
+    assert!(!artifact_text.contains("demo-0.1.0"));
+    assert_eq!(build_plan.packages[0].layout_key, "demo");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn external_package_layout_keys_keep_identity_without_visible_versions() {
+    let first = PackageId {
+        name: "codegen".to_string(),
+        version: "1.2.3".to_string(),
+        source: crate::graph::SourceId::PathDependency {
+            path: "vendor/codegen".to_string(),
+        },
+    };
+    let second = PackageId {
+        name: "codegen".to_string(),
+        version: "1.2.3".to_string(),
+        source: crate::graph::SourceId::GitDependency {
+            git: "https://example.invalid/codegen.git".to_string(),
+            rev: None,
+            branch: None,
+            tag: Some("v1.2.3".to_string()),
+        },
+    };
+
+    let first_key = package_layout_key(&first);
+    let second_key = package_layout_key(&second);
+
+    assert!(first_key.starts_with("codegen~"));
+    assert!(second_key.starts_with("codegen~"));
+    assert!(!first_key.contains("1.2.3"));
+    assert!(!second_key.contains("1.2.3"));
+    assert_ne!(first_key, second_key);
+}
+
+#[test]
+fn target_layout_key_separates_environment_variants() {
+    let gnu = crate::script::ScriptTarget {
+        os: ScriptOs::Linux,
+        arch: "x86_64".to_string(),
+        vendor: "unknown".to_string(),
+        env: "gnu".to_string(),
+    };
+    let musl = crate::script::ScriptTarget {
+        env: "musl".to_string(),
+        ..gnu.clone()
+    };
+
+    assert_eq!(gnu.layout_key(), "x86_64-unknown-linux-gnu");
+    assert_eq!(musl.layout_key(), "x86_64-unknown-linux-musl");
+    assert_ne!(gnu.layout_key(), musl.layout_key());
+}
+
+#[test]
 fn derives_workspace_build_units_from_package_targets() {
     let root = temp_dir("craft-build-plan-targets");
     let app_dir = root.join("app");

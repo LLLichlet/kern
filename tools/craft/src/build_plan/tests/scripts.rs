@@ -1845,14 +1845,17 @@ match (b.paths.metadata) {
         .find(|unit| unit.target_kind == TargetKind::Bin)
         .unwrap();
 
-    let expected_build_root = workspace_build_root(&root, "dev", crate::graph::BuildDomain::Target)
+    let host_target = crate::script::host_target();
+    let target_domain = crate::graph::BuildDomain::Target;
+    let expected_build_root = workspace_build_root(&root, "dev", target_domain, &host_target)
         .to_string_lossy()
         .replace('\\', "/");
 
     let expected_lib_generated = generated_root_path(
         &root,
-        crate::graph::BuildDomain::Target,
-        &package.package_id,
+        target_domain,
+        &host_target,
+        &lib_unit.layout_key,
         "dev",
         TargetKind::Lib,
         "demo",
@@ -1861,8 +1864,9 @@ match (b.paths.metadata) {
     .replace('\\', "/");
     let expected_bin_generated = generated_root_path(
         &root,
-        crate::graph::BuildDomain::Target,
-        &package.package_id,
+        target_domain,
+        &host_target,
+        &bin_unit.layout_key,
         "dev",
         TargetKind::Bin,
         "demo",
@@ -1872,8 +1876,9 @@ match (b.paths.metadata) {
 
     let expected_lib_stage = artifact_root_path(
         &root,
-        crate::graph::BuildDomain::Target,
-        &package.package_id,
+        target_domain,
+        &host_target,
+        &lib_unit.layout_key,
         "dev",
         TargetKind::Lib,
         "demo",
@@ -1882,8 +1887,9 @@ match (b.paths.metadata) {
     .replace('\\', "/");
     let expected_bin_stage = artifact_root_path(
         &root,
-        crate::graph::BuildDomain::Target,
-        &package.package_id,
+        target_domain,
+        &host_target,
+        &bin_unit.layout_key,
         "dev",
         TargetKind::Bin,
         "demo",
@@ -1893,8 +1899,9 @@ match (b.paths.metadata) {
 
     let expected_lib_object = object_path(
         &root,
-        crate::graph::BuildDomain::Target,
-        &package.package_id,
+        target_domain,
+        &host_target,
+        &lib_unit.layout_key,
         "dev",
         TargetKind::Lib,
         "demo",
@@ -1903,8 +1910,9 @@ match (b.paths.metadata) {
     .replace('\\', "/");
     let expected_bin_object = object_path(
         &root,
-        crate::graph::BuildDomain::Target,
-        &package.package_id,
+        target_domain,
+        &host_target,
+        &bin_unit.layout_key,
         "dev",
         TargetKind::Bin,
         "demo",
@@ -1914,9 +1922,9 @@ match (b.paths.metadata) {
 
     let expected_lib_artifact = artifact_path(
         &root,
-        &crate::script::host_target(),
-        crate::graph::BuildDomain::Target,
-        &package.package_id,
+        &host_target,
+        target_domain,
+        &lib_unit.layout_key,
         "dev",
         TargetKind::Lib,
         "demo",
@@ -1925,9 +1933,9 @@ match (b.paths.metadata) {
     .replace('\\', "/");
     let expected_bin_artifact = artifact_path(
         &root,
-        &crate::script::host_target(),
-        crate::graph::BuildDomain::Target,
-        &package.package_id,
+        &host_target,
+        target_domain,
+        &bin_unit.layout_key,
         "dev",
         TargetKind::Bin,
         "demo",
@@ -1937,8 +1945,9 @@ match (b.paths.metadata) {
 
     let expected_lib_metadata = metadata_path(
         &root,
-        crate::graph::BuildDomain::Target,
-        &package.package_id,
+        target_domain,
+        &host_target,
+        &lib_unit.layout_key,
         "dev",
     )
     .to_string_lossy()

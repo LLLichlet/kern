@@ -23,8 +23,8 @@ pub use self::derive_support::derive_with_options_and_progress;
 use self::derive_support::resolve_compile_source_input;
 use self::paths::{
     artifact_kind, artifact_name, artifact_path, artifact_root_path, generated_root_path,
-    metadata_path, object_path, relative_display, resolve_staged_action, test_metadata_path,
-    workspace_build_root,
+    metadata_path, object_path, package_layout_key, relative_display, resolve_staged_action,
+    test_metadata_path, workspace_build_root,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +43,7 @@ pub struct DeriveOptions {
 pub struct PackageBuildPlan {
     pub domain: BuildDomain,
     pub package_id: PackageId,
+    pub layout_key: String,
     pub manifest_path: PathBuf,
     pub build_script: Option<BuildScriptInput>,
     pub build_local_dependencies: Vec<LocalDependencyBinding>,
@@ -54,6 +55,7 @@ pub struct PackageBuildPlan {
 pub struct BuildUnit {
     pub domain: BuildDomain,
     pub package_id: PackageId,
+    pub layout_key: String,
     pub package_root_path: PathBuf,
     pub target_kind: TargetKind,
     pub target_name: Option<String>,

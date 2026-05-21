@@ -8,11 +8,12 @@ use super::{
     BuildNodeBindings, BuildPlan, BuildScriptInput, BuildUnit, CompileSourceInput, DeriveOptions,
     ExternalDependencyBinding, LinkPlan, LocalDependencyBinding, PackageBuildPlan,
     SourceRootBinding, artifact_kind, artifact_name, artifact_path, artifact_root_path,
-    generated_root_path, metadata_path, object_path, relative_display, workspace_build_root,
+    generated_root_path, metadata_path, object_path, package_layout_key, relative_display,
+    workspace_build_root,
 };
 use crate::elaborate::{ElaborationPlan, PackageElaboration};
 use crate::error::Result;
-use crate::graph::{BuildDomain, PackageId};
+use crate::graph::{BuildDomain, PackageId, SourceId};
 use crate::manifest::Manifest;
 use crate::plan::{PackagePlan, TargetKind};
 use crate::resolver::{
@@ -171,11 +172,13 @@ pub fn derive_with_options_and_progress(
                             &elaboration.resolved_graph.workspace_root,
                             &unit.profile.name,
                             unit.domain,
+                            unit.domain.select_target(&host_target, &target_target),
                         )),
                         generated_root: normalized_path_string(&generated_root_path(
                             &elaboration.resolved_graph.workspace_root,
                             unit.domain,
-                            &unit.package_id,
+                            unit.domain.select_target(&host_target, &target_target),
+                            &unit.layout_key,
                             &unit.profile.name,
                             unit.target_kind,
                             &unit.artifact_name,
@@ -183,7 +186,8 @@ pub fn derive_with_options_and_progress(
                         artifact_root: normalized_path_string(&artifact_root_path(
                             &elaboration.resolved_graph.workspace_root,
                             unit.domain,
-                            &unit.package_id,
+                            unit.domain.select_target(&host_target, &target_target),
+                            &unit.layout_key,
                             &unit.profile.name,
                             unit.target_kind,
                             &unit.artifact_name,
@@ -191,7 +195,8 @@ pub fn derive_with_options_and_progress(
                         object_path: normalized_path_string(&object_path(
                             &elaboration.resolved_graph.workspace_root,
                             unit.domain,
-                            &unit.package_id,
+                            unit.domain.select_target(&host_target, &target_target),
+                            &unit.layout_key,
                             &unit.profile.name,
                             unit.target_kind,
                             &unit.artifact_name,
@@ -200,7 +205,7 @@ pub fn derive_with_options_and_progress(
                             &elaboration.resolved_graph.workspace_root,
                             unit.domain.select_target(&host_target, &target_target),
                             unit.domain,
-                            &unit.package_id,
+                            &unit.layout_key,
                             &unit.profile.name,
                             unit.target_kind,
                             &unit.artifact_name,
@@ -209,7 +214,8 @@ pub fn derive_with_options_and_progress(
                             normalized_path_string(&metadata_path(
                                 &elaboration.resolved_graph.workspace_root,
                                 unit.domain,
-                                &unit.package_id,
+                                unit.domain.select_target(&host_target, &target_target),
+                                &unit.layout_key,
                                 &unit.profile.name,
                             ))
                         }),
@@ -301,6 +307,7 @@ fn build_package_for_domain(
             BuildUnit {
                 domain,
                 package_id: source.resolved.id.clone(),
+                layout_key: package_layout_key(&source.resolved.id),
                 package_root_path: source
                     .elaboration
                     .plan
@@ -333,6 +340,7 @@ fn build_package_for_domain(
     PackageBuildPlan {
         domain,
         package_id: source.resolved.id.clone(),
+        layout_key: package_layout_key(&source.resolved.id),
         manifest_path: source.elaboration.plan.manifest_path.clone(),
         build_script: source.build_script.clone(),
         build_local_dependencies,
@@ -512,7 +520,7 @@ fn build_tool_index(
                     workspace_root,
                     unit.domain.select_target(host, target),
                     unit.domain,
-                    &unit.package_id,
+                    &unit.layout_key,
                     &unit.profile.name,
                     unit.target_kind,
                     &unit.artifact_name,
@@ -574,6 +582,10 @@ fn build_external_tool_index(
             version: package.version.clone(),
             source: fetched.id.source.clone(),
         };
+        let cache_package_id = PackageId {
+            source: SourceId::Root,
+            ..package_id.clone()
+        };
         let plan =
             PackagePlan::from_manifest(&external_manifest_path, &package_id, &external_manifest)?;
         let profile = script::manifest_profile(&external_manifest, profile_selection);
@@ -592,7 +604,7 @@ fn build_external_tool_index(
                     &fetched.cache_path,
                     host,
                     BuildDomain::Target,
-                    &package_id,
+                    &package_layout_key(&cache_package_id),
                     &profile.name,
                     TargetKind::Bin,
                     &target_name,

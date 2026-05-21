@@ -177,6 +177,25 @@ All machine-local state owned by `craft` lives under `.craft/`. That tree is
 derived state, not part of the reproducibility surface, and does not belong in
 version control.
 
+Build outputs are arranged under `.craft/build/<profile>/<domain-target>/`.
+The `<domain-target>` segment combines the build domain (`host` or `target`)
+with the resolved target layout key, including architecture, vendor, operating
+system, and environment. This keeps host tools, target artifacts, and ABI
+variants isolated without pushing package outputs through extra nested
+directories.
+
+Within that target-specific root, local workspace packages use the package
+name as their artifact directory. External package identities that can collide
+use a short stable hash suffix, such as `codegen~1a2b3c4d`. Package versions
+remain in manifests, the lockfile, and fingerprints; they are not used as a
+visible local artifact directory layer.
+
+Use `craft clean` to remove derived `.craft/` state instead of manually deleting
+`.craft/`. The command preserves `.craft/lock/` while removing build outputs,
+materialized sources/resources, docs, and analysis state so the next command can
+reconstruct them from `Craft.toml`, `Craft.lock`, package sources, and declared
+resources.
+
 `craft` maintains a root `.gitignore` entry for `.craft/` next to `Craft.toml`
 when it creates local state. The ignore rule belongs at the package or
 workspace root rather than inside `.craft/`, because the derived-state
@@ -1031,6 +1050,7 @@ This keeps package management, graph resolution, and code generation cleanly sep
 The command surface is intentionally narrow:
 
 - `craft help`
+- `craft clean`
 - `craft check`
 - `craft fetch`
 - `craft publish`
@@ -1058,6 +1078,8 @@ Command behavior:
   horizontal whitespace and enforcing final-newline consistency
 - `style` reports source metrics, public-doc coverage, and configurable
   advisory style suggestions without mutating source files
+- `clean` removes derived `.craft/` state for the selected package or workspace
+  while preserving lock files used to coordinate concurrent commands
 - `build` auto-synchronizes `Craft.lock` and executes the selected build plan
 - `install` auto-synchronizes `Craft.lock`, builds selected package `bin` targets, and copies them into the active install root's `bin/` directory
 - `uninstall` auto-synchronizes `Craft.lock` and removes installed package `bin` targets from that same install root

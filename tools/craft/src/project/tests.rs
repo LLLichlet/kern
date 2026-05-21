@@ -754,9 +754,12 @@ pub fn build(b: &mut builder.Builder) void {
         .join(".craft")
         .join("build")
         .join("dev")
-        .join("target")
+        .join(format!(
+            "target-{}",
+            crate::script::host_target().layout_key()
+        ))
         .join("gen")
-        .join("app-0.1.0")
+        .join("app")
         .join("bin")
         .join("app")
         .join("src")
@@ -864,9 +867,12 @@ kern = \"0.8.0\"
         .join(".craft")
         .join("build")
         .join("dev")
-        .join("target")
+        .join(format!(
+            "target-{}",
+            crate::script::host_target().layout_key()
+        ))
         .join("gen")
-        .join("app-0.1.0")
+        .join("app")
         .join("bin")
         .join("app")
         .join("src")

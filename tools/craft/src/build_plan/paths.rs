@@ -4,7 +4,7 @@
 //! generated roots, and runtime package locations stable across build modes.
 
 use super::{ArtifactKind, StagedAction, StagedActionKind};
-use crate::graph::{BuildDomain, PackageId};
+use crate::graph::{BuildDomain, PackageId, SourceId};
 use crate::plan::TargetKind;
 use crate::script;
 use std::path::{Path, PathBuf};
@@ -36,44 +36,57 @@ impl BuildDomain {
     }
 }
 
-pub(super) fn object_path(
-    workspace_root: &Path,
-    domain: BuildDomain,
-    package_id: &PackageId,
-    profile: &str,
-    kind: TargetKind,
-    artifact_name: &str,
-) -> PathBuf {
-    workspace_build_root(workspace_root, profile, domain)
-        .join("obj")
-        .join(package_dir_name(package_id))
-        .join(kind.as_str())
-        .join(format!("{artifact_name}.o"))
+pub(super) fn package_layout_key(package_id: &PackageId) -> String {
+    let base = sanitize_layout_segment(&package_id.name);
+    match package_id.source {
+        SourceId::Root | SourceId::WorkspaceMember { .. } => base,
+        SourceId::PathDependency { .. } | SourceId::GitDependency { .. } => {
+            format!("{base}~{:08x}", package_identity_hash(package_id))
+        }
+    }
 }
 
 pub(super) fn workspace_build_root(
     workspace_root: &Path,
     profile: &str,
     domain: BuildDomain,
+    target: &script::ScriptTarget,
 ) -> PathBuf {
     workspace_root
         .join(".craft")
         .join("build")
         .join(profile)
-        .join(domain.as_str())
+        .join(format!("{}-{}", domain.as_str(), target.layout_key()))
+}
+
+pub(super) fn object_path(
+    workspace_root: &Path,
+    domain: BuildDomain,
+    target: &script::ScriptTarget,
+    package_layout_key: &str,
+    profile: &str,
+    kind: TargetKind,
+    artifact_name: &str,
+) -> PathBuf {
+    workspace_build_root(workspace_root, profile, domain, target)
+        .join("obj")
+        .join(package_layout_key)
+        .join(kind.as_str())
+        .join(format!("{artifact_name}.o"))
 }
 
 pub(super) fn generated_root_path(
     workspace_root: &Path,
     domain: BuildDomain,
-    package_id: &PackageId,
+    target: &script::ScriptTarget,
+    package_layout_key: &str,
     profile: &str,
     kind: TargetKind,
     artifact_name: &str,
 ) -> PathBuf {
-    workspace_build_root(workspace_root, profile, domain)
+    workspace_build_root(workspace_root, profile, domain, target)
         .join("gen")
-        .join(package_dir_name(package_id))
+        .join(package_layout_key)
         .join(kind.as_str())
         .join(artifact_name)
 }
@@ -81,14 +94,15 @@ pub(super) fn generated_root_path(
 pub(super) fn artifact_root_path(
     workspace_root: &Path,
     domain: BuildDomain,
-    package_id: &PackageId,
+    target: &script::ScriptTarget,
+    package_layout_key: &str,
     profile: &str,
     kind: TargetKind,
     artifact_name: &str,
 ) -> PathBuf {
-    workspace_build_root(workspace_root, profile, domain)
+    workspace_build_root(workspace_root, profile, domain, target)
         .join("stage")
-        .join(package_dir_name(package_id))
+        .join(package_layout_key)
         .join(kind.as_str())
         .join(artifact_name)
 }
@@ -97,7 +111,7 @@ pub(super) fn artifact_path(
     workspace_root: &Path,
     target: &script::ScriptTarget,
     domain: BuildDomain,
-    package_id: &PackageId,
+    package_layout_key: &str,
     profile: &str,
     kind: TargetKind,
     artifact_name: &str,
@@ -113,9 +127,9 @@ pub(super) fn artifact_path(
         }
     };
 
-    workspace_build_root(workspace_root, profile, domain)
+    workspace_build_root(workspace_root, profile, domain, target)
         .join("out")
-        .join(package_dir_name(package_id))
+        .join(package_layout_key)
         .join(kind.as_str())
         .join(file_name)
 }
@@ -123,29 +137,83 @@ pub(super) fn artifact_path(
 pub(super) fn metadata_path(
     workspace_root: &Path,
     domain: BuildDomain,
-    package_id: &PackageId,
+    target: &script::ScriptTarget,
+    package_layout_key: &str,
     profile: &str,
 ) -> PathBuf {
-    workspace_build_root(workspace_root, profile, domain)
+    workspace_build_root(workspace_root, profile, domain, target)
         .join("meta")
-        .join(package_dir_name(package_id))
+        .join(package_layout_key)
 }
 
 pub(super) fn test_metadata_path(
     workspace_root: &Path,
     domain: BuildDomain,
-    package_id: &PackageId,
+    target: &script::ScriptTarget,
+    package_layout_key: &str,
     profile: &str,
     artifact_name: &str,
 ) -> PathBuf {
-    workspace_build_root(workspace_root, profile, domain)
+    workspace_build_root(workspace_root, profile, domain, target)
         .join("test")
-        .join(package_dir_name(package_id))
+        .join(package_layout_key)
         .join(format!("{artifact_name}.cases"))
 }
 
-fn package_dir_name(package_id: &PackageId) -> String {
-    format!("{}-{}", package_id.name, package_id.version)
+fn sanitize_layout_segment(raw: &str) -> String {
+    let mut out = String::new();
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        "package".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn package_identity_hash(package_id: &PackageId) -> u32 {
+    let mut hash = 0x811c9dc5u32;
+    fn update(hash: &mut u32, text: &str) {
+        for byte in text.as_bytes() {
+            *hash ^= u32::from(*byte);
+            *hash = hash.wrapping_mul(0x01000193);
+        }
+        *hash ^= 0xff;
+        *hash = hash.wrapping_mul(0x01000193);
+    }
+
+    update(&mut hash, &package_id.name);
+    update(&mut hash, &package_id.version);
+    match &package_id.source {
+        SourceId::Root => update(&mut hash, "root"),
+        SourceId::WorkspaceMember { path } => {
+            update(&mut hash, "workspace");
+            update(&mut hash, path);
+        }
+        SourceId::PathDependency { path } => {
+            update(&mut hash, "path");
+            update(&mut hash, path);
+        }
+        SourceId::GitDependency {
+            git,
+            rev,
+            branch,
+            tag,
+        } => {
+            update(&mut hash, "git");
+            update(&mut hash, git);
+            update(&mut hash, rev.as_deref().unwrap_or(""));
+            update(&mut hash, branch.as_deref().unwrap_or(""));
+            update(&mut hash, tag.as_deref().unwrap_or(""));
+        }
+    }
+    hash
 }
 
 pub(super) fn relative_display(root: &Path, path: &Path) -> String {

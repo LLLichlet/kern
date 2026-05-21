@@ -194,18 +194,15 @@ return 42;
 
     let summary = run(&build_plan, &action_plan, unit).unwrap();
     assert!(summary.executable.is_file());
-    validate_package_metadata_root(
-        &root
-            .join(".craft")
-            .join("build")
-            .join("dev")
-            .join("target")
-            .join("meta")
-            .join("util-0.1.0"),
-        "util",
-        Some("0.1.0"),
-    )
-    .unwrap();
+    let util_metadata_path = action_plan
+        .compile_actions
+        .iter()
+        .find(|action| {
+            action.package_id.name == "util" && action.target_kind == crate::plan::TargetKind::Lib
+        })
+        .and_then(|action| action.metadata_path.as_ref())
+        .expect("expected util metadata path");
+    validate_package_metadata_root(util_metadata_path, "util", Some("0.1.0")).unwrap();
 
     let _ = fs::remove_dir_all(root);
 }

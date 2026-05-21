@@ -264,9 +264,6 @@ pub(super) fn build_with_command(
         if let Some(progress) = &progress {
             progress.set_detail(format!("compile parallel batch ({} jobs)", jobs.len()));
         }
-        let _progress_suspend = progress
-            .as_ref()
-            .map(|progress| progress.suspend_terminal());
         let _long_action = progress.as_ref().map(|progress| {
             progress.report_long_action(
                 "compiling",
@@ -354,9 +351,6 @@ pub(super) fn build_with_command(
             parallel_jobs.len()
         ));
     }
-    let _progress_suspend = progress
-        .as_ref()
-        .map(|progress| progress.suspend_terminal());
     let _long_action = progress.as_ref().and_then(|progress| {
         (!parallel_jobs.is_empty()).then(|| {
             progress.report_long_action(

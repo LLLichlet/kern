@@ -639,11 +639,6 @@ fn ensure_compile_action_built(
         progress.set_phase(ExecutionPhase::Compile);
         progress.set_detail(compile_progress_label(action));
     }
-    let _progress_suspend = session
-        .state
-        .progress
-        .as_ref()
-        .map(|progress| progress.suspend_terminal());
     let built = build_compile_action_if_needed(
         action,
         options,
@@ -684,11 +679,6 @@ fn ensure_link_action_built(
         progress.set_phase(ExecutionPhase::Link);
         progress.set_detail(link_progress_label(action));
     }
-    let _progress_suspend = session
-        .state
-        .progress
-        .as_ref()
-        .map(|progress| progress.suspend_terminal());
     let linked_now = build_link_action_if_needed(
         action,
         options,

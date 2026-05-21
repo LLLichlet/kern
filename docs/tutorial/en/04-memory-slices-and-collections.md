@@ -212,6 +212,10 @@ for item in values..&[...].iter() {
 ```
 
 `values..&[...]` is `&mut [i32]`, so the iterator produces `&mut i32` values.
+Kern keeps the method name the same and lets the concrete receiver type carry
+the permission: `&[T].iter()` is read-only, while `&mut [T].iter()` is mutable.
+Owned containers follow the same rule; for example `list.&.iter()` reads a
+`List[T]`, while `list..&.iter()` can yield writable element pointers.
 
 ## Pointers
 

@@ -32,7 +32,35 @@ pub use .iter.{
     skip_iter,
 };
 pub use .list_impl.{InsertError, List};
-pub use .map_impl.Map;
+pub use .map_impl.{
+    Map,
+    MapEnumerateIter,
+    MapItem,
+    MapIter,
+    MapMutEnumerateIter,
+    MapMutItem,
+    MapMutIter,
+    MapMutSkipEnumerateIter,
+    MapMutSkipIter,
+    MapSkipEnumerateIter,
+    MapSkipIter,
+};
+pub use .ranges.{
+    RangeEnumerate,
+    RangeInclusiveEnumerate,
+    RangeInclusiveSkip,
+    RangeInclusiveSkipEnumerate,
+    RangeRev,
+    RangeRevEnumerate,
+    RangeRevInclusive,
+    RangeRevInclusiveEnumerate,
+    RangeRevInclusiveSkip,
+    RangeRevInclusiveSkipEnumerate,
+    RangeRevSkip,
+    RangeRevSkipEnumerate,
+    RangeSkip,
+    RangeSkipEnumerate,
+};
 pub use .slice.{
     bytes_eq,
     find_byte,
@@ -54,7 +82,19 @@ pub use .cow_string.{
     borrowed_string,
     owned_string,
 };
-pub use .tree_impl.Tree;
+pub use .tree_impl.{
+    Tree,
+    TreeEnumerateIter,
+    TreeItem,
+    TreeIter,
+    TreeMutEnumerateIter,
+    TreeMutItem,
+    TreeMutIter,
+    TreeMutSkipEnumerateIter,
+    TreeMutSkipIter,
+    TreeSkipEnumerateIter,
+    TreeSkipIter,
+};
 
 /// Creates an empty growable list.
 pub fn list[T]() List[T] {

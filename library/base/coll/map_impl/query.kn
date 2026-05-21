@@ -1,18 +1,239 @@
 use base.hash.Hash;
-use base.coll.List;
+use base.coll.{EnumerateItem, Iterator, List};
 use base.mem.alloc.{AllocError, Allocator};
 use ..base.{
+    FULL,
     Entry,
+    MapEnumerateIter,
+    MapItem,
+    MapIter,
+    MapMutEnumerateIter,
+    MapMutItem,
+    MapMutIter,
+    MapMutSkipEnumerateIter,
+    MapMutSkipIter,
+    MapSkipEnumerateIter,
+    MapSkipIter,
     Map,
+    ctrl_at,
     entry_ptr,
     key_hash,
     find_index_with_hash,
     visit_full,
 };
 
+impl[K, V] &mut MapIter[K, V] : Iterator {
+    type Item = MapItem[K, V];
+
+    pub fn next() ?Item {
+        while self.index < self.capacity {
+            let index = self.index;
+            self.index += 1;
+
+            if ctrl_at(self.ctrl, index) != FULL {
+                continue;
+            }
+
+            let entry = entry_ptr[K, V](self.entries, index);
+            return .{ Some: .{ key: entry.key, value: entry.value } };
+        }
+
+        return .None;
+    }
+}
+
+impl[K, V] &mut MapIter[K, V] {
+    pub fn skip(count: usize) MapSkipIter[K, V] {
+        return .{ inner: self.*, remaining: count };
+    }
+
+    pub fn enumerate() MapEnumerateIter[K, V] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[K, V] MapIter[K, V] {
+    pub fn skip(count: usize) MapSkipIter[K, V] {
+        return .{ inner: self, remaining: count };
+    }
+
+    pub fn enumerate() MapEnumerateIter[K, V] {
+        return .{ inner: self };
+    }
+}
+
+impl[K, V] &mut MapSkipIter[K, V] : Iterator {
+    type Item = MapItem[K, V];
+
+    pub fn next() ?Item {
+        while self.remaining != 0 {
+            match self.inner..&.next() {
+                .{ Some: _ } => self.remaining -= 1,
+                .None => {
+                    self.remaining = 0;
+                    return .None;
+                },
+            }
+        }
+        return self.inner..&.next();
+    }
+}
+
+impl[K, V] &mut MapSkipIter[K, V] {
+    pub fn skip(count: usize) MapSkipIter[K, V] {
+        self.remaining += count;
+        return self.*;
+    }
+
+    pub fn enumerate() MapSkipEnumerateIter[K, V] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[K, V] MapSkipIter[K, V] {
+    pub fn enumerate() MapSkipEnumerateIter[K, V] {
+        return .{ inner: self };
+    }
+}
+
+impl[K, V] &mut MapEnumerateIter[K, V] : Iterator {
+    type Item = EnumerateItem[MapItem[K, V]];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
+
+impl[K, V] &mut MapSkipEnumerateIter[K, V] : Iterator {
+    type Item = EnumerateItem[MapItem[K, V]];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
+
+impl[K, V] &mut MapMutIter[K, V] : Iterator {
+    type Item = MapMutItem[K, V];
+
+    pub fn next() ?Item {
+        while self.index < self.capacity {
+            let index = self.index;
+            self.index += 1;
+
+            if ctrl_at(self.ctrl, index) != FULL {
+                continue;
+            }
+
+            let entry = entry_ptr[K, V](self.entries, index);
+            return .{ Some: .{ key: entry.key, value: entry.value..& } };
+        }
+
+        return .None;
+    }
+}
+
+impl[K, V] &mut MapMutIter[K, V] {
+    pub fn skip(count: usize) MapMutSkipIter[K, V] {
+        return .{ inner: self.*, remaining: count };
+    }
+
+    pub fn enumerate() MapMutEnumerateIter[K, V] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[K, V] MapMutIter[K, V] {
+    pub fn skip(count: usize) MapMutSkipIter[K, V] {
+        return .{ inner: self, remaining: count };
+    }
+
+    pub fn enumerate() MapMutEnumerateIter[K, V] {
+        return .{ inner: self };
+    }
+}
+
+impl[K, V] &mut MapMutSkipIter[K, V] : Iterator {
+    type Item = MapMutItem[K, V];
+
+    pub fn next() ?Item {
+        while self.remaining != 0 {
+            match self.inner..&.next() {
+                .{ Some: _ } => self.remaining -= 1,
+                .None => {
+                    self.remaining = 0;
+                    return .None;
+                },
+            }
+        }
+        return self.inner..&.next();
+    }
+}
+
+impl[K, V] &mut MapMutSkipIter[K, V] {
+    pub fn skip(count: usize) MapMutSkipIter[K, V] {
+        self.remaining += count;
+        return self.*;
+    }
+
+    pub fn enumerate() MapMutSkipEnumerateIter[K, V] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[K, V] MapMutSkipIter[K, V] {
+    pub fn enumerate() MapMutSkipEnumerateIter[K, V] {
+        return .{ inner: self };
+    }
+}
+
+impl[K, V] &mut MapMutEnumerateIter[K, V] : Iterator {
+    type Item = EnumerateItem[MapMutItem[K, V]];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
+
+impl[K, V] &mut MapMutSkipEnumerateIter[K, V] : Iterator {
+    type Item = EnumerateItem[MapMutItem[K, V]];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
+
 impl[K, V] &Map[K, V]
     where K: Eq[K] + Hash[K],
 {
+    /// Returns an iterator over copied key-value pairs in table order.
+    pub fn iter() MapIter[K, V] {
+        return .{ ctrl: self.ctrl as &u8, entries: self.entries, capacity: self.capacity };
+    }
+
     /// Returns `true` when the map contains `key`.
     pub fn contains(key: K) bool {
         return self.get(key).is_some();

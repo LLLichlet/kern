@@ -195,6 +195,20 @@ fn check_dirs[W](gpa: &mut base.mem.alloc.Allocator, root: &[u8], t: &mut Report
     let entries = nested.as_str().path().read_dir_entries(gpa).should_ok().sum(@loc(), t)..&;
     defer entries.deinit(gpa);
     (entries.len() >= 1).should().sum(@loc(), t);
+    let mut entry_names = 0usize;
+    for entry in (entries as &fs.DirEntries).iter() {
+        if entry.name == "note.txt" and entry.is_file() {
+            entry_names += 1;
+        }
+    }
+    entry_names.should().eq(1usize).sum(@loc(), t);
+    let mut mutable_entry_names = 0usize;
+    for entry in entries.iter() {
+        if entry.*.name == "note.txt" and entry.*.is_file() {
+            mutable_entry_names += 1;
+        }
+    }
+    mutable_entry_names.should().eq(1usize).sum(@loc(), t);
 
     let mut walked_all = 0usize;
     root.path().walk_dir(gpa, [walked = walked_all..&](_: &[u8], _: fs.DirEntry, _: usize) bool {

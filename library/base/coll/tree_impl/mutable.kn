@@ -12,6 +12,7 @@ use ..base.{
     MAX_CHILDREN,
     Node,
     Tree,
+    TreeMutIter,
     key_at,
     child_at,
     set_key,
@@ -23,12 +24,18 @@ use ..base.{
     last_hit,
     ceil_hit,
     floor_hit,
+    first_hit,
     set_len,
 };
 
 impl[K, V] &mut Tree[K, V]
     where K: Ord[K],
 {
+    /// Returns an iterator over key-value pairs with mutable value access in sorted key order.
+    pub fn iter() TreeMutIter[K, V] {
+        return .{ root: self.root, next: first_hit[K, V](self.root) };
+    }
+
     fn compare(lhs: K, rhs: K) i32 {
         return lhs.cmp(rhs);
     }

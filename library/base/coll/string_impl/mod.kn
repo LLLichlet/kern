@@ -3,7 +3,7 @@
 //! `String` is a growable UTF-8-oriented byte buffer built on top of `List[u8]`.
 
 use base.mem.alloc.{AllocError, Allocator};
-use base.coll.{InsertError, List};
+use base.coll.{InsertError, List, SliceIter};
 
 mod query;
 
@@ -143,6 +143,11 @@ impl &String {
     /// Alias for `as_str`.
     pub fn as_bytes() &[u8] {
         return self.as_str();
+    }
+
+    /// Returns an iterator over bytes.
+    pub fn iter() SliceIter[u8] {
+        return self.as_str().iter();
     }
 
     /// Returns the current byte length.

@@ -23,6 +23,64 @@ pub.. struct Entry[K, V] {
     pub value: V,
 };
 
+/// A copied key-value pair yielded by read-only map iteration.
+pub struct MapItem[K, V] {
+    pub key: K,
+    pub value: V,
+};
+
+/// A key and mutable value pointer yielded by mutable map iteration.
+pub struct MapMutItem[K, V] {
+    pub key: K,
+    pub value: &mut V,
+};
+
+/// Iterator over copied hash-map entries in table order.
+pub struct MapIter[K, V] {
+    pub.. ctrl: &u8,
+    pub.. entries: &mut Entry[K, V],
+    pub.. capacity: usize,
+    pub.. index: usize = 0,
+};
+
+pub struct MapSkipIter[K, V] {
+    pub.. inner: MapIter[K, V],
+    pub.. remaining: usize,
+};
+
+pub struct MapEnumerateIter[K, V] {
+    pub.. inner: MapIter[K, V],
+    pub.. index: usize = 0,
+};
+
+pub struct MapSkipEnumerateIter[K, V] {
+    pub.. inner: MapSkipIter[K, V],
+    pub.. index: usize = 0,
+};
+
+/// Iterator over hash-map entries with mutable value access in table order.
+pub struct MapMutIter[K, V] {
+    pub.. ctrl: &u8,
+    pub.. entries: &mut Entry[K, V],
+    pub.. capacity: usize,
+    pub.. index: usize = 0,
+};
+
+pub struct MapMutSkipIter[K, V] {
+    pub.. inner: MapMutIter[K, V],
+    pub.. remaining: usize,
+};
+
+pub struct MapMutEnumerateIter[K, V] {
+    pub.. inner: MapMutIter[K, V],
+    pub.. index: usize = 0,
+};
+
+pub struct MapMutSkipEnumerateIter[K, V] {
+    pub.. inner: MapMutSkipIter[K, V],
+    pub.. index: usize = 0,
+};
+
 /// A raw table allocation used during rebuilds.
 pub.. struct Table[K, V] {
     /// Control bytes describing whether each slot is empty, deleted, or full.

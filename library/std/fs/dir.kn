@@ -4,7 +4,7 @@
 //! keep traversal explicit, return visited counts, and leave path ownership with the caller.
 
 use std.host.os;
-use base.coll.{List, String};
+use base.coll.{List, SliceIter, SliceMutIter, String};
 use base.mem.array_layout_of;
 use base.mem.alloc.{AllocError, Allocator};
 use base.num;
@@ -55,6 +55,11 @@ impl &mut DirEntries {
         return self.raw..&.as_mut_slice();
     }
 
+    /// Returns an iterator over mutable owned entries.
+    pub fn iter() SliceMutIter[OwnedDirEntry] {
+        return self.raw..&.iter();
+    }
+
     fn try_reserve(
         alloc: &mut Allocator,
         entry_count: usize,
@@ -92,6 +97,11 @@ impl &DirEntries {
     /// Returns an immutable slice of owned entries.
     pub fn as_slice() &[OwnedDirEntry] {
         return self.raw.&.as_slice();
+    }
+
+    /// Returns an iterator over copied owned entries.
+    pub fn iter() SliceIter[OwnedDirEntry] {
+        return self.raw.&.iter();
     }
 
     /// Returns the number of owned entries.

@@ -14,6 +14,7 @@ use ..base.{
     FULL,
     MIN_CAPACITY,
     Entry,
+    MapMutIter,
     Table,
     Map,
     ctrl_at,
@@ -29,6 +30,11 @@ use ..base.{
 impl[K, V] &mut Map[K, V]
     where K: Eq[K] + Hash[K],
 {
+    /// Returns an iterator over key-value pairs with mutable value access in table order.
+    pub fn iter() MapMutIter[K, V] {
+        return .{ ctrl: self.ctrl as &u8, entries: self.entries, capacity: self.capacity };
+    }
+
     fn max_usize(lhs: usize, rhs: usize) usize {
         return if lhs > rhs lhs else rhs;
     }

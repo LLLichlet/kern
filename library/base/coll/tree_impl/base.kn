@@ -36,6 +36,60 @@ pub.. struct SearchHit[K, V] {
     pub index: usize,
 };
 
+/// A copied key-value pair yielded by read-only tree iteration.
+pub struct TreeItem[K, V] {
+    pub key: K,
+    pub value: V,
+};
+
+/// A key and mutable value pointer yielded by mutable tree iteration.
+pub struct TreeMutItem[K, V] {
+    pub key: K,
+    pub value: &mut V,
+};
+
+/// Iterator over copied tree entries in sorted key order.
+pub struct TreeIter[K, V] where K: Ord[K] {
+    pub.. root: ?&mut Node[K, V] = .None,
+    pub.. next: ?SearchHit[K, V] = .None,
+};
+
+pub struct TreeSkipIter[K, V] where K: Ord[K] {
+    pub.. inner: TreeIter[K, V],
+    pub.. remaining: usize,
+};
+
+pub struct TreeEnumerateIter[K, V] where K: Ord[K] {
+    pub.. inner: TreeIter[K, V],
+    pub.. index: usize = 0,
+};
+
+pub struct TreeSkipEnumerateIter[K, V] where K: Ord[K] {
+    pub.. inner: TreeSkipIter[K, V],
+    pub.. index: usize = 0,
+};
+
+/// Iterator over tree entries with mutable value access in sorted key order.
+pub struct TreeMutIter[K, V] where K: Ord[K] {
+    pub.. root: ?&mut Node[K, V] = .None,
+    pub.. next: ?SearchHit[K, V] = .None,
+};
+
+pub struct TreeMutSkipIter[K, V] where K: Ord[K] {
+    pub.. inner: TreeMutIter[K, V],
+    pub.. remaining: usize,
+};
+
+pub struct TreeMutEnumerateIter[K, V] where K: Ord[K] {
+    pub.. inner: TreeMutIter[K, V],
+    pub.. index: usize = 0,
+};
+
+pub struct TreeMutSkipEnumerateIter[K, V] where K: Ord[K] {
+    pub.. inner: TreeMutSkipIter[K, V],
+    pub.. index: usize = 0,
+};
+
 /// Returns the key at `index`.
 pub.. fn key_at[K, V](node: &mut Node[K, V], index: usize) K {
     return node.keys.[index];
@@ -173,6 +227,40 @@ pub.. fn floor_hit[K, V](root: ?&mut Node[K, V], key: K) ?SearchHit[K, V]
         }
 
         node = child_at[K, V](node, index);
+    }
+}
+
+/// Returns the first key position strictly greater than `key`.
+pub.. fn greater_hit[K, V](root: ?&mut Node[K, V], key: K) ?SearchHit[K, V]
+    where K: Ord[K],
+{
+    let root = root.?;
+    let mut node = root;
+    let mut found = ?SearchHit[K, V].None;
+
+    while true {
+        let current = node;
+        let mut index = 0usize;
+        while index < current.len {
+            let cmp = key_at[K, V](current, index).cmp(key);
+            if cmp > 0 {
+                found = .{ Some: SearchHit[K, V].{ node: current, index: index } };
+                if current.is_leaf {
+                    return found;
+                }
+                node = child_at[K, V](current, index);
+                break;
+            }
+
+            index += 1;
+        }
+
+        if index == current.len {
+            if current.is_leaf {
+                return found;
+            }
+            node = child_at[K, V](current, current.len);
+        }
     }
 }
 

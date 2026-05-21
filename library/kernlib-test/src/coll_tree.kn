@@ -56,11 +56,45 @@ fn check_basic_tree[W](t: &mut Report[W]) void
     value_ptr.* = 123;
     map.get(7).should_some().eq(123).sum(@loc(), t);
 
+    let mut iter_count = 0usize;
+    let mut iter_key_sum = 0i32;
+    let mut iter_value_sum = 0i32;
+    for entry in (map as &base.coll.Tree[i32, i32]).iter() {
+        iter_count += 1;
+        iter_key_sum += entry.key;
+        iter_value_sum += entry.value;
+    }
+    iter_count.should().eq(32usize).sum(@loc(), t);
+    iter_key_sum.should().eq(496).sum(@loc(), t);
+    iter_value_sum.should().eq(1101).sum(@loc(), t);
+
+    let mut readonly_index_sum = 0usize;
+    let mut readonly_key_sum = 0i32;
+    for entry in (map as &base.coll.Tree[i32, i32]).iter().skip(2usize).enumerate() {
+        readonly_index_sum += entry.index;
+        readonly_key_sum += entry.value.key;
+    }
+    readonly_index_sum.should().eq(435usize).sum(@loc(), t);
+    readonly_key_sum.should().eq(495i32).sum(@loc(), t);
+
+    for entry in map.iter() {
+        entry.value.* += entry.key;
+    }
+    map.get(7).should_some().eq(130).sum(@loc(), t);
+    map.get(31).should_some().eq(93).sum(@loc(), t);
+
+    let mut mut_index_sum = 0usize;
+    for entry in map.iter().skip(30usize).enumerate() {
+        mut_index_sum += entry.index;
+        entry.value.value.* += entry.index as i32;
+    }
+    mut_index_sum.should().eq(1usize).sum(@loc(), t);
+
     let existing = map.try_get_or_insert_with(gpa, 7, [calls = lazy_calls..&]() i32 {
         calls.* += 1;
         return 700;
     }).should_ok().sum(@loc(), t);
-    existing.*.should().eq(123).sum(@loc(), t);
+    existing.*.should().eq(130).sum(@loc(), t);
     lazy_calls.should().eq(0).sum(@loc(), t);
 
     let inserted = map.try_get_or_insert(gpa, 100, 500).should_ok().sum(@loc(), t);

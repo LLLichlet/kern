@@ -5,7 +5,7 @@
 //! while `&[u8]` remains the ordinary borrowed string view.
 
 use base.mem.alloc.{AllocError, Allocator};
-use base.coll.String;
+use base.coll.{SliceIter, String};
 
 /// A byte string that can borrow bytes until mutation requires ownership.
 pub/ struct CowString {
@@ -46,6 +46,11 @@ impl CowString {
     /// Alias for `as_str`.
     pub fn as_bytes() &[u8] {
         return self.as_str();
+    }
+
+    /// Returns an iterator over bytes.
+    pub fn iter() SliceIter[u8] {
+        return self.as_str().iter();
     }
 
     /// Returns the current byte length.

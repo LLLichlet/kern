@@ -7,4 +7,16 @@ mod base;
 mod mutable;
 mod query;
 
-pub use .base.Map;
+pub use .base.{
+    Map,
+    MapEnumerateIter,
+    MapItem,
+    MapIter,
+    MapMutEnumerateIter,
+    MapMutItem,
+    MapMutIter,
+    MapMutSkipEnumerateIter,
+    MapMutSkipIter,
+    MapSkipEnumerateIter,
+    MapSkipIter,
+};

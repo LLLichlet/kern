@@ -707,7 +707,7 @@ impl[T] &mut List[T] {
     }
 
     #[inline]
-    pub fn iter_mut() SliceMutIter[T] {
+    pub fn iter() SliceMutIter[T] {
         return self.as_mut_slice().iter();
     }
 }

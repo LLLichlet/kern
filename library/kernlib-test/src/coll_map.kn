@@ -55,6 +55,37 @@ fn check_integer_map[W](t: &mut Report[W]) void
     map.get(7).should_some().eq(777).sum(@loc(), t);
     map.get(100).should_some().eq(300).sum(@loc(), t);
 
+    let mut iter_count = 0usize;
+    let mut iter_sum = 0i32;
+    for entry in (map as &base.coll.Map[i32, i32]).iter() {
+        iter_count += 1;
+        iter_sum += entry.key + entry.value;
+    }
+    iter_count.should().eq(128usize).sum(@loc(), t);
+    iter_sum.should().eq(33268).sum(@loc(), t);
+
+    let mut readonly_index_sum = 0usize;
+    let mut readonly_skip_count = 0usize;
+    for entry in (map as &base.coll.Map[i32, i32]).iter().skip(2usize).enumerate() {
+        readonly_index_sum += entry.index;
+        readonly_skip_count += 1;
+    }
+    readonly_index_sum.should().eq(7875usize).sum(@loc(), t);
+    readonly_skip_count.should().eq(126usize).sum(@loc(), t);
+
+    for entry in map.iter() {
+        entry.value.* += entry.key;
+    }
+    map.get(7).should_some().eq(784).sum(@loc(), t);
+    map.get(100).should_some().eq(400).sum(@loc(), t);
+
+    let mut mut_skip_count = 0usize;
+    for entry in map.iter().skip(127usize).enumerate() {
+        entry.value.value.* += entry.index as i32;
+        mut_skip_count += 1;
+    }
+    mut_skip_count.should().eq(1usize).sum(@loc(), t);
+
     let before_compact = map.capacity;
     map.try_compact(gpa).should_ok().sum(@loc(), t);
     map.capacity.should().eq(before_compact).sum(@loc(), t);

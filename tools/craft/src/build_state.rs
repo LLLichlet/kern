@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const ACTION_STATE_VERSION: u32 = 2;
+const ACTION_STATE_VERSION: u32 = 3;
 
 static CURRENT_PROCESS_DIGEST: OnceLock<String> = OnceLock::new();
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +27,7 @@ struct ActionStatePath {
     digest: String,
     len: Option<u64>,
     modified_nanos: Option<u128>,
+    changed_nanos: Option<u128>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -36,7 +37,7 @@ enum Section {
     Output(usize),
 }
 
-type DigestedPath = (String, Option<u64>, Option<u128>);
+type DigestedPath = (String, Option<u64>, Option<u128>, Option<u128>);
 
 pub(crate) fn action_state_path(primary_output: &Path) -> PathBuf {
     let file_name = primary_output
@@ -124,7 +125,7 @@ fn load_action_state(path: &Path) -> Result<Option<ActionState>> {
 fn collect_state_paths(paths: &[PathBuf]) -> Result<Vec<ActionStatePath>> {
     let mut entries = Vec::with_capacity(paths.len());
     for path in paths {
-        let Some((digest, len, modified_nanos)) = digest_path(path)? else {
+        let Some((digest, len, modified_nanos, changed_nanos)) = digest_path(path)? else {
             let paths = paths
                 .iter()
                 .map(|path| path.display().to_string())
@@ -141,6 +142,7 @@ fn collect_state_paths(paths: &[PathBuf]) -> Result<Vec<ActionStatePath>> {
             digest,
             len,
             modified_nanos,
+            changed_nanos,
         });
     }
     Ok(entries)
@@ -158,11 +160,13 @@ fn digest_path(path: &Path) -> Result<Option<DigestedPath>> {
             digest_file_contents(path)?,
             Some(metadata.len()),
             Some(modified_nanos),
+            file_changed_nanos(&metadata),
         )));
     }
     if path.is_dir() {
         return Ok(Some((
             format!("fnv1a64:{:016x}", digest_tree(path)?),
+            None,
             None,
             None,
         )));
@@ -180,9 +184,21 @@ fn path_matches_digest(path: &Path, entry: &ActionStatePath) -> Result<bool> {
         if !metadata.is_file() || metadata.len() != expected_len {
             return Ok(false);
         }
+        if let (Some(expected_modified_nanos), Some(expected_changed_nanos)) =
+            (entry.modified_nanos, entry.changed_nanos)
+        {
+            let modified_nanos =
+                metadata_modified_nanos(&metadata.modified().map_err(Error::from_io_plain)?)?;
+            let changed_nanos = file_changed_nanos(&metadata);
+            if modified_nanos == expected_modified_nanos
+                && changed_nanos == Some(expected_changed_nanos)
+            {
+                return Ok(true);
+            }
+        }
     }
 
-    Ok(digest_path(path)?.map(|(digest, _, _)| digest) == Some(entry.digest.clone()))
+    Ok(digest_path(path)?.map(|(digest, _, _, _)| digest) == Some(entry.digest.clone()))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -248,6 +264,20 @@ fn metadata_modified_nanos(modified: &SystemTime) -> Result<u128> {
         .as_nanos())
 }
 
+#[cfg(unix)]
+fn file_changed_nanos(metadata: &fs::Metadata) -> Option<u128> {
+    use std::os::unix::fs::MetadataExt;
+
+    let seconds = u128::try_from(metadata.ctime()).ok()?;
+    let nanos = u128::try_from(metadata.ctime_nsec()).ok()?;
+    Some(seconds.saturating_mul(1_000_000_000).saturating_add(nanos))
+}
+
+#[cfg(not(unix))]
+fn file_changed_nanos(_metadata: &fs::Metadata) -> Option<u128> {
+    None
+}
+
 impl ActionState {
     fn parse(source: &str, path: &Path) -> Result<Self> {
         let mut state = Self {
@@ -271,6 +301,7 @@ impl ActionState {
                             digest: String::new(),
                             len: None,
                             modified_nanos: None,
+                            changed_nanos: None,
                         });
                         Section::Input(state.inputs.len() - 1)
                     }
@@ -280,6 +311,7 @@ impl ActionState {
                             digest: String::new(),
                             len: None,
                             modified_nanos: None,
+                            changed_nanos: None,
                         });
                         Section::Output(state.outputs.len() - 1)
                     }
@@ -363,6 +395,15 @@ impl ActionState {
                                     ))
                                 })?)
                         }
+                        "changed-nanos" => {
+                            entry.changed_nanos =
+                                Some(parse_u128(raw_value).map_err(|message| {
+                                    Error::Execution(format!(
+                                        "failed to parse build state `{}`: {message}",
+                                        path.display()
+                                    ))
+                                })?)
+                        }
                         _ => {
                             return Err(Error::Execution(format!(
                                 "failed to parse build state `{}`: unsupported [[input]] key `{key}`",
@@ -409,6 +450,15 @@ impl ActionState {
                                     ))
                                 })?)
                         }
+                        "changed-nanos" => {
+                            entry.changed_nanos =
+                                Some(parse_u128(raw_value).map_err(|message| {
+                                    Error::Execution(format!(
+                                        "failed to parse build state `{}`: {message}",
+                                        path.display()
+                                    ))
+                                })?)
+                        }
                         _ => {
                             return Err(Error::Execution(format!(
                                 "failed to parse build state `{}`: unsupported [[output]] key `{key}`",
@@ -445,6 +495,9 @@ impl ActionState {
             if let Some(modified_nanos) = entry.modified_nanos {
                 out.push_str(&format!("modified-nanos = {modified_nanos}\n"));
             }
+            if let Some(changed_nanos) = entry.changed_nanos {
+                out.push_str(&format!("changed-nanos = {changed_nanos}\n"));
+            }
         }
 
         for entry in &self.outputs {
@@ -456,6 +509,9 @@ impl ActionState {
             }
             if let Some(modified_nanos) = entry.modified_nanos {
                 out.push_str(&format!("modified-nanos = {modified_nanos}\n"));
+            }
+            if let Some(changed_nanos) = entry.changed_nanos {
+                out.push_str(&format!("changed-nanos = {changed_nanos}\n"));
             }
         }
 
@@ -686,8 +742,41 @@ mod tests {
 
         let metadata = fs::metadata(&input).unwrap();
         let modified = metadata.modified().unwrap();
+        thread::sleep(Duration::from_millis(20));
         fs::write(&input, "bravo").unwrap();
         set_modified_time(&input, modified);
+
+        assert!(!action_state_is_current(&output, "fingerprint").unwrap());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn action_state_v2_metadata_is_not_enough_for_fast_path() {
+        let root = temp_dir("craft-build-state-v2");
+        let input = root.join("input.txt");
+        let output = root.join("output.txt");
+
+        fs::write(&input, "input").unwrap();
+        fs::write(&output, "output").unwrap();
+        record_action_state(
+            &output,
+            "fingerprint".to_string(),
+            std::slice::from_ref(&input),
+            std::slice::from_ref(&output),
+        )
+        .unwrap();
+        let state_path = super::action_state_path(&output);
+        let mut state = fs::read_to_string(&state_path).unwrap();
+        state = state.replace("version = 3", "version = 2");
+        state = state
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("changed-nanos"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        state.push('\n');
+        fs::write(&state_path, state).unwrap();
 
         assert!(!action_state_is_current(&output, "fingerprint").unwrap());
 

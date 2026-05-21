@@ -18,7 +18,7 @@ use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod external;
 mod fingerprint;
@@ -171,6 +171,38 @@ impl ExecutionSummary {
             cache_stats,
             codegen_plan,
         });
+    }
+
+    fn record_cache_hit(
+        &mut self,
+        kind: ActionTimingKind,
+        label: impl Into<String>,
+        detail_tags: Vec<String>,
+        duration: Duration,
+    ) {
+        self.record_action(
+            kind,
+            label,
+            detail_tags,
+            vec![PhaseTiming {
+                name: "cache_check",
+                duration,
+            }],
+            CompileCacheStats::default(),
+            None,
+        );
+    }
+
+    fn record_phase_timing(&mut self, phase: PhaseTiming) {
+        if let Some(existing) = self
+            .phase_timings
+            .iter_mut()
+            .find(|existing| existing.name == phase.name)
+        {
+            existing.duration += phase.duration;
+        } else {
+            self.phase_timings.push(phase);
+        }
     }
 
     fn record_compile_cache_hit(&mut self) {
@@ -400,11 +432,28 @@ fn build_compile_action_if_needed(
 
     let toolchain_digest = build_state::current_process_digest()?;
     let fingerprint = compile_action_fingerprint(action, &options, &toolchain_digest);
+    let compile_label = compile_action_label(action, &options);
+    let compile_tags = compile_action_detail_tags(&options);
 
+    let cache_check_started = Instant::now();
     if build_state::action_state_is_current(&action.object_path, &fingerprint)? {
+        let cache_check_duration = cache_check_started.elapsed();
         execution_summary.record_compile_cache_hit();
+        execution_summary.record_phase_timing(PhaseTiming {
+            name: "cache_check",
+            duration: cache_check_duration,
+        });
+        if execution_summary.action_timings.is_empty() || !compile_tags.is_empty() {
+            execution_summary.record_cache_hit(
+                ActionTimingKind::Compile,
+                compile_label,
+                compile_tags,
+                cache_check_duration,
+            );
+        }
         return Ok(false);
     }
+    let cache_check_duration = cache_check_started.elapsed();
 
     ensure_parent_dir(&action.object_path)?;
     prepare_output_path(&multi_linker_input_dir(&action.object_path), true)?;
@@ -417,8 +466,6 @@ fn build_compile_action_if_needed(
 
     let emit_multi_linker_input_dir = options.emit_multi_linker_input_dir;
     let emits_linker_input = options.driver_mode.emits_linker_input();
-    let compile_label = compile_action_label(action, &options);
-    let compile_tags = compile_action_detail_tags(&options);
     let _long_action = progress
         .map(|progress| progress.report_long_action("compiling", compile_progress_label(action)));
     let Some(report) = compile_with_shared_driver(driver_families, options) else {
@@ -444,7 +491,7 @@ fn build_compile_action_if_needed(
         ActionTimingKind::Compile,
         compile_label,
         compile_tags,
-        report.phase_timings,
+        with_cache_check_timing(report.phase_timings, cache_check_duration),
         report.cache_stats,
         report.codegen_plan,
     );
@@ -480,13 +527,28 @@ fn build_link_action_if_needed(
         &link_input_paths,
         &toolchain_digest,
     );
-    if build_state::action_state_is_current(&action.artifact_path, &fingerprint)? {
-        execution_summary.record_link_cache_hit();
-        return Ok(false);
-    }
-
     let link_label = link_action_label(action, &options);
     let link_tags = link_action_detail_tags(action, &options, linker_inputs);
+    let cache_check_started = Instant::now();
+    if build_state::action_state_is_current(&action.artifact_path, &fingerprint)? {
+        let cache_check_duration = cache_check_started.elapsed();
+        execution_summary.record_link_cache_hit();
+        execution_summary.record_phase_timing(PhaseTiming {
+            name: "cache_check",
+            duration: cache_check_duration,
+        });
+        if execution_summary.action_timings.is_empty() || !link_tags.is_empty() {
+            execution_summary.record_cache_hit(
+                ActionTimingKind::Link,
+                link_label,
+                link_tags,
+                cache_check_duration,
+            );
+        }
+        return Ok(false);
+    }
+    let cache_check_duration = cache_check_started.elapsed();
+
     let driver = CompilerDriver::new(options);
     let _long_action = progress
         .map(|progress| progress.report_long_action("linking", link_progress_label(action)));
@@ -512,11 +574,22 @@ fn build_link_action_if_needed(
         ActionTimingKind::Link,
         link_label,
         link_tags,
-        report.phase_timings,
+        with_cache_check_timing(report.phase_timings, cache_check_duration),
         report.cache_stats,
         report.codegen_plan,
     );
     Ok(true)
+}
+
+fn with_cache_check_timing(mut phases: Vec<PhaseTiming>, duration: Duration) -> Vec<PhaseTiming> {
+    phases.insert(
+        0,
+        PhaseTiming {
+            name: "cache_check",
+            duration,
+        },
+    );
+    phases
 }
 
 fn ensure_compile_action_built(

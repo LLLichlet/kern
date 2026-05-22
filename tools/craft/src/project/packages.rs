@@ -8,7 +8,7 @@ use crate::graph::{self, DependencyTarget, PackageGraph, PackageId, SourceId};
 use crate::manifest::Manifest;
 use crate::plan::{PackagePlan, TargetKind};
 use crate::sdk;
-use crate::workspace::WorkspaceMember;
+use crate::workspace::{self, WorkspaceMember};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -141,14 +141,10 @@ fn add_official_workspace_aliases(
     entry: &PackageEntry,
     aliases: &mut BTreeMap<String, PathBuf>,
 ) {
-    if !is_official_library_workspace(&package_graph.workspace_root) {
-        return;
-    }
-
     for name in ["base", "std", "rt"] {
-        aliases
-            .entry(name.to_string())
-            .or_insert_with(|| package_graph.workspace_root.join(name).join("mod.kn"));
+        if let Some(root) = official_workspace_export_root(package_graph, name) {
+            aliases.entry(name.to_string()).or_insert(root);
+        }
     }
 
     if entry.id.name == "kernlib-test" {
@@ -156,11 +152,29 @@ fn add_official_workspace_aliases(
     }
 }
 
-fn is_official_library_workspace(root: &Path) -> bool {
-    root.join("Craft.toml").is_file()
-        && root.join("base").join("mod.kn").is_file()
-        && root.join("std").join("mod.kn").is_file()
-        && root.join("rt").join("mod.kn").is_file()
+fn official_workspace_export_root(package_graph: &PackageGraph, name: &str) -> Option<PathBuf> {
+    let workspace_manifest_path = package_graph.workspace_root.join("Craft.toml");
+    let workspace_manifest = Manifest::load(&workspace_manifest_path).ok()?;
+    if !is_official_library_workspace_manifest(&workspace_manifest) {
+        return None;
+    }
+    let exported =
+        workspace::exported_package(&workspace_manifest_path, &workspace_manifest, name).ok()?;
+    let lib_root = exported.manifest.lib.as_ref()?;
+    let package_root = exported.manifest_path.parent()?;
+    Some(package_root.join(&lib_root.root))
+}
+
+pub(super) fn is_official_library_workspace_manifest(manifest: &Manifest) -> bool {
+    let Some(workspace) = &manifest.workspace else {
+        return false;
+    };
+    ["base", "std", "rt"].iter().all(|name| {
+        workspace
+            .exports
+            .get(*name)
+            .is_some_and(|export| export.member == *name)
+    })
 }
 
 fn craft_sdk_aliases() -> BTreeMap<String, PathBuf> {

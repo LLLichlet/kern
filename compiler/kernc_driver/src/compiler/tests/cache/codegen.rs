@@ -558,8 +558,7 @@ fn compile_only_preserve_objects_keeps_base_runtime_generic_definitions() {
     fs::create_dir_all(&root).unwrap();
     let object = root.join("base.o");
     let metadata = root.join("base-meta");
-    let base_root = kernc_utils::config::resolve_base_path();
-    let source = base_root.join("mod.kn");
+    let source = kernc_utils::config::resolve_base_path();
 
     let mut options = CompileOptions {
         input_file: Some(source.to_string_lossy().to_string()),
@@ -579,7 +578,7 @@ fn compile_only_preserve_objects_keeps_base_runtime_generic_definitions() {
     };
     options
         .module_aliases
-        .insert("base".to_string(), base_root.to_string_lossy().to_string());
+        .insert("base".to_string(), source.to_string_lossy().to_string());
     let driver = CompilerDriver::new(options);
     driver
         .compile_with_report()

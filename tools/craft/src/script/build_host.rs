@@ -124,7 +124,7 @@ impl ScriptHost for BuildUnitHost<'_> {
         _span: Span,
     ) -> std::result::Result<ConstValue, String> {
         match name {
-            "__craft_build_feature_enabled" => {
+            "__craft_build_feature_enabled" | "__craft_build_feature_enabled_mut" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let feature = expect_string(args, 1, "feature name")?;
                 Ok(ConstValue::Bool(
@@ -134,7 +134,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                         .contains(feature.as_str()),
                 ))
             }
-            "__craft_build_primary_artifact" => {
+            "__craft_build_primary_artifact" | "__craft_build_primary_artifact_mut" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 self.ensure_executable_artifact_phase("primary_artifact()")?;
                 Ok(output_value(&BuildOutput {
@@ -142,20 +142,20 @@ impl ScriptHost for BuildUnitHost<'_> {
                     path: self.script_context.paths.artifact_path.clone(),
                 }))
             }
-            "__craft_build_tool_path" => {
+            "__craft_build_tool_path" | "__craft_build_tool_path_mut" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let dependency_name = expect_string(args, 1, "tool dependency name")?;
                 let tool_name = expect_string(args, 2, "tool target name")?;
                 let tool = resolve_build_tool(self.script_context, &dependency_name, &tool_name)?;
                 Ok(ConstValue::String(tool.executable_path.clone()))
             }
-            "__craft_build_resource_root" => {
+            "__craft_build_resource_root" | "__craft_build_resource_root_mut" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let resource_name = expect_string(args, 1, "resource name")?;
                 let resource = resolve_build_resource(self.script_context, &resource_name)?;
                 Ok(ConstValue::String(resource.root_path.clone()))
             }
-            "__craft_build_resource_path" => {
+            "__craft_build_resource_path" | "__craft_build_resource_path_mut" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let resource_name = expect_string(args, 1, "resource name")?;
                 let relative_path = expect_string(args, 2, "resource relative path")?;
@@ -170,7 +170,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                 }
                 Ok(ConstValue::String(normalized_path_string(&resolved_path)))
             }
-            "__craft_build_output_path" => {
+            "__craft_build_output_path" | "__craft_build_output_path_mut" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let output = self.expect_bound_output(args, 1, "output")?;
                 Ok(ConstValue::String(output.path))

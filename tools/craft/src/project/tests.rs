@@ -149,13 +149,13 @@ version = \"0.8.2\"
 kern = \"0.8.2\"
 
 [lib]
-root = \"mod.kn\"
+root = \"lib.kn\"
 "
             ),
         )
         .unwrap();
         fs::write(
-            root.join(package).join("mod.kn"),
+            root.join(package).join("lib.kn"),
             "pub fn marker() void {}\n",
         )
         .unwrap();
@@ -168,6 +168,11 @@ root = \"mod.kn\"
 [workspace]
 name = \"workspace\"
 members = [\"base\", \"kernlib-test\", \"std\", \"rt\"]
+
+[workspace.exports]
+base = { member = \"base\" }
+std = { member = \"std\" }
+rt = { member = \"rt\" }
 ",
     )
     .unwrap();
@@ -207,7 +212,7 @@ roots = [\"src/coll_seq.kn\"]
             .module_aliases
             .get("base")
             .and_then(|path| normalize_test_optional_path(Some(path))),
-        Some(normalize_test_path(&root.join("base/mod.kn")))
+        Some(normalize_test_path(&root.join("base/lib.kn")))
     );
     assert_eq!(
         resolved
@@ -215,7 +220,7 @@ roots = [\"src/coll_seq.kn\"]
             .module_aliases
             .get("std")
             .and_then(|path| normalize_test_optional_path(Some(path))),
-        Some(normalize_test_path(&root.join("std/mod.kn")))
+        Some(normalize_test_path(&root.join("std/lib.kn")))
     );
     assert_eq!(
         resolved
@@ -223,7 +228,7 @@ roots = [\"src/coll_seq.kn\"]
             .module_aliases
             .get("rt")
             .and_then(|path| normalize_test_optional_path(Some(path))),
-        Some(normalize_test_path(&root.join("rt/mod.kn")))
+        Some(normalize_test_path(&root.join("rt/lib.kn")))
     );
 }
 

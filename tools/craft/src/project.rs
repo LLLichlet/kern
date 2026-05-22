@@ -672,15 +672,14 @@ fn official_library_root_module_name(
 }
 
 fn package_is_in_official_library_workspace(package: &AnalysisPackage) -> bool {
-    package
-        .manifest_path
-        .parent()
-        .and_then(Path::parent)
-        .is_some_and(|root| {
-            root.join("base").join("mod.kn").is_file()
-                && root.join("std").join("mod.kn").is_file()
-                && root.join("rt").join("mod.kn").is_file()
-        })
+    let Some(root) = package.manifest_path.parent().and_then(Path::parent) else {
+        return false;
+    };
+    let manifest_path = root.join("Craft.toml");
+    let Ok(manifest) = Manifest::load(&manifest_path) else {
+        return false;
+    };
+    packages::is_official_library_workspace_manifest(&manifest)
 }
 
 fn sanitize_root_module_name(name: &str) -> String {

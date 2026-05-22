@@ -112,6 +112,10 @@ extern {
     fn __craft_build_primary_artifact(builder: &Builder) Output;
     fn __craft_build_resource_root(builder: &Builder, name: &[u8]) &[u8];
     fn __craft_build_resource_path(builder: &Builder, name: &[u8], relative_path: &[u8]) &[u8];
+    fn __craft_build_feature_enabled_mut(builder: &mut Builder, name: &[u8]) bool;
+    fn __craft_build_primary_artifact_mut(builder: &mut Builder) Output;
+    fn __craft_build_resource_root_mut(builder: &mut Builder, name: &[u8]) &[u8];
+    fn __craft_build_resource_path_mut(builder: &mut Builder, name: &[u8], relative_path: &[u8]) &[u8];
     fn __craft_build_link_system_lib(builder: &mut Builder, name: &[u8]) void;
     fn __craft_build_link_framework(builder: &mut Builder, name: &[u8]) void;
     fn __craft_build_link_search(builder: &mut Builder, path: &[u8]) void;
@@ -124,6 +128,7 @@ extern {
     fn __craft_build_define_string(builder: &mut Builder, name: &[u8], value: &[u8]) void;
     fn __craft_build_set_source_root(builder: &mut Builder, path: &[u8]) void;
     fn __craft_build_output_path(builder: &Builder, output: Output) &[u8];
+    fn __craft_build_output_path_mut(builder: &mut Builder, output: Output) &[u8];
     fn __craft_build_set_source_root_from(builder: &mut Builder, output: Output) void;
     fn __craft_build_stage_generated(builder: &mut Builder, relative_path: &[u8], contents: &[u8]) Output;
     fn __craft_build_stage_copy_package_file(builder: &mut Builder, source_relative: &[u8], generated_relative: &[u8]) Output;
@@ -132,6 +137,7 @@ extern {
     fn __craft_build_cc_config(builder: &mut Builder, source_relative: &[u8], include_dirs: &[&[u8]], defines: &[&[u8]], args: &[&[u8]], dependencies: &[Output]) Output;
     fn __craft_build_cc_resource_config(builder: &mut Builder, resource_name: &[u8], source_relative: &[u8], include_dirs: &[&[u8]], defines: &[&[u8]], args: &[&[u8]], dependencies: &[Output]) Output;
     fn __craft_build_tool_path(builder: &Builder, dependency_name: &[u8], tool_name: &[u8]) &[u8];
+    fn __craft_build_tool_path_mut(builder: &mut Builder, dependency_name: &[u8], tool_name: &[u8]) &[u8];
     fn __craft_build_stage_generated_from_tool(builder: &mut Builder, dependency_name: &[u8], tool_name: &[u8], generated_relative: &[u8], args: &[&[u8]]) Output;
     fn __craft_build_stage_artifact_file(builder: &mut Builder, relative_path: &[u8], contents: &[u8]) Output;
     fn __craft_build_stage_artifact_file_from_tool(builder: &mut Builder, dependency_name: &[u8], tool_name: &[u8], artifact_relative: &[u8], args: &[&[u8]]) Output;
@@ -170,6 +176,30 @@ impl &Builder {
 }
 
 impl &mut Builder {
+    pub fn feature_enabled(name: &[u8]) bool {
+        return __craft_build_feature_enabled_mut(self, name);
+    }
+
+    pub fn primary_artifact() Output {
+        return __craft_build_primary_artifact_mut(self);
+    }
+
+    pub fn tool_path(dependency_name: &[u8], tool_name: &[u8]) &[u8] {
+        return __craft_build_tool_path_mut(self, dependency_name, tool_name);
+    }
+
+    pub fn resource_root(name: &[u8]) &[u8] {
+        return __craft_build_resource_root_mut(self, name);
+    }
+
+    pub fn resource_path(name: &[u8], relative_path: &[u8]) &[u8] {
+        return __craft_build_resource_path_mut(self, name, relative_path);
+    }
+
+    pub fn output_path(output: Output) &[u8] {
+        return __craft_build_output_path_mut(self, output);
+    }
+
     pub fn link_system_lib(name: &[u8]) void {
         __craft_build_link_system_lib(self, name);
     }

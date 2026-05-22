@@ -1803,7 +1803,7 @@ let mut text = text;
 let text = text..&;
 defer text.deinit(gpa);
 let mut stdout = fs.stdout();
-let _ = stdout..&.write_all(text.as_str());
+let _ = stdout..&.write_all(text.view().as_str());
 return 0;
 }
 "#,

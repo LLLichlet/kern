@@ -59,7 +59,15 @@ fn copy_dir_recursive(source: &Path, destination: &Path) {
 
 fn copy_kernlib_workspace(destination: &Path) {
     let source_root = repo_root().join("library");
-    for item in ["Craft.toml", "Craft.lock", "README.md", "base", "std", "rt"] {
+    for item in [
+        "Craft.toml",
+        "Craft.lock",
+        "README.md",
+        "base",
+        "kernlib-test",
+        "std",
+        "rt",
+    ] {
         let source = source_root.join(item);
         let destination = destination.join(item);
         if source.is_dir() {

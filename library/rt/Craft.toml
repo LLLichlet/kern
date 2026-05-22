@@ -13,4 +13,4 @@ libc = false
 bundle = "none"
 
 [lib]
-root = "mod.kn"
+root = "lib.kn"

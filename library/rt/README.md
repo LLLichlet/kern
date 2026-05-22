@@ -8,7 +8,7 @@ implementation is linked.
 
 ## Current Layout
 
-- `mod.kn`: root wiring for the `rt` layer
+- `lib.kn`: root wiring for the `rt` layer
 - `entry.kn`: platform-specific process entry shims and the handoff to
   `__kern_main_adapter`
 - `memory_fallbacks.kn`: `memcpy`/`memmove`/`memset` fallback implementations

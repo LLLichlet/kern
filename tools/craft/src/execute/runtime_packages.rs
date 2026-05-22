@@ -16,7 +16,9 @@ use super::{
 use crate::build_plan::CompileAction;
 use crate::build_state;
 use crate::error::Error;
+use crate::manifest::Manifest;
 use crate::operation_lock::WorkspaceOperationLock;
+use crate::workspace;
 use kernc_driver::{CompilerDriver, IncrementalDriverKey, KMETA_MANIFEST_FILE};
 use kernc_utils::config::{
     CompileOptions, DriverMode, LibraryBundle, LtoMode, OptLevel, inject_driver_condition_defines,
@@ -197,12 +199,46 @@ fn official_library_workspace_root() -> PathBuf {
     resolve_library_workspace_path()
 }
 
-fn official_library_package_root(workspace_root: &Path, package: &str) -> PathBuf {
-    workspace_root.join(package)
+#[derive(Debug, Clone)]
+struct OfficialLibraryPackage {
+    root: PathBuf,
+    manifest_path: PathBuf,
+    source_path: PathBuf,
 }
 
-fn official_library_package_manifest(workspace_root: &Path, package: &str) -> PathBuf {
-    official_library_package_root(workspace_root, package).join("Craft.toml")
+fn official_library_package(
+    workspace_root: &Path,
+    package: &str,
+) -> Result<OfficialLibraryPackage> {
+    let workspace_manifest_path = workspace_root.join("Craft.toml");
+    let workspace_manifest = Manifest::load(&workspace_manifest_path)?;
+    let exported =
+        workspace::exported_package(&workspace_manifest_path, &workspace_manifest, package)?;
+    let package_root = exported
+        .manifest_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    let lib_root = exported
+        .manifest
+        .lib
+        .as_ref()
+        .ok_or_else(|| Error::Validation {
+            path: exported.manifest_path.clone(),
+            message: format!("official library package `{package}` must declare `[lib].root"),
+        })?;
+    let source_path = package_root.join(&lib_root.root);
+    if !source_path.is_file() {
+        return Err(Error::Execution(format!(
+            "{package} library root `{}` is missing",
+            source_path.display()
+        )));
+    }
+    Ok(OfficialLibraryPackage {
+        root: package_root,
+        manifest_path: exported.manifest_path,
+        source_path,
+    })
 }
 
 pub(super) fn ensure_std_packages_for_actions(
@@ -250,15 +286,8 @@ pub(super) fn build_std_package(
 
     let library_workspace_root = official_library_workspace_root();
     let library_workspace_manifest = library_workspace_root.join("Craft.toml");
-    let std_root = official_library_package_root(&library_workspace_root, "std");
-    let std_manifest = official_library_package_manifest(&library_workspace_root, "std");
-    let source_path = std_root.join("mod.kn");
-    if !source_path.is_file() {
-        return Err(Error::Execution(format!(
-            "standard library root `{}` is missing",
-            source_path.display()
-        )));
-    }
+    let std_package = official_library_package(&library_workspace_root, "std")?;
+    let source_path = std_package.source_path.clone();
     let built_base = build_base_package(
         workspace_root,
         profile,
@@ -326,7 +355,7 @@ pub(super) fn build_std_package(
     apply_host_linker_env(&mut options);
     options
         .module_aliases
-        .insert("std".to_string(), std_root.to_string_lossy().to_string());
+        .insert("std".to_string(), source_path.to_string_lossy().to_string());
     options.module_interface_aliases.insert(
         "base".to_string(),
         built_base.metadata_root_path.to_string_lossy().to_string(),
@@ -359,7 +388,7 @@ pub(super) fn build_std_package(
             "library_workspace_manifest={}",
             library_workspace_manifest.display()
         ),
-        format!("package_manifest={}", std_manifest.display()),
+        format!("package_manifest={}", std_package.manifest_path.display()),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -448,15 +477,8 @@ pub(super) fn build_rt_package(
 ) -> Result<BuiltLibraryPackage> {
     let library_workspace_root = official_library_workspace_root();
     let library_workspace_manifest = library_workspace_root.join("Craft.toml");
-    let rt_root = official_library_package_root(&library_workspace_root, "rt");
-    let rt_manifest = official_library_package_manifest(&library_workspace_root, "rt");
-    let source_path = rt_root.join("mod.kn");
-    if !source_path.is_file() {
-        return Err(Error::Execution(format!(
-            "rt library root `{}` is missing",
-            source_path.display()
-        )));
-    }
+    let rt_package = official_library_package(&library_workspace_root, "rt")?;
+    let source_path = rt_package.source_path.clone();
 
     let profile_root = runtime_profile_root(workspace_root, profile)?;
     let object_path = profile_root.join("obj").join("rt").join("lib").join("rt.o");
@@ -490,7 +512,7 @@ pub(super) fn build_rt_package(
     apply_host_linker_env(&mut options);
     options
         .module_aliases
-        .insert("rt".to_string(), rt_root.to_string_lossy().to_string());
+        .insert("rt".to_string(), source_path.to_string_lossy().to_string());
     inject_driver_condition_defines(&mut options);
     normalize_runtime_codegen_options_for_driver_mode(&mut options);
     normalize_windows_linker_input_options(&mut options);
@@ -519,7 +541,7 @@ pub(super) fn build_rt_package(
             "library_workspace_manifest={}",
             library_workspace_manifest.display()
         ),
-        format!("package_manifest={}", rt_manifest.display()),
+        format!("package_manifest={}", rt_package.manifest_path.display()),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -572,15 +594,8 @@ pub(super) fn build_base_package(
 ) -> Result<BuiltLibraryPackage> {
     let library_workspace_root = official_library_workspace_root();
     let library_workspace_manifest = library_workspace_root.join("Craft.toml");
-    let base_root = official_library_package_root(&library_workspace_root, "base");
-    let base_manifest = official_library_package_manifest(&library_workspace_root, "base");
-    let source_path = base_root.join("mod.kn");
-    if !source_path.is_file() {
-        return Err(Error::Execution(format!(
-            "base library root `{}` is missing",
-            source_path.display()
-        )));
-    }
+    let base_package = official_library_package(&library_workspace_root, "base")?;
+    let source_path = base_package.source_path.clone();
 
     let profile_root = runtime_profile_root(workspace_root, profile)?;
     let object_path = profile_root
@@ -617,9 +632,10 @@ pub(super) fn build_base_package(
         ..CompileOptions::default()
     };
     apply_host_linker_env(&mut options);
-    options
-        .module_aliases
-        .insert("base".to_string(), base_root.to_string_lossy().to_string());
+    options.module_aliases.insert(
+        "base".to_string(),
+        source_path.to_string_lossy().to_string(),
+    );
     inject_driver_condition_defines(&mut options);
     normalize_runtime_codegen_options_for_driver_mode(&mut options);
     normalize_windows_linker_input_options(&mut options);
@@ -648,7 +664,7 @@ pub(super) fn build_base_package(
             "library_workspace_manifest={}",
             library_workspace_manifest.display()
         ),
-        format!("package_manifest={}", base_manifest.display()),
+        format!("package_manifest={}", base_package.manifest_path.display()),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -702,8 +718,8 @@ pub(super) fn build_rt_entry_package(
 ) -> Result<PathBuf> {
     let library_workspace_root = official_library_workspace_root();
     let library_workspace_manifest = library_workspace_root.join("Craft.toml");
-    let rt_manifest = official_library_package_manifest(&library_workspace_root, "rt");
-    let source_path = official_library_package_root(&library_workspace_root, "rt").join("entry.kn");
+    let rt_package = official_library_package(&library_workspace_root, "rt")?;
+    let source_path = rt_package.root.join("entry.kn");
     if !source_path.is_file() {
         return Err(Error::Execution(format!(
             "rt entry source `{}` is missing",
@@ -785,7 +801,7 @@ pub(super) fn build_rt_entry_package(
             "library_workspace_manifest={}",
             library_workspace_manifest.display()
         ),
-        format!("package_manifest={}", rt_manifest.display()),
+        format!("package_manifest={}", rt_package.manifest_path.display()),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         "split_sections_for_gc=true".to_string(),

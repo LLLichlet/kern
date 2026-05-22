@@ -17,3 +17,8 @@ readme = "README.md"
 base = { path = "base" }
 std = { path = "std" }
 rt = { path = "rt" }
+
+[workspace.exports]
+base = { member = "base" }
+std = { member = "std" }
+rt = { member = "rt" }

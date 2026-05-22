@@ -24,7 +24,7 @@ fn push_shell_arg(
     alloc: &mut base.mem.alloc.Allocator,
     arg: &[u8],
 ) bool {
-    if out.is_empty().not() and out.try_push_char(alloc, b' ').is_ok().not() {
+    if out.view().is_empty().not() and out.try_push_char(alloc, b' ').is_ok().not() {
         return false;
     }
     if out.try_push_char(alloc, b'\'').is_ok().not() {
@@ -117,6 +117,7 @@ fn main(argc: i32, argv: &&u8) i32 {
     defer limine_tool.deinit(gpa);
 
     _ = tmp_iso
+        .view()
         .as_str()
         .path()
         .remove_file_if_exists(gpa);
@@ -129,7 +130,7 @@ fn main(argc: i32, argv: &&u8) i32 {
     {
         return fail("limine-mkiso: failed to build limine make command");
     }
-    if run_shell(gpa, "make limine", make_cmd).not() {
+    if run_shell(gpa, "make limine", make_cmd.view()).not() {
         return 1;
     }
 
@@ -146,27 +147,27 @@ fn main(argc: i32, argv: &&u8) i32 {
         or xorriso_cmd.try_push_str(gpa, " --protective-msdos-label").is_ok().not()
         or push_shell_arg(xorriso_cmd, gpa, iso_root).not()
         or xorriso_cmd.try_push_str(gpa, " -o").is_ok().not()
-        or push_shell_arg(xorriso_cmd, gpa, tmp_iso.as_str()).not()
+        or push_shell_arg(xorriso_cmd, gpa, tmp_iso.view().as_str()).not()
     {
         return fail("limine-mkiso: failed to build xorriso command");
     }
-    if run_shell(gpa, "xorriso", xorriso_cmd).not() {
+    if run_shell(gpa, "xorriso", xorriso_cmd.view()).not() {
         return 1;
     }
 
     let bios_install_cmd = String.{}..&;
     defer bios_install_cmd.deinit(gpa);
-    if push_shell_arg(bios_install_cmd, gpa, limine_tool.as_str()).not()
+    if push_shell_arg(bios_install_cmd, gpa, limine_tool.view().as_str()).not()
         or bios_install_cmd.try_push_str(gpa, " bios-install").is_ok().not()
-        or push_shell_arg(bios_install_cmd, gpa, tmp_iso.as_str()).not()
+        or push_shell_arg(bios_install_cmd, gpa, tmp_iso.view().as_str()).not()
     {
         return fail("limine-mkiso: failed to build bios-install command");
     }
-    if run_shell(gpa, "limine bios-install", bios_install_cmd).not() {
+    if run_shell(gpa, "limine bios-install", bios_install_cmd.view()).not() {
         return 1;
     }
 
-    let .{ Ok: image } = tmp_iso.as_str().path().open_read(gpa) else {
+    let .{ Ok: image } = tmp_iso.view().as_str().path().open_read(gpa) else {
         return fail("limine-mkiso: failed to open generated ISO");
     };
     let mut image = image;
@@ -179,6 +180,7 @@ fn main(argc: i32, argv: &&u8) i32 {
     };
 
     _ = tmp_iso
+        .view()
         .as_str()
         .path()
         .remove_file_if_exists(gpa);

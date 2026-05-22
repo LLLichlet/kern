@@ -440,7 +440,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn immutable_slice_type_for_array(&mut self, ty: TypeId) -> Option<TypeId> {
+    pub(crate) fn immutable_slice_type_for_array(&mut self, ty: TypeId) -> Option<TypeId> {
         let norm = self.resolve_tv(ty);
         let (TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem }) =
             self.ctx.type_registry.get(norm).clone()

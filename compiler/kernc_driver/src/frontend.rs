@@ -1239,6 +1239,7 @@ impl CachedAstRebinder<'_> {
         match &mut pattern.kind {
             ast::PatternKind::Binding(binding) => self.rebind_binding_pattern(binding),
             ast::PatternKind::Ignore => {}
+            ast::PatternKind::Value(value) => self.rebind_expr(value),
             ast::PatternKind::Variant(variant) => {
                 if let Some(target_type) = &mut variant.target_type {
                     self.rebind_type_node(target_type);

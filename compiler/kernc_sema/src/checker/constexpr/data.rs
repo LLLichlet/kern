@@ -99,6 +99,9 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 Ok(Some(bindings))
             }
             ast::PatternKind::Ignore => Ok(Some(HashMap::new())),
+            ast::PatternKind::Value(expr) => {
+                self.match_value_pattern(expr, target_value, target_ty, depth)
+            }
             ast::PatternKind::Variant(variant) => {
                 let expected_tag = match self.variant_tag(
                     target_ty,
@@ -605,40 +608,182 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     ) -> ConstEvalResult<Option<HashMap<SymbolId, ConstValue>>> {
         match &pattern.kind {
             ast::MatchPatternKind::Value(expr) => {
-                if let ast::ExprKind::Range {
-                    start: Some(start),
-                    end: Some(end),
-                    is_inclusive,
-                } = &expr.kind
-                {
-                    let start = self.eval_inner(start, depth + 1)?;
-                    let end = self.eval_inner(end, depth + 1)?;
-                    let matches = match (target_value, start, end) {
-                        (ConstValue::Int(target), ConstValue::Int(start), ConstValue::Int(end)) => {
-                            if *is_inclusive {
-                                start <= *target && *target <= end
-                            } else {
-                                start <= *target && *target < end
-                            }
-                        }
-                        _ => false,
-                    };
-                    return if matches {
-                        Ok(Some(HashMap::new()))
-                    } else {
-                        Ok(None)
-                    };
-                }
-
-                let value = self.eval_inner(expr, depth + 1)?;
-                if value == *target_value {
-                    Ok(Some(HashMap::new()))
-                } else {
-                    Ok(None)
-                }
+                self.match_value_pattern(expr, target_value, target_ty, depth)
             }
             ast::MatchPatternKind::Pattern(pattern) => {
                 self.match_inner_pattern(pattern, target_value, target_ty, depth)
+            }
+        }
+    }
+
+    fn match_value_pattern(
+        &mut self,
+        expr: &Expr,
+        target_value: &ConstValue,
+        target_ty: TypeId,
+        depth: usize,
+    ) -> ConstEvalResult<Option<HashMap<SymbolId, ConstValue>>> {
+        if self.ctx.match_value_pattern_bind_ty(expr.id).is_some() {
+            self.ctx
+                .struct_error(
+                    expr.span,
+                    "user-defined value patterns are not supported in constant evaluation",
+                )
+                .with_hint(
+                    "use compiler-known scalar, range, enum, or struct patterns in const matches",
+                )
+                .emit();
+            return Err(ConstEvalError);
+        }
+
+        let matched = self.match_core_value_pattern(expr, target_value, target_ty, depth)?;
+        Ok(matched.then(HashMap::new))
+    }
+
+    fn match_core_value_pattern(
+        &mut self,
+        expr: &Expr,
+        target_value: &ConstValue,
+        target_ty: TypeId,
+        depth: usize,
+    ) -> ConstEvalResult<bool> {
+        match &expr.kind {
+            ast::ExprKind::Grouped { expr, .. } => {
+                self.match_core_value_pattern(expr, target_value, target_ty, depth)
+            }
+            ast::ExprKind::Range {
+                start: Some(start),
+                end: Some(end),
+                is_inclusive,
+            } => self.match_const_range_pattern(start, end, *is_inclusive, target_value, depth + 1),
+            ast::ExprKind::Bool(_)
+            | ast::ExprKind::Integer { .. }
+            | ast::ExprKind::Float { .. }
+            | ast::ExprKind::Char(_)
+            | ast::ExprKind::ByteChar(_)
+            | ast::ExprKind::Unary {
+                op: ast::UnaryOperator::Negate,
+                ..
+            }
+            | ast::ExprKind::EnumLiteral { .. }
+            | ast::ExprKind::FieldAccess { .. } => {
+                let value = self.eval_inner(expr, depth + 1)?;
+                Ok(value == *target_value)
+            }
+            ast::ExprKind::DataInit {
+                literal: ast::DataLiteralKind::Struct(fields),
+                ..
+            } => self.match_const_data_init_pattern(expr, fields, target_value, target_ty, depth),
+            _ => {
+                self.ctx
+                    .struct_error(expr.span, "invalid constant match value pattern")
+                    .with_hint("constant evaluation only supports compiler-known scalar, range, enum, and struct patterns")
+                    .emit();
+                Err(ConstEvalError)
+            }
+        }
+    }
+
+    fn match_const_range_pattern(
+        &mut self,
+        start: &Expr,
+        end: &Expr,
+        is_inclusive: bool,
+        target_value: &ConstValue,
+        depth: usize,
+    ) -> ConstEvalResult<bool> {
+        let start = self.eval_inner(start, depth + 1)?;
+        let end = self.eval_inner(end, depth + 1)?;
+        Ok(match (target_value, start, end) {
+            (ConstValue::Int(target), ConstValue::Int(start), ConstValue::Int(end)) => {
+                if is_inclusive {
+                    start <= *target && *target <= end
+                } else {
+                    start <= *target && *target < end
+                }
+            }
+            _ => false,
+        })
+    }
+
+    fn match_const_data_init_pattern(
+        &mut self,
+        expr: &Expr,
+        fields: &[ast::StructFieldInit],
+        target_value: &ConstValue,
+        target_ty: TypeId,
+        depth: usize,
+    ) -> ConstEvalResult<bool> {
+        let norm_target = self.normalize_type(target_ty);
+        match self.type_kind(norm_target) {
+            TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_) => {
+                let [field] = fields else {
+                    self.ctx
+                        .struct_error(
+                            expr.span,
+                            "enum value patterns must specify exactly one variant",
+                        )
+                        .emit();
+                    return Err(ConstEvalError);
+                };
+
+                let expected_tag =
+                    match self.variant_tag(target_ty, field.name, depth, field.name_span)? {
+                        Some(tag) => tag,
+                        None => return Ok(false),
+                    };
+                let payload_ty =
+                    self.variant_payload_ty(target_ty, field.name, depth, field.span)?;
+                match (target_value, payload_ty) {
+                    (
+                        ConstValue::Enum {
+                            tag,
+                            payload: Some(payload),
+                        },
+                        Some(payload_ty),
+                    ) if *tag == expected_tag => {
+                        self.match_core_value_pattern(&field.value, payload, payload_ty, depth + 1)
+                    }
+                    (ConstValue::Enum { tag, payload: None }, None) if *tag == expected_tag => {
+                        Ok(true)
+                    }
+                    (ConstValue::Int(tag), None) if *tag == expected_tag => Ok(true),
+                    _ => Ok(false),
+                }
+            }
+            _ => {
+                let ConstValue::Struct(field_values) = target_value else {
+                    return Ok(false);
+                };
+                for field in fields {
+                    let Some(field_ty) =
+                        self.struct_pattern_field_ty(target_ty, field.name, field.span)?
+                    else {
+                        self.ctx
+                            .struct_error(
+                                field.span,
+                                format!(
+                                    "field `{}` does not exist in `{}`",
+                                    self.resolve_symbol(field.name),
+                                    self.ty_to_string(norm_target)
+                                ),
+                            )
+                            .emit();
+                        return Err(ConstEvalError);
+                    };
+                    let Some(field_value) = field_values.get(&field.name) else {
+                        return Ok(false);
+                    };
+                    if !self.match_core_value_pattern(
+                        &field.value,
+                        field_value,
+                        field_ty,
+                        depth + 1,
+                    )? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
             }
         }
     }

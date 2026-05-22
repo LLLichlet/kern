@@ -495,7 +495,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     self.record_pointer_origin_pattern_bindings(&field.pattern, init, origins);
                 }
             }
-            ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {}
+            ast::PatternKind::Ignore
+            | ast::PatternKind::Variant(_)
+            | ast::PatternKind::Value(_) => {}
         }
     }
 

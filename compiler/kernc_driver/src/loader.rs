@@ -937,6 +937,9 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
     ) {
         match &pattern.kind {
             ast::PatternKind::Binding(_) | ast::PatternKind::Ignore => {}
+            ast::PatternKind::Value(value) => {
+                Self::collect_expr_alias_references(value, alias_names, referenced);
+            }
             ast::PatternKind::Variant(variant) => {
                 if let Some(target_type) = &variant.target_type {
                     Self::collect_type_alias_references(target_type, alias_names, referenced);

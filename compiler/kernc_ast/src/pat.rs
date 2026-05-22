@@ -45,6 +45,8 @@ pub enum PatternKind {
     Ignore,
     Variant(VariantPattern),
     Destructure(DestructurePattern),
+    /// Expression-valued pattern used inside structural patterns.
+    Value(Box<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

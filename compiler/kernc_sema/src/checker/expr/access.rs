@@ -258,7 +258,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .fields
                 .iter()
                 .any(|field| self.pattern_needs_scope_extension(&field.pattern, entered_scope)),
-            ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => false,
+            ast::PatternKind::Ignore
+            | ast::PatternKind::Variant(_)
+            | ast::PatternKind::Value(_) => false,
         }
     }
 
@@ -446,7 +448,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> bool {
         match &pattern.kind {
             ast::PatternKind::Binding(_) | ast::PatternKind::Ignore => true,
-            ast::PatternKind::Variant(_) => false,
+            ast::PatternKind::Variant(_) | ast::PatternKind::Value(_) => false,
             ast::PatternKind::Destructure(destructure) => {
                 let actual_ty = self.resolve_tv(actual_ty);
                 if matches!(
@@ -490,6 +492,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
             ast::PatternKind::Ignore => {}
+            ast::PatternKind::Value(value) => {
+                if !self.check_value_pattern(value, actual_ty) {
+                    self.emit_invalid_match_value_pattern(value, actual_ty);
+                }
+            }
             ast::PatternKind::Variant(variant) => {
                 self.check_pattern_explicit_type(
                     variant.target_type.as_deref(),

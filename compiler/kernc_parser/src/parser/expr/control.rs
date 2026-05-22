@@ -626,7 +626,7 @@ impl<'a> Parser<'a> {
             let field_tok = self.expect(TokenType::Identifier)?;
             let field_name = self.intern_token(field_tok);
             let pattern = if self.match_token(&[TokenType::Colon]) {
-                Box::new(self.parse_pattern()?)
+                Box::new(self.parse_destructure_field_pattern()?)
             } else {
                 Box::new(Pattern {
                     span: field_tok.span,
@@ -660,6 +660,19 @@ impl<'a> Parser<'a> {
                 target_type,
                 fields,
             }),
+        })
+    }
+
+    fn parse_destructure_field_pattern(&mut self) -> ParseResult<Pattern> {
+        let start_span = self.peek().span;
+        if let Some(lead) = self.classify_pattern_lead(true) {
+            return self.parse_pattern_from_lead(start_span, lead);
+        }
+
+        let expr = self.parse_match_value_pattern_expr()?;
+        Ok(Pattern {
+            span: expr.span,
+            kind: PatternKind::Value(Box::new(expr)),
         })
     }
 

@@ -657,6 +657,7 @@ impl Drop for OpsLoggingGuard {
     }
 }
 
+#[cfg(test)]
 fn render_progress_bar(completed: usize, total: usize, width: usize) -> String {
     if total == 0 {
         return format!("[>{}]", "-".repeat(width.saturating_sub(1)));

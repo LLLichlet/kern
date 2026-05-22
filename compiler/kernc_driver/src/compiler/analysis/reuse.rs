@@ -1311,6 +1311,7 @@ fn canonicalize_pattern_symbols(
             canonicalize_binding_pattern_symbols(session, canonical, binding);
         }
         ast::PatternKind::Ignore => {}
+        ast::PatternKind::Value(value) => canonicalize_expr_symbols(session, canonical, value),
         ast::PatternKind::Variant(variant) => {
             canonicalize_symbol(session, canonical, &mut variant.variant_name);
             if let Some(target_type) = &mut variant.target_type {
@@ -1971,6 +1972,7 @@ fn normalize_pattern_for_body_only_comparison(pattern: &mut ast::Pattern) {
             normalize_binding_pattern_for_body_only_comparison(binding);
         }
         ast::PatternKind::Ignore => {}
+        ast::PatternKind::Value(value) => normalize_expr_for_body_only_comparison(value),
         ast::PatternKind::Variant(variant) => {
             variant.variant_span = Span::default();
             if let Some(target_type) = &mut variant.target_type {

@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn rejects_nested_enum_payload_gap_in_match_exhaustiveness() {
-    let output = compile_source(
+    let output = compile_source_with_std(
         r#"
 enum Inner {
     X,
@@ -184,6 +184,78 @@ fn main() i32 {
         "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn accepts_nested_slice_value_patterns_in_enum_payloads() {
+    let output = build_and_run_source(
+        r#"
+use base.coll;
+
+fn classify(arg: ?&[u8]) i32 {
+    return match (arg) {
+        .{ Some: "--help" } => 1,
+        .{ Some: "-h" } => 2,
+        .None => 3,
+        _ => 4,
+    };
+}
+
+fn main() i32 {
+    return classify(.{ Some: "--help" })
+        + classify(.{ Some: "-h" })
+        + classify(.{ Some: "build" })
+        + classify(.None)
+        - 10;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn treats_nested_slice_value_patterns_as_opaque_for_exhaustiveness() {
+    let output = compile_source_with_std(
+        r#"
+use base.coll;
+
+fn classify(arg: ?&[u8]) i32 {
+    return match (arg) {
+        .{ Some: "--help" } => 1,
+        .None => 2,
+    };
+}
+
+fn main() i32 {
+    return classify(.{ Some: "build" });
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("match expression is not exhaustive"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains(".{ Some: _ }"),
+        "unexpected stderr:\n{}",
+        stderr
     );
 }
 

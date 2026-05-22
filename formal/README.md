@@ -217,7 +217,10 @@ points:
   wildcards, so coverage and lowering both test the full literal value.
 - `coverageLower (.opaqueUser ...) = none` records that user-defined
   `Pattern[T]` value patterns are runtime tests only; they do not contribute to
-  ADT/bool exhaustiveness.
+  ADT/bool exhaustiveness. This applies recursively: if an enum payload or
+  product field is matched by an opaque user pattern such as a slice/string
+  predicate, the containing constructor row is also outside the exact coverage
+  fragment.
 - `lowerFirstMatch` mirrors `Lowerer::lower_match_pattern_chain` in
   `compiler/kernc_lower/src/expr/control/pattern.rs`: arms and alternative
   patterns are tested in source order, and the first matching pattern selects

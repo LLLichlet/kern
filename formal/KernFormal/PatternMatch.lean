@@ -10,9 +10,12 @@ The compiler has two independent views of a match:
 
 This model keeps those views connected for the constructor fragment that Kern's
 exhaustiveness checker handles exactly: booleans, enum variants, and product
-payloads. User-defined `Pattern[T]` value patterns are deliberately modeled as
-opaque runtime tests: they may lower to a branch condition, but they do not
-contribute to constructor exhaustiveness.
+payloads. Scalar literal/range coverage is modeled separately in
+`KernFormal.ScalarRange`; it is a core compiler fragment, not a user pattern.
+User-defined `Pattern[T]` value patterns are deliberately modeled as opaque
+runtime tests: they may lower to a branch condition, but they do not contribute
+to constructor exhaustiveness, including when nested inside a constructor
+payload or product field.
 -/
 
 namespace KernFormal.PatternMatch
@@ -219,7 +222,9 @@ mutual
 
   This takes the target type for the same reason the compiler does:
   enum payloads and product fields determine how nested subpatterns are lowered,
-  and omitted product fields become wildcard coverage entries.
+  and omitted product fields become wildcard coverage entries. If any nested
+  subpattern is an opaque user `Pattern[T]` test, the whole constructor/product
+  pattern is outside the exact coverage fragment and lowers to `none`.
   -/
   partial def coverageLower : Ty -> Pat -> Option CoveragePattern
     | _, .wildcard => some .wildcard
@@ -485,6 +490,16 @@ example :
 
 /-- User patterns are opaque for exhaustiveness even if they may match at runtime. -/
 example : exhaustive boolTy [.opaqueUser []] = false := by
+  native_decide
+
+/-- A nested opaque user pattern removes the whole constructor row from coverage. -/
+example :
+    coverageLower optionBoolTy (.ctor 1 [.opaqueUser []]) = none := by
+  native_decide
+
+/-- Opaque payload tests therefore cannot prove the payload constructor exhaustive. -/
+example :
+    exhaustive optionBoolTy [.ctor 1 [.opaqueUser []], nonePat] = false := by
   native_decide
 
 /-- Once a wildcard row is present, later constructor rows are not useful. -/

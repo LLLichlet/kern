@@ -333,6 +333,48 @@ impl[T, N: usize] [N]T : Eq[[N]T]
     }
 }
 
+impl[T] &[T] : Pattern[&[T]]
+    where T: Eq[T],
+{
+    type Bind = void;
+
+    /// Matches another slice by element equality.
+    pub fn apply(value: &[T]) ?Bind {
+        if self == value {
+            return .{ Some: {} };
+        }
+        return .None;
+    }
+}
+
+impl[T, N: usize] [N]T : Pattern[&[T]]
+    where T: Eq[T],
+{
+    type Bind = void;
+
+    /// Matches a slice against this fixed-size array.
+    pub fn apply(value: &[T]) ?Bind {
+        if self == value {
+            return .{ Some: {} };
+        }
+        return .None;
+    }
+}
+
+impl[T, N: usize] [N]T : Pattern[[N]T]
+    where T: Eq[T],
+{
+    type Bind = void;
+
+    /// Matches another fixed-size array by element equality.
+    pub fn apply(value: [N]T) ?Bind {
+        if self == value {
+            return .{ Some: {} };
+        }
+        return .None;
+    }
+}
+
 impl[T] &[T]
     where T: Ord[T],
 {

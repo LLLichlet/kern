@@ -286,7 +286,7 @@ fn collect_pattern_type_hints(
                 collect_pattern_type_hints(ctx, file_id, &field.pattern, hints);
             }
         }
-        ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {}
+        ast::PatternKind::Ignore | ast::PatternKind::Variant(_) | ast::PatternKind::Value(_) => {}
     }
 }
 

@@ -9,6 +9,7 @@ use super::*;
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     fn resolve_pattern(&mut self, pattern: &ast::Pattern, scope: ScopeId) {
         match &pattern.kind {
+            ast::PatternKind::Value(value) => self.resolve_expr(value, scope),
             ast::PatternKind::Binding(_)
             | ast::PatternKind::Ignore
             | ast::PatternKind::Variant(_) => {

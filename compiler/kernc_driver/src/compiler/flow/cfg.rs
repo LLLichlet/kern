@@ -650,7 +650,7 @@ fn collect_pattern_binding_spans(pattern: &ast::Pattern, spans: &mut HashSet<Spa
                 collect_pattern_binding_spans(&field.pattern, spans);
             }
         }
-        ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {}
+        ast::PatternKind::Ignore | ast::PatternKind::Variant(_) | ast::PatternKind::Value(_) => {}
     }
 }
 

@@ -261,9 +261,8 @@ privileged language objects.
 
 ### 9. Put methods on the weakest useful receiver
 
-Kern impls are for types, and method lookup can use shared-reference methods
-from mutable references. If a method only observes a value, put it on `&T`; do
-not duplicate the same method in `impl &mut T`.
+Kern impls are for concrete receiver types. If a method only observes a value,
+put it on `&T`; do not duplicate the same method in `impl &mut T`.
 
 ```kern
 impl &String {
@@ -273,8 +272,15 @@ impl &String {
 }
 ```
 
-The method above is also available on `&mut String`, because a mutable reference
-can be used where a shared receiver is enough.
+Callers holding a mutable pointer should explicitly narrow it with `.view()`
+before using read-only receiver methods:
+
+```kern
+let text = String.{}..&;
+defer text.deinit(gpa);
+text.try_push_str(gpa, "boot").?;
+text.view().path().exists(gpa).?;
+```
 
 Use `impl &mut T` only when the method mutates through the receiver, exposes
 mutable storage, consumes mutation-only capability, or implements a trait whose

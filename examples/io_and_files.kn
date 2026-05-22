@@ -24,7 +24,7 @@ fn main() i32 {
         .should_ok()
         .sum(@loc(), t);
     defer text..&.deinit(gpa);
-    (text.&.as_str() == "kern examples\n").should().sum(@loc(), t);
+    (text..&.view().as_str() == "kern examples\n").should().sum(@loc(), t);
 
     _ = path.remove_file_if_exists(gpa);
     "io_and_files: wrote and read {} bytes".fmt(.{written}).println();

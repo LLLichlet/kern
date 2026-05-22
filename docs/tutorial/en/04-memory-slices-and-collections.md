@@ -356,15 +356,15 @@ fn main() i32 {
     };
     defer text..&.deinit(gpa);
 
-    "wrote {} bytes: {}".fmt(.{written, text.&.as_str()}).println();
+    "wrote {} bytes: {}".fmt(.{written, text..&.view().as_str()}).println();
     _ = path.remove_file_if_exists(gpa);
     return SUCCESS;
 }
 ```
 
 `read_to_string` returns a string value that owns backing storage. The example
-binds it as `let mut text`, registers `deinit`, then uses `text.&.as_str()` for
-read-only formatting.
+binds it as `let mut text`, registers `deinit`, then uses
+`text..&.view().as_str()` for read-only formatting.
 
 ## `const` And `static`
 

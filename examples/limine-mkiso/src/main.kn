@@ -70,8 +70,8 @@ fn run_shell(
     write_stderr_line(label);
     write_stderr(command.as_str());
     write_stderr("\n");
-    if capture.output.&.is_empty().not() {
-        let output = capture.output.&.as_str();
+    if capture.output..&.view().is_empty().not() {
+        let output = capture.output..&.view().as_str();
         write_stderr(output);
         if output.ends_with("\n").not() {
             write_stderr("\n");

@@ -22,6 +22,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const HOST_TOOL_BINARIES: &[&str] = &["kernc", "craft", "kern-lsp"];
 pub const OFFICIAL_LIBRARY_LAYERS: &[&str] = &["base", "rt", "std"];
+pub const OFFICIAL_LIBRARY_ENTRY: &str = "lib.kn";
 static COMMAND_LOGGING_ENABLED: AtomicBool = AtomicBool::new(true);
 static STATUS_LOGGING_ENABLED: AtomicBool = AtomicBool::new(true);
 
@@ -306,7 +307,11 @@ pub fn validate_sdk_root_with_progress(
         ));
     }
     for layer in OFFICIAL_LIBRARY_LAYERS {
-        if !library_root.join(layer).join("mod.kn").is_file() {
+        if !library_root
+            .join(layer)
+            .join(OFFICIAL_LIBRARY_ENTRY)
+            .is_file()
+        {
             return Err(OpsError::new(format!(
                 "SDK official library `{layer}` is missing"
             )));
@@ -959,9 +964,12 @@ pub fn resolve_official_library_root(root: &Path) -> OpsResult<PathBuf> {
         root.join(candidate)
     };
     if library_root.join("Craft.toml").is_file()
-        && OFFICIAL_LIBRARY_LAYERS
-            .iter()
-            .all(|layer| library_root.join(layer).join("mod.kn").is_file())
+        && OFFICIAL_LIBRARY_LAYERS.iter().all(|layer| {
+            library_root
+                .join(layer)
+                .join(OFFICIAL_LIBRARY_ENTRY)
+                .is_file()
+        })
     {
         return Ok(library_root);
     }
@@ -2475,6 +2483,21 @@ mod tests {
     }
 
     #[test]
+    fn official_library_root_accepts_workspace_lib_entries() {
+        let root = make_temp_dir("shared-ops-library-root-test-").unwrap();
+        let library_root = root.join("library");
+        fs::create_dir_all(&library_root).unwrap();
+        fs::write(library_root.join("Craft.toml"), "").unwrap();
+        for layer in OFFICIAL_LIBRARY_LAYERS {
+            fs::create_dir_all(library_root.join(layer)).unwrap();
+            fs::write(library_root.join(layer).join(OFFICIAL_LIBRARY_ENTRY), "").unwrap();
+        }
+
+        assert_eq!(resolve_official_library_root(&root).unwrap(), library_root);
+        remove_path_if_exists(&root).unwrap();
+    }
+
+    #[test]
     fn sdk_manifest_requires_clang_resource_dir() {
         let manifest = sdk_manifest_json(
             "v0.8.2",
@@ -2565,7 +2588,7 @@ mod tests {
         fs::write(library_root.join("Craft.toml"), "").unwrap();
         for layer in OFFICIAL_LIBRARY_LAYERS {
             fs::create_dir_all(library_root.join(layer)).unwrap();
-            fs::write(library_root.join(layer).join("mod.kn"), "").unwrap();
+            fs::write(library_root.join(layer).join(OFFICIAL_LIBRARY_ENTRY), "").unwrap();
         }
         fs::create_dir_all(library_root.join("craft")).unwrap();
         fs::write(library_root.join("craft").join("mod.kn"), "").unwrap();

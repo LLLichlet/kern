@@ -1,9 +1,16 @@
+//! Control-flow lowering.
+//!
+//! Structured AST control expressions lower into MAST blocks, branches, loops,
+//! switches, matches, closures, defers, and propagation forms. Submodules own
+//! pattern/match details so the main lowering path stays readable.
+
 use super::Lowerer;
 use std::collections::HashMap;
 
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_mast::*;
 use kernc_mono::MonoId;
+use kernc_sema::checker::{ConstEvaluator, ConstValue};
 use kernc_sema::def::Def;
 use kernc_sema::ty::{BuiltinAnonymousEnumKind, GenericArg, TypeId, TypeKind};
 use kernc_utils::{NodeId, Span, SymbolId};

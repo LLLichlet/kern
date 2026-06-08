@@ -1,3 +1,9 @@
+//! Module, item, and workload metadata for MAST.
+//!
+//! A `MastModule` is the flattened compilation unit after semantic lowering and
+//! monomorphization.  The workload visitor gives the driver a cheap way to
+//! estimate backend work without depending on MIR or LLVM internals.
+
 use crate::{MastBlock, MastExpr};
 use kernc_ast::MetaItem;
 use kernc_mono::{MonoId, MonoModuleMetadata};
@@ -62,6 +68,8 @@ impl MastModule {
             ..MastWorkloadStats::default()
         };
 
+        // Global initializers are part of backend work even though they do not
+        // live in function bodies.
         for global in &self.globals {
             if let Some(init) = &global.init {
                 visit_expr(init, &mut stats);
@@ -178,6 +186,8 @@ fn visit_block(block: &MastBlock, stats: &mut MastWorkloadStats) {
     }
 
     for defer in &block.defers {
+        // Defers are still attached to blocks at this layer.  Lowering expands
+        // them onto each exit path later, but they should count as work here.
         visit_expr(defer, stats);
     }
 }
@@ -185,6 +195,8 @@ fn visit_block(block: &MastBlock, stats: &mut MastWorkloadStats) {
 fn visit_expr(expr: &MastExpr, stats: &mut MastWorkloadStats) {
     stats.expressions += 1;
 
+    // Keep this visitor exhaustive so new expression variants must decide how
+    // they contribute to coarse backend scheduling metrics.
     match &expr.kind {
         crate::MastExprKind::Undef
         | crate::MastExprKind::Unreachable

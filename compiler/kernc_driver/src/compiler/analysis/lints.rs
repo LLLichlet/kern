@@ -1,4 +1,11 @@
+//! Analysis lints.
+//!
+//! Lints use semantic definitions plus flow data to report unused private items,
+//! unused bindings, dead stores, and visibility/export issues without affecting
+//! compilation success.
+
 use super::*;
+use kernc_utils::expect_uncancelable;
 
 struct ScopeExportFacts {
     definition_spans: std::collections::HashMap<DefId, Span>,
@@ -7,11 +14,15 @@ struct ScopeExportFacts {
 }
 
 impl ScopeExportFacts {
-    fn for_context(ctx: &SemaContext<'_>) -> Self {
+    fn for_context_cancelable(
+        ctx: &SemaContext<'_>,
+        cancellation: &CancellationToken,
+    ) -> Result<Self, Canceled> {
         let mut definition_spans = std::collections::HashMap::new();
         let mut public_spans_by_def_id = std::collections::HashMap::<DefId, Vec<Span>>::new();
 
         for (_name, info) in ctx.scopes.all_symbols() {
+            cancellation.check()?;
             let Some(def_id) = info.def_id else {
                 continue;
             };
@@ -35,6 +46,7 @@ impl ScopeExportFacts {
                     })
         {
             for (_name, info) in ctx.scopes.symbols_in_scope(root_scope_id) {
+                cancellation.check()?;
                 let Some(def_id) = info.def_id else {
                     continue;
                 };
@@ -47,11 +59,11 @@ impl ScopeExportFacts {
             }
         }
 
-        Self {
+        Ok(Self {
             definition_spans,
             public_spans_by_def_id,
             root_public_spans_by_def_id,
-        }
+        })
     }
 
     fn definition_span(&self, def_id: DefId) -> Option<Span> {
@@ -76,57 +88,81 @@ impl ScopeExportFacts {
 }
 
 impl CompilerDriver {
-    pub(super) fn emit_unused_private_item_warnings(
+    pub(super) fn emit_unused_private_item_warnings_cancelable(
         &self,
         ctx: &mut SemaContext<'_>,
         references: &[(Span, Span)],
         flow: &FlowModel,
-    ) {
-        let reachability = self.compute_module_item_reachability(ctx, references, flow);
-        self.emit_unused_private_item_warnings_with_reachability(ctx, &reachability);
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
+        let reachability =
+            self.compute_module_item_reachability_cancelable(ctx, references, flow, cancellation)?;
+        self.emit_unused_private_item_warnings_with_reachability_cancelable(
+            ctx,
+            &reachability,
+            cancellation,
+        )
     }
 
-    pub(super) fn emit_unused_private_item_warnings_with_reachability(
+    pub(super) fn emit_unused_private_item_warnings_with_reachability_cancelable(
         &self,
         ctx: &mut SemaContext<'_>,
         reachability: &ModuleItemReachability,
-    ) {
-        for item in self.collect_unused_private_items_from_reachability(ctx, reachability) {
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
+        for item in self.collect_unused_private_items_from_reachability_cancelable(
+            ctx,
+            reachability,
+            cancellation,
+        )? {
+            cancellation.check()?;
             ctx.struct_warning(item.definition_span, unused_item_message(&item))
                 .with_code(kernc_utils::DiagnosticCode::UnusedPrivateItem)
                 .with_tag(kernc_utils::DiagnosticTag::Unnecessary)
                 .with_hint("remove it, make it public, or reference it from reachable code")
                 .emit();
         }
+        Ok(())
     }
 
-    pub(super) fn collect_unused_private_items(
+    pub(super) fn collect_unused_private_items_cancelable(
         &self,
         ctx: &SemaContext<'_>,
         references: &[(Span, Span)],
         flow: &FlowModel,
-    ) -> Vec<AnalysisUnusedItem> {
-        let reachability = self.compute_module_item_reachability(ctx, references, flow);
-        self.collect_unused_private_items_from_reachability(ctx, &reachability)
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<AnalysisUnusedItem>, Canceled> {
+        let reachability =
+            self.compute_module_item_reachability_cancelable(ctx, references, flow, cancellation)?;
+        self.collect_unused_private_items_from_reachability_cancelable(
+            ctx,
+            &reachability,
+            cancellation,
+        )
     }
 
-    pub(super) fn collect_unused_private_items_from_reachability(
+    pub(super) fn collect_unused_private_items_from_reachability_cancelable(
         &self,
         ctx: &SemaContext<'_>,
         reachability: &ModuleItemReachability,
-    ) -> Vec<AnalysisUnusedItem> {
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<AnalysisUnusedItem>, Canceled> {
         if reachability.nodes.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
-        let mut unused = reachability
-            .nodes
-            .values()
-            .filter(|node| node.is_warnable && !reachability.reachable.contains(&node.def_id))
-            .filter_map(|node| self.unused_item_from_node(ctx, node))
-            .collect::<Vec<_>>();
+        let mut unused = Vec::new();
+        for node in reachability.nodes.values() {
+            cancellation.check()?;
+            if node.is_warnable
+                && !reachability.reachable.contains(&node.def_id)
+                && let Some(item) = self.unused_item_from_node(ctx, node)
+            {
+                unused.push(item);
+            }
+        }
         unused.sort_by_key(|item| item.definition_span);
-        unused
+        Ok(unused)
     }
 
     pub(in crate::compiler) fn compute_module_item_reachability(
@@ -135,15 +171,34 @@ impl CompilerDriver {
         references: &[(Span, Span)],
         flow: &FlowModel,
     ) -> ModuleItemReachability {
-        let nodes = self.collect_module_item_reachability_nodes(ctx);
+        expect_uncancelable(
+            self.compute_module_item_reachability_cancelable(
+                ctx,
+                references,
+                flow,
+                &CancellationToken::new(),
+            ),
+            "computing module item reachability",
+        )
+    }
+
+    pub(in crate::compiler) fn compute_module_item_reachability_cancelable(
+        &self,
+        ctx: &SemaContext<'_>,
+        references: &[(Span, Span)],
+        flow: &FlowModel,
+        cancellation: &CancellationToken,
+    ) -> Result<ModuleItemReachability, Canceled> {
+        let nodes = self.collect_module_item_reachability_nodes_cancelable(ctx, cancellation)?;
         if nodes.is_empty() {
-            return ModuleItemReachability {
+            return Ok(ModuleItemReachability {
                 nodes,
                 reachable: std::collections::HashSet::new(),
                 lowered_reachable: std::collections::HashSet::new(),
-            };
+            });
         }
 
+        cancellation.check()?;
         let node_def_ids = nodes
             .keys()
             .copied()
@@ -153,6 +208,7 @@ impl CompilerDriver {
             .map(|node| (node.name_span, node.def_id))
             .collect::<std::collections::HashMap<_, _>>();
         for (_name, info) in ctx.scopes.all_symbols() {
+            cancellation.check()?;
             let Some(def_id) = info.def_id else {
                 continue;
             };
@@ -173,6 +229,7 @@ impl CompilerDriver {
         let mut edges = std::collections::HashMap::<DefId, std::collections::HashSet<DefId>>::new();
 
         for (reference_span, definition_span) in references {
+            cancellation.check()?;
             let Some(&callee) = definition_span_to_def_id.get(definition_span) else {
                 continue;
             };
@@ -185,55 +242,69 @@ impl CompilerDriver {
         }
 
         for &(caller, callee) in flow.referenced_item_edges() {
+            cancellation.check()?;
             edges.entry(caller).or_default().insert(callee);
         }
 
-        propagate_reachability(&edges, &mut reachable);
-        propagate_reachability(&edges, &mut lowered_reachable);
+        propagate_reachability_cancelable(&edges, &mut reachable, cancellation)?;
+        propagate_reachability_cancelable(&edges, &mut lowered_reachable, cancellation)?;
 
-        ModuleItemReachability {
+        Ok(ModuleItemReachability {
             nodes,
             reachable,
             lowered_reachable,
-        }
+        })
     }
 
-    pub(super) fn emit_unused_binding_warnings(&self, ctx: &mut SemaContext<'_>, flow: &FlowModel) {
-        for binding in self.collect_unused_bindings(ctx, flow) {
+    pub(super) fn emit_unused_binding_warnings_cancelable(
+        &self,
+        ctx: &mut SemaContext<'_>,
+        flow: &FlowModel,
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
+        for binding in self.collect_unused_bindings_cancelable(ctx, flow, cancellation)? {
+            cancellation.check()?;
             ctx.struct_warning(binding.definition_span, unused_binding_message(&binding))
                 .with_code(kernc_utils::DiagnosticCode::UnusedBinding)
                 .with_tag(kernc_utils::DiagnosticTag::Unnecessary)
                 .with_hint("remove it, rename it to `_`, or reference it from reachable code")
                 .emit();
         }
+        Ok(())
     }
 
-    pub(super) fn emit_dead_store_warnings(
+    pub(super) fn emit_dead_store_warnings_cancelable(
         &self,
         ctx: &mut SemaContext<'_>,
         references: &[(Span, Span)],
         flow: &FlowModel,
-    ) {
-        for store in self.collect_dead_stores(ctx, references, flow) {
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
+        for store in self.collect_dead_stores_cancelable(ctx, references, flow, cancellation)? {
+            cancellation.check()?;
             ctx.struct_warning(store.span, dead_store_message(&store))
                 .with_code(kernc_utils::DiagnosticCode::DeadStore)
                 .with_tag(kernc_utils::DiagnosticTag::Unnecessary)
                 .with_hint("remove the assignment or use the value before it is overwritten")
                 .emit();
         }
+        Ok(())
     }
 
-    pub(super) fn collect_unused_bindings(
+    pub(super) fn collect_unused_bindings_cancelable(
         &self,
         ctx: &SemaContext<'_>,
         flow: &FlowModel,
-    ) -> Vec<AnalysisUnusedBinding> {
-        let mut unused = flow
-            .public_owners()
-            .into_iter()
-            .flat_map(|owner| owner.bindings.into_iter())
-            .filter(|binding| binding.reference_spans.is_empty())
-            .filter_map(|binding| {
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<AnalysisUnusedBinding>, Canceled> {
+        let mut unused = Vec::new();
+        for owner in flow.public_owners() {
+            cancellation.check()?;
+            for binding in owner.bindings {
+                cancellation.check()?;
+                if !binding.reference_spans.is_empty() {
+                    continue;
+                }
                 let kind = match binding.kind {
                     crate::compiler::AnalysisFlowBindingKind::Variable => {
                         AnalysisUnusedBindingKind::Variable
@@ -241,7 +312,7 @@ impl CompilerDriver {
                     crate::compiler::AnalysisFlowBindingKind::Parameter => {
                         AnalysisUnusedBindingKind::Parameter
                     }
-                    crate::compiler::AnalysisFlowBindingKind::Static => return None,
+                    crate::compiler::AnalysisFlowBindingKind::Static => continue,
                 };
                 let name = ctx
                     .sess
@@ -250,39 +321,44 @@ impl CompilerDriver {
                     .trim()
                     .to_string();
                 if name.is_empty() || name == "_" {
-                    return None;
+                    continue;
                 }
 
-                Some(AnalysisUnusedBinding {
+                unused.push(AnalysisUnusedBinding {
                     definition_span: binding.definition_span,
                     kind,
                     name,
-                })
-            })
-            .collect::<Vec<_>>();
+                });
+            }
+        }
         unused.sort_by_key(|binding| binding.definition_span);
-        unused
+        Ok(unused)
     }
 
-    pub(super) fn collect_dead_stores(
+    pub(super) fn collect_dead_stores_cancelable(
         &self,
         ctx: &SemaContext<'_>,
         references: &[(Span, Span)],
         flow: &FlowModel,
-    ) -> Vec<crate::compiler::AnalysisDeadStore> {
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<crate::compiler::AnalysisDeadStore>, Canceled> {
+        cancellation.check()?;
         let mut dead_stores = flow.collect_dead_stores(ctx, references);
+        cancellation.check()?;
         dead_stores.sort_by_key(|store| store.span);
-        dead_stores
+        Ok(dead_stores)
     }
 
-    fn collect_module_item_reachability_nodes(
+    fn collect_module_item_reachability_nodes_cancelable(
         &self,
         ctx: &SemaContext<'_>,
-    ) -> std::collections::HashMap<DefId, ReachabilityItemNode> {
+        cancellation: &CancellationToken,
+    ) -> Result<std::collections::HashMap<DefId, ReachabilityItemNode>, Canceled> {
         let mut nodes = std::collections::HashMap::new();
-        let scope_exports = ScopeExportFacts::for_context(ctx);
+        let scope_exports = ScopeExportFacts::for_context_cancelable(ctx, cancellation)?;
 
         for def in &ctx.defs {
+            cancellation.check()?;
             match def {
                 kernc_sema::def::Def::Function(function) => {
                     if function.is_imported || function.is_intrinsic {
@@ -372,7 +448,7 @@ impl CompilerDriver {
             }
         }
 
-        nodes
+        Ok(nodes)
     }
 
     fn is_lintable_free_function(
@@ -455,23 +531,27 @@ impl CompilerDriver {
     }
 }
 
-fn propagate_reachability(
+fn propagate_reachability_cancelable(
     edges: &std::collections::HashMap<DefId, std::collections::HashSet<DefId>>,
     reachable: &mut std::collections::HashSet<DefId>,
-) {
+    cancellation: &CancellationToken,
+) -> Result<(), Canceled> {
     let mut worklist = reachable.iter().copied().collect::<Vec<_>>();
     let mut cursor = 0;
     while let Some(def_id) = worklist.get(cursor).copied() {
+        cancellation.check()?;
         cursor += 1;
         let Some(callees) = edges.get(&def_id) else {
             continue;
         };
         for callee in callees {
+            cancellation.check()?;
             if reachable.insert(*callee) {
                 worklist.push(*callee);
             }
         }
     }
+    Ok(())
 }
 
 fn unused_item_message(item: &AnalysisUnusedItem) -> String {

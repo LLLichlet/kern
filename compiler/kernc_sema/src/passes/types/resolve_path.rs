@@ -1,3 +1,9 @@
+//! Type path resolution.
+//!
+//! Paths may start from lexical scope, parent module, or package root, and may
+//! continue through modules, named types, trait qualifications, associated
+//! types, and generic arguments.  This file owns that stepwise resolution.
+
 use super::*;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
@@ -149,7 +155,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                             .emit();
                     } else if index == 0 {
                         self.ctx
-                            .emit_error(span, format!("Cannot find type `{}` in this scope", name));
+                            .struct_error(
+                                segment.name_span,
+                                format!("Cannot find type `{}` in this scope", name),
+                            )
+                            .with_code(kernc_utils::DiagnosticCode::UnresolvedType)
+                            .emit();
                     } else {
                         self.ctx.emit_error(
                             span,
@@ -282,6 +293,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         env_scope: ScopeId,
         span: Span,
     ) -> TypeId {
+        self.record_type_symbol_reference(segment, final_sym);
+
         let (resolved_generics, resolved_assoc_bindings) = if let Some(def_id) = final_sym.def_id {
             self.resolve_generic_args_for_def(def_id, &segment.args, env_scope, span)
         } else {
@@ -511,6 +524,26 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
     }
 
+    fn record_type_symbol_reference(
+        &mut self,
+        segment: &ast::TypePathSegment,
+        symbol: &crate::scope::SymbolInfo,
+    ) {
+        if symbol.span.end <= symbol.span.start
+            || self
+                .ctx
+                .sess
+                .source_manager
+                .get_file(symbol.span.file)
+                .is_none()
+        {
+            return;
+        }
+
+        self.ctx
+            .record_identifier_reference(segment.name_span, symbol.span);
+    }
+
     fn resolve_type_args(
         &mut self,
         args: &[ast::GenericArg],
@@ -603,6 +636,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             return false;
         }
 
+        // `len() >= 2` above guarantees a variant segment exists.
         let last_segment = segments.last().unwrap();
         let mut current_scope = match anchor {
             Some(anchor) => {

@@ -1,0 +1,24 @@
+// class: selfref-trait-proof
+// source: a supertrait proof cannot be satisfied by an impl that requires the derived trait back through an associated binding
+// stderr: impl of trait `Derived` is missing a required supertrait proof
+// stderr: required bound: `X: Base[Out = i32]`
+
+trait Base {
+    type Out;
+};
+
+trait Derived: Base[Out = i32] {};
+
+struct X {};
+
+impl X: Base
+    where X: Derived,
+{
+    type Out = i32;
+}
+
+impl X: Derived {}
+
+fn main() i32 {
+    return 0;
+}

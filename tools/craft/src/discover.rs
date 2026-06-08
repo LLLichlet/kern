@@ -1,3 +1,9 @@
+//! Manifest discovery from files, directories, and workspace members.
+//!
+//! Discovery canonicalizes user-provided paths, walks parent directories for
+//! workspace roots, and stops at nested workspaces before command execution
+//! loads manifests.
+
 use crate::error::{Error, Result};
 use crate::manifest::Manifest;
 use crate::workspace;
@@ -235,7 +241,7 @@ mod tests {
         .unwrap();
         fs::write(
             member.join("Craft.toml"),
-            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nkern = \"0.7.6\"\n",
+            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nkern = \"0.8.2\"\n",
         )
         .unwrap();
 
@@ -264,7 +270,7 @@ mod tests {
         .unwrap();
         fs::write(
             member.join("Craft.toml"),
-            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nkern = \"0.7.6\"\n",
+            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nkern = \"0.8.2\"\n",
         )
         .unwrap();
 

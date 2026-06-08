@@ -1,3 +1,9 @@
+//! Block and statement lowering.
+//!
+//! Blocks maintain lowering-local scopes, defer stacks, local forwarding maps,
+//! and local statics. This module lowers statements and block results while
+//! restoring those stacks at block boundaries.
+
 use super::*;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -25,6 +31,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         {
             self.measure_phase("      lower_block_stmts", |this| {
                 for stmt in ast_stmts {
+                    if this.check_canceled().is_err() {
+                        break;
+                    }
                     match &stmt.kind {
                         ast::StmtKind::Use(_) => {}
                         ast::StmtKind::ExprStmt(e) | ast::StmtKind::ExprValue(e) => {
@@ -53,6 +62,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         });
         let mut defers = Vec::new();
         for d in popped_defers.into_iter().rev() {
+            if self.check_canceled().is_err() {
+                break;
+            }
             defers.push(d); // Preserve LIFO order in a dedicated array.
         }
 

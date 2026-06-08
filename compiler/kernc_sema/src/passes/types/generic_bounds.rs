@@ -1,3 +1,9 @@
+//! Generic argument bound validation.
+//!
+//! After generic arguments are resolved, this module substitutes them into
+//! where-clauses and asks the trait solver whether each concrete obligation is
+//! satisfied.  Parametric arguments are deferred until instantiation.
+
 use super::*;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
@@ -100,6 +106,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         else {
             return;
         };
+        // SAFETY: resolving the impl signature may mutably borrow `ctx`, but it does not reorder
+        // or remove definitions. The pointer targets the same `ImplDef` entry after that work.
         let impl_def = unsafe { &*impl_ptr };
         let Some(parent_module) = impl_def.parent_module else {
             return;

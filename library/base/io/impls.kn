@@ -29,11 +29,11 @@ fn write_printable_slice[T](items: &[T], writer: &mut Write) void
 
     let len = items.@len();
     let mut i = 0usize;
-    while (i < len) {
+    while i < len {
         let item = items.[i];
         item.&.write_fmt(FormatSpec.{}, writer);
 
-        if (i + 1usize < len) {
+        if i + 1usize < len {
             _ = writer.write(", ");
         }
 
@@ -52,27 +52,35 @@ impl[T] &[T] : Formatable
     }
 }
 
+impl[T] &T : Formatable
+    where T: Formatable,
+{
+    pub fn write_fmt(spec: FormatSpec, writer: &mut Write) void {
+        self.*.write_fmt(spec, writer);
+    }
+}
+
 fn digit_byte(digit: u8, upper: bool) u8 {
-    if (digit < 10) return b'0' + digit;
-    let base = if (upper) b'A' else b'a';
+    if digit < 10 return b'0' + digit;
+    let base = if upper b'A' else b'a';
     return base + (digit - 10);
 }
 
 fn radix_for_presentation(presentation: FormatPresentation) u8 {
-    if (presentation == FORMAT_BINARY) return 2;
-    if (presentation == FORMAT_OCTAL) return 8;
-    if (presentation == FORMAT_HEX_LOWER or presentation == FORMAT_HEX_UPPER) return 16;
+    if presentation == FORMAT_BINARY return 2;
+    if presentation == FORMAT_OCTAL return 8;
+    if presentation == FORMAT_HEX_LOWER or presentation == FORMAT_HEX_UPPER return 16;
     return 10;
 }
 
 fn write_prefix(writer: &mut Write, presentation: FormatPresentation) void {
-    if (presentation == FORMAT_BINARY) {
+    if presentation == FORMAT_BINARY {
         _ = writer.write("0b");
-    } else if (presentation == FORMAT_OCTAL) {
+    } else if presentation == FORMAT_OCTAL {
         _ = writer.write("0o");
-    } else if (presentation == FORMAT_HEX_LOWER) {
+    } else if presentation == FORMAT_HEX_LOWER {
         _ = writer.write("0x");
-    } else if (presentation == FORMAT_HEX_UPPER) {
+    } else if presentation == FORMAT_HEX_UPPER {
         _ = writer.write("0X");
     }
 }
@@ -84,11 +92,11 @@ fn write_u128_to_writer(
     spec: FormatSpec,
 ) void {
     let presentation = spec.presentation;
-    if (spec.alternate) {
+    if spec.alternate {
         write_prefix(writer, presentation);
     }
 
-    if (val == 0) {
+    if val == 0 {
         _ = writer.write("0");
         return;
     }
@@ -100,7 +108,7 @@ fn write_u128_to_writer(
     let radix = radix_for_presentation(presentation);
     let upper = presentation == FORMAT_HEX_UPPER;
 
-    while (curr > 0) {
+    while curr > 0 {
         i -= 1;
         let digit = (curr % (radix as u128)) as u8;
         buf.[i] = digit_byte(digit, upper);
@@ -152,7 +160,7 @@ fn write_i128_to_writer(
     spec: FormatSpec,
 ) void {
     let decimal = spec.presentation == FORMAT_DEFAULT or spec.presentation == FORMAT_DECIMAL;
-    if (decimal and val < 0) {
+    if decimal and val < 0 {
         _ = writer.write("-");
         let unsigned_val = val as u128;
         // Computes the two's-complement magnitude and handles the minimum value.
@@ -160,7 +168,7 @@ fn write_i128_to_writer(
         write_u128_to_writer(pos_val, writer, spec);
     } else {
         let full = val as u128;
-        let rendered = if (bits == 128) full else full & ((1u128 << (bits as u128)) - 1);
+        let rendered = if bits == 128 full else full & ((1u128 << (bits as u128)) - 1);
         write_u128_to_writer(rendered, writer, spec);
     }
 }
@@ -228,7 +236,7 @@ impl &isize : Formatable {
 impl &bool : Formatable {
     pub fn write_fmt(spec: FormatSpec, writer: &mut Write) void {
         _ = spec;
-        if (self.*) {
+        if self.* {
             _ = writer.write("true");
         } else {
             _ = writer.write("false");
@@ -262,11 +270,11 @@ impl[T] &List[T] : Formatable
 
         let items = self.as_slice();
         let mut i = 0usize;
-        while (i < self.len()) {
+        while i < self.len() {
             let item = items.[i];
             item.&.write_fmt(FormatSpec.{}, writer);
 
-            if (i + 1usize < self.len()) {
+            if i + 1usize < self.len() {
                 _ = writer.write(", ");
             }
 

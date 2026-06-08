@@ -1,3 +1,10 @@
+//! Declaration parser for modules, items, imports, traits, and impl blocks.
+//!
+//! This module handles the grammar that can appear at module scope or inside
+//! item-like containers such as `extern`, `trait`, and `impl`.  It also attaches
+//! docs/attributes collected by the core parser and normalizes shared helpers
+//! like visibility, generics, where clauses, and use trees.
+
 use super::expr::Precedence;
 use super::{ParseError, ParseResult, Parser};
 use kernc_ast::*;
@@ -31,7 +38,10 @@ impl<'a> Parser<'a> {
 
         // 2. Consume path segments until the target form is known.
         loop {
+            self.check_canceled()?;
             if self.match_token(&[TokenType::LBrace]) {
+                // `use std.{io, mem}`: the path collected so far is the shared
+                // prefix and the target becomes a nested tree.
                 target = UseTarget::Tree(self.parse_use_tree_items()?);
                 break;
             }
@@ -92,6 +102,7 @@ impl<'a> Parser<'a> {
         }
         let mut params = Vec::new();
         while !self.check(TokenType::RBracket) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let name = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name);
             let mut span = name.span;
@@ -125,6 +136,7 @@ impl<'a> Parser<'a> {
 
         // Parse clauses such as `where &T: TraitA + TraitB, U: TraitC`.
         loop {
+            self.check_canceled()?;
             let start_span = self.peek().span;
 
             // 1. Left-hand side: constrained target type, for example `&mut T`.
@@ -136,6 +148,7 @@ impl<'a> Parser<'a> {
             // 3. Right-hand side: one or more trait bounds.
             let mut bounds = Vec::new();
             loop {
+                self.check_canceled()?;
                 bounds.push(self.parse_type()?);
                 if !self.match_token(&[TokenType::Plus]) {
                     break;
@@ -164,7 +177,10 @@ impl<'a> Parser<'a> {
         let mut is_variadic = false;
 
         while !self.check(TokenType::RParen) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             if self.match_token(&[TokenType::Ellipsis]) {
+                // The parser records variadics syntactically; declaration
+                // context checks later reject non-extern variadic functions.
                 is_variadic = true;
                 break;
             }
@@ -190,10 +206,12 @@ impl<'a> Parser<'a> {
 
     // Top Level
     pub fn parse_module(&mut self) -> ParseResult<Module> {
+        self.check_canceled()?;
         let (docs, attributes) = self.parse_module_leading_meta();
 
         let mut decls = Vec::new();
         while !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let before = self.peek().span;
             match self.parse_decl() {
                 Ok(Some(decl)) => decls.push(decl),
@@ -215,6 +233,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_decl(&mut self) -> ParseResult<Option<Decl>> {
+        self.check_canceled()?;
         let (docs, attributes) = self.parse_item_leading_meta("item");
 
         if self.check(TokenType::Eof) {
@@ -233,6 +252,9 @@ impl<'a> Parser<'a> {
         let is_extern = self.match_token(&[TokenType::Extern]);
 
         if is_extern && (self.check(TokenType::LBrace) || self.check(TokenType::StringLiteral)) {
+            // `extern "abi" { ... }` and `extern { ... }` are import blocks.
+            // `extern fn` is parsed below as an exported ABI definition and
+            // then rejected unless it has a body.
             if vis != Visibility::Private {
                 self.add_error(start_span, "Extern blocks cannot be pub".to_string());
             }
@@ -278,6 +300,8 @@ impl<'a> Parser<'a> {
         match decl_res {
             Ok(Some(mut decl)) => {
                 if is_extern {
+                    // Top-level imported declarations are intentionally forced
+                    // into extern blocks so ABI imports have a single syntax.
                     match &decl.kind {
                         DeclKind::Function { body: None, .. } => {
                             self.session
@@ -319,11 +343,13 @@ impl<'a> Parser<'a> {
         let name_id = self.intern_token(name_token);
 
         let decls = if self.match_token(&[TokenType::Semicolon]) {
+            // File-backed module; the driver resolves and parses the child file.
             None
         } else {
             self.expect(TokenType::LBrace)?;
             let mut decls = Vec::new();
             while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+                self.check_canceled()?;
                 let before = self.peek().span;
                 match self.parse_decl() {
                     Ok(Some(decl)) => decls.push(decl),
@@ -421,6 +447,7 @@ impl<'a> Parser<'a> {
 
         let mut decls = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let (docs, attributes) = self.parse_item_leading_meta("extern item");
             if self.check(TokenType::RBrace) || self.check(TokenType::Eof) {
                 if let Some(docs) = &docs {
@@ -483,6 +510,7 @@ impl<'a> Parser<'a> {
 
         let mut decls = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let (docs, attributes) = self.parse_item_leading_meta("impl item");
             if self.check(TokenType::RBrace) || self.check(TokenType::Eof) {
                 if let Some(docs) = &docs {
@@ -814,6 +842,7 @@ impl<'a> Parser<'a> {
         let mut supertraits = Vec::new();
         if self.match_token(&[TokenType::Colon]) {
             loop {
+                self.check_canceled()?;
                 supertraits.push(self.parse_type()?);
                 if !self.match_token(&[TokenType::Plus]) {
                     break;
@@ -873,6 +902,7 @@ impl<'a> Parser<'a> {
     fn parse_use_tree_items(&mut self) -> ParseResult<Vec<UseTree>> {
         let mut items = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             items.push(self.parse_use_tree_item()?);
             if !self.continue_after_comma(&[TokenType::RBrace]) {
                 break;
@@ -907,6 +937,7 @@ impl<'a> Parser<'a> {
         let mut nested = None;
 
         while self.match_token(&[TokenType::Dot]) {
+            self.check_canceled()?;
             if self.check(TokenType::LBrace) {
                 break;
             }

@@ -1,3 +1,9 @@
+//! Partitioned codegen pipeline.
+//!
+//! Partitioned compilation plans multiple codegen units, materializes imports
+//! between units, emits each unit independently, and optionally feeds the
+//! resulting bitcode/object artifacts into ThinLTO.
+
 use super::*;
 use crate::compiler::TempFileGuard;
 use crate::compiler::codegen_units;

@@ -1,3 +1,9 @@
+//! Operator lowering.
+//!
+//! Builtin operations become direct MAST unary/binary/assignment nodes, while
+//! trait-backed operations lower to regular or method calls after semantic
+//! resolution has selected the target function and concrete receiver types.
+
 use super::Lowerer;
 use std::collections::HashMap;
 

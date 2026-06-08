@@ -31,25 +31,21 @@ jobs:
           - os: ubuntu-24.04
             target: x86_64-linux-gnu
             rust_target: x86_64-unknown-linux-gnu
-            vsce_target: linux-x64
             artifact_ext: tar.gz
             test_mode: all
           - os: windows-latest
             target: x86_64-windows-msvc
             rust_target: x86_64-pc-windows-msvc
-            vsce_target: win32-x64
             artifact_ext: zip
             test_mode: smoke
           - os: macos-15-intel
             target: x86_64-apple-darwin
             rust_target: x86_64-apple-darwin
-            vsce_target: darwin-x64
             artifact_ext: tar.gz
             test_mode: all
           - os: macos-14
             target: aarch64-apple-darwin
             rust_target: aarch64-apple-darwin
-            vsce_target: darwin-arm64
             artifact_ext: tar.gz
             test_mode: all
 
@@ -67,13 +63,6 @@ jobs:
 
       - name: Cache Cargo Artifacts
         uses: Swatinem/rust-cache@v2
-
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: editors/vscode/package-lock.json
 
       - name: Setup LLVM
         uses: ./.github/actions/setup-llvm
@@ -107,10 +96,6 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: cargo run -q -p kernworker -- ci toolchain-health
-
-      - name: Install VS Code Extension Dependencies
-        working-directory: editors/vscode
-        run: npm ci
 
       - name: Resolve Release Version (Unix)
         if: runner.os != 'Windows'
@@ -156,6 +141,7 @@ jobs:
           cargo build --release -p kernc_cli --bin kernc
           cargo build --release -p craft
           cargo build --release -p kern-lsp
+          cargo build --release -p kernup
           TOOLCHAIN_VERSION=llvm-${KERN_CI_LLVM_VERSION}
           cargo run -q -p kernworker -- release package-toolchain --version "$TOOLCHAIN_VERSION" --target "${{ matrix.target }}"
           echo "TOOLCHAIN_ARTIFACT_FILE=kern-toolchain-${TOOLCHAIN_VERSION}-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $GITHUB_ENV
@@ -168,6 +154,7 @@ jobs:
           cargo build --release --target ${{ matrix.rust_target }} -p kernc_cli --bin kernc
           cargo build --release --target ${{ matrix.rust_target }} -p craft
           cargo build --release --target ${{ matrix.rust_target }} -p kern-lsp
+          cargo build --release --target ${{ matrix.rust_target }} -p kernup
           $TOOLCHAIN_VERSION = "llvm-$env:KERN_CI_LLVM_VERSION"
           cargo run -q -p kernworker -- release package-toolchain --version $TOOLCHAIN_VERSION --target ${{ matrix.target }}
           echo "TOOLCHAIN_ARTIFACT_FILE=kern-toolchain-$TOOLCHAIN_VERSION-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $env:GITHUB_ENV
@@ -211,6 +198,7 @@ jobs:
           VERSION=${KERN_RELEASE_VERSION}
           cargo run -q -p kernworker -- release package --version "$VERSION" --target "${{ matrix.target }}" --skip-build
           echo "ARTIFACT_FILE=kern-${VERSION}-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $GITHUB_ENV
+          echo "KERNUP_ARTIFACT_FILE=kernup-${VERSION}-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $GITHUB_ENV
 
       - name: Package SDK (Windows)
         if: matrix.os == 'windows-latest'
@@ -219,11 +207,25 @@ jobs:
           $VERSION = $env:KERN_RELEASE_VERSION
           cargo run -q -p kernworker -- release package --version $VERSION --target ${{ matrix.target }} --skip-build
           echo "ARTIFACT_FILE=kern-$VERSION-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $env:GITHUB_ENV
+          echo "KERNUP_ARTIFACT_FILE=kernup-$VERSION-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $env:GITHUB_ENV
 
       - name: Smoke Install Packaged SDK (Unix)
         if: runner.os != 'Windows'
         run: |
           cargo run -q -p kernup -- install --archive "${{ env.ARTIFACT_FILE }}" --dest "${RUNNER_TEMP}/kern-sdk-smoke" --no-path
+
+      - name: Smoke Install Packaged SDK On Fedora
+        if: matrix.target == 'x86_64-linux-gnu'
+        run: |
+          docker run --rm \
+            -v "$PWD:/work:ro" \
+            -v "${RUNNER_TEMP}:/runner-temp" \
+            -w /work \
+            fedora:latest \
+            /work/target/release/kernup install \
+              --archive "/work/${{ env.ARTIFACT_FILE }}" \
+              --dest /runner-temp/kern-sdk-fedora-smoke \
+              --no-path
 
       - name: Smoke Install Packaged SDK (Windows)
         if: runner.os == 'Windows'
@@ -238,6 +240,13 @@ jobs:
           path: ${{ env.ARTIFACT_FILE }}
           if-no-files-found: error
 
+      - name: Upload Kernup Bootstrap Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: kernup-${{ env.KERNUP_ARTIFACT_FILE }}
+          path: ${{ env.KERNUP_ARTIFACT_FILE }}
+          if-no-files-found: error
+
       - name: Upload Toolchain Artifact
         uses: actions/upload-artifact@v6
         with:
@@ -245,22 +254,49 @@ jobs:
           path: ${{ env.TOOLCHAIN_ARTIFACT_FILE }}
           if-no-files-found: error
 
-      - name: Package VS Code Extension (Unix)
-        if: runner.os != 'Windows'
+  package-vscode-extension:
+    name: Package VS Code Extension
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Cache Cargo Artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Resolve Release Version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "KERN_RELEASE_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
+          else
+            echo "KERN_RELEASE_VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install Dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Package Platform-Independent VSIX
         working-directory: editors/vscode
         run: |
           VERSION=${KERN_RELEASE_VERSION#v}
-          npm run package:vsix -- --target ${{ matrix.vsce_target }} --out kern-vscode-${VERSION}-${{ matrix.vsce_target }}.vsix
-          echo "VSCODE_ARTIFACT=kern-vscode-${VERSION}-${{ matrix.vsce_target }}.vsix" >> $GITHUB_ENV
-
-      - name: Package VS Code Extension (Windows)
-        if: runner.os == 'Windows'
-        working-directory: editors/vscode
-        shell: powershell
-        run: |
-          $VERSION = $env:KERN_RELEASE_VERSION.TrimStart('v')
-          npm run package:vsix -- --target ${{ matrix.vsce_target }} --out kern-vscode-$VERSION-${{ matrix.vsce_target }}.vsix
-          echo "VSCODE_ARTIFACT=kern-vscode-$VERSION-${{ matrix.vsce_target }}.vsix" >> $env:GITHUB_ENV
+          npm run package:vsix -- --out kern-language-${VERSION}.vsix
+          cargo run -q -p kernworker -- ci verify-vsix --vsix kern-language-${VERSION}.vsix
+          echo "VSCODE_ARTIFACT=kern-language-${VERSION}.vsix" >> "$GITHUB_ENV"
 
       - name: Upload VS Code Extension Artifact
         uses: actions/upload-artifact@v6
@@ -354,6 +390,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs:
       - build
+      - package-vscode-extension
       - verify-published-toolchain
     if: github.event_name == 'push'
     permissions:
@@ -364,6 +401,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: sdk-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download Kernup Bootstrap Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: kernup-*
           path: dist
           merge-multiple: true
 

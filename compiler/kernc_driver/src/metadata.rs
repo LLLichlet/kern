@@ -1,3 +1,9 @@
+//! Metadata package emission and loading.
+//!
+//! Kmeta output stores source snapshots plus rendered documentation for package
+//! consumers. This module writes staged metadata atomically, guards output dirs
+//! with process-aware locks, and parses metadata back into driver structures.
+
 use crate::doc::{
     KernDoc, KernDocEntry, KernDocSection, KernDocSectionKind, KmetaDocItem,
     collect_kmeta_doc_items, render_kmeta_docs_toml,
@@ -342,6 +348,8 @@ fn process_exists(pid: u32) -> bool {
         fn kill(pid: c_int, sig: c_int) -> c_int;
     }
 
+    // SAFETY: `kill(pid, 0)` does not send a signal; it only asks the kernel
+    // whether the process exists and whether it is visible to the caller.
     let result = unsafe { kill(pid as c_int, 0) };
     if result == 0 {
         return true;

@@ -1,0 +1,23 @@
+{
+  "name": "kern-website",
+  "version": "0.1.0",
+  "description": "Kern language website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "docs": "node scripts/build-docs.mjs",
+    "dev": "npm run docs && vite --host 127.0.0.1",
+    "build": "npm run docs && tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "keywords": [],
+  "author": "Kern contributors",
+  "license": "MIT",
+  "devDependencies": {
+    "markdown-it": "^14.1.1",
+    "markdown-it-anchor": "^9.2.0",
+    "shiki": "^4.1.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.13"
+  }
+}

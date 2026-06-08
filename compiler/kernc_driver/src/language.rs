@@ -1,3 +1,8 @@
+//! Language builtins and reserved-definition helpers.
+//!
+//! Driver analysis needs to distinguish user items from compiler-provided
+//! language definitions when rendering docs, lints, and navigation results.
+
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId};
 

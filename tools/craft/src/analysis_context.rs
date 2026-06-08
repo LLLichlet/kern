@@ -1,3 +1,9 @@
+//! Persisted editor-analysis context for Craft projects.
+//!
+//! The context captures the resolved build plan and manifest digest that the
+//! LSP server can reuse between requests without re-running full project
+//! elaboration when the workspace has not changed.
+
 use crate::build_plan::{BuildPlan, SourceRootBinding};
 use crate::elaborate::{ElaborationPlan, FeatureSelection};
 use crate::error::{Error, Result};

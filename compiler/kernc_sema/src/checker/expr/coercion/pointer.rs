@@ -1,3 +1,9 @@
+//! Pointer coercion helpers.
+//!
+//! Pointer conversion rules are centralized here so mutability, volatility,
+//! closure-interface pointers, and trait-object pointer upcasts are checked
+//! consistently across assignments and argument passing.
+
 use super::*;
 use crate::ty::GenericArg;
 
@@ -85,7 +91,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     act_kind
             {
                 let actual_elem_norm = self.resolve_tv(*elem);
-                if Self::pointer_mutability_allows(*e_mut, *is_mut)
+                if Self::pointer_mutability_matches(*e_mut, *is_mut)
                     && matches!(
                         self.ctx.type_registry.get(actual_elem_norm),
                         TypeKind::TraitObject(..)
@@ -109,8 +115,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         false
     }
 
-    fn pointer_mutability_allows(expected_mut: bool, actual_mut: bool) -> bool {
-        !expected_mut || actual_mut
+    fn pointer_mutability_matches(expected_mut: bool, actual_mut: bool) -> bool {
+        expected_mut == actual_mut
     }
 
     fn check_pointer_to_pointer_coercion(
@@ -128,7 +134,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return false;
         };
 
-        if !Self::pointer_mutability_allows(expected_mut, *actual_mut) {
+        if !Self::pointer_mutability_matches(expected_mut, *actual_mut) {
             return false;
         }
 
@@ -151,19 +157,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
-        if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(expected_elem) {
-            let trait_source_ty = if !expected_mut && *actual_mut {
-                self.ctx.type_registry.intern(TypeKind::Pointer {
-                    is_mut: false,
-                    elem: *actual_elem,
-                })
-            } else {
-                actual_ty
-            };
-
-            if self.check_trait_impl(trait_source_ty, expected_elem) {
-                return true;
-            }
+        if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(expected_elem)
+            && self.check_trait_impl(actual_ty, expected_elem)
+        {
+            return true;
         }
 
         false
@@ -267,7 +264,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         &act_s.fields,
                         act_args,
                         &exp_fields,
-                        true,
+                        !act_s.is_extern,
                     );
                 }
                 (TypeKind::AnonymousUnion(exp_is_extern, exp_fields), Def::Union(act_u)) => {
@@ -396,7 +393,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     is_mut: act_mut,
                     elem: act_elem,
                 },
-            ) => (!exp_mut || act_mut) && self.resolve_tv(exp_elem) == self.resolve_tv(act_elem),
+            ) => exp_mut == act_mut && self.resolve_tv(exp_elem) == self.resolve_tv(act_elem),
             (
                 TypeKind::Slice {
                     is_mut: false,
@@ -427,7 +424,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         named_fields: &[kernc_ast::StructFieldDef],
         args: &[GenericArg],
         anon_fields: &[crate::ty::AnonymousField],
-        _sort_named: bool,
+        sort_named: bool,
     ) -> bool {
         if anon_fields.len() != named_fields.len() {
             return false;
@@ -453,7 +450,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             act_fields.push((f.name, self.resolve_tv(inst_ty)));
         }
 
-        act_fields.sort_by_key(|f| f.0);
+        if sort_named {
+            act_fields.sort_by_key(|f| f.0);
+        }
 
         for (exp_f, act_f) in anon_fields.iter().zip(act_fields.iter()) {
             if exp_f.name != act_f.0 || self.resolve_tv(exp_f.ty) != act_f.1 {
@@ -479,7 +478,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 is_mut: a_mut,
                 elem: a_inner,
             } = act_kind
-            && (!*e_mut || *a_mut)
+            && *e_mut == *a_mut
         {
             let e_norm = self.resolve_tv(*e_inner);
             let a_norm = self.resolve_tv(*a_inner);
@@ -526,7 +525,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 is_mut: act_mut,
                 elem: act_elem,
             } = act_kind
-                && (!*e_mut || *act_mut)
+                && *e_mut == *act_mut
                 && self.resolve_tv(*exp_elem) == self.resolve_tv(*act_elem)
             {
                 return true;
@@ -566,11 +565,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .emit();
                     return Err(());
                 }
-                if self.array_decay_uses_temporary_storage(expr) {
-                    self.record_pointer_origin_expr(
-                        expr.id,
-                        crate::checker::expr::PointerOrigin::Temporary(expr.span),
-                    );
+                if let Some(origin) = self.array_decay_pointer_origin(expr) {
+                    self.record_pointer_origin_expr(expr.id, origin);
                 }
                 return Ok(true);
             }
@@ -578,28 +574,34 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         Ok(false)
     }
 
-    fn array_decay_uses_temporary_storage(&self, expr: &Expr) -> bool {
+    fn array_decay_pointer_origin(
+        &self,
+        expr: &Expr,
+    ) -> Option<crate::checker::expr::PointerOrigin> {
         match &expr.kind {
-            ExprKind::Grouped { expr: inner } => self.array_decay_uses_temporary_storage(inner),
-            ExprKind::Identifier(name) => {
-                self.ctx
-                    .scopes
-                    .resolve_value_symbol(*name)
-                    .is_none_or(|info| {
-                        !matches!(
-                            info.kind,
-                            crate::scope::SymbolKind::Var | crate::scope::SymbolKind::Static
-                        )
-                    })
-            }
+            ExprKind::Grouped { expr: inner } => self.array_decay_pointer_origin(inner),
+            ExprKind::Identifier(name) => self.ctx.scopes.resolve_value_symbol(*name).map_or(
+                Some(crate::checker::expr::PointerOrigin::Temporary(expr.span)),
+                |info| match info.kind {
+                    crate::scope::SymbolKind::Static => None,
+                    crate::scope::SymbolKind::Var => {
+                        Some(crate::checker::expr::PointerOrigin::Local(expr.span))
+                    }
+                    _ => Some(crate::checker::expr::PointerOrigin::Temporary(expr.span)),
+                },
+            ),
             ExprKind::SelfValue
             | ExprKind::FieldAccess { .. }
             | ExprKind::IndexAccess { .. }
-            | ExprKind::Unary {
+            | ExprKind::SliceOp { .. } => self.local_storage_pointer_origin(expr, expr.span),
+            ExprKind::Unary {
                 op: UnaryOperator::PointerDeRef,
                 ..
-            } => false,
-            _ => true,
+            } => None,
+            ExprKind::String(_) => Some(crate::checker::expr::PointerOrigin::StaticLiteral(
+                expr.span,
+            )),
+            _ => Some(crate::checker::expr::PointerOrigin::Temporary(expr.span)),
         }
     }
 }

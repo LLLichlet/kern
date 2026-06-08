@@ -1,12 +1,19 @@
+//! Build-plan support derivation from package elaboration.
+//!
+//! This module expands package plans into concrete build units, runtime support,
+//! build-script applications, generated source roots, and staged artifact
+//! descriptors.
+
 use super::{
     BuildNodeBindings, BuildPlan, BuildScriptInput, BuildUnit, CompileSourceInput, DeriveOptions,
     ExternalDependencyBinding, LinkPlan, LocalDependencyBinding, PackageBuildPlan,
     SourceRootBinding, artifact_kind, artifact_name, artifact_path, artifact_root_path,
-    generated_root_path, metadata_path, object_path, relative_display, workspace_build_root,
+    generated_root_path, metadata_path, object_path, package_layout_key, relative_display,
+    workspace_build_root,
 };
 use crate::elaborate::{ElaborationPlan, PackageElaboration};
 use crate::error::Result;
-use crate::graph::{BuildDomain, PackageId};
+use crate::graph::{BuildDomain, PackageId, SourceId};
 use crate::manifest::Manifest;
 use crate::plan::{PackagePlan, TargetKind};
 use crate::resolver::{
@@ -14,7 +21,7 @@ use crate::resolver::{
     ResolvedPackageNode,
 };
 use crate::script;
-use crate::source;
+use crate::source::{self, FetchProgress};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -33,6 +40,15 @@ pub fn derive_with_options(
     elaboration: &ElaborationPlan,
     command: crate::script::ScriptCommand,
     options: DeriveOptions,
+) -> Result<BuildPlan> {
+    derive_with_options_and_progress(elaboration, command, options, |_| {})
+}
+
+pub fn derive_with_options_and_progress(
+    elaboration: &ElaborationPlan,
+    command: crate::script::ScriptCommand,
+    options: DeriveOptions,
+    mut progress: impl FnMut(FetchProgress),
 ) -> Result<BuildPlan> {
     let host_target = script::host_target();
     let target_target = host_target.clone();
@@ -115,8 +131,9 @@ pub fn derive_with_options(
         &elaboration.resolved_graph.workspace_root.join("Craft.toml"),
         &elaboration.manifest,
         elaboration.profile_selection,
+        &mut progress,
     )?;
-    let resource_index = build_resource_index(elaboration)?;
+    let resource_index = build_resource_index(elaboration, &mut progress)?;
     for package in &mut packages {
         let package_root = package
             .manifest_path
@@ -155,11 +172,13 @@ pub fn derive_with_options(
                             &elaboration.resolved_graph.workspace_root,
                             &unit.profile.name,
                             unit.domain,
+                            unit.domain.select_target(&host_target, &target_target),
                         )),
                         generated_root: normalized_path_string(&generated_root_path(
                             &elaboration.resolved_graph.workspace_root,
                             unit.domain,
-                            &unit.package_id,
+                            unit.domain.select_target(&host_target, &target_target),
+                            &unit.layout_key,
                             &unit.profile.name,
                             unit.target_kind,
                             &unit.artifact_name,
@@ -167,7 +186,8 @@ pub fn derive_with_options(
                         artifact_root: normalized_path_string(&artifact_root_path(
                             &elaboration.resolved_graph.workspace_root,
                             unit.domain,
-                            &unit.package_id,
+                            unit.domain.select_target(&host_target, &target_target),
+                            &unit.layout_key,
                             &unit.profile.name,
                             unit.target_kind,
                             &unit.artifact_name,
@@ -175,7 +195,8 @@ pub fn derive_with_options(
                         object_path: normalized_path_string(&object_path(
                             &elaboration.resolved_graph.workspace_root,
                             unit.domain,
-                            &unit.package_id,
+                            unit.domain.select_target(&host_target, &target_target),
+                            &unit.layout_key,
                             &unit.profile.name,
                             unit.target_kind,
                             &unit.artifact_name,
@@ -184,7 +205,7 @@ pub fn derive_with_options(
                             &elaboration.resolved_graph.workspace_root,
                             unit.domain.select_target(&host_target, &target_target),
                             unit.domain,
-                            &unit.package_id,
+                            &unit.layout_key,
                             &unit.profile.name,
                             unit.target_kind,
                             &unit.artifact_name,
@@ -193,7 +214,8 @@ pub fn derive_with_options(
                             normalized_path_string(&metadata_path(
                                 &elaboration.resolved_graph.workspace_root,
                                 unit.domain,
-                                &unit.package_id,
+                                unit.domain.select_target(&host_target, &target_target),
+                                &unit.layout_key,
                                 &unit.profile.name,
                             ))
                         }),
@@ -285,6 +307,7 @@ fn build_package_for_domain(
             BuildUnit {
                 domain,
                 package_id: source.resolved.id.clone(),
+                layout_key: package_layout_key(&source.resolved.id),
                 package_root_path: source
                     .elaboration
                     .plan
@@ -317,6 +340,7 @@ fn build_package_for_domain(
     PackageBuildPlan {
         domain,
         package_id: source.resolved.id.clone(),
+        layout_key: package_layout_key(&source.resolved.id),
         manifest_path: source.elaboration.plan.manifest_path.clone(),
         build_script: source.build_script.clone(),
         build_local_dependencies,
@@ -496,7 +520,7 @@ fn build_tool_index(
                     workspace_root,
                     unit.domain.select_target(host, target),
                     unit.domain,
-                    &unit.package_id,
+                    &unit.layout_key,
                     &unit.profile.name,
                     unit.target_kind,
                     &unit.artifact_name,
@@ -522,6 +546,7 @@ fn build_external_tool_index(
     manifest_path: &Path,
     manifest: &Manifest,
     profile_selection: script::ProfileSelection,
+    progress: &mut impl FnMut(FetchProgress),
 ) -> Result<BTreeMap<ExternalPackageId, Vec<script::BuildScriptTool>>> {
     let external_packages = packages
         .iter()
@@ -545,7 +570,7 @@ fn build_external_tool_index(
     let mut index = BTreeMap::new();
     let _ = manifest_path;
     let _ = manifest;
-    for fetched in source::fetch_external_packages(&resolved)? {
+    for fetched in source::fetch_external_packages_with_progress(&resolved, &mut *progress)? {
         let external_manifest_path = fetched.cache_path.join("Craft.toml");
         let external_manifest = Manifest::load(&external_manifest_path)?;
         external_manifest.validate(&external_manifest_path)?;
@@ -556,6 +581,10 @@ fn build_external_tool_index(
             name: package.name.clone(),
             version: package.version.clone(),
             source: fetched.id.source.clone(),
+        };
+        let cache_package_id = PackageId {
+            source: SourceId::Root,
+            ..package_id.clone()
         };
         let plan =
             PackagePlan::from_manifest(&external_manifest_path, &package_id, &external_manifest)?;
@@ -575,7 +604,7 @@ fn build_external_tool_index(
                     &fetched.cache_path,
                     host,
                     BuildDomain::Target,
-                    &package_id,
+                    &package_layout_key(&cache_package_id),
                     &profile.name,
                     TargetKind::Bin,
                     &target_name,
@@ -618,9 +647,10 @@ fn build_tools_for_package(
 
 fn build_resource_index(
     elaboration: &ElaborationPlan,
+    progress: &mut impl FnMut(FetchProgress),
 ) -> Result<BTreeMap<PackageId, BTreeMap<String, script::BuildScriptResource>>> {
     let mut index = BTreeMap::new();
-    for fetched in source::fetch_package_resources(elaboration)? {
+    for fetched in source::fetch_package_resources_with_progress(elaboration, &mut *progress)? {
         index
             .entry(fetched.id.package_id)
             .or_insert_with(BTreeMap::new)

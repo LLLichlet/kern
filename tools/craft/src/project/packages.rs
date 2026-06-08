@@ -1,21 +1,36 @@
+//! Package-facing helpers for analysis project resolution.
+//!
+//! Package utilities derive import aliases, target metadata, runtime defaults,
+//! and source roots needed when resolving a file to its analysis unit.
+
 use crate::error::Result;
 use crate::graph::{self, DependencyTarget, PackageGraph, PackageId, SourceId};
 use crate::manifest::Manifest;
 use crate::plan::{PackagePlan, TargetKind};
 use crate::sdk;
-use crate::workspace::WorkspaceMember;
+use crate::workspace::{self, WorkspaceMember};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub(super) struct AnalysisPackage {
     pub(super) id: PackageId,
+    pub(super) manifest: Manifest,
     pub(super) manifest_path: PathBuf,
     pub(super) package_root: PathBuf,
     pub(super) lib_root: Option<PathBuf>,
-    pub(super) target_roots: Vec<PathBuf>,
+    pub(super) target_roots: Vec<AnalysisTargetRoot>,
     pub(super) module_aliases: BTreeMap<String, PathBuf>,
     pub(super) script_roots: Vec<AnalysisScriptRoot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnalysisTarget {
+    pub package_name: String,
+    pub manifest_path: PathBuf,
+    pub kind: TargetKind,
+    pub name: Option<String>,
+    pub root: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -27,16 +42,24 @@ pub(super) struct AnalysisScriptRoot {
 #[derive(Debug, Clone)]
 pub(super) struct PackageEntry {
     pub(super) id: PackageId,
+    pub(super) manifest: Manifest,
     pub(super) manifest_path: PathBuf,
     pub(super) package_root: PathBuf,
     pub(super) lib_root: Option<PathBuf>,
-    pub(super) target_roots: Vec<PathBuf>,
+    pub(super) target_roots: Vec<AnalysisTargetRoot>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct AnalysisTargetRoot {
+    pub(super) root: PathBuf,
+    pub(super) kind: TargetKind,
+    pub(super) name: Option<String>,
 }
 
 impl AnalysisPackage {
     pub(super) fn analysis_root_for(&self, file: &Path) -> PathBuf {
-        if let Some(root) = self.best_matching_target_root(file) {
-            return root.clone();
+        if let Some(target_root) = self.best_matching_target_root(file) {
+            return target_root.root.clone();
         }
 
         if let Some(root) = &self.lib_root
@@ -48,12 +71,18 @@ impl AnalysisPackage {
         file.to_path_buf()
     }
 
-    fn best_matching_target_root(&self, file: &Path) -> Option<&PathBuf> {
+    pub(super) fn target_root_for(&self, file: &Path) -> Option<&AnalysisTargetRoot> {
+        self.best_matching_target_root(file)
+    }
+
+    fn best_matching_target_root(&self, file: &Path) -> Option<&AnalysisTargetRoot> {
         self.target_roots
             .iter()
-            .filter_map(|root| target_match_score(root, file).map(|score| (score, root)))
-            .max_by_key(|(score, root)| (*score, root.components().count()))
-            .map(|(_, root)| root)
+            .filter_map(|target_root| {
+                target_match_score(&target_root.root, file).map(|score| (score, target_root))
+            })
+            .max_by_key(|(score, target_root)| (*score, target_root.root.components().count()))
+            .map(|(_, target_root)| target_root)
     }
 }
 
@@ -74,7 +103,7 @@ pub(super) fn assemble_packages(
 
     let mut packages = Vec::new();
     for entry in package_entries {
-        let module_aliases = graph_index
+        let mut module_aliases = graph_index
             .get(&entry.id)
             .map(|node| {
                 let mut aliases = BTreeMap::new();
@@ -90,8 +119,10 @@ pub(super) fn assemble_packages(
                 aliases
             })
             .unwrap_or_default();
+        add_official_workspace_aliases(package_graph, entry, &mut module_aliases);
         packages.push(AnalysisPackage {
             id: entry.id.clone(),
+            manifest: entry.manifest.clone(),
             manifest_path: entry.manifest_path.clone(),
             package_root: entry.package_root.clone(),
             lib_root: entry.lib_root.clone(),
@@ -103,6 +134,47 @@ pub(super) fn assemble_packages(
 
     let _ = manifest_path;
     packages
+}
+
+fn add_official_workspace_aliases(
+    package_graph: &PackageGraph,
+    entry: &PackageEntry,
+    aliases: &mut BTreeMap<String, PathBuf>,
+) {
+    for name in ["base", "std", "rt"] {
+        if let Some(root) = official_workspace_export_root(package_graph, name) {
+            aliases.entry(name.to_string()).or_insert(root);
+        }
+    }
+
+    if entry.id.name == "kernlib-test" {
+        aliases.remove("kernlib-test");
+    }
+}
+
+fn official_workspace_export_root(package_graph: &PackageGraph, name: &str) -> Option<PathBuf> {
+    let workspace_manifest_path = package_graph.workspace_root.join("Craft.toml");
+    let workspace_manifest = Manifest::load(&workspace_manifest_path).ok()?;
+    if !is_official_library_workspace_manifest(&workspace_manifest) {
+        return None;
+    }
+    let exported =
+        workspace::exported_package(&workspace_manifest_path, &workspace_manifest, name).ok()?;
+    let lib_root = exported.manifest.lib.as_ref()?;
+    let package_root = exported.manifest_path.parent()?;
+    Some(package_root.join(&lib_root.root))
+}
+
+pub(super) fn is_official_library_workspace_manifest(manifest: &Manifest) -> bool {
+    let Some(workspace) = &manifest.workspace else {
+        return false;
+    };
+    ["base", "std", "rt"].iter().all(|name| {
+        workspace
+            .exports
+            .get(*name)
+            .is_some_and(|export| export.member == *name)
+    })
 }
 
 fn craft_sdk_aliases() -> BTreeMap<String, PathBuf> {
@@ -191,11 +263,16 @@ fn package_entry(
     let target_roots = package_plan
         .targets
         .iter()
-        .map(|target| package_root.join(&target.root))
+        .map(|target| AnalysisTargetRoot {
+            root: package_root.join(&target.root),
+            kind: target.kind,
+            name: target.name.clone(),
+        })
         .collect();
 
     Ok(PackageEntry {
         id: package_id,
+        manifest: manifest.clone(),
         manifest_path: manifest_path.to_path_buf(),
         package_root,
         lib_root,

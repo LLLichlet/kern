@@ -1,3 +1,9 @@
+//! Associated-type projection materialization for member lookup.
+//!
+//! Trait method signatures may contain associated placeholders that need to be
+//! rewritten through explicit bindings or projected through the receiver's impl
+//! before a candidate can be checked at a call site.
+
 use super::*;
 
 impl<'a, 'ctx> MemberQuery<'a, 'ctx> {

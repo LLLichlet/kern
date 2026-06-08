@@ -1,3 +1,9 @@
+//! Build action graph derivation.
+//!
+//! Action planning orders compile, link, staging, and generated-source work
+//! from build units so the executor can schedule only valid dependency-ready
+//! actions.
+
 use super::{
     ActionPlan, ArtifactKind, BuildPlan, BuildUnit, CompileAction, CompileSourceInput, LinkAction,
     SourceRootBinding, StagedAction, artifact_path, artifact_root_path, generated_root_path,
@@ -241,7 +247,8 @@ impl BuildPlan {
                     generated_root_path: generated_root_path(
                         &self.workspace_root,
                         unit.domain,
-                        &unit.package_id,
+                        unit.domain.select_target(host, target),
+                        &unit.layout_key,
                         &unit.profile.name,
                         unit.target_kind,
                         &unit.artifact_name,
@@ -251,7 +258,8 @@ impl BuildPlan {
                         metadata_path(
                             &self.workspace_root,
                             unit.domain,
-                            &unit.package_id,
+                            unit.domain.select_target(host, target),
+                            &unit.layout_key,
                             &unit.profile.name,
                         )
                     }),
@@ -259,7 +267,8 @@ impl BuildPlan {
                         test_metadata_path(
                             &self.workspace_root,
                             unit.domain,
-                            &unit.package_id,
+                            unit.domain.select_target(host, target),
+                            &unit.layout_key,
                             &unit.profile.name,
                             &unit.artifact_name,
                         )
@@ -267,7 +276,8 @@ impl BuildPlan {
                     object_path: object_path(
                         &self.workspace_root,
                         unit.domain,
-                        &unit.package_id,
+                        unit.domain.select_target(host, target),
+                        &unit.layout_key,
                         &unit.profile.name,
                         unit.target_kind,
                         &unit.artifact_name,
@@ -276,7 +286,7 @@ impl BuildPlan {
                         &self.workspace_root,
                         unit.domain.select_target(host, target),
                         unit.domain,
-                        &unit.package_id,
+                        &unit.layout_key,
                         &unit.profile.name,
                         unit.target_kind,
                         &unit.artifact_name,
@@ -316,7 +326,8 @@ impl BuildPlan {
                     artifact_root_path: artifact_root_path(
                         &self.workspace_root,
                         unit.domain,
-                        &unit.package_id,
+                        unit.domain.select_target(host, target),
+                        &unit.layout_key,
                         &unit.profile.name,
                         unit.target_kind,
                         &unit.artifact_name,
@@ -328,7 +339,7 @@ impl BuildPlan {
                         &self.workspace_root,
                         unit.domain.select_target(host, target),
                         unit.domain,
-                        &unit.package_id,
+                        &unit.layout_key,
                         &unit.profile.name,
                         unit.target_kind,
                         &unit.artifact_name,
@@ -336,7 +347,8 @@ impl BuildPlan {
                     primary_object: object_path(
                         &self.workspace_root,
                         unit.domain,
-                        &unit.package_id,
+                        unit.domain.select_target(host, target),
+                        &unit.layout_key,
                         &unit.profile.name,
                         unit.target_kind,
                         &unit.artifact_name,

@@ -1,3 +1,9 @@
+//! Recursive const-expression evaluation.
+//!
+//! This module maps AST expressions to `ConstValue`s: literals, operators,
+//! casts, control flow, blocks, local bindings, references, array/struct/enum
+//! construction, and propagation through builtin optional/result values.
+
 use super::core::{
     eval_binary_values, eval_const_int_division, eval_const_int_modulo, eval_const_int_shift,
 };
@@ -214,7 +220,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         match &pattern.kind {
             ast::PatternKind::Binding(_) | ast::PatternKind::Ignore => Ok(true),
-            ast::PatternKind::Variant(_) => Ok(false),
+            ast::PatternKind::Variant(_) | ast::PatternKind::Value(_) => Ok(false),
             ast::PatternKind::Destructure(destructure) => {
                 let norm_target = self.normalize_type(target_ty);
                 if matches!(
@@ -256,7 +262,9 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     self.define_local_mutability(binding.name, binding.is_mut);
                 }
             }
-            ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {}
+            ast::PatternKind::Ignore
+            | ast::PatternKind::Variant(_)
+            | ast::PatternKind::Value(_) => {}
             ast::PatternKind::Destructure(destructure) => {
                 let norm_target = self.normalize_type(target_ty);
                 if matches!(

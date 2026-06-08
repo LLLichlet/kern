@@ -1,3 +1,10 @@
+//! Pattern syntax used by `let`, `match`, parameters, and destructuring forms.
+//!
+//! Pattern nodes intentionally preserve whether the parser saw a binding,
+//! ignore marker, enum-like variant, or field destructure.  Exhaustiveness and
+//! irrefutability checks operate on this syntax before MIR lowering rewrites it
+//! into control flow.
+
 use super::{Expr, TypeNode};
 use kernc_utils::{Span, SymbolId};
 
@@ -12,6 +19,7 @@ pub struct BindingPattern {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariantPattern {
+    /// Optional explicit type prefix for disambiguating contextual variants.
     pub target_type: Option<Box<TypeNode>>,
     pub variant_name: SymbolId,
     pub variant_span: Span,
@@ -37,6 +45,8 @@ pub enum PatternKind {
     Ignore,
     Variant(VariantPattern),
     Destructure(DestructurePattern),
+    /// Expression-valued pattern used inside structural patterns.
+    Value(Box<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,7 +63,9 @@ pub struct LetPattern {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MatchPatternKind {
+    /// Expression-valued pattern such as a literal or constant path.
     Value(Box<Expr>),
+    /// Structural pattern such as `_`, `x`, `.Some(x)`, or `Point.{x}`.
     Pattern(Pattern),
 }
 

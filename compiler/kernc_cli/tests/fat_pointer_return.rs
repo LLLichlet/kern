@@ -1,3 +1,5 @@
+//! CLI integration tests for returning fat pointers and slices.
+
 use kernc_cli::test_support::build_and_run;
 
 fn build_and_run_source_with_std(source: &str) -> std::process::Output {

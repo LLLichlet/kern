@@ -5,7 +5,9 @@ use base.coll.{
     Iterator,
     List,
     String,
+    borrowed_string,
     list,
+    owned_string,
     string,
 };
 use base.cmp.{GREATER, LESS, EQUAL, Ordering};
@@ -48,17 +50,17 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
     defer items.deinit(gpa);
 
     items.try_reserve(gpa, 6).should_ok().sum(@loc(), t);
-    (items.capacity() >= 6).should().sum(@loc(), t);
+    (items.view().capacity() >= 6).should().sum(@loc(), t);
     items.try_push(gpa, 1).should_ok().sum(@loc(), t);
     items.try_push(gpa, 2).should_ok().sum(@loc(), t);
     items.try_push(gpa, 3).should_ok().sum(@loc(), t);
     items.try_insert(gpa, 1, 9).should_ok().sum(@loc(), t);
     items.remove(2).should_some().eq(2).sum(@loc(), t);
 
-    let prefix = items.as_slice();
+    let prefix = items.view().as_slice();
     items.try_append_slice(gpa, prefix).should_ok().sum(@loc(), t);
 
-    let data = items.as_slice();
+    let data = items.view().as_slice();
     (data == [6]i32.{1, 9, 3, 1, 9, 3}).should().sum(@loc(), t);
     data.starts_with([3]i32.{1, 9, 3}).should().sum(@loc(), t);
     data.ends_with([3]i32.{1, 9, 3}).should().sum(@loc(), t);
@@ -69,36 +71,73 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
 
     let view = items.as_mut_slice();
     view.[1] = 8;
+    for item in view.iter() {
+        item.* += 1;
+    }
     items.truncate(4);
-    (items.as_slice() == [4]i32.{1, 8, 3, 1}).should().sum(@loc(), t);
-    items.contains([2]i32.{8, 3}).should().sum(@loc(), t);
-    (items.lex_cmp([4]i32.{1, 8, 3, 2}) == LESS).should().sum(@loc(), t);
-    items.position([](value: i32) bool { return value > 2; }).should_some().eq(1usize).sum(@loc(), t);
-    items.rposition([](value: i32) bool { return value > 2; }).should_some().eq(2usize).sum(@loc(), t);
-    items.any([](value: i32) bool { return value == 8; }).should().sum(@loc(), t);
-    items.all([](value: i32) bool { return value < 8; }).not().should().sum(@loc(), t);
-    items.strip_prefix([2]i32.{1, 8}).should_some().eq([2]i32.{3, 1}).sum(@loc(), t);
-    items.strip_suffix([2]i32.{3, 1}).should_some().eq([2]i32.{1, 8}).sum(@loc(), t);
+    (items.view().as_slice() == [4]i32.{2, 9, 4, 2}).should().sum(@loc(), t);
+    items.view().contains([2]i32.{9, 4}).should().sum(@loc(), t);
+    (items.view().lex_cmp([4]i32.{2, 9, 4, 3}) == LESS).should().sum(@loc(), t);
+    items.view().position([](value: i32) bool { return value > 3; }).should_some().eq(1usize).sum(@loc(), t);
+    items.view().rposition([](value: i32) bool { return value > 3; }).should_some().eq(2usize).sum(@loc(), t);
+    items.view().any([](value: i32) bool { return value == 9; }).should().sum(@loc(), t);
+    items.view().all([](value: i32) bool { return value < 9; }).not().should().sum(@loc(), t);
+    items.view().strip_prefix([2]i32.{2, 9}).should_some().eq([2]i32.{4, 2}).sum(@loc(), t);
+    items.view().strip_suffix([2]i32.{4, 2}).should_some().eq([2]i32.{2, 9}).sum(@loc(), t);
+
+    let insert_alias = list[u8]()..&;
+    defer insert_alias.deinit(gpa);
+    for value in 0u8...8u8 {
+        insert_alias.try_push(gpa, value).should_ok().sum(@loc(), t);
+    }
+    insert_alias.try_insert_slice(gpa, 1usize, insert_alias.view().as_slice())
+        .should_ok()
+        .sum(@loc(), t);
+    (insert_alias.view().as_slice() == [16]u8.{ 0, 0, 1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 4, 5, 6, 7 })
+        .should()
+        .sum(@loc(), t);
+
+    let append_alias = list[u8]()..&;
+    defer append_alias.deinit(gpa);
+    for value in 0u8...8u8 {
+        append_alias.try_push(gpa, value).should_ok().sum(@loc(), t);
+    }
+    append_alias.try_append_slice(gpa, append_alias.view().as_slice())
+        .should_ok()
+        .sum(@loc(), t);
+    (append_alias.view().as_slice() == [16]u8.{ 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7 })
+        .should()
+        .sum(@loc(), t);
 
     items.reverse();
-    (items.as_slice() == [4]i32.{1, 3, 8, 1}).should().sum(@loc(), t);
+    (items.view().as_slice() == [4]i32.{2, 4, 9, 2}).should().sum(@loc(), t);
 
     let mut kept = 0i32;
     items.retain([counter = kept..&](value: i32) bool {
         counter.* += 1;
-        return value >= 3;
+        return value >= 4;
     });
     kept.should().eq(4).sum(@loc(), t);
-    (items.as_slice() == [2]i32.{3, 8}).should().sum(@loc(), t);
+    (items.view().as_slice() == [2]i32.{4, 9}).should().sum(@loc(), t);
     items.try_shrink_to_fit(gpa).should_ok().sum(@loc(), t);
-    items.capacity().should().eq(items.len()).sum(@loc(), t);
-    items.count([](value: i32) bool { return value >= 3; }).should().eq(2usize).sum(@loc(), t);
-    items.find_map([](value: i32) ?i32 {
-        if (value > 3) {
+    items.view().capacity().should().eq(items.view().len()).sum(@loc(), t);
+    items.view().count([](value: i32) bool { return value >= 4; }).should().eq(2usize).sum(@loc(), t);
+    items.view().find_map([](value: i32) ?i32 {
+        if value > 4 {
             return .{ Some: value * 10 };
         }
         return .None;
-    }).should_some().eq(80).sum(@loc(), t);
+    }).should_some().eq(90).sum(@loc(), t);
+
+    for item in items.iter() {
+        item.* += 1;
+    }
+    (items.view().as_slice() == [2]i32.{5, 10}).should().sum(@loc(), t);
+    let mut readonly_total = 0i32;
+    for item in (items as &List[i32]).iter() {
+        readonly_total += item;
+    }
+    readonly_total.should().eq(15).sum(@loc(), t);
 
     let sorted = [6]i32.{1, 3, 3, 5, 8, 9};
     let sorted_view = sorted.&[0...6];
@@ -111,24 +150,50 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
     let text = string()..&;
     defer text.deinit(gpa);
     text.try_reserve(gpa, 16).should_ok().sum(@loc(), t);
-    (text.capacity() >= 16).should().sum(@loc(), t);
+    (text.view().capacity() >= 16).should().sum(@loc(), t);
     text.try_push_str(gpa, "kern").should_ok().sum(@loc(), t);
     text.try_push_char(gpa, b'-').should_ok().sum(@loc(), t);
     text.try_push_str(gpa, "lang").should_ok().sum(@loc(), t);
-    text.starts_with("kern").should().sum(@loc(), t);
-    text.ends_with("lang").should().sum(@loc(), t);
-    text.contains("-la").should().sum(@loc(), t);
-    text.find("lang").should_some().eq(5usize).sum(@loc(), t);
-    text.find_byte(b'-').should_some().eq(4usize).sum(@loc(), t);
-    (text.lex_cmp("kern-lang") == EQUAL).should().sum(@loc(), t);
-    (text.lex_cmp("kern-lano") == LESS).should().sum(@loc(), t);
-    (text.lex_cmp("kern-lanf") == GREATER).should().sum(@loc(), t);
-    text.strip_prefix("kern-").should_some().eq("lang").sum(@loc(), t);
-    text.strip_suffix("-lang").should_some().eq("kern").sum(@loc(), t);
+    text.view().starts_with("kern").should().sum(@loc(), t);
+    text.view().ends_with("lang").should().sum(@loc(), t);
+    text.view().contains("-la").should().sum(@loc(), t);
+    text.view().find("lang").should_some().eq(5usize).sum(@loc(), t);
+    text.view().find_byte(b'-').should_some().eq(4usize).sum(@loc(), t);
+    (text.view().lex_cmp("kern-lang") == EQUAL).should().sum(@loc(), t);
+    (text.view().lex_cmp("kern-lano") == LESS).should().sum(@loc(), t);
+    (text.view().lex_cmp("kern-lanf") == GREATER).should().sum(@loc(), t);
+    text.view().strip_prefix("kern-").should_some().eq("lang").sum(@loc(), t);
+    text.view().strip_suffix("-lang").should_some().eq("kern").sum(@loc(), t);
+
+    let mut skipped = text.view().as_str().iter().skip(5);
+    skipped..&.next().should_some().eq(b'l').sum(@loc(), t);
+
+    let mut enumerated = text.view().as_str().iter().enumerate();
+    let first = enumerated..&.next().should_some().sum(@loc(), t);
+    first.index.should().eq(0usize).sum(@loc(), t);
+    first.value.should().eq(b'k').sum(@loc(), t);
+
+    let mut skipped_enumerated = text.view().as_str().iter().skip(5).enumerate();
+    let first_skipped = skipped_enumerated..&.next().should_some().sum(@loc(), t);
+    first_skipped.index.should().eq(0usize).sum(@loc(), t);
+    first_skipped.value.should().eq(b'l').sum(@loc(), t);
+
+    let mut byte_sum = 0usize;
+    for byte in text.view().iter() {
+        byte_sum += byte as usize;
+    }
+    byte_sum.should().eq(895usize).sum(@loc(), t);
+
+    let exact = string()..&;
+    defer exact.deinit(gpa);
+    exact.try_reserve_exact(gpa, 3).should_ok().sum(@loc(), t);
+    exact.view().capacity().should().eq(3usize).sum(@loc(), t);
+    exact.try_push_str(gpa, "abc").should_ok().sum(@loc(), t);
+    exact.view().as_str().should().eq("abc").sum(@loc(), t);
 
     let shaped = string()..&;
     defer shaped.deinit(gpa);
-    shaped.try_clone_from_string(gpa, text).should_ok().sum(@loc(), t);
+    shaped.try_clone_from_string(gpa, text.view()).should_ok().sum(@loc(), t);
     shaped.try_insert_char(gpa, 4, b'_').should_ok().sum(@loc(), t);
     shaped.try_insert_str(gpa, 5, "std").should_ok().sum(@loc(), t);
     (shaped.* == "kern_std-lang").should().sum(@loc(), t);
@@ -138,6 +203,35 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
         return byte != b'_';
     });
     (shaped.* == "kernstd-").should().sum(@loc(), t);
+
+    let mut borrowed = borrowed_string("borrowed");
+    borrowed.is_borrowed().should().sum(@loc(), t);
+    borrowed.as_str().should().eq("borrowed").sum(@loc(), t);
+    borrowed.len().should().eq(8usize).sum(@loc(), t);
+    let borrowed_mut = borrowed..&.try_make_mut(gpa).should_ok().sum(@loc(), t);
+    borrowed_mut.try_push_str(gpa, "-owned").should_ok().sum(@loc(), t);
+    borrowed.is_owned().should().sum(@loc(), t);
+    borrowed.as_str().should().eq("borrowed-owned").sum(@loc(), t);
+    defer borrowed..&.deinit(gpa);
+
+    let cow_static = borrowed_string("static");
+    cow_static.is_borrowed().should().sum(@loc(), t);
+    cow_static.as_bytes().should().eq("static").sum(@loc(), t);
+    let mut cow_byte_sum = 0usize;
+    for byte in cow_static.iter() {
+        cow_byte_sum += byte as usize;
+    }
+    cow_byte_sum.should().eq(648usize).sum(@loc(), t);
+
+    let owned_source = string()..&;
+    owned_source.try_push_str(gpa, "owned").should_ok().sum(@loc(), t);
+    let mut owned_cow = owned_string(owned_source.*);
+    owned_cow.is_owned().should().sum(@loc(), t);
+    owned_cow.as_str().should().eq("owned").sum(@loc(), t);
+    let owned_mut = owned_cow..&.try_make_mut(gpa).should_ok().sum(@loc(), t);
+    owned_mut.try_push_char(gpa, b'!').should_ok().sum(@loc(), t);
+    owned_cow.as_str().should().eq("owned!").sum(@loc(), t);
+    defer owned_cow..&.deinit(gpa);
 }
 
 fn check_numeric_and_sorting[W](t: &mut Report[W]) void
@@ -185,13 +279,13 @@ fn check_ranges[W](t: &mut Report[W]) void
     where &mut W: io.Write,
 {
     let mut sum = 0i32;
-    for (i: 0i32...5i32) {
+    for i in 0i32...5i32 {
         sum += i;
     }
     sum.should().eq(10i32).sum(@loc(), t);
 
     let mut inclusive_sum = 0i32;
-    for (i: -2i32..=2i32) {
+    for i in -2i32..=2i32 {
         inclusive_sum += i;
     }
     inclusive_sum.should().eq(0i32).sum(@loc(), t);
@@ -201,13 +295,13 @@ fn check_ranges[W](t: &mut Report[W]) void
     inclusive_single..&.next().should_none().sum(@loc(), t);
 
     let mut descending_sum = 0i32;
-    for (value: (2i32...6i32).rev()) {
+    for value in (2i32...6i32).rev() {
         descending_sum += value;
     }
     descending_sum.should().eq(14i32).sum(@loc(), t);
 
     let mut inclusive_descending_sum = 0i32;
-    for (value: (1i32..=3i32).rev()) {
+    for value in (1i32..=3i32).rev() {
         inclusive_descending_sum += value;
     }
     inclusive_descending_sum.should().eq(6i32).sum(@loc(), t);
@@ -253,6 +347,35 @@ fn check_ranges[W](t: &mut Report[W]) void
     find_range..&.find([](value: i32) bool {
         return value % 2i32 == 0i32;
     }).should_some().eq(4i32).sum(@loc(), t);
+
+    let mut range_skip = (1i32...6i32).skip(2usize);
+    range_skip..&.next().should_some().eq(3i32).sum(@loc(), t);
+    range_skip..&.next().should_some().eq(4i32).sum(@loc(), t);
+
+    let mut range_enum = (4i32...7i32).enumerate();
+    let first_range_enum = range_enum..&.next().should_some().sum(@loc(), t);
+    first_range_enum.index.should().eq(0usize).sum(@loc(), t);
+    first_range_enum.value.should().eq(4i32).sum(@loc(), t);
+
+    let mut range_skip_enum = (1i32...6i32).skip(2usize).enumerate();
+    let first_range_skip_enum = range_skip_enum..&.next().should_some().sum(@loc(), t);
+    first_range_skip_enum.index.should().eq(0usize).sum(@loc(), t);
+    first_range_skip_enum.value.should().eq(3i32).sum(@loc(), t);
+
+    let mut inclusive_enum = (1i32..=3i32).enumerate();
+    let first_inclusive_enum = inclusive_enum..&.next().should_some().sum(@loc(), t);
+    first_inclusive_enum.index.should().eq(0usize).sum(@loc(), t);
+    first_inclusive_enum.value.should().eq(1i32).sum(@loc(), t);
+
+    let mut rev_skip_enum = (1i32...6i32).rev().skip(2usize).enumerate();
+    let first_rev_skip_enum = rev_skip_enum..&.next().should_some().sum(@loc(), t);
+    first_rev_skip_enum.index.should().eq(0usize).sum(@loc(), t);
+    first_rev_skip_enum.value.should().eq(3i32).sum(@loc(), t);
+
+    let mut rev_inclusive_skip_enum = (1i32..=4i32).rev().skip(1usize).enumerate();
+    let first_rev_inclusive_skip_enum = rev_inclusive_skip_enum..&.next().should_some().sum(@loc(), t);
+    first_rev_inclusive_skip_enum.index.should().eq(0usize).sum(@loc(), t);
+    first_rev_inclusive_skip_enum.value.should().eq(3i32).sum(@loc(), t);
 }
 
 fn check_option_result[W](t: &mut Report[W]) void

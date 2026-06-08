@@ -1,0 +1,104 @@
+//! Copy-on-write byte strings.
+//!
+//! `CowString` is explicit about mixed ownership: it either borrows a byte
+//! slice or owns a `String`. Plain `String` remains an owned growable buffer,
+//! while `&[u8]` remains the ordinary borrowed string view.
+
+use base.mem.alloc.{AllocError, Allocator};
+use base.coll.{SliceIter, String};
+
+/// A byte string that can borrow bytes until mutation requires ownership.
+pub/ struct CowString {
+    borrowed: &[u8] = "",
+    owned: String = String.{},
+    is_owned: bool = false,
+};
+
+/// Creates a borrowed copy-on-write string view.
+pub fn borrowed_string(text: &[u8]) CowString {
+    return .{ borrowed: text };
+}
+
+/// Wraps an owned string in a copy-on-write container.
+pub fn owned_string(text: String) CowString {
+    return .{ owned: text, is_owned: true };
+}
+
+impl CowString {
+    /// Creates a borrowed copy-on-write string view.
+    pub fn borrowed(text: &[u8]) CowString {
+        return .{ borrowed: text };
+    }
+
+    /// Wraps an owned string in a copy-on-write container.
+    pub fn owned(text: String) CowString {
+        return .{ owned: text, is_owned: true };
+    }
+
+    /// Returns the current bytes without changing ownership state.
+    pub fn as_str() &[u8] {
+        if self.is_owned {
+            return self.owned.&.as_str();
+        }
+        return self.borrowed;
+    }
+
+    /// Alias for `as_str`.
+    pub fn as_bytes() &[u8] {
+        return self.as_str();
+    }
+
+    /// Returns an iterator over bytes.
+    pub fn iter() SliceIter[u8] {
+        return self.as_str().iter();
+    }
+
+    /// Returns the current byte length.
+    pub fn len() usize {
+        return self.as_str().@len();
+    }
+
+    /// Returns `true` when there are no bytes.
+    pub fn is_empty() bool {
+        return self.len() == 0;
+    }
+
+    /// Returns `true` when this value currently owns its bytes.
+    pub fn is_owned() bool {
+        return self.is_owned;
+    }
+
+    /// Returns `true` when this value currently borrows its bytes.
+    pub fn is_borrowed() bool {
+        return !self.is_owned();
+    }
+}
+
+impl &mut CowString {
+    /// Materializes borrowed bytes into owned storage when needed.
+    pub fn try_to_owned(alloc: &mut Allocator) void!AllocError {
+        if self.is_owned {
+            return .{ Ok: {} };
+        }
+
+        self.owned..&.try_clone_from_exact(alloc, self.borrowed).?;
+        self.borrowed = "";
+        self.is_owned = true;
+        return .{ Ok: {} };
+    }
+
+    /// Returns mutable owned storage, cloning borrowed bytes first.
+    pub fn try_make_mut(alloc: &mut Allocator) (&mut String)!AllocError {
+        self.try_to_owned(alloc).?;
+        return .{ Ok: self.owned..& };
+    }
+
+    /// Releases owned storage and leaves borrowed bytes untouched.
+    pub fn deinit(alloc: &mut Allocator) void {
+        if self.is_owned {
+            self.owned..&.deinit(alloc);
+            self.owned = String.{};
+            self.is_owned = false;
+        }
+    }
+}

@@ -1,3 +1,9 @@
+//! Builtin intrinsic function declarations.
+//!
+//! Intrinsics are inserted as public function definitions with resolved
+//! signatures.  Their bodies remain absent because validation and lowering know
+//! how to interpret the intrinsic names directly.
+
 use super::*;
 
 impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {

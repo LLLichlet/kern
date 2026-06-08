@@ -29,7 +29,7 @@ pub fn hash_bytes(bytes: &[u8]) u64 {
     let mut acc = 14695981039346656037u64;
     let len = bytes.@len();
         let mut i = 0usize;
-    while (i < len) {
+    while i < len {
         acc ^= bytes.[i] as u64;
         acc *= 1099511628211u64;
 
@@ -120,7 +120,7 @@ impl usize : Hash[usize] {
 
 impl bool : Hash[bool] {
     pub fn hash() u64 {
-        let bits = if (self) 1u64 else 0u64;
+        let bits = if self 1u64 else 0u64;
         return mix_u64(bits);
     }
 }

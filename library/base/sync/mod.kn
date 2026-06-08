@@ -1,7 +1,13 @@
-//! Synchronization primitives and memory ordering constants.
+//! Freestanding synchronization primitives and memory ordering constants.
 //!
 //! Atomic orderings are generic arguments so the compiler can validate them at
 //! compile time while still exposing one long-term `Atomic[T]` shape.
+//!
+//! `base.sync` deliberately stops at lock-free atomics, a tiny spin lock, and
+//! one-time gates. These primitives do not call into the host OS and therefore
+//! busy-wait under contention. Blocking threads, mutexes, condition variables,
+//! and channels belong in `std` where platform handles and error policy can be
+//! modeled explicitly.
 
 /// Memory ordering used by atomic operations.
 pub extern enum MemOrder: u8 {
@@ -38,13 +44,21 @@ pub struct Atomic[T] {
     value: T,
 };
 
-/// A small spin lock around a value.
+/// A small busy-wait lock around a value.
+///
+/// Design:
+/// this is useful for freestanding code and very short critical sections. It
+/// should not be used as a hosted blocking mutex replacement under contention.
 pub struct SpinLock[T] {
     locked: Atomic[bool],
     value: T,
 };
 
-/// A one-time initialization gate.
+/// A one-time initialization gate backed by atomic state.
+///
+/// Design:
+/// callers racing with the initializer spin until completion. Hosted code that
+/// needs parking or poisoning semantics should use a future `std` primitive.
 pub struct Once {
     state: Atomic[usize],
 };
@@ -177,7 +191,7 @@ impl[T] &mut SpinLock[T] {
     }
 
     fn acquire() void {
-        while (!self.try_acquire()) {}
+        while !self.try_acquire() {}
     }
 
     fn release() void {
@@ -186,7 +200,7 @@ impl[T] &mut SpinLock[T] {
 
     /// Returns whether the lock is currently held.
     pub fn is_locked() bool {
-        return self.locked..&.load[ACQUIRE]();
+        return (self.locked..& as &Atomic[bool]).load[ACQUIRE]();
     }
 
     /// Runs `call_back` while holding the lock.
@@ -197,8 +211,11 @@ impl[T] &mut SpinLock[T] {
     }
 
     /// Runs `call_back` when the lock can be acquired immediately.
+    ///
+    /// This makes failed speculative access explicit and avoids recursively
+    /// entering the non-reentrant lock.
     pub fn try_with_lock[U](call_back: &Fn(&mut T) U) ?U {
-        if (!self.try_acquire()) {
+        if !self.try_acquire() {
             return .None;
         }
         defer self.release();
@@ -215,26 +232,33 @@ impl &Once {
 
 impl &mut Once {
     fn wait_until_done() void {
-        while (self.state..&.load[ACQUIRE]() != ONCE_DONE) {}
+        while (self.state..& as &Atomic[usize]).load[ACQUIRE]() != ONCE_DONE {}
     }
 
     /// Runs `call_back` exactly once, waiting if another caller is running it.
+    ///
+    /// If the callback cannot return normally, the gate may remain in the
+    /// running state. Kern still needs a hosted policy for poisoning or retry
+    /// before exposing a blocking `std.Once`.
     pub fn call_once(call_back: &Fn() void) void {
         let cas = self.state..&.compare_exchange[ACQ_REL, ACQUIRE](ONCE_INCOMPLETE, ONCE_RUNNING);
-        if (cas.success) {
+        if cas.success {
             call_back();
             self.state..&.store[RELEASE](ONCE_DONE);
             return;
         }
-        if (cas.value != ONCE_DONE) {
+        if cas.value != ONCE_DONE {
             self.wait_until_done();
         }
     }
 
     /// Runs `call_back` only when this call wins initialization.
+    ///
+    /// A `false` return means the gate is already complete or another caller
+    /// is currently running it.
     pub fn try_call_once(call_back: &Fn() void) bool {
         let cas = self.state..&.compare_exchange[ACQ_REL, ACQUIRE](ONCE_INCOMPLETE, ONCE_RUNNING);
-        if (!cas.success) {
+        if !cas.success {
             return false;
         }
         call_back();
@@ -244,6 +268,6 @@ impl &mut Once {
 
     /// Returns whether the one-time function has completed.
     pub fn is_completed() bool {
-        return self.state..&.load[ACQUIRE]() == ONCE_DONE;
+        return (self.state..& as &Atomic[usize]).load[ACQUIRE]() == ONCE_DONE;
     }
 }

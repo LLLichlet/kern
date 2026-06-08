@@ -14,7 +14,7 @@ impl Always : Pattern[i32] {
 
 fn main() i32 {
     let always = Always.{};
-    return match (1) {
+    return match 1 {
         always => 0,
     };
 }

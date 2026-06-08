@@ -1,10 +1,18 @@
+//! Release packaging orchestration for host tools and SDK toolchains.
+//!
+//! This module validates requested targets, builds or collects release assets,
+//! prepares distribution directories, and delegates archive/checksum details to
+//! focused submodules.
+
 mod archive;
 mod bundle;
 mod checksum;
 mod deps;
 mod util;
 
-use crate::args::{ReleaseChecksumsArgs, ReleasePackageArgs, ReleaseToolchainPackageArgs};
+use crate::args::{
+    ReleaseBumpVersionArgs, ReleaseChecksumsArgs, ReleasePackageArgs, ReleaseToolchainPackageArgs,
+};
 use archive::create_archive;
 use bundle::{bundle_host_toolchain, bundle_sdk_runtime_toolchain};
 use checksum::write_checksums;
@@ -17,7 +25,7 @@ use shared_ops::{
 };
 use std::ffi::OsString;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub fn package_release(args: ReleasePackageArgs) -> OpsResult<()> {
     let root = repo_root()?;
@@ -33,7 +41,7 @@ pub fn package_release(args: ReleasePackageArgs) -> OpsResult<()> {
     let bundled_toolchain = resolve_bundled_toolchain(&host, args.toolchain_prefix.as_deref())?;
 
     if !args.skip_build {
-        build_release_binaries(&host)?;
+        build_release_binaries(&host, args.skip_kernup)?;
     }
 
     let dist_name = format!("kern-{version}-{}", host.archive_target);
@@ -49,6 +57,9 @@ pub fn package_release(args: ReleasePackageArgs) -> OpsResult<()> {
     remove_path_if_exists(&archive_path)?;
     create_archive(&root, &dist_dir, &archive_path, &host)?;
     println!("Successfully packaged: {}", archive_path.display());
+    if !args.skip_kernup {
+        package_kernup_bootstrap(&root, &host, version.as_str())?;
+    }
     Ok(())
 }
 
@@ -81,6 +92,152 @@ pub fn write_release_checksums(args: ReleaseChecksumsArgs) -> OpsResult<()> {
     write_checksums(args)
 }
 
+pub fn bump_release_version(args: ReleaseBumpVersionArgs) -> OpsResult<()> {
+    let root = repo_root()?;
+    let to = normalize_release_semver(
+        args.version
+            .as_deref()
+            .ok_or_else(|| OpsError::new("`--version` is required"))?,
+        "--version",
+    )?;
+    let from = match args.from {
+        Some(value) => normalize_release_semver(&value, "--from")?,
+        None => load_workspace_version(&root)?,
+    };
+    if from == to && !args.check {
+        return Err(OpsError::new(format!(
+            "release version is already `{to}`; choose a different target version"
+        )));
+    }
+
+    let from_line = minor_line(&from);
+    let to_line = minor_line(&to);
+    let tracked_files = git_tracked_files(&root)?;
+    let mut changed = Vec::new();
+    for path in tracked_files {
+        if bump_version_in_file(
+            &path,
+            VersionRewrite {
+                from: &from,
+                to: &to,
+                from_line,
+                to_line,
+            },
+            args.check,
+        )? {
+            changed.push(path);
+        }
+    }
+
+    if args.check {
+        if changed.is_empty() {
+            println!("Release version references are already synchronized at {to}.");
+            return Ok(());
+        }
+        return Err(OpsError::new(format!(
+            "release version references need updating from {from} to {to}: {}",
+            changed
+                .iter()
+                .map(|path| path
+                    .strip_prefix(&root)
+                    .unwrap_or(path)
+                    .display()
+                    .to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
+
+    println!(
+        "Rewrote release version references from {from} to {to} in {} tracked files.",
+        changed.len()
+    );
+    Ok(())
+}
+
+fn normalize_release_semver(value: &str, label: &str) -> OpsResult<String> {
+    let raw = value.strip_prefix('v').unwrap_or(value);
+    let parts = raw.split('.').collect::<Vec<_>>();
+    if parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+    {
+        return Ok(raw.to_string());
+    }
+    Err(OpsError::new(format!(
+        "`{label}` must be a simple semantic version like 0.8.2"
+    )))
+}
+
+fn minor_line(version: &str) -> Option<&str> {
+    let mut dots_seen = 0;
+    for (index, ch) in version.char_indices() {
+        if ch == '.' {
+            dots_seen += 1;
+            if dots_seen == 2 {
+                return Some(&version[..index]);
+            }
+        }
+    }
+    None
+}
+
+fn git_tracked_files(root: &Path) -> OpsResult<Vec<PathBuf>> {
+    let result = shared_ops::run_command_capture(
+        &[
+            OsString::from("git"),
+            OsString::from("ls-files"),
+            OsString::from("-z"),
+        ],
+        Some(root),
+    )?;
+    if result.status_code != Some(0) {
+        return Err(OpsError::new(format!(
+            "failed to list tracked files: {}{}",
+            result.stdout, result.stderr
+        )));
+    }
+    Ok(result
+        .stdout
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(|path| root.join(path))
+        .collect())
+}
+
+struct VersionRewrite<'a> {
+    from: &'a str,
+    to: &'a str,
+    from_line: Option<&'a str>,
+    to_line: Option<&'a str>,
+}
+
+fn bump_version_in_file(path: &Path, rewrite: VersionRewrite<'_>, check: bool) -> OpsResult<bool> {
+    let bytes = fs::read(path).map_err(|err| OpsError::io(path, "read", err))?;
+    let Ok(text) = String::from_utf8(bytes) else {
+        return Ok(false);
+    };
+    let mut bumped = text
+        .replace(&format!("v{}", rewrite.from), &format!("v{}", rewrite.to))
+        .replace(rewrite.from, rewrite.to);
+    if let (Some(from_line), Some(to_line)) = (rewrite.from_line, rewrite.to_line)
+        && from_line != to_line
+    {
+        bumped = bumped.replace(
+            &format!("kern = \"{from_line}\""),
+            &format!("kern = \"{to_line}\""),
+        );
+    }
+    if bumped == text {
+        return Ok(false);
+    }
+    if !check {
+        fs::write(path, bumped).map_err(|err| OpsError::io(path, "write", err))?;
+    }
+    Ok(true)
+}
+
 fn ensure_host_native_target(target: &str, host: &shared_ops::HostTarget) -> OpsResult<()> {
     if target == host.archive_target {
         return Ok(());
@@ -91,13 +248,17 @@ fn ensure_host_native_target(target: &str, host: &shared_ops::HostTarget) -> Ops
     )))
 }
 
-fn build_release_binaries(host: &shared_ops::HostTarget) -> OpsResult<()> {
+fn build_release_binaries(host: &shared_ops::HostTarget, skip_kernup: bool) -> OpsResult<()> {
     println!("Building release binaries...");
-    for (package, bin) in [
+    let mut packages = vec![
         ("kernc_cli", Some("kernc")),
         ("craft", None),
         ("kern-lsp", None),
-    ] {
+    ];
+    if !skip_kernup {
+        packages.push(("kernup", None));
+    }
+    for (package, bin) in packages {
         let mut cmd = vec![
             OsString::from("cargo"),
             OsString::from("build"),
@@ -129,6 +290,46 @@ fn build_release_binaries(host: &shared_ops::HostTarget) -> OpsResult<()> {
     Ok(())
 }
 
+fn package_kernup_bootstrap(
+    root: &Path,
+    host: &shared_ops::HostTarget,
+    version: &str,
+) -> OpsResult<()> {
+    let dist_name = format!("kernup-{version}-{}", host.archive_target);
+    let dist_dir = root.join(&dist_name);
+    let archive_path = root.join(format!("{dist_name}.{}", host.archive_extension));
+    prepare_kernup_dist_dir(root, &dist_dir, host)?;
+    remove_path_if_exists(&archive_path)?;
+    create_archive(root, &dist_dir, &archive_path, host)?;
+    println!("Successfully packaged: {}", archive_path.display());
+    Ok(())
+}
+
+fn prepare_kernup_dist_dir(
+    root: &Path,
+    dist_dir: &Path,
+    host: &shared_ops::HostTarget,
+) -> OpsResult<()> {
+    remove_path_if_exists(dist_dir)?;
+    fs::create_dir_all(dist_dir)?;
+    let binary_dir = if let Some(target) = &host.cargo_target {
+        root.join("target").join(target).join("release")
+    } else {
+        root.join("target").join("release")
+    };
+    let source = binary_dir.join(format!("kernup{}", host.exe_suffix));
+    if !source.is_file() {
+        return Err(OpsError::new(format!(
+            "expected kernup release binary `{}`",
+            source.display()
+        )));
+    }
+    let binary_name = path_file_name(&source, "kernup release binary")?;
+    copy_path(&source, &dist_dir.join(binary_name))?;
+    copy_license_files(root, dist_dir)?;
+    Ok(())
+}
+
 fn prepare_dist_dir(
     root: &Path,
     dist_dir: &Path,
@@ -157,10 +358,8 @@ fn prepare_dist_dir(
                 source.display()
             )));
         }
-        copy_path(
-            &source,
-            &dist_dir.join("bin").join(source.file_name().unwrap()),
-        )?;
+        let binary_name = path_file_name(&source, "release binary")?;
+        copy_path(&source, &dist_dir.join("bin").join(binary_name))?;
     }
 
     let library_root = resolve_official_library_root(root)?;
@@ -195,6 +394,7 @@ fn prepare_dist_dir(
     for text_file in ["README.md", "LICENSE"] {
         copy_path(&root.join(text_file), &dist_dir.join(text_file))?;
     }
+    copy_dir_recursive(&root.join("LICENSES"), &dist_dir.join("LICENSES"))?;
 
     let records = bundle_sdk_runtime_toolchain(dist_dir, host, bundled_toolchain)?;
     write_json_value(
@@ -209,6 +409,15 @@ fn prepare_dist_dir(
     Ok(())
 }
 
+fn path_file_name<'a>(path: &'a Path, label: &str) -> OpsResult<&'a std::ffi::OsStr> {
+    path.file_name().ok_or_else(|| {
+        OpsError::new(format!(
+            "{label} path `{}` has no file name",
+            path.display()
+        ))
+    })
+}
+
 fn prepare_toolchain_dist_dir(
     root: &Path,
     dist_dir: &Path,
@@ -221,13 +430,19 @@ fn prepare_toolchain_dist_dir(
     fs::create_dir_all(dist_dir.join("toolchain").join("host").join("bin"))?;
     fs::create_dir_all(dist_dir.join("toolchain").join("host").join("lib"))?;
     fs::create_dir_all(dist_dir.join("toolchain").join("host").join("sysroot"))?;
-    copy_path(&root.join("LICENSE"), &dist_dir.join("LICENSE"))?;
+    copy_license_files(root, dist_dir)?;
 
     let records = bundle_host_toolchain(dist_dir, host, bundled_toolchain)?;
     write_json_value(
         &dist_dir.join("manifest").join("toolchain.json"),
         &toolchain_manifest_json(version, &host.archive_target, bundled_toolchain, &records),
     )?;
+    Ok(())
+}
+
+fn copy_license_files(root: &Path, dist_dir: &Path) -> OpsResult<()> {
+    copy_path(&root.join("LICENSE"), &dist_dir.join("LICENSE"))?;
+    copy_dir_recursive(&root.join("LICENSES"), &dist_dir.join("LICENSES"))?;
     Ok(())
 }
 

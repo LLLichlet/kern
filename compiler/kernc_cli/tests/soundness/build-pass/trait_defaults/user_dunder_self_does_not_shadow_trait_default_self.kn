@@ -1,0 +1,24 @@
+// class: trait-default-methods
+// source: source-level `__Self` must not collide with the compiler's hidden default-method Self parameter
+// compile-args: --library-bundle none
+// exit: 0
+
+struct __Self {
+};
+
+trait Echo[__Self] {
+    fn id(value: __Self) __Self {
+        return value;
+    }
+
+    fn default_value() i32 {
+        return 7;
+    }
+};
+
+impl __Self: Echo[i32] {}
+
+fn main() i32 {
+    let value = __Self.{};
+    return value.id(5) + value.default_value() - 12;
+}

@@ -1,3 +1,8 @@
+//! Codegen-unit materialization.
+//!
+//! Given a plan, materialization copies owned bodies into a unit and adds
+//! declarations for imported functions/globals that are referenced by that unit.
+
 use super::refs::build_item_refs;
 use super::*;
 

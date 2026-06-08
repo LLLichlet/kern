@@ -1,3 +1,9 @@
+//! Workspace elaboration from manifests into package and dependency plans.
+//!
+//! Elaboration applies feature selection, loads members, resolves dependencies,
+//! fetches external sources, and produces the graph inputs used by build-plan
+//! construction.
+
 use crate::error::{Error, Result};
 use crate::graph;
 use crate::graph::{PackageId, SourceId};
@@ -225,7 +231,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [features]
 default = ["missing"]
@@ -275,7 +281,7 @@ members = ["app", "driver"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 "#,
         )
         .unwrap();
@@ -286,7 +292,7 @@ kern = "0.7.6"
 [package]
 name = "driver"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 "#,
         )
         .unwrap();

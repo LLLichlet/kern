@@ -1,3 +1,5 @@
+//! Execution tests for SIMD compile options and built-in vector targets.
+
 use super::*;
 use kernc_driver::CompilerDriver;
 use std::collections::BTreeMap;
@@ -13,7 +15,7 @@ fn craft_bin_compile_options_support_builtin_simd_types() {
 [package]
 name = "simd_probe"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "simd_probe"
@@ -76,6 +78,7 @@ fn main() i32 {
             &built_std_packages,
             &BTreeMap::new(),
             &mut manifest_runtime_options,
+            false,
         )
         .unwrap();
 
@@ -107,7 +110,7 @@ fn craft_build_supports_builtin_simd_types_in_bin_targets() {
 [package]
 name = "simd_probe"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "simd_probe"

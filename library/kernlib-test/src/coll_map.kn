@@ -36,24 +36,55 @@ fn check_integer_map[W](t: &mut Report[W]) void
     defer map.deinit(gpa);
 
     let mut i = 0;
-    while (i < 128) {
+    while i < 128 {
         let key = i as i32;
         map.try_insert(gpa, key, key * 3).should_ok().sum(@loc(), t);
         i += 1;
     }
 
     map.try_insert(gpa, 7, 99).should_ok().sum(@loc(), t);
-    map.len().should().eq(128usize).sum(@loc(), t);
+    map.view().len().should().eq(128usize).sum(@loc(), t);
 
     let value_ptr = map.get_ptr(7).should_some().sum(@loc(), t);
     value_ptr.* = 123;
-    map.get(7).should_some().eq(123).sum(@loc(), t);
+    map.view().get(7).should_some().eq(123).sum(@loc(), t);
     map.remove(7).should_some().eq(123).sum(@loc(), t);
-    map.contains(7).not().should().sum(@loc(), t);
+    map.view().contains(7).not().should().sum(@loc(), t);
 
     map.try_insert(gpa, 7, 777).should_ok().sum(@loc(), t);
-    map.get(7).should_some().eq(777).sum(@loc(), t);
-    map.get(100).should_some().eq(300).sum(@loc(), t);
+    map.view().get(7).should_some().eq(777).sum(@loc(), t);
+    map.view().get(100).should_some().eq(300).sum(@loc(), t);
+
+    let mut iter_count = 0usize;
+    let mut iter_sum = 0i32;
+    for entry in (map as &base.coll.Map[i32, i32]).iter() {
+        iter_count += 1;
+        iter_sum += entry.key + entry.value;
+    }
+    iter_count.should().eq(128usize).sum(@loc(), t);
+    iter_sum.should().eq(33268).sum(@loc(), t);
+
+    let mut readonly_index_sum = 0usize;
+    let mut readonly_skip_count = 0usize;
+    for entry in (map as &base.coll.Map[i32, i32]).iter().skip(2usize).enumerate() {
+        readonly_index_sum += entry.index;
+        readonly_skip_count += 1;
+    }
+    readonly_index_sum.should().eq(7875usize).sum(@loc(), t);
+    readonly_skip_count.should().eq(126usize).sum(@loc(), t);
+
+    for entry in map.iter() {
+        entry.value.* += entry.key;
+    }
+    map.view().get(7).should_some().eq(784).sum(@loc(), t);
+    map.view().get(100).should_some().eq(400).sum(@loc(), t);
+
+    let mut mut_skip_count = 0usize;
+    for entry in map.iter().skip(127usize).enumerate() {
+        entry.value.value.* += entry.index as i32;
+        mut_skip_count += 1;
+    }
+    mut_skip_count.should().eq(1usize).sum(@loc(), t);
 
     let before_compact = map.capacity;
     map.try_compact(gpa).should_ok().sum(@loc(), t);
@@ -61,11 +92,11 @@ fn check_integer_map[W](t: &mut Report[W]) void
     map.remove(999).should_none().sum(@loc(), t);
 
     map.clear();
-    map.is_empty().should().sum(@loc(), t);
-    map.len().should().eq(0usize).sum(@loc(), t);
+    map.view().is_empty().should().sum(@loc(), t);
+    map.view().len().should().eq(0usize).sum(@loc(), t);
 
     map.try_insert(gpa, 42, 4242).should_ok().sum(@loc(), t);
-    map.get(42).should_some().eq(4242).sum(@loc(), t);
+    map.view().get(42).should_some().eq(4242).sum(@loc(), t);
     map.try_shrink_to_fit(gpa).should_ok().sum(@loc(), t);
     map.capacity.should().eq(8usize).sum(@loc(), t);
 }
@@ -84,19 +115,19 @@ fn check_custom_key_map[W](t: &mut Report[W]) void
     map.try_insert(gpa, Key.{ group: 1, id: 11 }, 11).should_ok().sum(@loc(), t);
     map.try_insert(gpa, Key.{ group: 1, id: 12 }, 12).should_ok().sum(@loc(), t);
     map.try_insert(gpa, Key.{ group: 2, id: 99 }, 99).should_ok().sum(@loc(), t);
-    map.len().should().eq(4usize).sum(@loc(), t);
+    map.view().len().should().eq(4usize).sum(@loc(), t);
 
-    map.get(Key.{ group: 1, id: 11 }).should_some().eq(11).sum(@loc(), t);
+    map.view().get(Key.{ group: 1, id: 11 }).should_some().eq(11).sum(@loc(), t);
     map.remove(Key.{ group: 1, id: 10 }).should_some().eq(10).sum(@loc(), t);
     map.try_insert(gpa, Key.{ group: 1, id: 13 }, 13).should_ok().sum(@loc(), t);
-    map.get(Key.{ group: 1, id: 12 }).should_some().eq(12).sum(@loc(), t);
-    map.get(Key.{ group: 1, id: 13 }).should_some().eq(13).sum(@loc(), t);
-    map.contains(Key.{ group: 1, id: 10 }).not().should().sum(@loc(), t);
+    map.view().get(Key.{ group: 1, id: 12 }).should_some().eq(12).sum(@loc(), t);
+    map.view().get(Key.{ group: 1, id: 13 }).should_some().eq(13).sum(@loc(), t);
+    map.view().contains(Key.{ group: 1, id: 10 }).not().should().sum(@loc(), t);
 
     let cap_before = map.capacity;
     map.try_reserve(gpa, 64).should_ok().sum(@loc(), t);
     (map.capacity >= cap_before).should().sum(@loc(), t);
-    map.get(Key.{ group: 1, id: 11 }).should_some().eq(11).sum(@loc(), t);
+    map.view().get(Key.{ group: 1, id: 11 }).should_some().eq(11).sum(@loc(), t);
 }
 
 fn check_byte_slice_keys[W](t: &mut Report[W]) void
@@ -115,11 +146,11 @@ fn check_byte_slice_keys[W](t: &mut Report[W]) void
 
     map.try_insert(gpa, alpha.&[0...5], 7).should_ok().sum(@loc(), t);
     map.try_insert(gpa, beta.&[0...4], 9).should_ok().sum(@loc(), t);
-    map.contains(alpha_probe.&[0...5]).should().sum(@loc(), t);
-    map.get(alpha_probe.&[0...5]).should_some().eq(7).sum(@loc(), t);
+    map.view().contains(alpha_probe.&[0...5]).should().sum(@loc(), t);
+    map.view().get(alpha_probe.&[0...5]).should_some().eq(7).sum(@loc(), t);
     map.remove(alpha_probe.&[0...5]).should_some().eq(7).sum(@loc(), t);
-    map.contains(alpha.&[0...5]).not().should().sum(@loc(), t);
-    map.get(beta.&[0...4]).should_some().eq(9).sum(@loc(), t);
+    map.view().contains(alpha.&[0...5]).not().should().sum(@loc(), t);
+    map.view().get(beta.&[0...4]).should_some().eq(9).sum(@loc(), t);
 }
 
 fn check_string_traits[W](t: &mut Report[W]) void
@@ -164,23 +195,23 @@ fn check_get_or_insert[W](t: &mut Report[W]) void
     defer map.deinit(gpa);
     let mut lazy_calls = 0i32;
 
-    for (i: 0i32...6i32) {
+    for i in 0i32...6i32 {
         map.try_insert(gpa, i, i + 10i32).should_ok().sum(@loc(), t);
     }
     map.capacity.should().eq(8usize).sum(@loc(), t);
-    map.len().should().eq(6usize).sum(@loc(), t);
+    map.view().len().should().eq(6usize).sum(@loc(), t);
 
     map.try_insert(gpa, 3, 99).should_ok().sum(@loc(), t);
-    map.len().should().eq(6usize).sum(@loc(), t);
+    map.view().len().should().eq(6usize).sum(@loc(), t);
 
     let existing = map.try_get_or_insert(gpa, 3, 111).should_ok().sum(@loc(), t);
     existing.*.should().eq(99).sum(@loc(), t);
     existing.* = 123;
-    map.get(3).should_some().eq(123).sum(@loc(), t);
+    map.view().get(3).should_some().eq(123).sum(@loc(), t);
 
     let inserted = map.try_get_or_insert(gpa, 100, 500).should_ok().sum(@loc(), t);
     inserted.*.should().eq(500).sum(@loc(), t);
-    map.len().should().eq(7usize).sum(@loc(), t);
+    map.view().len().should().eq(7usize).sum(@loc(), t);
 
     let lazy_existing = map.try_get_or_insert_with(gpa, 100, [calls = lazy_calls..&]() i32 {
         calls.* += 1;
@@ -195,7 +226,7 @@ fn check_get_or_insert[W](t: &mut Report[W]) void
     }).should_ok().sum(@loc(), t);
     lazy_inserted.*.should().eq(900).sum(@loc(), t);
     lazy_calls.should().eq(1).sum(@loc(), t);
-    map.len().should().eq(8usize).sum(@loc(), t);
+    map.view().len().should().eq(8usize).sum(@loc(), t);
 }
 
 fn check_traversal_predicates_and_lists[W](t: &mut Report[W]) void
@@ -215,35 +246,35 @@ fn check_traversal_predicates_and_lists[W](t: &mut Report[W]) void
 
     let mut key_sum = 0i32;
     let mut value_sum = 0i32;
-    map.for_each([key_sum = key_sum..&, value_sum = value_sum..&](key: i32, value: i32) void {
+    map.view().for_each([key_sum = key_sum..&, value_sum = value_sum..&](key: i32, value: i32) void {
         key_sum.* += key;
         value_sum.* += value;
     });
     key_sum.should().eq(10).sum(@loc(), t);
     value_sum.should().eq(100).sum(@loc(), t);
-    map.fold(0i32, [](accum: i32, key: i32, value: i32) i32 {
+    map.view().fold(0i32, [](accum: i32, key: i32, value: i32) i32 {
         return accum + key + value;
     }).should().eq(110).sum(@loc(), t);
 
     map.for_each_mut([](key: i32, value: &mut i32) void {
         value.* += key;
     });
-    map.get(1).should_some().eq(11).sum(@loc(), t);
-    map.get(2).should_some().eq(22).sum(@loc(), t);
-    map.get(3).should_some().eq(33).sum(@loc(), t);
-    map.get(4).should_some().eq(44).sum(@loc(), t);
+    map.view().get(1).should_some().eq(11).sum(@loc(), t);
+    map.view().get(2).should_some().eq(22).sum(@loc(), t);
+    map.view().get(3).should_some().eq(33).sum(@loc(), t);
+    map.view().get(4).should_some().eq(44).sum(@loc(), t);
 
-    map.any([](key: i32, value: i32) bool {
+    map.view().any([](key: i32, value: i32) bool {
         return key == 3 and value == 33;
     }).should().sum(@loc(), t);
-    map.all([](_: i32, value: i32) bool {
+    map.view().all([](_: i32, value: i32) bool {
         return value >= 11;
     }).should().sum(@loc(), t);
-    map.count([](key: i32, _: i32) bool {
+    map.view().count([](key: i32, _: i32) bool {
         return key % 2 == 0;
     }).should().eq(2usize).sum(@loc(), t);
-    map.find_map([](key: i32, value: i32) ?i32 {
-        if (key == 4) return .{ Some: value + 4 };
+    map.view().find_map([](key: i32, value: i32) ?i32 {
+        if key == 4 return .{ Some: value + 4 };
         return .None;
     }).should_some().eq(48).sum(@loc(), t);
 
@@ -251,16 +282,16 @@ fn check_traversal_predicates_and_lists[W](t: &mut Report[W]) void
         value.* += key;
         return key >= 2;
     });
-    map.len().should().eq(3usize).sum(@loc(), t);
-    map.contains(1).not().should().sum(@loc(), t);
-    map.get(2).should_some().eq(24).sum(@loc(), t);
-    map.get(3).should_some().eq(36).sum(@loc(), t);
-    map.get(4).should_some().eq(48).sum(@loc(), t);
+    map.view().len().should().eq(3usize).sum(@loc(), t);
+    map.view().contains(1).not().should().sum(@loc(), t);
+    map.view().get(2).should_some().eq(24).sum(@loc(), t);
+    map.view().get(3).should_some().eq(36).sum(@loc(), t);
+    map.view().get(4).should_some().eq(48).sum(@loc(), t);
     map.remove_where([](key: i32, value: i32) bool {
         return key == 3 and value == 36;
     }).should_some().eq(36).sum(@loc(), t);
-    map.contains(3).not().should().sum(@loc(), t);
-    map.len().should().eq(2usize).sum(@loc(), t);
+    map.view().contains(3).not().should().sum(@loc(), t);
+    map.view().len().should().eq(2usize).sum(@loc(), t);
 
     let keys = base.coll.list[i32]()..&;
     defer keys.deinit(gpa);
@@ -268,25 +299,25 @@ fn check_traversal_predicates_and_lists[W](t: &mut Report[W]) void
     defer values.deinit(gpa);
     keys.try_push(gpa, 1000).should_ok().sum(@loc(), t);
     values.try_push(gpa, 2000).should_ok().sum(@loc(), t);
-    map.try_append_keys(gpa, keys).should_ok().sum(@loc(), t);
-    map.try_append_values(gpa, values).should_ok().sum(@loc(), t);
-    keys.len().should().eq(3usize).sum(@loc(), t);
-    values.len().should().eq(3usize).sum(@loc(), t);
-    keys.first().should_some().eq(1000).sum(@loc(), t);
-    values.first().should_some().eq(2000).sum(@loc(), t);
-    keys.count([](key: i32) bool {
+    map.view().try_append_keys(gpa, keys).should_ok().sum(@loc(), t);
+    map.view().try_append_values(gpa, values).should_ok().sum(@loc(), t);
+    keys.view().len().should().eq(3usize).sum(@loc(), t);
+    values.view().len().should().eq(3usize).sum(@loc(), t);
+    keys.view().first().should_some().eq(1000).sum(@loc(), t);
+    values.view().first().should_some().eq(2000).sum(@loc(), t);
+    keys.view().count([](key: i32) bool {
         return key == 2 or key == 4;
     }).should().eq(2usize).sum(@loc(), t);
-    values.count([](value: i32) bool {
+    values.view().count([](value: i32) bool {
         return value == 24 or value == 48;
     }).should().eq(2usize).sum(@loc(), t);
 
-    let owned_keys = map.keys(gpa).should_ok().sum(@loc(), t)..&;
+    let owned_keys = map.view().keys(gpa).should_ok().sum(@loc(), t)..&;
     defer owned_keys.deinit(gpa);
-    let owned_values = map.values(gpa).should_ok().sum(@loc(), t)..&;
+    let owned_values = map.view().values(gpa).should_ok().sum(@loc(), t)..&;
     defer owned_values.deinit(gpa);
-    owned_keys.len().should().eq(2usize).sum(@loc(), t);
-    owned_values.len().should().eq(2usize).sum(@loc(), t);
+    owned_keys.view().len().should().eq(2usize).sum(@loc(), t);
+    owned_values.view().len().should().eq(2usize).sum(@loc(), t);
 }
 
 #[test]

@@ -1,3 +1,9 @@
+//! Build, check, run, and test execution engine for Craft.
+//!
+//! This module coordinates compile/link actions, runtime package builds,
+//! staging, incremental state, progress reporting, and shared driver reuse for
+//! all high-level commands.
+
 use crate::build_plan::{ActionPlan, BuildPlan, CompileAction, LinkAction};
 use crate::build_state;
 use crate::error::{Error, Result};
@@ -12,7 +18,7 @@ use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod external;
 mod fingerprint;
@@ -30,7 +36,7 @@ use self::external::{
 };
 use self::fingerprint::{
     base_compile_action_label, build_fingerprint, compile_action_detail_tags,
-    compile_action_fingerprint, compile_action_label, link_action_detail_tags,
+    compile_action_fingerprint, compile_action_label, compile_state_path, link_action_detail_tags,
     link_action_fingerprint, link_action_label, rt_compile_action_label,
     rt_entry_compile_action_label, runtime_compile_detail_tags, std_compile_action_label,
     write_compile_action_state,
@@ -47,7 +53,7 @@ use self::staging::{
     execute_staged_actions, link_progress_label,
 };
 
-pub use self::orchestrate::{build_with_progress, check_with_progress};
+pub use self::orchestrate::{build_with_progress_and_timings, check_with_progress_and_timings};
 pub(crate) use self::orchestrate::{
     materialize_analysis_inputs, materialize_analysis_inputs_with_progress,
 };
@@ -167,6 +173,38 @@ impl ExecutionSummary {
         });
     }
 
+    fn record_cache_hit(
+        &mut self,
+        kind: ActionTimingKind,
+        label: impl Into<String>,
+        detail_tags: Vec<String>,
+        duration: Duration,
+    ) {
+        self.record_action(
+            kind,
+            label,
+            detail_tags,
+            vec![PhaseTiming {
+                name: "cache_check",
+                duration,
+            }],
+            CompileCacheStats::default(),
+            None,
+        );
+    }
+
+    fn record_phase_timing(&mut self, phase: PhaseTiming) {
+        if let Some(existing) = self
+            .phase_timings
+            .iter_mut()
+            .find(|existing| existing.name == phase.name)
+        {
+            existing.duration += phase.duration;
+        } else {
+            self.phase_timings.push(phase);
+        }
+    }
+
     fn record_compile_cache_hit(&mut self) {
         self.action_cache_stats.compile_hits += 1;
     }
@@ -283,6 +321,7 @@ struct ExecutionConfig<'a> {
     command: crate::script::ScriptCommand,
     profile_selection: crate::script::ProfileSelection,
     std_workspace_root: &'a Path,
+    report_timings: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -388,16 +427,34 @@ fn build_compile_action_if_needed(
 ) -> Result<bool> {
     // The output lock and fingerprint check make compile actions idempotent even when the build
     // graph reaches the same unit from multiple dependent targets.
-    let compile_lock_target = action.metadata_path.as_ref().unwrap_or(&action.object_path);
+    let state_path = compile_state_path(action, &options);
+    let compile_lock_target = action.metadata_path.as_ref().unwrap_or(&state_path);
     let _compile_lock = OutputOperationLock::acquire(compile_lock_target, "compile-action")?;
 
     let toolchain_digest = build_state::current_process_digest()?;
     let fingerprint = compile_action_fingerprint(action, &options, &toolchain_digest);
+    let compile_label = compile_action_label(action, &options);
+    let compile_tags = compile_action_detail_tags(&options);
 
-    if build_state::action_state_is_current(&action.object_path, &fingerprint)? {
+    let cache_check_started = Instant::now();
+    if build_state::action_state_is_current(&state_path, &fingerprint)? {
+        let cache_check_duration = cache_check_started.elapsed();
         execution_summary.record_compile_cache_hit();
+        execution_summary.record_phase_timing(PhaseTiming {
+            name: "cache_check",
+            duration: cache_check_duration,
+        });
+        if execution_summary.action_timings.is_empty() || !compile_tags.is_empty() {
+            execution_summary.record_cache_hit(
+                ActionTimingKind::Compile,
+                compile_label,
+                compile_tags,
+                cache_check_duration,
+            );
+        }
         return Ok(false);
     }
+    let cache_check_duration = cache_check_started.elapsed();
 
     ensure_parent_dir(&action.object_path)?;
     prepare_output_path(&multi_linker_input_dir(&action.object_path), true)?;
@@ -410,8 +467,6 @@ fn build_compile_action_if_needed(
 
     let emit_multi_linker_input_dir = options.emit_multi_linker_input_dir;
     let emits_linker_input = options.driver_mode.emits_linker_input();
-    let compile_label = compile_action_label(action, &options);
-    let compile_tags = compile_action_detail_tags(&options);
     let _long_action = progress
         .map(|progress| progress.report_long_action("compiling", compile_progress_label(action)));
     let Some(report) = compile_with_shared_driver(driver_families, options) else {
@@ -437,7 +492,7 @@ fn build_compile_action_if_needed(
         ActionTimingKind::Compile,
         compile_label,
         compile_tags,
-        report.phase_timings,
+        with_cache_check_timing(report.phase_timings, cache_check_duration),
         report.cache_stats,
         report.codegen_plan,
     );
@@ -473,13 +528,28 @@ fn build_link_action_if_needed(
         &link_input_paths,
         &toolchain_digest,
     );
-    if build_state::action_state_is_current(&action.artifact_path, &fingerprint)? {
-        execution_summary.record_link_cache_hit();
-        return Ok(false);
-    }
-
     let link_label = link_action_label(action, &options);
     let link_tags = link_action_detail_tags(action, &options, linker_inputs);
+    let cache_check_started = Instant::now();
+    if build_state::action_state_is_current(&action.artifact_path, &fingerprint)? {
+        let cache_check_duration = cache_check_started.elapsed();
+        execution_summary.record_link_cache_hit();
+        execution_summary.record_phase_timing(PhaseTiming {
+            name: "cache_check",
+            duration: cache_check_duration,
+        });
+        if execution_summary.action_timings.is_empty() || !link_tags.is_empty() {
+            execution_summary.record_cache_hit(
+                ActionTimingKind::Link,
+                link_label,
+                link_tags,
+                cache_check_duration,
+            );
+        }
+        return Ok(false);
+    }
+    let cache_check_duration = cache_check_started.elapsed();
+
     let driver = CompilerDriver::new(options);
     let _long_action = progress
         .map(|progress| progress.report_long_action("linking", link_progress_label(action)));
@@ -505,11 +575,22 @@ fn build_link_action_if_needed(
         ActionTimingKind::Link,
         link_label,
         link_tags,
-        report.phase_timings,
+        with_cache_check_timing(report.phase_timings, cache_check_duration),
         report.cache_stats,
         report.codegen_plan,
     );
     Ok(true)
+}
+
+fn with_cache_check_timing(mut phases: Vec<PhaseTiming>, duration: Duration) -> Vec<PhaseTiming> {
+    phases.insert(
+        0,
+        PhaseTiming {
+            name: "cache_check",
+            duration,
+        },
+    );
+    phases
 }
 
 fn ensure_compile_action_built(
@@ -552,16 +633,12 @@ fn ensure_compile_action_built(
         session.external.built_std_packages,
         session.external.built_external_packages,
         session.external.manifest_runtime_options,
+        session.config.report_timings,
     )?;
     if let Some(progress) = &session.state.progress {
         progress.set_phase(ExecutionPhase::Compile);
         progress.set_detail(compile_progress_label(action));
     }
-    let _progress_suspend = session
-        .state
-        .progress
-        .as_ref()
-        .map(|progress| progress.suspend_terminal());
     let built = build_compile_action_if_needed(
         action,
         options,
@@ -602,11 +679,6 @@ fn ensure_link_action_built(
         progress.set_phase(ExecutionPhase::Link);
         progress.set_detail(link_progress_label(action));
     }
-    let _progress_suspend = session
-        .state
-        .progress
-        .as_ref()
-        .map(|progress| progress.suspend_terminal());
     let linked_now = build_link_action_if_needed(
         action,
         options,
@@ -614,9 +686,6 @@ fn ensure_link_action_built(
         session.state.execution_summary,
         session.state.progress.as_ref(),
     )?;
-    if let Some(progress) = &session.state.progress {
-        progress.record_link_action();
-    }
 
     session.state.linked.insert(action.artifact_path.clone());
 
@@ -628,6 +697,9 @@ fn ensure_link_action_built(
         None,
         session,
     )?;
+    if let Some(progress) = &session.state.progress {
+        progress.record_link_action();
+    }
     Ok(linked_now)
 }
 

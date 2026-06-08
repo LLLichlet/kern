@@ -1,4 +1,20 @@
+//! Craft project resolution tests for LSP analysis.
+
 use super::*;
+use craft::project::AnalysisProject;
+
+fn generated_app_bin_main(root: &PathBuf) -> PathBuf {
+    root.join(".craft")
+        .join("build")
+        .join("dev")
+        .join("target")
+        .join("gen")
+        .join("app")
+        .join("bin")
+        .join("app")
+        .join("src")
+        .join("main.kn")
+}
 
 #[test]
 fn resolve_analysis_uses_workspace_package_root_and_local_aliases() {
@@ -86,6 +102,394 @@ root = \"src/lib.kn\"
         Some(super::normalize_path(&util_dir.join("src/lib.kn")))
     );
     assert!(resolved.compile_options.module_aliases.contains_key("std"));
+}
+
+#[test]
+fn workspace_source_refresh_keeps_project_cache_but_reloads_driver_cache() {
+    let root = unique_temp_dir("analysis_source_refresh_cache");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(root.join("src/lib.kn"), "fn value() i32 { return 1; }\n").unwrap();
+
+    let uri = file_path_to_uri(&root.join("src/lib.kn")).unwrap();
+    let source = fs::read_to_string(root.join("src/lib.kn")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+    let _ = analysis.hover(
+        &uri,
+        Position {
+            line: 0,
+            character: 3,
+        },
+    );
+
+    assert_eq!(analysis.cached_project_count(), 1);
+    assert_eq!(analysis.cached_driver_count(), 1);
+
+    let targets = analysis.refresh_workspace_targets();
+
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].0, uri);
+    assert_eq!(targets[0].1, DiagnosticsAnalysisMode::Structure);
+    assert_eq!(analysis.cached_project_count(), 1);
+    assert_eq!(analysis.cached_driver_count(), 0);
+}
+
+#[test]
+fn workspace_source_refresh_warms_symbol_indexes() {
+    let root = unique_temp_dir("analysis_source_refresh_symbol_index");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.kn"),
+        "struct WarmedNeedle { value: i32 }\nfn helper() void {}\n",
+    )
+    .unwrap();
+
+    let uri = file_path_to_uri(&root.join("src/lib.kn")).unwrap();
+    let source = fs::read_to_string(root.join("src/lib.kn")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+
+    assert_eq!(analysis.cached_workspace_symbol_index_count(), 0);
+
+    let refresh = analysis
+        .refresh_workspace_index_cancelable(vec![root.clone()], CancellationToken::new())
+        .expect("fresh cancellation token cannot be canceled");
+
+    assert_eq!(refresh.targets.len(), 1);
+    assert_eq!(refresh.indexed_targets, 1);
+    assert_eq!(refresh.failed_targets, 0);
+    assert!(refresh.generation > 0);
+    assert_eq!(analysis.cached_workspace_symbol_index_count(), 1);
+    assert_eq!(analysis.cached_workspace_index_target_count(), 1);
+
+    let indexed_targets = analysis.cached_workspace_index_targets();
+    let indexed = indexed_targets
+        .iter()
+        .find(|target| target.package_name.as_deref() == Some("app"))
+        .expect("expected app target metadata");
+    assert_eq!(
+        indexed.input_file,
+        super::normalize_path(&root.join("src/lib.kn"))
+    );
+    assert_eq!(
+        indexed.manifest_path.as_deref(),
+        Some(super::normalize_path(&root.join("Craft.toml")).as_path())
+    );
+    assert_eq!(
+        indexed.workspace_root.as_deref(),
+        Some(super::normalize_path(&root).as_path())
+    );
+    assert_eq!(indexed.target_kind.as_deref(), Some("lib"));
+    assert_eq!(
+        indexed.source_roots,
+        vec![super::normalize_path(&root.join("src/lib.kn"))]
+    );
+    assert!(
+        indexed
+            .analysis_context_path
+            .as_deref()
+            .is_some_and(|path| path.ends_with(".craft/analysis.toml"))
+    );
+
+    let snapshot = analysis.snapshot(vec![root.clone()], CancellationToken::new());
+    let symbols = analysis
+        .workspace_symbols_in_snapshot(&snapshot, "warmed")
+        .unwrap();
+    assert_eq!(symbols.len(), 1);
+    assert_eq!(symbols[0].name, "WarmedNeedle");
+    assert_eq!(analysis.cached_workspace_symbol_index_count(), 1);
+
+    let next_refresh = analysis
+        .refresh_workspace_index_cancelable(vec![root], CancellationToken::new())
+        .expect("fresh cancellation token cannot be canceled");
+    assert!(next_refresh.generation > refresh.generation);
+    assert_eq!(analysis.cached_workspace_index_target_count(), 1);
+}
+
+#[test]
+fn workspace_symbol_index_warmup_observes_cancellation() {
+    let root = unique_temp_dir("analysis_source_refresh_cancel");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.kn"),
+        "struct WarmedNeedle { value: i32 }\nfn helper() void {}\n",
+    )
+    .unwrap();
+
+    let uri = file_path_to_uri(&root.join("src/lib.kn")).unwrap();
+    let source = fs::read_to_string(root.join("src/lib.kn")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri,
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+    let cancellation = CancellationToken::with_check_budget_for_testing(1);
+
+    let result = analysis.warm_workspace_symbol_indexes_with_cancellation_for_testing(
+        vec![root],
+        cancellation.clone(),
+    );
+
+    assert_eq!(result.unwrap_err(), "request was canceled");
+    assert!(cancellation.is_canceled());
+    assert_eq!(analysis.cached_workspace_symbol_index_count(), 0);
+}
+
+#[test]
+fn workspace_index_tracks_generated_source_aliases() {
+    let root = unique_temp_dir("analysis_workspace_index_generated_alias");
+    fs::create_dir_all(root.join("src")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[[bin]]
+name = \"app\"
+root = \"src/placeholder.kn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.kn"),
+        "mod build_info;\nfn main() i32 { let _ = build_info.MAGIC_NUMBER; return 0; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.kn"),
+        "\
+use craft.builder;
+
+pub fn build(b: &mut builder.Builder) void {
+    let main = b.stage_copy_package_file(\"src/main.kn\", \"src/main.kn\");
+    let _ = b.stage_generated(
+        \"src/build_info.kn\",
+        \"pub const MAGIC_NUMBER = 42i32;\\n\"
+    );
+    b.set_source_root_from(main);
+}
+",
+    )
+    .unwrap();
+    analysis_context::sync_project_analysis_context(&root.join("Craft.toml"), true, &[]).unwrap();
+
+    let generated_main = generated_app_bin_main(&root);
+    let uri = file_path_to_uri(&root.join("src/main.kn")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri,
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: fs::read_to_string(root.join("src/main.kn")).unwrap(),
+        },
+    });
+
+    let refresh = analysis
+        .refresh_workspace_index_cancelable(vec![root.clone()], CancellationToken::new())
+        .expect("fresh cancellation token cannot be canceled");
+
+    assert_eq!(refresh.indexed_targets, 1);
+    assert_eq!(refresh.failed_targets, 0);
+    assert_eq!(analysis.cached_workspace_index_target_count(), 1);
+    let indexed_targets = analysis.cached_workspace_index_targets();
+    let indexed = indexed_targets
+        .iter()
+        .find(|target| target.package_name.as_deref() == Some("app"))
+        .expect("expected app target metadata");
+    assert_eq!(indexed.target_kind.as_deref(), Some("bin"));
+    assert_eq!(indexed.target_name.as_deref(), Some("app"));
+    assert!(
+        indexed
+            .source_roots
+            .contains(&super::normalize_path(&generated_main))
+    );
+    assert!(indexed.generated_aliases.contains(&(
+        super::normalize_path(&root.join("src/main.kn")),
+        super::normalize_path(&generated_main),
+    )));
+}
+
+#[test]
+fn project_metadata_reload_clears_project_and_driver_caches() {
+    let root = unique_temp_dir("analysis_project_reload_cache");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(root.join("src/lib.kn"), "fn value() i32 { return 1; }\n").unwrap();
+
+    let uri = file_path_to_uri(&root.join("src/lib.kn")).unwrap();
+    let source = fs::read_to_string(root.join("src/lib.kn")).unwrap();
+    let mut analysis = AnalysisEngine::default();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+    let _ = analysis.hover(
+        &uri,
+        Position {
+            line: 0,
+            character: 3,
+        },
+    );
+
+    assert_eq!(analysis.cached_project_count(), 1);
+    assert_eq!(analysis.cached_driver_count(), 1);
+
+    let targets = analysis.reload_project_metadata_targets();
+
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].0, uri);
+    assert_eq!(targets[0].1, DiagnosticsAnalysisMode::Structure);
+    assert_eq!(analysis.cached_project_count(), 0);
+    assert_eq!(analysis.cached_driver_count(), 0);
+}
+
+#[test]
+fn watched_file_paths_classify_project_metadata() {
+    let root = unique_temp_dir("analysis_watched_file_classification");
+    let source_uri = file_path_to_uri(&root.join("src/lib.kn")).unwrap();
+    let manifest_uri = file_path_to_uri(&root.join("Craft.toml")).unwrap();
+    let lock_uri = file_path_to_uri(&root.join("Craft.lock")).unwrap();
+    let analysis_context_uri = file_path_to_uri(&root.join(".craft/analysis.toml")).unwrap();
+
+    assert!(!AnalysisEngine::watched_files_require_project_reload(&[
+        source_uri
+    ]));
+    assert!(AnalysisEngine::watched_files_require_project_reload(&[
+        manifest_uri
+    ]));
+    assert!(AnalysisEngine::watched_files_require_project_reload(&[
+        lock_uri
+    ]));
+    assert!(AnalysisEngine::watched_files_require_project_reload(&[
+        analysis_context_uri
+    ]));
+}
+
+#[test]
+fn resolve_analysis_reports_invalid_craft_manifest() {
+    let root = unique_temp_dir("analysis_invalid_manifest");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("Craft.toml"), "not valid craft toml").unwrap();
+    let source = "fn helper() i32 { return 1; }\n";
+    fs::write(root.join("src/main.kn"), source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let uri = file_path_to_uri(&root.join("src/main.kn")).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let err = analysis.resolve_analysis(&uri).unwrap_err();
+    assert!(
+        err.contains("failed to resolve Craft project for LSP analysis"),
+        "{err}"
+    );
+
+    let outcome = analysis.analyze_document_uri(&uri);
+    let diagnostic = &outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .unwrap()
+        .diagnostics[0];
+    assert!(
+        diagnostic.message.contains("analysis failed"),
+        "{diagnostic:?}"
+    );
+    assert!(diagnostic.message.contains("Craft.toml"), "{diagnostic:?}");
 }
 
 #[test]
@@ -311,7 +715,7 @@ pub fn build(b: &mut builder.Builder) void {{
         "\
 use std.io;
 
-#[if(enable_telemetry)]
+#[if enable_telemetry]
 fn init_telemetry() void {
     \"[Telemetry] Enabled\".println();
 }
@@ -418,12 +822,12 @@ pub fn build(b: &mut builder.Builder) void {{
         "\
 use std.io;
 
-#[if(enable_telemetry)]
+#[if enable_telemetry]
 fn init_telemetry() void {
     \"[Telemetry] Enabled\".println();
 }
 
-#[if(!enable_telemetry)]
+#[if !enable_telemetry]
 fn init_telemetry() void {
     \"[Telemetry] Disabled\".println();
 }
@@ -515,7 +919,7 @@ use craft.builder;
 pub fn build(b: &mut builder.Builder) void {
     let generated = b.emit_generated(
         \"src/main.kn\",
-        \"#[if(generated)]\\nfn main() i32 { let _ = ENTRY_KIND; return 0; }\\n\"
+        \"#[if generated]\\nfn main() i32 { let _ = ENTRY_KIND; return 0; }\\n\"
     );
     b.set_source_root(generated);
     b.cfg_bool(\"generated\", true);
@@ -527,17 +931,7 @@ pub fn build(b: &mut builder.Builder) void {
 
     analysis_context::sync_project_analysis_context(&root.join("Craft.toml"), true, &[]).unwrap();
 
-    let generated_path = root
-        .join(".craft")
-        .join("build")
-        .join("dev")
-        .join("target")
-        .join("gen")
-        .join("app-0.1.0")
-        .join("bin")
-        .join("app")
-        .join("src")
-        .join("main.kn");
+    let generated_path = generated_app_bin_main(&root);
     let project =
         craft::project::AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
     let direct = project.resolve_for_file(&generated_path, &CompileOptions::default());
@@ -550,7 +944,7 @@ pub fn build(b: &mut builder.Builder) void {
         Some("true")
     );
     let uri = file_path_to_uri(&generated_path).unwrap();
-    let source = "#[if(generated)]\nfn main() i32 { let _ = ENTRY_KIND; return 0; }\n";
+    let source = "#[if generated]\nfn main() i32 { let _ = ENTRY_KIND; return 0; }\n";
 
     let mut analysis = AnalysisEngine::default();
     let outcome = analysis.open_document(DidOpenTextDocumentParams {
@@ -622,7 +1016,7 @@ root = \"src/placeholder.kn\"
         "\
 mod build_info;
 
-#[if(generated)]
+#[if generated]
 fn main() i32 {
     let _ = build_info.MAGIC_NUMBER;
     return 0;
@@ -650,17 +1044,7 @@ pub fn build(b: &mut builder.Builder) void {
 
     analysis_context::sync_project_analysis_context(&root.join("Craft.toml"), true, &[]).unwrap();
 
-    let generated_main = root
-        .join(".craft")
-        .join("build")
-        .join("dev")
-        .join("target")
-        .join("gen")
-        .join("app-0.1.0")
-        .join("bin")
-        .join("app")
-        .join("src")
-        .join("main.kn");
+    let generated_main = generated_app_bin_main(&root);
     assert!(generated_main.is_file());
     assert!(
         generated_main
@@ -791,5 +1175,227 @@ fn standalone_submodule_analysis_does_not_treat_parent_import_as_root_error() {
         !diagnostic
             .message
             .contains("Cannot use `..` (Parent) from the root module")
+    }));
+}
+
+#[test]
+fn code_lenses_return_craft_build_and_test_targets() {
+    let root = unique_temp_dir("analysis_code_lens_targets");
+    let src_dir = root.join("src");
+    let tests_dir = root.join("tests");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::create_dir_all(&tests_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+
+[test]
+roots = [\"tests/smoke.kn\"]
+"
+        ),
+    )
+    .unwrap();
+    let lib_source = "pub fn value() i32 { return 1; }\n";
+    fs::write(src_dir.join("lib.kn"), lib_source).unwrap();
+    let test_source = "use app.value;\n#[test]\nfn test_smoke() i32 { return value(); }\n";
+    fs::write(tests_dir.join("smoke.kn"), test_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let lib_uri = file_path_to_uri(&src_dir.join("lib.kn")).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: lib_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: lib_source.to_string(),
+        },
+    });
+    let test_uri = file_path_to_uri(&tests_dir.join("smoke.kn")).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: test_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: test_source.to_string(),
+        },
+    });
+
+    let lib_lenses = analysis.code_lenses(&lib_uri).unwrap();
+    assert_eq!(lib_lenses.len(), 1, "{lib_lenses:#?}");
+    assert_eq!(lib_lenses[0].title, "Build lib");
+    assert_eq!(lib_lenses[0].command, "kern.craft.buildPackage");
+    assert_eq!(
+        normalize_path(&PathBuf::from(
+            lib_lenses[0].arguments[0]["manifestPath"].as_str().unwrap()
+        )),
+        normalize_path(&root.join("Craft.toml"))
+    );
+    assert_eq!(lib_lenses[0].arguments[0]["targetKind"], "lib");
+
+    let test_lenses = analysis.code_lenses(&test_uri).unwrap();
+    assert_eq!(test_lenses.len(), 1, "{test_lenses:#?}");
+    assert_eq!(test_lenses[0].title, "Run test target smoke");
+    assert_eq!(test_lenses[0].command, "kern.craft.testTarget");
+    assert_eq!(test_lenses[0].arguments[0]["targetName"], "smoke");
+    assert_eq!(test_lenses[0].range.start.line, 2);
+}
+
+#[test]
+fn code_lenses_reuse_loaded_project_targets() {
+    let root = unique_temp_dir("analysis_code_lens_project_cache");
+    let src_dir = root.join("src");
+    let tests_dir = root.join("tests");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::create_dir_all(&tests_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[test]
+roots = [\"tests/smoke.kn\"]
+"
+        ),
+    )
+    .unwrap();
+    let test_source = "#[test]\nfn test_smoke() void {}\n";
+    let test_path = tests_dir.join("smoke.kn");
+    fs::write(&test_path, test_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let test_uri = file_path_to_uri(&test_path).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: test_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: test_source.to_string(),
+        },
+    });
+    let _ = analysis.code_lenses(&test_uri).unwrap();
+
+    fs::write(root.join("Craft.toml"), "this is not a valid manifest\n").unwrap();
+
+    let lenses = analysis.code_lenses(&test_uri).unwrap();
+
+    assert_eq!(lenses.len(), 1, "{lenses:#?}");
+    assert_eq!(lenses[0].title, "Run test target smoke");
+}
+
+#[test]
+fn code_lenses_anchor_build_targets_on_main_function() {
+    let root = unique_temp_dir("analysis_code_lens_main_anchor");
+    let src_dir = root.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[[bin]]
+name = \"app\"
+root = \"src/main.kn\"
+"
+        ),
+    )
+    .unwrap();
+    let source = "\
+fn helper() i32 { return 1; }
+
+fn main() i32 {
+    return helper();
+}
+";
+    fs::write(src_dir.join("main.kn"), source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let uri = file_path_to_uri(&src_dir.join("main.kn")).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let lenses = analysis.code_lenses(&uri).unwrap();
+    assert_eq!(lenses.len(), 1, "{lenses:#?}");
+    assert_eq!(lenses[0].title, "Run bin app");
+    assert_eq!(lenses[0].command, "kern.craft.runTarget");
+    assert_eq!(lenses[0].arguments[0]["targetKind"], "bin");
+    assert_eq!(lenses[0].arguments[0]["targetName"], "app");
+    assert_eq!(lenses[0].range.start.line, 2);
+}
+
+#[test]
+fn test_target_files_resolve_as_full_analysis_targets() {
+    let root = unique_temp_dir("analysis_test_target_resolution");
+    let src_dir = root.join("src");
+    let tests_dir = root.join("tests");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::create_dir_all(&tests_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[lib]
+root = \"src/lib.kn\"
+
+[test]
+roots = [\"tests/smoke.kn\"]
+"
+        ),
+    )
+    .unwrap();
+    fs::write(src_dir.join("lib.kn"), "pub fn helper() void {}\n").unwrap();
+    fs::write(
+        tests_dir.join("smoke.kn"),
+        "fn test_smoke() void { helper(); }\n",
+    )
+    .unwrap();
+
+    let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
+    let resolved =
+        project.resolve_for_file(&tests_dir.join("smoke.kn"), &CompileOptions::default());
+
+    assert_eq!(
+        super::normalize_path(&resolved.input_file),
+        super::normalize_path(&tests_dir.join("smoke.kn"))
+    );
+    assert_eq!(
+        resolved.compile_options.metadata_package_name,
+        Some("app".to_string())
+    );
+    assert_eq!(
+        resolved
+            .target
+            .as_ref()
+            .and_then(|target| target.target_kind),
+        Some(craft::plan::TargetKind::Test)
+    );
+    assert!(resolved.target_roots.iter().any(|path| {
+        super::normalize_path(path) == super::normalize_path(&tests_dir.join("smoke.kn"))
     }));
 }

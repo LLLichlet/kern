@@ -1,7 +1,13 @@
+//! Fingerprint construction for incremental build actions.
+//!
+//! Fingerprints intentionally include toolchain options, source roots,
+//! dependencies, and prior compile/link reports so cache hits reflect the
+//! behaviorally relevant inputs for each action.
+
 use super::{CompileReport, Result};
 use crate::build_plan::{CompileAction, LinkAction};
 use crate::build_state;
-use kernc_utils::config::CompileOptions;
+use kernc_utils::config::{CompileOptions, DriverMode};
 use std::path::PathBuf;
 
 pub(super) fn build_fingerprint(lines: &[String]) -> String {
@@ -142,7 +148,19 @@ pub(super) fn write_compile_action_state(
         outputs.push(test_metadata_path.clone());
     }
 
-    build_state::record_action_state(&action.object_path, fingerprint, &inputs, &outputs)
+    let mut state_path = action.object_path.clone();
+    if !emits_linker_input {
+        state_path.set_extension("check");
+    }
+    build_state::record_action_state(&state_path, fingerprint, &inputs, &outputs)
+}
+
+pub(super) fn compile_state_path(action: &CompileAction, options: &CompileOptions) -> PathBuf {
+    let mut path = action.object_path.clone();
+    if options.driver_mode == DriverMode::AnalyzeOnly {
+        path.set_extension("check");
+    }
+    path
 }
 
 pub(super) fn compile_action_label(action: &CompileAction, options: &CompileOptions) -> String {

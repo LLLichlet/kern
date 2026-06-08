@@ -1,3 +1,8 @@
+//! Statement syntax inside block expressions.
+//!
+//! Kern blocks are expression-oriented: most statements are either imports,
+//! semicolon-terminated expressions, or one trailing expression value.
+
 use super::{Attribute, Expr, UsePathKind, UseTarget};
 use kernc_utils::{NodeId, Span, SymbolId};
 

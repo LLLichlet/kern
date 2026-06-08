@@ -1,4 +1,15 @@
+//! Inlay hint analysis tests.
+
 use super::*;
+
+fn inlay_position_of_nth(
+    source: &str,
+    needle: &str,
+    occurrence: usize,
+    char_offset: u32,
+) -> IdePosition {
+    position_of_nth(source, needle, occurrence, char_offset).into()
+}
 
 #[test]
 fn inlay_hints_include_inferred_let_binding_types() {
@@ -25,8 +36,98 @@ fn inlay_hints_include_inferred_let_binding_types() {
 
     assert!(hints.iter().any(|hint| {
         hint.label == ": usize"
-            && hint.position == position_of_nth(source, "value", 0, "value".len() as u32)
+            && hint.position == inlay_position_of_nth(source, "value", 0, "value".len() as u32)
     }));
+}
+
+#[test]
+fn inlay_hints_stay_after_binding_name_when_let_becomes_mut() {
+    let mut analysis = AnalysisEngine::default();
+    let clean = concat!(
+        "fn helper() usize { return 1usize; }\n",
+        "fn main() i32 {\n",
+        "    let value = helper();\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    let dirty = clean.replacen("let value", "let mut value", 1);
+    let uri = temp_file_uri("inlay_hints_let_mut_dirty", clean);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    let _ = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
+    let _ = analysis.change_document_state(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.clone(),
+        }],
+    });
+
+    let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
+
+    assert!(hints.iter().any(|hint| {
+        hint.label == ": usize"
+            && hint.position == inlay_position_of_nth(&dirty, "value", 0, "value".len() as u32)
+    }));
+    assert!(!hints.iter().any(|hint| {
+        hint.label == ": usize"
+            && hint.position == inlay_position_of_nth(&dirty, "mut", 0, "mut".len() as u32)
+    }));
+}
+
+#[test]
+fn inlay_hints_build_semantic_classification_artifact_after_tokens() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper() usize { return 1usize; }\n",
+        "fn main() i32 {\n",
+        "    let value = helper();\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("inlay_hints_reuse_semantic_classification", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+    let _ = analysis.semantic_tokens(&uri).unwrap();
+    assert_eq!(
+        analysis
+            .semantic_token_classification_cache
+            .lock()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        0
+    );
+
+    let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
+
+    assert!(hints.iter().any(|hint| hint.label == ": usize"));
+    assert_eq!(analysis.navigation_cache.lock().unwrap().len(), 0);
+    assert_eq!(analysis.artifact_cache.lock().unwrap().len(), 0);
+    assert_eq!(
+        analysis.semantic_classification_cache.lock().unwrap().len(),
+        1
+    );
 }
 
 #[test]
@@ -53,7 +154,7 @@ fn inlay_hints_skip_explicit_let_binding_types() {
 
     assert!(!hints.iter().any(|hint| {
         hint.label == ": usize"
-            && hint.position == position_of_nth(source, "value", 0, "value".len() as u32)
+            && hint.position == inlay_position_of_nth(source, "value", 0, "value".len() as u32)
     }));
 }
 
@@ -81,7 +182,7 @@ fn inlay_hints_include_inferred_static_binding_types() {
 
     assert!(hints.iter().any(|hint| {
         hint.label == ": usize"
-            && hint.position == position_of_nth(source, "total", 0, "total".len() as u32)
+            && hint.position == inlay_position_of_nth(source, "total", 0, "total".len() as u32)
     }));
 }
 
@@ -112,12 +213,12 @@ fn inlay_hints_include_inferred_global_const_and_static_types() {
     assert!(hints.iter().any(|hint| {
         hint.label == ": SpinLock"
             && hint.position
-                == position_of_nth(source, "SPIN_UNLOCKED", 0, "SPIN_UNLOCKED".len() as u32)
+                == inlay_position_of_nth(source, "SPIN_UNLOCKED", 0, "SPIN_UNLOCKED".len() as u32)
     }));
     assert!(hints.iter().any(|hint| {
         hint.label == ": SpinLock"
             && hint.position
-                == position_of_nth(source, "frame_op_lock", 0, "frame_op_lock".len() as u32)
+                == inlay_position_of_nth(source, "frame_op_lock", 0, "frame_op_lock".len() as u32)
     }));
 }
 
@@ -157,15 +258,16 @@ fn inlay_hints_skip_calls_fields_and_function_values() {
 
     assert!(hints.iter().any(|hint| {
         hint.label == ": i32"
-            && hint.position == position_of_nth(source, "result", 0, "result".len() as u32)
+            && hint.position == inlay_position_of_nth(source, "result", 0, "result".len() as u32)
     }));
     assert!(!hints.iter().any(|hint| hint.label.contains("fn(")));
     assert!(!hints.iter().any(|hint| {
-        hint.position == position_of_nth(source, "make_counter()", 1, "make_counter()".len() as u32)
+        hint.position
+            == inlay_position_of_nth(source, "make_counter()", 1, "make_counter()".len() as u32)
     }));
     assert!(!hints.iter().any(|hint| {
         hint.position
-            == position_of_nth(
+            == inlay_position_of_nth(
                 source,
                 "make_counter().get()",
                 0,
@@ -173,11 +275,11 @@ fn inlay_hints_skip_calls_fields_and_function_values() {
             )
     }));
     assert!(!hints.iter().any(|hint| {
-        hint.position == position_of_nth(source, "state", 1, "state".len() as u32)
+        hint.position == inlay_position_of_nth(source, "state", 1, "state".len() as u32)
     }));
     assert!(!hints.iter().any(|hint| {
         hint.position
-            == position_of_nth(
+            == inlay_position_of_nth(
                 source,
                 "@atomicLoad[u8](state..&, ATOMIC_RELAXED)",
                 0,
@@ -223,7 +325,7 @@ fn inlay_hints_include_only_multiline_chain_expression_types() {
     assert!(hints.iter().any(|hint| {
         hint.label == ": Counter"
             && hint.position
-                == position_of_nth(
+                == inlay_position_of_nth(
                     source,
                     "make_counter()\n        .bump(1i32)",
                     0,
@@ -233,7 +335,7 @@ fn inlay_hints_include_only_multiline_chain_expression_types() {
     assert!(hints.iter().any(|hint| {
         hint.label == ": i32"
             && hint.position
-                == position_of_nth(
+                == inlay_position_of_nth(
                     source,
                     "make_counter()\n        .bump(1i32)\n        .get()",
                     0,
@@ -242,7 +344,7 @@ fn inlay_hints_include_only_multiline_chain_expression_types() {
     }));
     assert!(!hints.iter().any(|hint| {
         hint.position
-            == position_of_nth(
+            == inlay_position_of_nth(
                 source,
                 "make_counter().bump(2i32).get()",
                 0,
@@ -251,7 +353,7 @@ fn inlay_hints_include_only_multiline_chain_expression_types() {
     }));
     assert!(!hints.iter().any(|hint| {
         hint.position
-            == position_of_nth(
+            == inlay_position_of_nth(
                 source,
                 "make_counter().bump(\n        3i32,\n    )",
                 0,
@@ -288,14 +390,14 @@ fn inlay_hints_include_contextual_data_init_type_prefixes() {
     let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
 
     assert!(hints.iter().any(|hint| {
-        hint.label == "Point" && hint.position == position_of_nth(source, ".{ x: 1i32", 0, 0)
+        hint.label == "Point" && hint.position == inlay_position_of_nth(source, ".{ x: 1i32", 0, 0)
     }));
     assert!(hints.iter().any(|hint| {
-        hint.label == "Point" && hint.position == position_of_nth(source, ".{ x: 10i32", 0, 0)
+        hint.label == "Point" && hint.position == inlay_position_of_nth(source, ".{ x: 10i32", 0, 0)
     }));
     assert!(!hints.iter().any(|hint| {
         hint.label == "Point"
-            && hint.position == position_of_nth(source, "Point.{", 0, "Point".len() as u32)
+            && hint.position == inlay_position_of_nth(source, "Point.{", 0, "Point".len() as u32)
     }));
 }
 
@@ -327,14 +429,15 @@ fn inlay_hints_include_contextual_enum_literal_type_prefixes() {
     let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
 
     assert!(hints.iter().any(|hint| {
-        hint.label == "Result" && hint.position == position_of_nth(source, ".Err", 0, 0)
+        hint.label == "Result" && hint.position == inlay_position_of_nth(source, ".Err", 0, 0)
     }));
     assert!(hints.iter().any(|hint| {
-        hint.label == "Result" && hint.position == position_of_nth(source, ".Err", 1, 0)
+        hint.label == "Result" && hint.position == inlay_position_of_nth(source, ".Err", 1, 0)
     }));
     assert!(!hints.iter().any(|hint| {
         hint.label == "Result"
-            && hint.position == position_of_nth(source, "Result.Err", 0, "Result".len() as u32)
+            && hint.position
+                == inlay_position_of_nth(source, "Result.Err", 0, "Result".len() as u32)
     }));
 }
 
@@ -367,13 +470,13 @@ fn inlay_hints_include_builtin_contextual_shorthand_type_prefixes() {
     let hints = analysis.inlay_hints(&uri, whole_document_range()).unwrap();
 
     assert!(hints.iter().any(|hint| {
-        hint.label == "?i32" && hint.position == position_of_nth(source, ".None", 0, 0)
+        hint.label == "?i32" && hint.position == inlay_position_of_nth(source, ".None", 0, 0)
     }));
     assert!(hints.iter().any(|hint| {
-        hint.label == "i32!i32" && hint.position == position_of_nth(source, ".{ Ok", 0, 0)
+        hint.label == "i32!i32" && hint.position == inlay_position_of_nth(source, ".{ Ok", 0, 0)
     }));
     assert!(hints.iter().any(|hint| {
-        hint.label == "[3]u8" && hint.position == position_of_nth(source, ".{ 1u8", 0, 0)
+        hint.label == "[3]u8" && hint.position == inlay_position_of_nth(source, ".{ 1u8", 0, 0)
     }));
 }
 

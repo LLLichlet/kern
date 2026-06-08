@@ -95,7 +95,7 @@ entry contract and export your own entry symbol:
 ```kern
 #[export_name("_start")]
 fn kmain() void {
-    while (true) {}
+    while true {}
     @unreachable();
 }
 ```
@@ -365,7 +365,7 @@ cargo build --release --target x86_64-pc-windows-msvc -p kern-lsp
 Or, equivalently, use the Rust repository worker:
 
 ```powershell
-cargo run -q -p kernworker -- release package --version v0.7.6 --target x86_64-windows-msvc
+cargo run -q -p kernworker -- release package --version v0.8.2 --target x86_64-windows-msvc
 ```
 
 For the local source-build environment, including `LLVM_SYS_211_PREFIX` and the
@@ -433,7 +433,7 @@ Use `--define <key=value>` to feed custom values into compile-time attribute pru
 kernc --define debug_mode=true --define board=qemu app.kn
 ```
 
-These values are available to `#[if(...)]` and `#![if(...)]` conditions handled by the frontend pruning pass.
+These values are available to `#[if ...]` and `#![if ...]` conditions handled by the frontend pruning pass.
 
 In addition to user-provided `--define` values, `kernc` injects a small set of driver-controlled condition variables:
 
@@ -446,7 +446,7 @@ In addition to user-provided `--define` values, `kernc` injects a small set of d
 
 ### Test Mode
 
-`--test-mode` asks the compiler to build a test adapter instead of the normal root `main` adapter. In this mode, `#[test]` functions are collected as test cases and `#[if(test)]` content is retained.
+`--test-mode` asks the compiler to build a test adapter instead of the normal root `main` adapter. In this mode, `#[test]` functions are collected as test cases and `#[if test]` content is retained.
 
 Legal test functions are:
 

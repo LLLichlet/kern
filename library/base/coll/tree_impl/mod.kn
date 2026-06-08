@@ -7,4 +7,16 @@ mod delete;
 mod mutable;
 mod query;
 
-pub use .base.Tree;
+pub use .base.{
+    Tree,
+    TreeEnumerateIter,
+    TreeItem,
+    TreeIter,
+    TreeMutEnumerateIter,
+    TreeMutItem,
+    TreeMutIter,
+    TreeMutSkipEnumerateIter,
+    TreeMutSkipIter,
+    TreeSkipEnumerateIter,
+    TreeSkipIter,
+};

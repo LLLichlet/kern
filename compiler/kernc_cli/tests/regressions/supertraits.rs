@@ -1,3 +1,5 @@
+//! Supertrait regression tests.
+
 use super::*;
 
 #[test]

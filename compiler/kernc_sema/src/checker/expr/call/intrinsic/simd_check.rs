@@ -1,3 +1,9 @@
+//! SIMD intrinsic type checking.
+//!
+//! SIMD operations share normal call arity but need lane-count, element-type,
+//! mask, and return-shape validation that depends on the specific intrinsic
+//! name and generic result type.
+
 use super::*;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {

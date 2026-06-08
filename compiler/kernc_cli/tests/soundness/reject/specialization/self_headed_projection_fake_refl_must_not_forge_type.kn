@@ -1,0 +1,38 @@
+// `Self.Trait.Assoc` is only surface syntax for an ordinary associated
+// projection. It must not let a shadowed blanket impl act as fake reflection.
+// stderr: mismatched types
+
+trait TypeIs[T] {
+    type Is;
+};
+
+trait Lift[T]: TypeIs[T] {
+    fn make() Self.TypeIs[T].Is;
+};
+
+impl[S, T] S: TypeIs[T] {
+    type Is = T;
+}
+
+struct FakeProof[L, R] {
+    value: L,
+};
+
+impl[L, R] FakeProof[L, R]: TypeIs[R] {
+    type Is = L;
+}
+
+impl[L, R] FakeProof[L, R]: Lift[R] {
+    fn make() Self.TypeIs[R].Is {
+        return self.value;
+    }
+}
+
+fn seed() i32 {
+    return 11;
+}
+
+fn main() i32 {
+    let forged = FakeProof[&fn() i32, &fn(i32, i32) i32].{ value: seed }.make();
+    return forged(100, 200) - 11;
+}

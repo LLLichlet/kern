@@ -1,3 +1,10 @@
+//! Recursive-descent parser for Kern source.
+//!
+//! The parser consumes `kernc_lexer` tokens and produces the source-oriented
+//! AST from `kernc_ast`.  It also owns syntax diagnostics, doc-comment
+//! attachment, cancellation checks for editor workloads, and best-effort error
+//! recovery that keeps later declarations parseable after malformed input.
+
 mod parser;
 mod stream;
 
@@ -8,7 +15,7 @@ pub use stream::TokenStream;
 mod tests {
     use super::Parser;
     use kernc_ast as ast;
-    use kernc_utils::Session;
+    use kernc_utils::{CancellationToken, Session};
 
     fn parse_module(source: &str) -> (Session, ast::Module) {
         let mut session = Session::new();
@@ -19,6 +26,20 @@ mod tests {
         let mut parser = Parser::new(source, file_id, &mut session);
         let module = parser.parse_module().unwrap();
         (session, module)
+    }
+
+    fn assert_cancelable_parse_cancels(source: &str, successful_checks: usize) {
+        let mut session = Session::new();
+        let file_id = session
+            .source_manager
+            .add_file("parser_cancel_loop.kn".to_string(), source.to_string());
+        let cancellation = CancellationToken::with_check_budget_for_testing(successful_checks);
+        let mut parser = Parser::new_cancelable(source, file_id, &mut session, &cancellation);
+
+        let result = parser.parse_module_cancelable();
+
+        assert!(result.is_err());
+        assert!(cancellation.is_canceled());
     }
 
     #[test]
@@ -47,6 +68,76 @@ mod tests {
 
         assert_eq!(&source[expr.span.start..expr.span.end], "return 1 + 2");
         assert_eq!(&source[value.span.start..value.span.end], "1 + 2");
+    }
+
+    #[test]
+    fn cancelable_parse_distinguishes_cancellation_from_parse_errors() {
+        let invalid_source = "fn main( i32 { return 0; }\n";
+        let mut invalid_session = Session::new();
+        let invalid_file = invalid_session
+            .source_manager
+            .add_file("parser_invalid.kn".to_string(), invalid_source.to_string());
+        let token = CancellationToken::new();
+        let mut invalid_parser =
+            Parser::new_cancelable(invalid_source, invalid_file, &mut invalid_session, &token);
+
+        let invalid = invalid_parser
+            .parse_module_cancelable()
+            .expect("uncanceled parse errors should stay parse errors");
+
+        assert!(invalid.is_ok());
+        assert!(!token.is_canceled());
+        assert!(!invalid_session.diagnostics.is_empty());
+
+        let mut source = String::new();
+        for index in 0..128 {
+            source.push_str(&format!("fn f{index}() i32 {{ return {index}; }}\n"));
+        }
+        let mut canceled_session = Session::new();
+        let canceled_file = canceled_session
+            .source_manager
+            .add_file("parser_canceled.kn".to_string(), source.clone());
+        let cancellation = CancellationToken::with_check_budget_for_testing(4);
+        let mut canceled_parser =
+            Parser::new_cancelable(&source, canceled_file, &mut canceled_session, &cancellation);
+
+        let canceled = canceled_parser.parse_module_cancelable();
+
+        assert!(canceled.is_err());
+        assert!(cancellation.is_canceled());
+    }
+
+    #[test]
+    fn cancelable_parse_reaches_attribute_metadata_list_loop() {
+        let mut source = "#[".to_string();
+        for index in 0..64 {
+            source.push_str(&format!("attr{index}, "));
+        }
+        source.push_str("last]\nfn main() void {}\n");
+
+        assert_cancelable_parse_cancels(&source, 6);
+    }
+
+    #[test]
+    fn cancelable_parse_reaches_call_argument_list_loop() {
+        let mut source = "fn main() void { target(".to_string();
+        for index in 0..64 {
+            source.push_str(&format!("arg{index}, "));
+        }
+        source.push_str("last); }\n");
+
+        assert_cancelable_parse_cancels(&source, 18);
+    }
+
+    #[test]
+    fn cancelable_parse_reaches_data_initializer_recovery_loop() {
+        let mut source = "fn main() void { let value = .{ ".to_string();
+        for index in 0..64 {
+            source.push_str(&format!("bad{index} "));
+        }
+        source.push_str("}; }\n");
+
+        assert_cancelable_parse_cancels(&source, 18);
     }
 
     #[test]
@@ -124,22 +215,22 @@ struct Uart {
     #[test]
     fn parses_interleaved_doc_comments_for_modules_impls_and_extern_members() {
         let source = r#"
-#![if(true)]
+#![if true]
 //! Runtime entrypoints.
-#![if(true)]
+#![if true]
 //!
 //! Design:
 //! keep the call boundary explicit.
 
-#[if(true)]
+#[if true]
 /// A typed counter.
-#[if(true)]
+#[if true]
 struct Counter {
     value: i32,
 };
 
 impl Counter {
-    #[if(true)]
+    #[if true]
     /// Read the current value.
     /// Returns:
     /// - a stable snapshot of the counter.
@@ -147,7 +238,7 @@ impl Counter {
 }
 
 extern {
-    #[if(true)]
+    #[if true]
     /// Yield control to the scheduler.
     fn yield_now() void;
 }
@@ -761,6 +852,126 @@ fn range_return_type() i32... {
     }
 
     #[test]
+    fn parses_paren_free_control_flow_heads_and_if_attributes() {
+        let source = r#"
+#[if os == "linux" and arch == "x86_64"]
+fn main() i32 {
+    let mut sum = 0i32;
+    for item in 0...3 {
+        sum += item;
+    }
+    while sum < 10 {
+        sum += 1;
+    }
+    return if sum == 10 {
+        match sum {
+            10 => 0,
+            _ => 1,
+        }
+    } else {
+        2
+    };
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+
+        assert_eq!(module.decls.len(), 1);
+        assert_eq!(module.decls[0].attributes.len(), 1);
+        let ast::AttributeKind::If(attr_expr) = &module.decls[0].attributes[0].kind else {
+            panic!("expected #[if ...] attribute");
+        };
+        let ast::ExprKind::Binary { .. } = &attr_expr.kind else {
+            panic!("expected attribute condition expression");
+        };
+
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[0].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block { stmts, .. } = &body.kind else {
+            panic!("expected block body");
+        };
+        assert_eq!(stmts.len(), 4);
+
+        let ast::StmtKind::ExprStmt(for_block) = &stmts[1].kind else {
+            panic!("expected desugared for expression statement");
+        };
+        let ast::ExprKind::Block {
+            stmts: for_stmts, ..
+        } = &for_block.kind
+        else {
+            panic!("expected for loop to desugar to a block");
+        };
+        let ast::StmtKind::ExprStmt(iter_let) = &for_stmts[0].kind else {
+            panic!("expected iterator binding");
+        };
+        let ast::ExprKind::Let { init, .. } = &iter_let.kind else {
+            panic!("expected iterator let expression");
+        };
+        let ast::ExprKind::Range {
+            start,
+            end,
+            is_inclusive,
+        } = &init.kind
+        else {
+            panic!("expected for-in range iterator expression");
+        };
+        assert!(start.is_some());
+        assert!(end.is_some());
+        assert!(!is_inclusive);
+
+        let ast::StmtKind::ExprStmt(while_expr) = &stmts[2].kind else {
+            panic!("expected while expression statement");
+        };
+        let ast::ExprKind::While { cond, .. } = &while_expr.kind else {
+            panic!("expected while expression");
+        };
+        let ast::ExprKind::Binary { .. } = &cond.kind else {
+            panic!("expected while condition expression");
+        };
+
+        let ast::StmtKind::ExprStmt(return_expr) = &stmts[3].kind else {
+            panic!("expected return expression statement");
+        };
+        let ast::ExprKind::Return(Some(if_expr)) = &return_expr.kind else {
+            panic!("expected return value");
+        };
+        let ast::ExprKind::If {
+            cond,
+            then_branch,
+            else_branch: Some(_),
+        } = &if_expr.kind
+        else {
+            panic!("expected if expression");
+        };
+        let ast::ExprKind::Binary { .. } = &cond.kind else {
+            panic!("expected if condition expression");
+        };
+        let ast::ExprKind::Block {
+            result: Some(match_expr),
+            ..
+        } = &then_branch.kind
+        else {
+            panic!("expected then block");
+        };
+        let ast::ExprKind::Match { target, arms } = &match_expr.kind else {
+            panic!("expected match expression");
+        };
+        let ast::ExprKind::Identifier(_) = &target.kind else {
+            panic!("expected match target identifier");
+        };
+        assert_eq!(arms.len(), 2);
+    }
+
+    #[test]
     fn parses_range_precedence_and_boundaries() {
         let source = r#"
 fn take(value: i32...i32, more: ...i32, full: ...) void {}
@@ -861,6 +1072,44 @@ impl Vec2: Add[i32] {
         assert_eq!(decls.len(), 2);
         assert!(matches!(decls[0].kind, ast::DeclKind::TypeAlias { .. }));
         assert!(matches!(decls[1].kind, ast::DeclKind::Function { .. }));
+    }
+
+    #[test]
+    fn parses_self_headed_associated_projection_type() {
+        let source = r#"
+trait TypeIs[T] {
+    type Is;
+}
+
+trait Lift[T]: TypeIs[T] {
+    fn make() Self.TypeIs[T].Is;
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+
+        let ast::DeclKind::Trait { methods, .. } = &module.decls[1].kind else {
+            panic!("expected trait declaration");
+        };
+        let ast::TypeKind::Function { ret, .. } = &methods[0].signature.type_node.kind else {
+            panic!("expected trait method signature");
+        };
+        let ret = ret.as_ref().expect("expected return type");
+        let ast::TypeKind::Path { segments, .. } = &ret.kind else {
+            panic!("expected Self projection path");
+        };
+
+        let names = segments
+            .iter()
+            .map(|segment| session.resolve(segment.name))
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["Self", "TypeIs", "Is"]);
+        assert_eq!(segments[1].args.len(), 1);
     }
 
     #[test]
@@ -1569,5 +1818,159 @@ fn main(flag: bool) i32 {
 
         let (_session, module) = parse_module(source);
         assert_eq!(module.decls.len(), 4);
+    }
+
+    #[test]
+    fn deterministic_parser_fuzz_smoke_does_not_panic_or_hang() {
+        for seed in 0..384u64 {
+            let source = fuzz_source(seed);
+            let result = std::panic::catch_unwind(|| {
+                let mut session = Session::new();
+                let file_id = session
+                    .source_manager
+                    .add_file(format!("fuzz_{seed}.kn"), source.clone());
+                let mut parser = Parser::new(&source, file_id, &mut session);
+                let _ = parser.parse_module();
+            });
+            assert!(
+                result.is_ok(),
+                "parser fuzz seed {seed} panicked with source:\n{source}"
+            );
+        }
+    }
+
+    fn fuzz_source(seed: u64) -> String {
+        const FRAGMENTS: &[&str] = &[
+            "fn",
+            "main",
+            "(",
+            ")",
+            "{",
+            "}",
+            "[",
+            "]",
+            "<",
+            ">",
+            ",",
+            ";",
+            ":",
+            "::",
+            ".",
+            ".{",
+            ".[",
+            "..",
+            "..=",
+            "..&",
+            ".&",
+            ".*",
+            ".?",
+            "=>",
+            "=",
+            "==",
+            "!",
+            "!=",
+            "+",
+            "-",
+            "*",
+            "/",
+            "%",
+            "&",
+            "|",
+            "^",
+            "~",
+            "return",
+            "let",
+            "mut",
+            "const",
+            "static",
+            "type",
+            "struct",
+            "union",
+            "enum",
+            "trait",
+            "impl",
+            "extern",
+            "use",
+            "mod",
+            "match",
+            "if",
+            "else",
+            "for",
+            "in",
+            "while",
+            "break",
+            "continue",
+            "defer",
+            "where",
+            "as",
+            "and",
+            "or",
+            "true",
+            "false",
+            "undef",
+            "void",
+            "i32",
+            "usize",
+            "&&u8",
+            "Fn",
+            "Self",
+            "self",
+            "_",
+            "0",
+            "1",
+            "0x",
+            "0b102",
+            "123_",
+            "1e+",
+            "\"unterminated",
+            "\"ok\"",
+            "'x'",
+            "'\\x'",
+            "b'\\n'",
+            "// comment\n",
+            "/* block */",
+            "/* unterminated",
+            "#[test]",
+            "#![if test]",
+            "/// docs\n",
+            "//! docs\n",
+            "\\\\multi\n    \\\\line",
+        ];
+
+        let mut rng = FuzzRng::new(seed ^ 0x9e37_79b9_7f4a_7c15);
+        let mut source = String::new();
+        let target_len = 24 + rng.range(160) as usize;
+        for index in 0..target_len {
+            if index % 17 == 0 {
+                source.push('\n');
+            } else if rng.range(4) == 0 {
+                source.push(' ');
+            }
+            source.push_str(FRAGMENTS[rng.range(FRAGMENTS.len() as u64) as usize]);
+        }
+        source
+    }
+
+    struct FuzzRng {
+        state: u64,
+    }
+
+    impl FuzzRng {
+        fn new(seed: u64) -> Self {
+            Self { state: seed | 1 }
+        }
+
+        fn next(&mut self) -> u64 {
+            let mut x = self.state;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.state = x;
+            x
+        }
+
+        fn range(&mut self, upper: u64) -> u64 {
+            self.next() % upper
+        }
     }
 }

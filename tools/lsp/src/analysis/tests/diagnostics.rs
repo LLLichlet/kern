@@ -1,3 +1,5 @@
+//! Diagnostic conversion and dirty-analysis tests.
+
 use super::*;
 
 #[test]
@@ -23,7 +25,7 @@ fn diagnostics_include_native_doc_lints_as_warnings() {
         bundle
             .diagnostics
             .iter()
-            .all(|diagnostic| diagnostic.severity == 2)
+            .all(|diagnostic| diagnostic.severity == IdeDiagnosticSeverity::Warning)
     );
     assert!(
         bundle
@@ -63,7 +65,7 @@ fn diagnostics_include_native_doc_lints_for_impl_methods() {
         bundle
             .diagnostics
             .iter()
-            .all(|diagnostic| diagnostic.severity == 2)
+            .all(|diagnostic| diagnostic.severity == IdeDiagnosticSeverity::Warning)
     );
     assert!(bundle.diagnostics.iter().any(|diagnostic| {
         diagnostic
@@ -281,7 +283,7 @@ fn diagnostics_mark_flow_and_reachability_warnings_as_unnecessary() {
             .find(|diagnostic| diagnostic.message.contains(needle))
             .unwrap_or_else(|| panic!("missing diagnostic: {needle}"));
         assert_eq!(diagnostic.code.as_deref(), Some(code));
-        assert_eq!(diagnostic.tags, Some(vec![DiagnosticTag::Unnecessary]));
+        assert_eq!(diagnostic.tags, vec![IdeDiagnosticTag::Unnecessary]);
     }
 }
 
@@ -345,6 +347,38 @@ fn diagnostics_expose_structured_code_for_nonexhaustive_match() {
     assert_eq!(
         nonexhaustive_match.code.as_deref(),
         Some("nonexhaustive-match")
+    );
+}
+
+#[test]
+fn diagnostics_expose_structured_code_for_missing_trait_impl_method() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "trait Render { fn render() i32; }\n",
+        "struct Widget {}\n",
+        "impl Widget: Render {}\n",
+    );
+    let uri = temp_file_uri("diagnostic_code_missing_trait_impl_method", source);
+
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    let diagnostic = bundle
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .message
+                .contains("missing required method `render`")
+        })
+        .expect("missing trait impl method diagnostic");
+    assert_eq!(
+        diagnostic.code.as_deref(),
+        Some("missing-trait-impl-method")
     );
 }
 

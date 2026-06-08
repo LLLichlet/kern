@@ -1,3 +1,10 @@
+//! Callable signature deduction and generic argument inference.
+//!
+//! This module resolves function, method, closure, and fn-def signatures after a
+//! callee has been chosen. It infers missing generic arguments from receiver and
+//! argument types, validates where-bounds, and substitutes the final callable
+//! parameter/return types.
+
 use super::{ExprChecker, SignatureDeductionInput};
 use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
@@ -800,6 +807,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let def_id = *def_id;
             let explicit_args_ptr = std::ptr::from_ref(explicit_args.as_slice());
             let explicit_args_len = explicit_args.len();
+            // SAFETY: the type registry is append-only during checking. The raw slice remains
+            // valid while we borrow `ctx` mutably to inspect the function definition and infer
+            // missing generic arguments.
             let explicit_args = unsafe { &*explicit_args_ptr };
             let Some(function_ptr) =
                 self.ctx
@@ -820,6 +830,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 );
                 return (TypeId::ERROR, None, None);
             };
+            // SAFETY: semantic definitions are not moved or removed during expression checking.
             let function = unsafe { &*function_ptr };
             let Some(raw_sig) = function.resolved_sig else {
                 self.ctx.emit_ice(
@@ -923,6 +934,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return (TypeId::ERROR, None, None);
                 }
             };
+            // SAFETY: `raw_sig` is an interned function type. Interned type payloads are stable
+            // while the checker mutates inference state and diagnostics.
             let raw_params = unsafe { &*raw_params_ptr };
             let raw_param_count = raw_params.len();
             if raw_param_count == 0 && is_method {
@@ -940,30 +953,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let param_offset = if is_method { 1 } else { 0 };
 
             if is_method {
-                let mut stripped_recv = self.resolve_tv(receiver_ty);
+                let stripped_recv = self.resolve_tv(receiver_ty);
                 let expected_recv =
                     self.resolve_tv(raw_params.first().copied().unwrap_or(TypeId::ERROR));
-                if let TypeKind::Pointer { is_mut: false, .. } =
-                    self.ctx.type_registry.get(expected_recv)
-                {
-                    if let TypeKind::Pointer { is_mut: true, elem } =
-                        self.ctx.type_registry.get(stripped_recv).clone()
-                    {
-                        stripped_recv = self.ctx.type_registry.intern(TypeKind::Pointer {
-                            is_mut: false,
-                            elem,
-                        });
-                    }
-                } else if let TypeKind::VolatilePtr { is_mut: false, .. } =
-                    self.ctx.type_registry.get(expected_recv)
-                    && let TypeKind::VolatilePtr { is_mut: true, elem } =
-                        self.ctx.type_registry.get(stripped_recv).clone()
-                {
-                    stripped_recv = self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                        is_mut: false,
-                        elem,
-                    });
-                }
 
                 self.unify(expected_recv, stripped_recv, &mut map);
                 self.infer_generic_args_from_types(
@@ -1454,6 +1446,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             Def::Trait(t) => std::ptr::from_ref(t.where_clauses.as_slice()),
             _ => return,
         };
+        // SAFETY: where-clause vectors live inside immutable semantic definitions while this
+        // routine temporarily mutably borrows `ctx` for substitution and bound solving.
         let where_clauses = unsafe { &*where_clauses_ptr };
 
         let mut map = FastHashMap::default();

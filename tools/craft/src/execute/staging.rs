@@ -1,3 +1,9 @@
+//! Artifact and directory staging for generated build outputs.
+//!
+//! Staging actions copy generated files, primary artifacts, and post-link
+//! outputs into stable locations while preserving incremental state and rejecting
+//! unsafe directory entries.
+
 use super::{
     ExecutionPhase, ExecutionSession, ensure_link_action_built, ensure_parent_dir,
     prepare_output_path,

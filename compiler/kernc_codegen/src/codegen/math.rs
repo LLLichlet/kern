@@ -1,4 +1,11 @@
+//! Arithmetic and checked math codegen.
+//!
+//! Integer, float, pointer-offset, division, modulo, shifts, comparisons, and
+//! oversized integer helpers lower here, including explicit control flow for
+//! operations LLVM cannot directly represent for Kern semantics.
+
 use super::CodeGenerator;
+use crate::basic_block::BasicBlock;
 use crate::values::{BasicValueEnum, FloatValue, IntValue};
 use crate::{FloatPredicate, IntPredicate};
 use kernc_ast::BinaryOperator;
@@ -8,6 +15,14 @@ use kernc_utils::Span;
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub(crate) fn zero_i8_value(&self) -> BasicValueEnum<'ctx> {
         self.context.i8_type().const_zero().into()
+    }
+
+    fn restore_insert_block(&self, saved_insert_block: Option<BasicBlock<'ctx>>) {
+        if let Some(block) = saved_insert_block {
+            self.builder.position_at_end(block);
+        } else {
+            self.builder.clear_insertion_position();
+        }
     }
 
     fn ptr_elem_llvm_type(
@@ -132,11 +147,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
         };
 
-        self.builder
+        let call_site = self
+            .builder
             .build_call(helper, &[lhs.into(), rhs.into()], "i128_divrem")
-            .unwrap()
-            .try_as_basic_value()
-            .unwrap_basic()
+            .unwrap();
+        self.expect_call_result(
+            call_site,
+            lhs.get_type().into(),
+            Span::default(),
+            "i128 div/rem helper",
+        )
     }
 
     fn ensure_i128_unsigned_divrem_helper(
@@ -168,8 +188,30 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let exit_bb = self.context.append_basic_block(func, "exit");
 
         self.builder.position_at_end(entry_bb);
-        let dividend = func.get_nth_param(0).unwrap().into_int_value();
-        let divisor = func.get_nth_param(1).unwrap().into_int_value();
+        let Some(dividend) = self.function_param_value(func, 0, name) else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
+        let Some(divisor) = self.function_param_value(func, 1, name) else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
+        let Some(dividend) = self.expect_int_value(
+            dividend,
+            Span::default(),
+            "i128 unsigned division helper dividend",
+        ) else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
+        let Some(divisor) = self.expect_int_value(
+            divisor,
+            Span::default(),
+            "i128 unsigned division helper divisor",
+        ) else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
         let zero = i128_ty.const_zero();
         let one = i128_ty.const_int(1, false);
         let high_bit = i128_ty.const_int(127, false);
@@ -273,9 +315,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         };
         self.builder.build_return(Some(&result)).unwrap();
 
-        if let Some(block) = saved_insert_block {
-            self.builder.position_at_end(block);
-        }
+        self.restore_insert_block(saved_insert_block);
 
         func
     }
@@ -304,8 +344,26 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let entry_bb = self.context.append_basic_block(func, "entry");
         self.builder.position_at_end(entry_bb);
 
-        let lhs = func.get_nth_param(0).unwrap().into_int_value();
-        let rhs = func.get_nth_param(1).unwrap().into_int_value();
+        let Some(lhs) = self.function_param_value(func, 0, name) else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
+        let Some(rhs) = self.function_param_value(func, 1, name) else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
+        let Some(lhs) =
+            self.expect_int_value(lhs, Span::default(), "i128 signed division helper lhs")
+        else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
+        let Some(rhs) =
+            self.expect_int_value(rhs, Span::default(), "i128 signed division helper rhs")
+        else {
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
         let zero = i128_ty.const_zero();
         let sign_shift = i128_ty.const_int(127, false);
 
@@ -329,17 +387,31 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .build_int_sub(rhs_xor, rhs_mask, "rhs_abs")
             .unwrap();
 
-        let unsigned_result = self
+        let unsigned_call_site = self
             .builder
             .build_call(
                 unsigned_helper,
                 &[lhs_abs.into(), rhs_abs.into()],
                 "unsigned_i128_divrem",
             )
-            .unwrap()
-            .try_as_basic_value()
-            .unwrap_basic()
-            .into_int_value();
+            .unwrap();
+        let unsigned_result = self.expect_call_result(
+            unsigned_call_site,
+            i128_ty.into(),
+            Span::default(),
+            "signed i128 div/rem helper",
+        );
+        let Some(unsigned_result) = self.expect_int_value(
+            unsigned_result,
+            Span::default(),
+            "signed i128 helper result",
+        ) else {
+            self.builder
+                .build_return(Some(&i128_ty.const_zero()))
+                .unwrap();
+            self.restore_insert_block(saved_insert_block);
+            return func;
+        };
 
         let result_mask = if return_remainder {
             lhs_mask
@@ -359,9 +431,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         self.builder.build_return(Some(&signed_result)).unwrap();
 
-        if let Some(block) = saved_insert_block {
-            self.builder.position_at_end(block);
-        }
+        self.restore_insert_block(saved_insert_block);
 
         let _ = zero;
         func
@@ -380,33 +450,27 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         match op {
             Add => {
                 let (ptr_val, int_val, ptr_ty, int_ty) = if l_val.is_pointer_value() {
-                    if !r_val.is_int_value() {
-                        self.sess.emit_ice(
-                            span,
-                            "Kern ICE (Codegen): expected integer for RHS of pointer addition.",
-                        );
+                    let Some(ptr_val) =
+                        self.expect_pointer_value(l_val, span, "pointer addition lhs")
+                    else {
                         return self.zero_i8_value();
-                    }
-                    (
-                        l_val.into_pointer_value(),
-                        r_val.into_int_value(),
-                        lhs_ty,
-                        rhs_ty,
-                    )
+                    };
+                    let Some(int_val) = self.expect_int_value(r_val, span, "pointer addition rhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
+                    (ptr_val, int_val, lhs_ty, rhs_ty)
                 } else {
-                    if !l_val.is_int_value() {
-                        self.sess.emit_ice(
-                            span,
-                            "Kern ICE (Codegen): expected integer for LHS of pointer addition.",
-                        );
+                    let Some(ptr_val) =
+                        self.expect_pointer_value(r_val, span, "pointer addition rhs")
+                    else {
                         return self.zero_i8_value();
-                    }
-                    (
-                        r_val.into_pointer_value(),
-                        l_val.into_int_value(),
-                        rhs_ty,
-                        lhs_ty,
-                    )
+                    };
+                    let Some(int_val) = self.expect_int_value(l_val, span, "pointer addition lhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
+                    (ptr_val, int_val, rhs_ty, lhs_ty)
                 };
 
                 if self.is_address_pointer_type(ptr_ty) {
@@ -418,6 +482,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     return self.zero_i8_value();
                 };
 
+                // SAFETY: `ptr_val` is the pointer operand selected above and
+                // `elem_llvm_ty` is recovered from its Kern pointee type; the
+                // index is the lowered integer offset.
                 unsafe {
                     self.builder
                         .build_gep(elem_llvm_ty, ptr_val, &[int_val], "ptr_add")
@@ -427,8 +494,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             Subtract => {
                 if l_val.is_pointer_value() && r_val.is_pointer_value() {
-                    let l_ptr = l_val.into_pointer_value();
-                    let r_ptr = r_val.into_pointer_value();
+                    let Some(l_ptr) =
+                        self.expect_pointer_value(l_val, span, "pointer subtraction lhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
+                    let Some(r_ptr) =
+                        self.expect_pointer_value(r_val, span, "pointer subtraction rhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
                     if self.is_address_pointer_type(lhs_ty) {
                         let addr_ty = self.context.i64_type();
                         let l_addr = self
@@ -464,8 +539,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .unwrap()
                         .into()
                 } else {
-                    let ptr_val = l_val.into_pointer_value();
-                    let int_val = r_val.into_int_value();
+                    let Some(ptr_val) =
+                        self.expect_pointer_value(l_val, span, "pointer subtraction lhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
+                    let Some(int_val) =
+                        self.expect_int_value(r_val, span, "pointer subtraction rhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
                     if self.is_address_pointer_type(lhs_ty) {
                         return self.compile_address_ptr_offset(ptr_val, int_val, rhs_ty, true);
                     }
@@ -476,6 +559,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         return self.zero_i8_value();
                     };
 
+                    // SAFETY: `ptr_val` is the pointer lhs and
+                    // `elem_llvm_ty` is recovered from its Kern pointee type;
+                    // `neg_int` is the negated lowered integer offset.
                     unsafe {
                         self.builder
                             .build_gep(elem_llvm_ty, ptr_val, &[neg_int], "ptr_sub")
@@ -486,27 +572,37 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             Equal | NotEqual | LessThan | LessOrEqual | GreaterThan | GreaterOrEqual => {
                 let l_int = if l_val.is_pointer_value() {
+                    let Some(l_ptr) =
+                        self.expect_pointer_value(l_val, span, "pointer comparison lhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
                     self.builder
-                        .build_ptr_to_int(
-                            l_val.into_pointer_value(),
-                            self.context.i64_type(),
-                            "p2i_l",
-                        )
+                        .build_ptr_to_int(l_ptr, self.context.i64_type(), "p2i_l")
                         .unwrap()
                 } else {
-                    l_val.into_int_value()
+                    let Some(l_int) = self.expect_int_value(l_val, span, "pointer comparison lhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
+                    l_int
                 };
 
                 let r_int = if r_val.is_pointer_value() {
+                    let Some(r_ptr) =
+                        self.expect_pointer_value(r_val, span, "pointer comparison rhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
                     self.builder
-                        .build_ptr_to_int(
-                            r_val.into_pointer_value(),
-                            self.context.i64_type(),
-                            "p2i_r",
-                        )
+                        .build_ptr_to_int(r_ptr, self.context.i64_type(), "p2i_r")
                         .unwrap()
                 } else {
-                    r_val.into_int_value()
+                    let Some(r_int) = self.expect_int_value(r_val, span, "pointer comparison rhs")
+                    else {
+                        return self.zero_i8_value();
+                    };
+                    r_int
                 };
 
                 let Some(pred) = Self::pointer_compare_pred(op) else {

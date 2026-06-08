@@ -1,3 +1,9 @@
+// Build-time LLVM include discovery.
+//
+// The crate links through `llvm-sys`; this build script forwards the LLVM
+// include directory to the bundled C++ ThinLTO bridge so it can include the same
+// LLVM headers as the Rust bindings.
+
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
@@ -26,6 +32,7 @@ fn main() {
 fn llvm_dependency_var(suffix: &str) -> Option<String> {
     env::vars().find_map(|(key, value)| {
         if key.starts_with("DEP_LLVM_") && key.ends_with(suffix) {
+            println!("cargo:rerun-if-env-changed={key}");
             Some(value)
         } else {
             None

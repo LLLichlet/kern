@@ -1,3 +1,10 @@
+//! Monomorphization and item instantiation.
+//!
+//! Lowering creates concrete MAST functions, globals, structs, enum layouts, and
+//! vtables from semantic definitions plus generic arguments. This module owns
+//! the queues and caches that prevent duplicate instantiations and diagnose
+//! runaway specialization cycles.
+
 use super::Lowerer;
 use crate::ActiveFunctionInstantiation;
 use kernc_ast as ast;
@@ -32,9 +39,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         padded as usize
     }
 
-    pub(crate) fn drain_pending_function_instantiations(&mut self) {
+    pub(crate) fn drain_pending_function_instantiations_cancelable(
+        &mut self,
+    ) -> Result<(), kernc_utils::Canceled> {
         while self.next_pending_function_instantiation < self.pending_function_instantiations.len()
         {
+            self.check_canceled()?;
             let pending = self.pending_function_instantiations
                 [self.next_pending_function_instantiation]
                 .clone();
@@ -55,6 +65,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
         self.pending_function_instantiations.clear();
         self.next_pending_function_instantiation = 0;
+        Ok(())
     }
 
     pub(crate) fn lower_const_value_expr(
@@ -426,7 +437,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .len()
             .saturating_sub(self.next_pending_function_instantiation);
         if pending_outstanding >= MAX_PENDING_FUNCTION_SPECIALIZATIONS {
-            self.drain_pending_function_instantiations();
+            let _ = self.drain_pending_function_instantiations_cancelable();
         }
         if let Some(limit) = self.recursive_specialization_limit() {
             self.cache_stats.mono_function_misses += 1;
@@ -489,6 +500,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         id: MonoId,
         request_span: Span,
     ) -> MonoId {
+        if self.check_canceled().is_err() {
+            return id;
+        }
         let Some(def_ptr) = self
             .ctx
             .defs
@@ -505,12 +519,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.placeholder_function(id, format!("__ice_fn_{}", id.0));
             return id;
         };
-        // Safety: lowering reads semantic definition storage but does not mutate or reorder
+        // SAFETY: lowering reads semantic definition storage but does not mutate or reorder
         // `ctx.defs`, so the raw pointer stays valid for the duration of this instantiation.
         let fn_name = unsafe { self.ctx.resolve((*def_ptr).name).to_string() };
 
         let Some((subst_map, mangled_name, mast_params, conc_ret)) =
             self.measure_phase("    lower_fn_signature", |this| {
+                // SAFETY: same as above; the function definition stays pinned in `ctx.defs`.
                 let def = unsafe { &*def_ptr };
                 let subst_map =
                     this.build_generic_subst_map("function", &fn_name, &def.generics, args)?;
@@ -619,6 +634,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         });
 
         let body = self.measure_phase("    lower_fn_body", |this| {
+            // SAFETY: same as above; the function definition stays pinned in `ctx.defs`.
             let def = unsafe { &*def_ptr };
             if this.function_requires_runtime_body(def) {
                 let prev_scope = this.ctx.scopes.current_scope_id();
@@ -661,19 +677,31 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         });
 
         let uses_odr_linkage = {
+            // SAFETY: same as above; the function definition stays pinned in `ctx.defs`.
             let def = unsafe { &*def_ptr };
             !def.generics.is_empty() && body.is_some() && !def.is_extern
         };
+        let needs_metadata_export = {
+            // SAFETY: same as above; the function definition stays pinned in `ctx.defs`.
+            let def = unsafe { &*def_ptr };
+            self.function_needs_metadata_export(def)
+        };
 
         self.measure_phase("    lower_fn_finalize", |this| {
+            // SAFETY: same as above; the function definition stays pinned in `ctx.defs`.
             let def = unsafe { &*def_ptr };
             let mast_fn = MastFunction {
                 id,
                 name: mangled_name,
                 span: def.name_span,
                 linkage: this.lowered_function_linkage(
-                    def.vis,
+                    if needs_metadata_export {
+                        kernc_sema::def::Visibility::Public
+                    } else {
+                        def.vis
+                    },
                     def.is_extern,
+                    def.is_imported && body.is_none(),
                     &def.attributes,
                     uses_odr_linkage,
                 ),

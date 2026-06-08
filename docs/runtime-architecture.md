@@ -1,6 +1,6 @@
 # Runtime And Library Architecture
 
-This document defines the runtime and library split used by the current 0.7.6 toolchain.
+This document defines the runtime and library split used by the current 0.8.2 toolchain.
 
 This document describes the current split that keeps Kern freestanding by
 default while making hosted startup, toolchain-owned startup, libc usage, and
@@ -121,6 +121,9 @@ Rules:
 This is the current low-level contract. It is explicit, stable, and decoupled from allocation or slice construction.
 
 Higher-level argument handling belongs in ordinary libraries, not in the compiler-owned ABI itself. The current wrapper lives in `std.proc` as `std.proc.Args` and `std.proc.args(argc, argv)`.
+
+`Args` is still a raw borrowed view: `argv[0]` is the program path/name. A CLI
+tool that wants only user arguments should usually iterate `args.skip(1)`.
 
 When this contract is enabled, the toolchain also loads `rt` as the startup companion root even if the source program never writes `use rt;`.
 

@@ -1,3 +1,8 @@
+//! Validation helpers for loaded analysis-context data.
+//!
+//! The validator rejects stale manifest digests and mismatched build-plan
+//! summaries before the LSP reuses persisted project resolution information.
+
 use super::{
     ANALYSIS_CONTEXT_VERSION, AnalysisContext, digest_file, relative_display, resolve_context_path,
 };

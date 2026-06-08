@@ -1,3 +1,10 @@
+//! Type-resolution pass and shared helpers.
+//!
+//! Type resolution converts AST type nodes into semantic `TypeId`s, binds
+//! generics, resolves associated types and const generics, validates
+//! supertraits/impl coherence/contracts, and records phase timings when
+//! requested by the driver.
+
 use super::ImportResolver;
 use crate::SemaContext;
 use crate::checker::{ConstEvaluator, ConstValue, ExprChecker};
@@ -9,7 +16,7 @@ use crate::ty::{
     GenericArg, LayoutEngine, PrimitiveType, Substituter, TypeId, TypeKind,
 };
 use kernc_ast::{self as ast, BinaryOperator, UnaryOperator, Visibility};
-use kernc_utils::{Span, SymbolId};
+use kernc_utils::{Canceled, CancellationToken, Span, SymbolId};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -49,6 +56,7 @@ struct TypeResolutionPhaseTimings {
     resolve_non_alias_items: Duration,
     validate_supertrait_graph: Duration,
     validate_trait_impl_coherence: Duration,
+    validate_trait_impl_method_contracts: Duration,
     validate_impl_associated_type_targets: Duration,
 }
 
@@ -64,6 +72,10 @@ impl TypeResolutionPhaseTimings {
             (
                 "    validate_trait_impl_coherence",
                 self.validate_trait_impl_coherence,
+            ),
+            (
+                "    validate_trait_impl_method_contracts",
+                self.validate_trait_impl_method_contracts,
             ),
             (
                 "    validate_impl_associated_type_targets",

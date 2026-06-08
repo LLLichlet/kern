@@ -17,10 +17,9 @@
 //! - methods made available through active generic bounds
 //! - inherent and trait impl methods
 //!
-//! Search is receiver-oriented rather than syntax-oriented. For mutable
-//! receivers, the query also considers the corresponding immutable shape where
-//! the language permits shared-method reuse, which keeps method lookup aligned
-//! with the ordinary receiver coercion rules used elsewhere in sema.
+//! Search is receiver-oriented rather than syntax-oriented. Pointer-like
+//! receiver mutability is part of the concrete receiver type: `&T`, `&mut T`,
+//! `&[T]`, and `&mut [T]` have distinct method sets.
 //!
 //! Ambiguity reporting still belongs to the calling checker. This module
 //! collects and resolves candidates, but the surrounding expression checker
@@ -188,6 +187,8 @@ pub(crate) struct ApplicableTraitImplHeadCandidate {
 }
 
 pub struct MemberQuery<'a, 'ctx> {
+    /// Mutable because lookup may instantiate types, update caches, and emit
+    /// targeted ambiguity diagnostics.
     ctx: &'a mut SemaContext<'ctx>,
 }
 
@@ -220,6 +221,7 @@ impl SearchTypes {
         }
 
         if let Some(slot) = self.values.get_mut(self.len) {
+            // Search sets are intentionally tiny: receiver plus normalized/base forms.
             *slot = ty;
             self.len += 1;
         }
@@ -417,6 +419,20 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         env: &MemberQueryEnv<'_>,
         diagnostic_span: Option<Span>,
     ) -> Option<MemberResolution> {
+        let cache_key = (receiver_ty, member_name);
+        let can_use_cache = env.is_current_active_bounds(self.ctx);
+        if can_use_cache
+            && let Some(cached) = self
+                .ctx
+                .analysis
+                .query_caches
+                .method_resolution_query_cache
+                .get(&cache_key)
+                .cloned()
+        {
+            return cached;
+        }
+
         let search_types = self.search_types(receiver_ty);
         for search_norm in search_types.iter() {
             if let Some(resolution) = self.resolve_named_method_in_type(
@@ -426,10 +442,24 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 env,
                 diagnostic_span,
             ) {
+                if can_use_cache && resolution.candidate.type_id != TypeId::ERROR {
+                    self.ctx
+                        .analysis
+                        .query_caches
+                        .method_resolution_query_cache
+                        .insert(cache_key, Some(resolution.clone()));
+                }
                 return Some(resolution);
             }
         }
 
+        if can_use_cache && diagnostic_span.is_some() {
+            self.ctx
+                .analysis
+                .query_caches
+                .method_resolution_query_cache
+                .insert(cache_key, None);
+        }
         None
     }
 
@@ -446,25 +476,6 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         let receiver_norm = self.ctx.type_registry.normalize(receiver_ty);
         let base_norm = base_type(self.ctx, receiver_ty);
         let mut search_tys = SearchTypes::new(receiver_norm);
-
-        let downgraded = match self.ctx.type_registry.get(receiver_norm) {
-            TypeKind::Pointer { is_mut: true, elem } => Some(TypeKind::Pointer {
-                is_mut: false,
-                elem: *elem,
-            }),
-            TypeKind::VolatilePtr { is_mut: true, elem } => Some(TypeKind::VolatilePtr {
-                is_mut: false,
-                elem: *elem,
-            }),
-            TypeKind::Slice { is_mut: true, elem } => Some(TypeKind::Slice {
-                is_mut: false,
-                elem: *elem,
-            }),
-            _ => None,
-        };
-        if let Some(ty) = downgraded {
-            search_tys.push_if_absent(self.ctx.type_registry.intern(ty));
-        }
 
         search_tys.push_if_absent(base_norm);
 
@@ -1168,6 +1179,9 @@ fn resolve_trait_impl_obligation_inner(
             _ => None,
         })?;
 
+    // SAFETY: semantic definition storage is stable during this obligation
+    // query.  A raw pointer avoids holding an immutable borrow of `defs` while
+    // `ExprChecker` mutates inference and query caches through `ctx`.
     let impl_def = unsafe { &*impl_ptr };
     let Some(impl_trait_node) = &impl_def.trait_type else {
         return None;
@@ -1984,6 +1998,7 @@ mod tests {
         ctx.add_def(Def::Trait(TraitDef {
             id: trait_id_value,
             name: trait_name,
+            name_span: Span::default(),
             vis: Visibility::Private,
             is_imported: false,
             generics: Vec::new(),
@@ -2041,6 +2056,7 @@ mod tests {
                 default_value: None,
                 span: Span::default(),
             },
+            params: Vec::new(),
             default_impl: None,
         });
         trait_def.resolved_methods.push((method_name, method_ty));
@@ -2058,6 +2074,7 @@ mod tests {
         let assoc_id = ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: assoc_id_value,
             name: assoc_name,
+            name_span: Span::default(),
             parent_trait: Some(trait_id),
             parent_impl: None,
             implemented_trait_assoc: None,

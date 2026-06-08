@@ -116,7 +116,7 @@ impl Pair : Score {
 fn choose_better[T](left: T, right: T) T
     where T: Score,
 {
-    if (left.score() >= right.score()) return left;
+    if left.score() >= right.score() return left;
     return right;
 }
 ```

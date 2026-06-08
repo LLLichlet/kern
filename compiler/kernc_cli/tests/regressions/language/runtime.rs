@@ -1,3 +1,5 @@
+//! Runtime-facing language regression tests.
+
 use super::*;
 #[test]
 fn rejects_returning_capturing_closure_as_fn_pointer() {
@@ -110,12 +112,12 @@ fn main() i32 {
 fn prunes_mutually_exclusive_extern_blocks_before_name_collection() {
     let output = compile_source(
         r#"
-#[if(arch == "x86_64")]
+#[if arch == "x86_64"]
 extern {
     fn system_probe() i32;
 }
 
-#[if(arch == "aarch64")]
+#[if arch == "aarch64"]
 extern {
     fn system_probe() i32;
 }
@@ -1000,7 +1002,7 @@ fn main() i32 {
     let values = [4]i32.{ 2, 4, 6, 8 };
     let mut sum = 0i32;
 
-    for (item: values.&[0...4].iter()) {
+    for item in values.&[0...4].iter() {
         sum += item;
     }
 
@@ -1023,7 +1025,7 @@ fn rejects_malformed_iterator_loop_header() {
         r#"
 fn main() i32 {
     let values = [3]i32.{ 1, 2, 3 };
-    for (item values.&[0...3].iter()) {
+    for item values.&[0...3].iter() {
     }
     return 0;
 }
@@ -1258,7 +1260,7 @@ fn test_mode_collects_cases_and_invokes_each_case_by_private_protocol() {
     let (source_path, executable_path) = build_temp_program_with_outputs(
         "kernc_test_mode_cases",
         r#"
-#[if(test)]
+#[if test]
 fn enabled_only_in_test_mode() i32 {
     return 0;
 }
@@ -1361,10 +1363,90 @@ fn bad() void {}
 }
 
 #[test]
+fn test_mode_rejects_disallowed_test_function_shapes() {
+    for (name, source, expected) in [
+        (
+            "extern",
+            r#"
+#[test]
+extern fn bad() i32 {
+    return 0;
+}
+"#,
+            "`#[test]` function must not be `extern`",
+        ),
+        (
+            "const",
+            r#"
+#[test]
+const fn bad() i32 {
+    return 0;
+}
+"#,
+            "`#[test]` function cannot be `const`",
+        ),
+        (
+            "generic",
+            r#"
+#[test]
+fn bad[T]() i32 {
+    return 0;
+}
+"#,
+            "`#[test]` function cannot be generic",
+        ),
+        (
+            "bodyless",
+            r#"
+#[test]
+fn bad() i32;
+"#,
+            "`#[test]` function must have a body",
+        ),
+    ] {
+        let metadata_path = unique_temp_path(&format!("kernc_bad_test_{name}"), "cases");
+        let metadata_arg = metadata_path.to_string_lossy().into_owned();
+        let output = compile_source_with_args(
+            &format!("kernc_bad_test_{name}"),
+            source,
+            &[
+                "--test-mode",
+                "--test-metadata-output",
+                &metadata_arg,
+                "--runtime-entry",
+                "rt",
+                "--module-path",
+                "base=library/base",
+            ],
+        );
+
+        assert!(
+            !output.status.success(),
+            "kernc unexpectedly accepted {name} test function:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(expected),
+            "unexpected stderr for {name} test function:\n{}",
+            stderr
+        );
+        assert!(
+            !stderr.contains("LLVM IR Verification Failed"),
+            "unexpected LLVM verification failure for {name} test function:\n{}",
+            stderr
+        );
+
+        let _ = std::fs::remove_file(metadata_path);
+    }
+}
+
+#[test]
 fn test_condition_is_false_outside_test_mode() {
     let output = compile_source(
         r#"
-#[if(test)]
+#[if test]
 fn test_only() i32 {
     return 0;
 }
@@ -1377,7 +1459,7 @@ fn main() i32 {
 
     assert!(
         !output.status.success(),
-        "kernc unexpectedly enabled #[if(test)] outside test mode:\nstdout:\n{}\nstderr:\n{}",
+        "kernc unexpectedly enabled #[if test] outside test mode:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

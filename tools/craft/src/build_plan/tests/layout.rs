@@ -1,4 +1,135 @@
+//! Build-plan tests for package target layout and command filtering.
+
 use super::*;
+
+#[test]
+fn artifact_layout_keeps_versions_out_of_local_package_directories() {
+    let root = temp_dir("craft-build-plan-artifact-layout");
+    fs::create_dir_all(root.join("src")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.8.2"
+
+[[bin]]
+name = "demo"
+root = "src/main.kn"
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let actions = build_plan.derive_actions(&crate::script::host_target());
+    let artifact = &actions.link_actions[0].artifact_path;
+    let artifact_text = artifact.to_string_lossy().replace('\\', "/");
+
+    assert!(artifact_text.contains("/.craft/build/dev/target/"));
+    assert!(artifact_text.contains("/out/demo/bin/demo"));
+    assert!(!artifact_text.contains("demo-0.1.0"));
+    assert_eq!(build_plan.packages[0].layout_key, "demo");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn external_package_layout_keys_keep_identity_without_visible_versions() {
+    let first = PackageId {
+        name: "codegen".to_string(),
+        version: "1.2.3".to_string(),
+        source: crate::graph::SourceId::PathDependency {
+            path: "vendor/codegen".to_string(),
+        },
+    };
+    let second = PackageId {
+        name: "codegen".to_string(),
+        version: "1.2.3".to_string(),
+        source: crate::graph::SourceId::GitDependency {
+            git: "https://example.invalid/codegen.git".to_string(),
+            rev: None,
+            branch: None,
+            tag: Some("v1.2.3".to_string()),
+        },
+    };
+
+    let first_key = package_layout_key(&first);
+    let second_key = package_layout_key(&second);
+
+    assert!(first_key.starts_with("codegen~"));
+    assert!(second_key.starts_with("codegen~"));
+    assert!(!first_key.contains("1.2.3"));
+    assert!(!second_key.contains("1.2.3"));
+    assert_ne!(first_key, second_key);
+}
+
+#[test]
+fn target_layout_key_separates_environment_variants() {
+    let gnu = crate::script::ScriptTarget {
+        os: ScriptOs::Linux,
+        arch: "x86_64".to_string(),
+        vendor: "unknown".to_string(),
+        env: "gnu".to_string(),
+    };
+    let musl = crate::script::ScriptTarget {
+        env: "musl".to_string(),
+        ..gnu.clone()
+    };
+
+    assert_eq!(gnu.layout_key(), "x86_64-unknown-linux-gnu");
+    assert_eq!(musl.layout_key(), "x86_64-unknown-linux-musl");
+    assert_ne!(gnu.layout_key(), musl.layout_key());
+}
+
+#[test]
+fn host_target_uses_short_domain_build_roots() {
+    let root = temp_dir("craft-build-plan-short-host-target-root");
+    let host = crate::script::host_target();
+
+    assert_eq!(
+        workspace_build_root(&root, "dev", BuildDomain::Target, &host),
+        root.join(".craft").join("build").join("dev").join("target")
+    );
+    assert_eq!(
+        workspace_build_root(&root, "dev", BuildDomain::Host, &host),
+        root.join(".craft").join("build").join("dev").join("host")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn non_host_target_keeps_explicit_target_layout_key() {
+    let root = temp_dir("craft-build-plan-explicit-cross-target-root");
+    let host = crate::script::host_target();
+    let target = crate::script::ScriptTarget {
+        env: format!("{}-alt", host.env),
+        ..host
+    };
+
+    assert_eq!(
+        workspace_build_root(&root, "dev", BuildDomain::Target, &target),
+        root.join(".craft")
+            .join("build")
+            .join("dev")
+            .join(format!("target-{}", target.layout_key()))
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
 
 #[test]
 fn derives_workspace_build_units_from_package_targets() {
@@ -21,7 +152,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -96,7 +227,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -114,7 +245,7 @@ util = { path = "../util" }
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -179,7 +310,7 @@ fn build_run_and_test_only_include_relevant_target_kinds() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -266,7 +397,7 @@ fn build_can_include_examples_when_requested() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -319,7 +450,7 @@ fn run_can_select_examples_without_building_bins() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"

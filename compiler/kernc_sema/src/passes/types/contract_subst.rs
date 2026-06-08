@@ -1,3 +1,9 @@
+//! Substitution helpers for trait associated-type contracts.
+//!
+//! When validating an impl against a trait, trait generics, impl generics,
+//! associated bindings, and the concrete `Self` type must all be rewritten into
+//! one comparable semantic type.
+
 use super::*;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {

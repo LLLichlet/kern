@@ -1,3 +1,9 @@
+//! MIR reference verifier helpers.
+//!
+//! Places can contain nested projections through locals, fields, indices, and
+//! dereferences. These helpers validate that every local reference is in range
+//! before rvalue and terminator verification proceeds.
+
 use super::MirVerifyError;
 use crate::{MirBlockId, MirFunction, MirLocalId, MirOperand, MirPlace, MirSliceBase};
 

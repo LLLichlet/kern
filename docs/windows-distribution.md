@@ -1,7 +1,7 @@
 # Windows Distribution Guide
 
 This document describes the Windows host-tool distribution policy for the
-current 0.7.6 toolchain.
+current 0.8.2 toolchain.
 
 It keeps three concerns separate:
 
@@ -67,6 +67,25 @@ In practice:
 - local development may use ordinary `cargo build --release`
 - official Windows distribution must use static CRT
 
+## Supported Windows Baseline
+
+Official Windows host-tool support is for modern, supported Windows systems:
+
+- Windows 10 and Windows 11
+- currently available GitHub-hosted Windows runner baselines used by CI, such
+  as Windows Server 2022 and newer
+
+Windows 7 is not an official support target. It is end-of-life, it is not
+covered by GitHub-hosted CI runners, and the project should not hold back host
+tooling, packaging, HTTP, TLS, process, filesystem, or terminal behavior to
+preserve unverified Windows 7 compatibility.
+
+Community-maintained Windows 7 compatibility can be considered only when it is
+isolated, does not weaken modern Windows behavior, does not add a continuing
+maintenance burden to the core toolchain, and comes with practical verification
+outside the GitHub-hosted runner set, for example a self-hosted runner or a
+clearly documented manual test path.
+
 ## What Static CRT Solves
 
 Static CRT for the host tools removes the need for the VC++ redistributable and
@@ -97,7 +116,7 @@ needs a complete LLVM development prefix. The installed end-user Kern SDK is not
 enough for this because it intentionally omits `llvm-config.exe`, LLVM headers,
 LLVM libraries, `clang++.exe`, and other source-build assets.
 
-Install or unpack the LLVM 21 toolchain first. The current 0.7.6 source tree
+Install or unpack the LLVM 21 toolchain first. The current 0.8.2 source tree
 uses `llvm-sys = "211.0.0"`, so the expected LLVM major version is 21. CI uses
 LLVM 21.1.8.
 
@@ -179,7 +198,7 @@ The Rust repository worker is the canonical Windows packaging
 entry point:
 
 ```powershell
-cargo run -q -p kernworker -- release package --version v0.7.6 --target x86_64-windows-msvc
+cargo run -q -p kernworker -- release package --version v0.8.2 --target x86_64-windows-msvc
 ```
 
 The command currently enforces the important Windows-specific rules:
@@ -192,29 +211,36 @@ The command currently enforces the important Windows-specific rules:
   `target/release/`
 - it packages the default SDK with the minimal runtime LLVM/Clang tool set:
   `clang.exe`, `lld-link.exe`, and `llvm-lib.exe`
+- it packages Clang's resource headers so package build scripts can compile C
+  family sources with the bundled SDK clang
 - it leaves full LLVM development assets in the standalone
   `package-toolchain` artifact, not in the default user SDK
 
 The default SDK deliberately omits source-build assets such as `clang++.exe`,
-`llvm-ar.exe`, `llvm-config.exe`, LLVM headers, LLVM libraries, and the Clang
-resource directory. Those files belong in the standalone toolchain artifact
-unless the installed-user flow requires them. The current Windows installed-user
-path uses Clang as a linker driver, `lld-link.exe` as the MSVC linker backend,
-and `llvm-lib.exe` for Windows archive/relocatable-link operations.
+`llvm-ar.exe`, `llvm-config.exe`, LLVM development headers, and LLVM libraries.
+Those files belong in the standalone toolchain artifact unless the
+installed-user flow requires them. The default SDK does include Clang's resource
+headers because C-family compilation from package build scripts needs compiler
+builtin headers such as `stdarg.h`. The current Windows installed-user path
+uses Clang as a linker driver, `lld-link.exe` as the MSVC linker backend, and
+`llvm-lib.exe` for Windows archive/relocatable-link operations.
 
 The SDK manifest makes that boundary explicit. `manifest/sdk.json` records the
 resolved LLVM provenance, the bundled runtime component set, and the health
 checks expected for each bundled tool. For Windows that means the default SDK
-requires `clang`, `lld`, and `llvm_lib`, while the standalone
-`manifest/toolchain.json` from `package-toolchain` requires the full development
-prefix components such as `clangxx`, `llvm_ar`, `llvm_config`, `lib_dir`, and
-`include_dir`.
+requires `clang`, `lld`, `llvm_lib`, and `clang_resource_dir`, while the
+standalone `manifest/toolchain.json` from `package-toolchain` requires the full
+development prefix components such as `clangxx`, `llvm_ar`, `llvm_config`,
+`lib_dir`, and `include_dir`. If a platform SDK also needs copied non-system
+runtime libraries, those libraries are recorded as `runtime_lib_dir` and
+checked as part of the same manifest health model.
 
 ## Installation Model
 
 The user-facing Windows installer is the repository root [install.ps1](../install.ps1)
-entrypoint. It should perform installation directly instead of depending on
-repository maintenance tooling.
+entrypoint. It should remain a thin bootstrapper: download the host-native
+`kernup.exe` release artifact, then execute `kernup install` with the user's
+selected options.
 
 The installed SDK layout, ordinary install commands, offline install commands,
 and reproducibility checks are centralized in [Installing Kern](./install.md).
@@ -230,11 +256,12 @@ standalone development toolchain archive. Installer UX still matters:
   defaulting straight to `Invoke-WebRequest`
 - expect first-install download and extraction to take noticeable time on
   slower links or machines with aggressive antivirus scanning
-- keep the `-Archive <path>` offline-install path available so one download can
-  be reused across repeated installs
+- keep the `-Kernup <path>` and `-Archive <path>` local-install path available
+  so the bootstrapper and SDK archive can be reused across repeated installs
 
-The Rust `kernworker` and `kernup` entrypoints are the repository engineering
-surface, but they are not the user-install contract on Windows.
+`kernworker` is repository/release engineering surface. `kernup` is the shared
+SDK installation implementation used by both the bootstrap script and direct
+Rust/Cargo-oriented flows.
 
 ## Common Windows Footguns
 
@@ -287,6 +314,8 @@ host tools support every old Windows API baseline.
 The current safe statement is:
 
 - official host-tool archives target modern Windows systems
+- Windows 7 is unsupported unless a community-maintained compatibility path is
+  provided and kept verified
 - very old Windows versions should not be promised implicitly
 
 ## Failure Modes And First Checks
@@ -358,4 +387,4 @@ The practical rules are:
 - Official Windows archives must use static CRT.
 - Official Windows packaging must build for `x86_64-pc-windows-msvc` and package from that target directory.
 - Remaining Win32 system DLL imports are normal host-OS ABI dependencies.
-- Removing dynamic CRT dependency does not automatically imply support for very old Windows versions.
+- Removing dynamic CRT dependency does not imply Windows 7 support.

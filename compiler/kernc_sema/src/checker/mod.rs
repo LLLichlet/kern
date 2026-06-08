@@ -1,5 +1,12 @@
+//! Semantic type-checking driver.
+//!
+//! The checker runs after collection and type resolution. It resolves global
+//! initializer cycles with speculative retries, checks function and impl bodies
+//! in their owning scopes, records timing data for the LSP/driver, and exposes
+//! cancelable entry points for editor workloads.
+
 mod constexpr;
-mod expr;
+pub(crate) mod expr;
 
 pub use constexpr::{ConstEvalError, ConstEvalResult, ConstEvaluator, ConstValue, ScriptHost};
 pub(crate) use expr::ExprChecker;
@@ -11,13 +18,15 @@ use crate::scope::{ScopeId, SymbolInfo, SymbolKind, SymbolNamespace};
 use crate::semantic::SemanticSymbolKind;
 use crate::ty::{ConstGeneric, GenericArg, TypeId, TypeKind};
 use kernc_ast::{self as ast, Visibility};
-use kernc_utils::Span;
+use kernc_utils::{Canceled, CancellationToken, FileId, Span, expect_uncancelable};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// Main entry point for semantic type checking.
 pub struct TypeckDriver<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
     body_timings: TypeckBodyTimings,
+    cancellation: CancellationToken,
 }
 
 type BodyWorkItem = (DefId, ScopeId);
@@ -78,6 +87,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         Self {
             ctx,
             body_timings: TypeckBodyTimings::default(),
+            cancellation: CancellationToken::new(),
         }
     }
 
@@ -173,6 +183,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     fn bind_generics_into_scope(&mut self, generics: &[ast::GenericParam], scope: ScopeId) {
         self.ctx.scopes.set_current_scope(scope);
         for param in generics {
+            // Body checking needs generic parameters in the value/type namespace and in semantic
+            // symbol tables so diagnostics, hovers, and references agree on the same binding.
             let (kind, param_ty, semantic_kind) = match &param.kind {
                 ast::GenericParamKind::Type => (
                     SymbolKind::TypeParam,
@@ -227,6 +239,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     pub fn check_all(&mut self) {
         let (globals, body_worklist) = self.worklists();
 
+        // Phase 1: infer globals to a fixed point. Globals can depend on each other, so failed
+        // attempts are rolled back and retried after more initializer types become known.
         let mut changed = true;
         let mut max_iters = 100; // Prevent real dependency cycles from looping forever.
         let mut resolved_globals = std::collections::HashSet::new();
@@ -240,7 +254,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     continue; // Skip globals already inferred successfully.
                 }
 
-                let Some(g) = self.global_def_ptr(item_id, "infer a global initializer") else {
+                let Some(global) = self.global_def_snapshot(item_id, "infer a global initializer")
+                else {
                     continue;
                 };
 
@@ -251,14 +266,15 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
                 // Try to infer the initializer type.
                 self.ctx.scopes.set_current_scope(scope_id);
-                let annotated_ty = if let Some(type_node) = unsafe { &(*g).type_node } {
+                let annotated_ty = if let Some(type_node) = &global.type_node {
                     let mut resolver = TypeResolver::new(self.ctx);
                     Some(resolver.resolve_type(type_node, scope_id))
                 } else {
                     None
                 };
-                let init_ty = if let Some(value) = unsafe { &(*g).value } {
-                    let mut checker = ExprChecker::new(self.ctx, None);
+                let init_ty = if let Some(value) = &global.value {
+                    let mut checker =
+                        ExprChecker::with_cancellation(self.ctx, None, self.cancellation.clone());
                     let init_ty = checker.check_expr(value, annotated_ty);
                     let init_ty = checker.finalize_numeric_inference(init_ty);
                     if let Some(expected) = annotated_ty {
@@ -267,11 +283,11 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     } else {
                         init_ty
                     }
-                } else if unsafe { (*g).is_extern } {
+                } else if global.is_extern {
                     annotated_ty.unwrap_or(TypeId::ERROR)
                 } else {
                     self.ctx.emit_error(
-                        unsafe { (*g).span },
+                        global.span,
                         "static declarations without an initializer must be `extern`",
                     );
                     TypeId::ERROR
@@ -283,14 +299,9 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     changed = true;
                     let had_type_errors = self.ctx.sess.error_count > old_err_cnt;
 
-                    if self
-                        .ctx
-                        .scopes
-                        .resolve_local(unsafe { (*g).name })
-                        .is_some()
-                    {
+                    if self.ctx.scopes.resolve_local(global.name).is_some() {
                         self.ctx.scopes.update_type_in_namespace(
-                            unsafe { (*g).name },
+                            global.name,
                             SymbolNamespace::Value,
                             init_ty,
                         );
@@ -301,8 +312,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         continue;
                     }
 
-                    if !unsafe { (*g).is_extern }
-                        && let Some(value) = unsafe { &(*g).value }
+                    if !global.is_extern
+                        && let Some(value) = &global.value
                     {
                         let mut evaluator = ConstEvaluator::new(self.ctx);
                         let _ = evaluator.eval_inner(value, 0);
@@ -320,15 +331,20 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         if resolved_globals.len() < globals.len() {
             for &(item_id, scope_id) in &globals {
                 if !resolved_globals.contains(&item_id) {
-                    let Some(g) = self.global_def_ptr(item_id, "re-check an unresolved global")
+                    let Some(global) =
+                        self.global_def_snapshot(item_id, "re-check an unresolved global")
                     else {
                         continue;
                     };
 
                     let old_err_cnt = self.ctx.sess.error_count;
                     self.ctx.scopes.set_current_scope(scope_id);
-                    if let Some(value) = unsafe { &(*g).value } {
-                        let mut checker = ExprChecker::new(self.ctx, None);
+                    if let Some(value) = &global.value {
+                        let mut checker = ExprChecker::with_cancellation(
+                            self.ctx,
+                            None,
+                            self.cancellation.clone(),
+                        );
                         checker.check_expr(value, None); // Let the real diagnostics reach the user.
                     }
 
@@ -336,7 +352,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         continue;
                     }
 
-                    self.ctx.struct_error(unsafe { (*g).span }, format!("cannot resolve global constant `{}`", self.ctx.resolve(unsafe { (*g).name })))
+                    self.ctx.struct_error(global.span, format!("cannot resolve global constant `{}`", self.ctx.resolve(global.name)))
                         .with_hint("this is usually caused by a circular dependency (e.g., A depends on B, and B depends on A) or an undefined variable")
                         .emit();
                 }
@@ -359,108 +375,184 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     }
 
     pub fn resolve_global_worklist(&mut self, globals: &[(DefId, ScopeId)]) {
-        let mut changed = true;
-        let mut max_iters = 100;
-        let mut resolved_globals = std::collections::HashSet::new();
+        expect_uncancelable(
+            self.resolve_global_worklist_cancelable(globals, &CancellationToken::new()),
+            "resolving global initializer worklist",
+        );
+    }
 
-        while changed && max_iters > 0 {
-            changed = false;
-            max_iters -= 1;
+    pub fn resolve_global_worklist_cancelable(
+        &mut self,
+        globals: &[(DefId, ScopeId)],
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
+        let previous = std::mem::replace(&mut self.cancellation, cancellation.clone());
+        let result = (|| {
+            let mut changed = true;
+            let mut max_iters = 100;
+            let mut resolved_globals = std::collections::HashSet::new();
 
-            for &(item_id, scope_id) in globals {
-                if resolved_globals.contains(&item_id) {
-                    continue;
-                }
+            while changed && max_iters > 0 {
+                self.check_canceled()?;
+                changed = false;
+                max_iters -= 1;
 
-                let Some(global) = self.global_def_ptr(item_id, "infer a global initializer")
-                else {
-                    continue;
-                };
-
-                let old_err_cnt = self.ctx.sess.error_count;
-                let old_diag_len = self.ctx.sess.diagnostics.len();
-                let old_node_types = self.ctx.node_types_snapshot();
-                let init_ty = self.check_global_initializer(scope_id, unsafe { &*global });
-
-                if init_ty != TypeId::ERROR {
-                    resolved_globals.insert(item_id);
-                    changed = true;
-                    let had_type_errors = self.ctx.sess.error_count > old_err_cnt;
-
-                    if self
-                        .ctx
-                        .scopes
-                        .resolve_local(unsafe { (*global).name })
-                        .is_some()
-                    {
-                        self.ctx.scopes.update_type_in_namespace(
-                            unsafe { (*global).name },
-                            SymbolNamespace::Value,
-                            init_ty,
-                        );
-                    }
-
-                    if had_type_errors {
+                for &(item_id, scope_id) in globals {
+                    self.check_canceled()?;
+                    if resolved_globals.contains(&item_id) {
                         continue;
                     }
 
-                    if !unsafe { (*global).is_extern }
-                        && let Some(value) = unsafe { &(*global).value }
-                    {
-                        let mut evaluator = ConstEvaluator::new(self.ctx);
-                        let _ = evaluator.eval_inner(value, 0);
-                    }
-                } else {
-                    self.ctx.sess.error_count = old_err_cnt;
-                    self.ctx.sess.diagnostics.truncate(old_diag_len);
-                    self.ctx.restore_node_types(old_node_types);
-                }
-            }
-        }
-
-        if resolved_globals.len() < globals.len() {
-            for &(item_id, scope_id) in globals {
-                if !resolved_globals.contains(&item_id) {
                     let Some(global) =
-                        self.global_def_ptr(item_id, "re-check an unresolved global")
+                        self.global_def_snapshot(item_id, "infer a global initializer")
                     else {
                         continue;
                     };
 
                     let old_err_cnt = self.ctx.sess.error_count;
-                    let _ = self.check_global_initializer(scope_id, unsafe { &*global });
+                    let old_diag_len = self.ctx.sess.diagnostics.len();
+                    let old_node_types = self.ctx.node_types_snapshot();
+                    let init_ty = self.check_global_initializer(scope_id, &global);
 
-                    if self.ctx.sess.error_count > old_err_cnt {
-                        continue;
+                    if init_ty != TypeId::ERROR {
+                        resolved_globals.insert(item_id);
+                        changed = true;
+                        let had_type_errors = self.ctx.sess.error_count > old_err_cnt;
+
+                        if self.ctx.scopes.resolve_local(global.name).is_some() {
+                            self.ctx.scopes.update_type_in_namespace(
+                                global.name,
+                                SymbolNamespace::Value,
+                                init_ty,
+                            );
+                        }
+
+                        if had_type_errors {
+                            continue;
+                        }
+
+                        if !global.is_extern
+                            && let Some(value) = &global.value
+                        {
+                            let mut evaluator = ConstEvaluator::new(self.ctx);
+                            let _ = evaluator.eval_inner(value, 0);
+                        }
+                    } else {
+                        self.ctx.sess.error_count = old_err_cnt;
+                        self.ctx.sess.diagnostics.truncate(old_diag_len);
+                        self.ctx.restore_node_types(old_node_types);
                     }
-
-                    self.ctx
-                        .struct_error(
-                            unsafe { (*global).span },
-                            format!(
-                                "cannot resolve global constant `{}`",
-                                self.ctx.resolve(unsafe { (*global).name })
-                            ),
-                        )
-                        .with_hint("this is usually caused by a circular dependency (e.g., A depends on B, and B depends on A) or an undefined variable")
-                        .emit();
                 }
             }
-        }
+
+            if resolved_globals.len() < globals.len() {
+                for &(item_id, scope_id) in globals {
+                    self.check_canceled()?;
+                    if !resolved_globals.contains(&item_id) {
+                        let Some(global) =
+                            self.global_def_snapshot(item_id, "re-check an unresolved global")
+                        else {
+                            continue;
+                        };
+
+                        let old_err_cnt = self.ctx.sess.error_count;
+                        let _ = self.check_global_initializer(scope_id, &global);
+
+                        if self.ctx.sess.error_count > old_err_cnt {
+                            continue;
+                        }
+
+                        self.ctx
+                            .struct_error(
+                                global.span,
+                                format!(
+                                    "cannot resolve global constant `{}`",
+                                    self.ctx.resolve(global.name)
+                                ),
+                            )
+                            .with_hint("this is usually caused by a circular dependency (e.g., A depends on B, and B depends on A) or an undefined variable")
+                            .emit();
+                    }
+                }
+            }
+            Ok(())
+        })();
+        self.cancellation = previous;
+        result
     }
 
     pub fn body_worklist(&self) -> Vec<BodyWorkItem> {
         self.worklists().1
     }
 
-    pub fn check_body_worklist(&mut self, worklist: &[BodyWorkItem]) -> TypeckBodyTimings {
-        self.ctx.analysis.expr_timing_stats = Default::default();
-        for &(def_id, parent_scope) in worklist {
-            self.ctx.scopes.set_current_scope(parent_scope);
-            self.check_item(def_id, parent_scope);
+    pub fn body_worklist_for_file(&self, target_path: &Path) -> Vec<BodyWorkItem> {
+        let target_file_ids = self.target_file_ids(target_path);
+        if target_file_ids.is_empty() {
+            return Vec::new();
         }
-        self.emit_pending_temporary_address_escape_checks();
-        self.body_timings
+
+        self.worklists()
+            .1
+            .into_iter()
+            .filter(|(def_id, _)| self.def_is_in_files(*def_id, &target_file_ids))
+            .collect()
+    }
+
+    pub fn check_body_worklist(&mut self, worklist: &[BodyWorkItem]) -> TypeckBodyTimings {
+        expect_uncancelable(
+            self.check_body_worklist_cancelable(worklist, &CancellationToken::new()),
+            "checking body worklist",
+        )
+    }
+
+    pub fn check_body_worklist_cancelable(
+        &mut self,
+        worklist: &[BodyWorkItem],
+        cancellation: &CancellationToken,
+    ) -> Result<TypeckBodyTimings, Canceled> {
+        let previous = std::mem::replace(&mut self.cancellation, cancellation.clone());
+        let result = (|| {
+            self.ctx.analysis.expr_timing_stats = Default::default();
+            for &(def_id, parent_scope) in worklist {
+                self.check_canceled()?;
+                self.ctx.scopes.set_current_scope(parent_scope);
+                self.check_item(def_id, parent_scope);
+                self.check_canceled()?;
+            }
+            self.check_canceled()?;
+            self.emit_pending_temporary_address_escape_checks();
+            Ok(self.body_timings)
+        })();
+        self.cancellation = previous;
+        result
+    }
+
+    fn target_file_ids(&self, target_path: &Path) -> Vec<FileId> {
+        let target_path = normalize_checker_path(target_path);
+        self.ctx
+            .sess
+            .source_manager
+            .files()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, file)| {
+                (normalize_checker_path(&file.path) == target_path).then_some(FileId(index))
+            })
+            .collect()
+    }
+
+    fn def_is_in_files(&self, def_id: DefId, file_ids: &[FileId]) -> bool {
+        let Some(def) = self.ctx.defs.get(def_id.0 as usize) else {
+            return false;
+        };
+        let Some(span) = def_primary_span(def) else {
+            return false;
+        };
+        file_ids.contains(&span.file)
+    }
+
+    fn check_canceled(&self) -> Result<(), Canceled> {
+        self.cancellation.check()
     }
 
     fn check_global_initializer(&mut self, scope_id: ScopeId, global: &GlobalDef) -> TypeId {
@@ -482,16 +574,17 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 TypeId::ERROR
             };
         };
-        let mut checker = ExprChecker::new(self.ctx, None);
-        checker.reject_temporary_address_escape(value, "static storage");
+        let mut checker = ExprChecker::with_cancellation(self.ctx, None, self.cancellation.clone());
         let init_ty = {
             let init_ty = checker.check_expr(value, annotated_ty);
             checker.finalize_numeric_inference(init_ty)
         };
         if let Some(expected) = annotated_ty {
             checker.check_coercion(value, expected, init_ty);
+            checker.reject_stack_pointer_escape(value, "static storage");
             return expected;
         }
+        checker.reject_stack_pointer_escape(value, "static storage");
         self.ctx.scopes.set_current_scope(scope_id);
         init_ty
     }
@@ -518,11 +611,14 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     }
 
     fn check_item(&mut self, id: crate::def::DefId, parent_scope: ScopeId) {
+        if self.check_canceled().is_err() {
+            return;
+        }
         let Some(def) = self.def_ptr(id, "type-check an item body") else {
             return;
         };
 
-        // Safety: type checking mutates inference state, scopes, and diagnostics, but it does not
+        // SAFETY: type checking mutates inference state, scopes, and diagnostics, but it does not
         // mutate `ctx.defs`. These raw pointers therefore remain valid for the duration of the
         // dispatch below while avoiding cloning whole AST-backed definitions.
         unsafe {
@@ -560,6 +656,9 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
 
         for method in &t.methods {
+            if self.check_canceled().is_err() {
+                break;
+            }
             let Some(method_id) = method.default_impl else {
                 continue;
             };
@@ -568,6 +667,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             else {
                 continue;
             };
+            // SAFETY: `method_def` points into immutable `ctx.defs`; checking the body mutates
+            // analysis state but does not move or delete definitions.
             unsafe {
                 if let Def::Function(f) = &*method_def {
                     self.check_function(f, trait_scope, FunctionBodyKind::TraitDefaultMethod);
@@ -589,14 +690,54 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             if !summary.stored_params.contains(&check.arg_index) {
                 continue;
             }
-            self.ctx
-                .struct_error(
-                    check.address_span,
-                    "address of temporary value escapes through function call",
-                )
-                .with_hint("the callee stores the parameter receiving this temporary address")
-                .with_hint("bind the value to stable storage before taking its address")
-                .emit();
+            match check.origin {
+                crate::checker::expr::PointerOrigin::Temporary(address_span)
+                | crate::checker::expr::PointerOrigin::StaticLiteral(address_span) => {
+                    self.ctx
+                        .struct_error(
+                            address_span,
+                            "address of temporary value escapes through function call",
+                        )
+                        .with_hint(
+                            "the callee stores the parameter receiving this temporary address",
+                        )
+                        .with_hint("bind the value to stable storage before taking its address")
+                        .emit();
+                }
+                crate::checker::expr::PointerOrigin::Local(address_span) => {
+                    self.ctx
+                        .struct_error(
+                            address_span,
+                            "address of local value escapes through function call",
+                        )
+                        .with_hint(
+                            "the callee stores the parameter receiving an address into the current stack frame",
+                        )
+                        .with_hint(
+                            "move the value into storage that outlives the stored pointer",
+                        )
+                        .emit();
+                }
+                crate::checker::expr::PointerOrigin::CapturingClosure(closure_span) => {
+                    self.ctx
+                        .struct_error(
+                            closure_span,
+                            "capturing closure environment escapes through function call",
+                        )
+                        .with_span_label(
+                            closure_span,
+                            "this closure environment is stored in the current stack frame",
+                        )
+                        .with_hint(
+                            "the callee stores the parameter receiving this closure object",
+                        )
+                        .with_hint(
+                            "move the captured state into an explicit object that outlives the callback",
+                        )
+                        .emit();
+                }
+                crate::checker::expr::PointerOrigin::Parameter(_) => {}
+            }
         }
     }
 
@@ -616,27 +757,32 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
     }
 
-    fn global_def_ptr(
+    fn global_def_snapshot(
         &mut self,
         def_id: crate::def::DefId,
         context: &str,
-    ) -> Option<*const crate::def::GlobalDef> {
-        let def = self.def_ptr(def_id, context)?;
-        // Safety: same reasoning as `def_ptr`; semantic definition storage is immutable during
-        // type checking.
-        unsafe {
-            match &*def {
-                Def::Global(global) => Some(std::ptr::from_ref(global)),
-                other => {
-                    self.ctx.emit_ice(
-                        Span::default(),
-                        format!(
-                            "Kern ICE (Typeck): Expected global definition while trying to {}, found {:?}.",
-                            context, other
-                        ),
-                    );
-                    None
-                }
+    ) -> Option<crate::def::GlobalDef> {
+        match self.ctx.defs.get(def_id.0 as usize).cloned() {
+            Some(Def::Global(global)) => Some(global),
+            Some(other) => {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Typeck): Expected global definition while trying to {}, found {:?}.",
+                        context, other
+                    ),
+                );
+                None
+            }
+            None => {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Typeck): Missing DefId {} while trying to {}.",
+                        def_id.0, context
+                    ),
+                );
+                None
             }
         }
     }
@@ -689,7 +835,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     }
 
     fn concrete_where_bound_is_satisfied(&mut self, target_ty: TypeId, bound_ty: TypeId) -> bool {
-        let mut checker = ExprChecker::new(self.ctx, None);
+        let mut checker = ExprChecker::with_cancellation(self.ctx, None, self.cancellation.clone());
         checker.check_trait_impl(target_ty, bound_ty)
     }
 
@@ -912,7 +1058,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 .push((self_ty, vec![trait_ty]));
             self.ctx.clear_active_bound_caches();
         }
-        let mut checker = ExprChecker::new(self.ctx, Some(ret_ty));
+        let cancellation = self.cancellation.clone();
+        let mut checker = ExprChecker::with_cancellation(self.ctx, Some(ret_ty), cancellation);
         for (name, index) in parameter_bindings {
             checker.record_parameter_binding(name, index);
         }
@@ -976,12 +1123,16 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
         // 2. Check every field default expression.
         for field in &s.fields {
+            if self.check_canceled().is_err() {
+                break;
+            }
             if let Some(default_expr) = &field.default_value {
                 // Resolve the field's expected semantic type.
                 let field_ty = self.ctx.node_type_or_error(field.type_node.id);
 
                 // Type-check the default expression.
-                let mut checker = ExprChecker::new(self.ctx, None);
+                let mut checker =
+                    ExprChecker::with_cancellation(self.ctx, None, self.cancellation.clone());
                 let eval_ty = {
                     let eval_ty = checker.check_expr(default_expr, Some(field_ty));
                     checker.finalize_numeric_inference(eval_ty)
@@ -1017,12 +1168,16 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
         // 2. Check every field default expression.
         for field in &u.fields {
+            if self.check_canceled().is_err() {
+                break;
+            }
             if let Some(default_expr) = &field.default_value {
                 // Resolve the field's expected semantic type.
                 let field_ty = self.ctx.node_type_or_error(field.type_node.id);
 
                 // Type-check the default expression.
-                let mut checker = ExprChecker::new(self.ctx, None);
+                let mut checker =
+                    ExprChecker::with_cancellation(self.ctx, None, self.cancellation.clone());
                 let eval_ty = {
                     let eval_ty = checker.check_expr(default_expr, Some(field_ty));
                     checker.finalize_numeric_inference(eval_ty)
@@ -1238,7 +1393,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             let Some(method_def) = self.def_ptr(method_id, "type-check an impl method body") else {
                 continue;
             };
-            // Safety: same as `check_item`; method definitions live in immutable `ctx.defs`
+            // SAFETY: same as `check_item`; method definitions live in immutable `ctx.defs`
             // during type checking.
             unsafe {
                 if let Def::Function(f) = &*method_def {
@@ -1251,4 +1406,27 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         self.ctx.clear_active_bound_caches();
         self.ctx.scopes.exit_scope();
     }
+}
+
+fn def_primary_span(def: &Def) -> Option<Span> {
+    match def {
+        Def::Module(module) => Some(Span {
+            file: module.file_id,
+            start: 0,
+            end: 0,
+        }),
+        Def::Function(function) => Some(function.span),
+        Def::Struct(strukt) => Some(strukt.span),
+        Def::Union(union) => Some(union.span),
+        Def::Enum(enm) => Some(enm.span),
+        Def::Trait(trait_def) => Some(trait_def.span),
+        Def::AssociatedType(assoc) => Some(assoc.span),
+        Def::Impl(imp) => Some(imp.span),
+        Def::Global(global) => Some(global.span),
+        Def::TypeAlias(alias) => Some(alias.span),
+    }
+}
+
+fn normalize_checker_path(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }

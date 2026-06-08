@@ -1,3 +1,9 @@
+//! ThinLTO integration for partitioned codegen.
+//!
+//! Partitioned object emission can produce module bitcode sidecars. This module
+//! collects those sidecars, runs ThinLTO when requested, and feeds the resulting
+//! linker inputs back into the final link step.
+
 use super::*;
 use crate::compiler::codegen_units;
 use crate::compiler::{TempDirGuard, TempFileGuard};

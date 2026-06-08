@@ -1,3 +1,9 @@
+//! Alloca cleanup and diagnostics.
+//!
+//! This module scans generated LLVM for remaining stack allocations and reports
+//! cleanup statistics/names so regressions in promotion or lowering are visible
+//! in compile reports.
+
 use super::CodeGenerator;
 use super::accumulate_alloca_site;
 use crate::basic_block::BasicBlock;

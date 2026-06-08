@@ -1,3 +1,5 @@
+//! Manifest parsing and validation tests.
+
 use super::{CraftStyleSuggestionLevel, DependencySpec, Manifest, ReleaseSourcePolicy};
 use crate::plan::TargetKind;
 use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};
@@ -9,7 +11,7 @@ fn parses_package_manifest() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 description = "Demo package"
 license = "MIT"
 authors = ["Demo <demo@example.com>"]
@@ -60,7 +62,7 @@ fn parses_workspace_inherited_dependency() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 shared = { workspace = true, features = ["simd"] }
@@ -107,7 +109,7 @@ fn rejects_package_and_workspace_in_same_manifest() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [workspace]
 name = "demo"
@@ -133,7 +135,7 @@ fn parses_package_resources() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [resources]
 limine = { git = "https://example.com/limine.git", branch = "main" }
@@ -160,7 +162,7 @@ fn rejects_invalid_resource_source_combinations() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [resources]
 limine = { path = "vendor/limine", git = "https://example.com/limine.git" }
@@ -182,7 +184,7 @@ fn rejects_plain_version_dependencies() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 log = "1"
@@ -207,7 +209,7 @@ fn rejects_unsupported_source_tables() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [source.default]
 git = "https://example.com/default.git"
@@ -229,7 +231,7 @@ fn parses_craft_release_source_policy_overrides() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [craft]
 release-source-policy = "warn"
@@ -253,7 +255,7 @@ fn parses_craft_style_config() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [craft.style]
 suggestions = "warn"
@@ -280,7 +282,7 @@ fn parses_craft_fmt_config() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [craft.fmt]
 line-width = 88
@@ -313,7 +315,7 @@ fn rejects_tiny_craft_fmt_line_width() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [craft.fmt]
 line-width = 20
@@ -335,7 +337,7 @@ fn rejects_tiny_craft_fmt_threshold() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [craft.fmt]
 postfix-chain-threshold = 1
@@ -360,7 +362,7 @@ fn rejects_unknown_craft_style_rule() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [craft.style]
 disabled-rules = ["unknown-rule"]
@@ -382,7 +384,7 @@ fn rejects_invalid_release_source_policy_value() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [craft]
 release-source-policy = "strict"
@@ -404,7 +406,7 @@ fn rejects_invalid_craft_style_suggestion_level() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [craft.style]
 suggestions = "strict"
@@ -426,7 +428,7 @@ fn parses_runtime_section() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 entry = "crt"
@@ -450,7 +452,7 @@ fn rejects_unknown_runtime_provider_key() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 provider = "toolchain"
@@ -472,7 +474,7 @@ fn runtime_section_applies_to_compile_options() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -498,7 +500,7 @@ fn runtime_entry_does_not_override_lib_target_defaults() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -530,7 +532,7 @@ fn runtime_entry_overrides_test_target_defaults() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -562,7 +564,7 @@ fn profile_section_parses_codegen_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [profile.release]
 opt = 3
@@ -588,7 +590,7 @@ fn profile_section_parses_lto_mode() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [profile.release]
 lto = "thin"
@@ -612,7 +614,7 @@ fn profile_section_parses_code_model() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [profile.release]
 code-model = "kernel"
@@ -636,7 +638,7 @@ fn rejects_zero_profile_codegen_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [profile.dev]
 codegen-units = 0
@@ -658,7 +660,7 @@ fn rejects_invalid_profile_lto_mode() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [profile.release]
 lto = "turbo"
@@ -676,7 +678,7 @@ fn rejects_invalid_profile_code_model() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [profile.release]
 code-model = "huge"
@@ -694,7 +696,7 @@ fn rejects_package_edition_field() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 edition = "2027"
 "#,
         std::path::Path::new("Craft.toml"),
@@ -729,13 +731,31 @@ edition = "2027"
 }
 
 #[test]
-fn rejects_mismatched_kern_version() {
+fn accepts_current_kern_minor_line() {
     let manifest = Manifest::parse(
         r#"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.8"
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    manifest
+        .validate(std::path::Path::new("Craft.toml"))
+        .unwrap();
+}
+
+#[test]
+fn rejects_mismatched_kern_minor_line() {
+    let manifest = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.9"
 "#,
         std::path::Path::new("Craft.toml"),
     )
@@ -746,7 +766,7 @@ kern = "0.7"
         .unwrap_err();
     assert!(
         err.to_string()
-            .contains("must match the current toolchain version")
+            .contains("must match the current Kern minor line")
     );
 }
 
@@ -757,7 +777,7 @@ fn rejects_duplicate_test_file_stems() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [test]
 roots = ["tests/smoke.kn", "alt/smoke.kn"]
@@ -782,7 +802,7 @@ fn parses_glob_patterns_in_test_roots() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [test]
 roots = ["tests/*"]
@@ -804,7 +824,7 @@ fn accepts_multiple_glob_patterns_in_test_roots() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [test]
 roots = ["tests/*.kn", "integration/*.kn"]
@@ -826,7 +846,7 @@ fn rejects_glob_patterns_in_example_roots() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [example]
 roots = ["examples/*.kn"]
@@ -845,7 +865,7 @@ fn rejects_array_table_test_targets() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[test]]
 name = "smoke"
@@ -868,7 +888,7 @@ fn rejects_array_table_example_targets() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[example]]
 name = "hello"
@@ -882,4 +902,100 @@ root = "examples/hello.kn"
         err.to_string()
             .contains("unsupported array table `[[example]]`")
     );
+}
+
+#[test]
+fn deterministic_manifest_parser_fuzz_smoke_does_not_panic() {
+    for seed in 0..384u64 {
+        let source = fuzz_manifest(seed);
+        let result = std::panic::catch_unwind(|| {
+            if let Ok(manifest) = Manifest::parse(&source, std::path::Path::new("Craft.toml")) {
+                let _ = manifest.validate(std::path::Path::new("Craft.toml"));
+            }
+        });
+        assert!(
+            result.is_ok(),
+            "manifest parser fuzz seed {seed} panicked with source:\n{source}"
+        );
+    }
+}
+
+fn fuzz_manifest(seed: u64) -> String {
+    const FRAGMENTS: &[&str] = &[
+        "[package]\n",
+        "[workspace]\n",
+        "[dependencies]\n",
+        "[dev-dependencies]\n",
+        "[build-dependencies]\n",
+        "[resources]\n",
+        "[features]\n",
+        "[runtime]\n",
+        "[craft]\n",
+        "[craft.fmt]\n",
+        "[craft.style]\n",
+        "[lib]\n",
+        "[test]\n",
+        "[example]\n",
+        "[profile.dev]\n",
+        "[profile.release]\n",
+        "[[bin]]\n",
+        "[[unknown]]\n",
+        "name = \"demo\"\n",
+        "version = \"0.1.0\"\n",
+        "kern = \"0.8.2\"\n",
+        "root = \"src/main.kn\"\n",
+        "roots = [\"tests/a.kn\", \"tests/**/*.kn\"]\n",
+        "members = [\"a\", \"b\"]\n",
+        "default = []\n",
+        "feature = [\"a\", \"b\"]\n",
+        "libc = true\n",
+        "code-model = \"kernel\"\n",
+        "library-bundle = \"base\"\n",
+        "entry = \"rt\"\n",
+        "line-width = 100\n",
+        "suggestions = \"warn\"\n",
+        "disabled-rules = [\"a\", \"b\"]\n",
+        "dep = { path = \"../dep\", features = [\"x\"] }\n",
+        "dep = { git = \"https://example.com/dep.git\", tag = \"v1\" }\n",
+        "dep = { workspace = true }\n",
+        "bad = \"unterminated\n",
+        "bad = [\"unterminated]\n",
+        "bad = { path = \"x\", git = \"y\" }\n",
+        "bad = \n",
+        "= \"missing-key\"\n",
+        "# comment\n",
+        "unknown = \"value\"\n",
+        "\n",
+    ];
+
+    let mut rng = FuzzRng::new(seed ^ 0x632b_d7d1_2f81_b35b);
+    let mut source = String::new();
+    let target_len = 8 + rng.range(64) as usize;
+    for _ in 0..target_len {
+        source.push_str(FRAGMENTS[rng.range(FRAGMENTS.len() as u64) as usize]);
+    }
+    source
+}
+
+struct FuzzRng {
+    state: u64,
+}
+
+impl FuzzRng {
+    fn new(seed: u64) -> Self {
+        Self { state: seed | 1 }
+    }
+
+    fn next(&mut self) -> u64 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.state = x;
+        x
+    }
+
+    fn range(&mut self, upper: u64) -> u64 {
+        self.next() % upper
+    }
 }

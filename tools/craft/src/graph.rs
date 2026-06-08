@@ -1,3 +1,9 @@
+//! Package dependency graph construction.
+//!
+//! Graph building combines the root manifest, workspace members, inherited
+//! dependencies, and external source identities into a resolved graph used by
+//! lockfiles, fetching, and build-plan elaboration.
+
 use crate::error::{Error, Result};
 use crate::manifest::{DependencySpec, DetailedDependency, Manifest};
 use crate::plan::PackagePlan;
@@ -489,7 +495,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 util = { path = "../util" }
@@ -503,7 +509,7 @@ toml = { git = "https://example.com/toml.git", tag = "v0.1.0" }
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 "#,
         )
         .unwrap();
@@ -565,7 +571,7 @@ shared = { git = "https://example.com/shared.git", rev = "abc123" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 shared = { workspace = true, features = ["simd"] }
@@ -631,7 +637,7 @@ shared = { path = "shared" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 shared = { workspace = true }
@@ -644,7 +650,7 @@ shared = { workspace = true }
 [package]
 name = "shared"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -690,7 +696,7 @@ root = "src/lib.kn"
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 util = { path = "../vendor/util", version = "1" }
@@ -703,7 +709,7 @@ util = { path = "../vendor/util", version = "1" }
 [package]
 name = "util"
 version = "1.0.0"
-kern = "0.7.6"
+kern = "0.8.2"
 "#,
         )
         .unwrap();
@@ -755,7 +761,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 shared = { workspace = true }

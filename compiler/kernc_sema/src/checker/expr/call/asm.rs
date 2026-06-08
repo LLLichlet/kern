@@ -1,3 +1,9 @@
+//! `@asm` intrinsic argument checking.
+//!
+//! Inline assembly is configured through an untyped anonymous struct literal.
+//! This checker validates the supported fields, folds compile-time string/bool
+//! values, and rejects malformed clobber/input/output metadata before codegen.
+
 use super::ExprChecker;
 use crate::checker::{ConstEvaluator, ConstValue};
 use crate::ty::{TypeId, TypeKind};

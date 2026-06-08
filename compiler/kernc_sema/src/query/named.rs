@@ -1,3 +1,8 @@
+//! Field lookup for named and anonymous aggregate types.
+//!
+//! This file resolves struct/union fields, anonymous aggregate fields, and
+//! range pseudo-fields while applying visibility and generic substitution.
+
 use super::*;
 
 impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
@@ -12,7 +17,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return;
         };
 
-        // Safety: member queries do not mutate `ctx.defs`; using raw pointers here avoids
+        // SAFETY: member queries do not mutate `ctx.defs`; using raw pointers here avoids
         // cloning whole AST-backed definitions on every field lookup.
         unsafe {
             match &*def_ptr {
@@ -110,7 +115,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             .get(def_id.0 as usize)
             .map(std::ptr::from_ref)?;
 
-        // Safety: semantic definition storage is immutable while member queries run.
+        // SAFETY: semantic definition storage is immutable while member queries run.
         unsafe {
             match &*def_ptr {
                 Def::Struct(struct_def) => {
@@ -348,6 +353,23 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 .access_field_query_trait_object += started.elapsed();
         }
 
+        let started = self.ctx.collects_timings().then(Instant::now);
+        let resolution = self
+            .resolve_named_inherent_impl_method(search_norm, member_name, diagnostic_span)
+            .map(|candidate| MemberResolution {
+                candidate,
+                owner_trait_ty: None,
+            });
+        if let Some(started) = started {
+            self.ctx.analysis.expr_timing_stats.access_field_query_impl += started.elapsed();
+        }
+        if resolution.is_some() {
+            return resolution;
+        }
+
+        // Concrete receiver methods should not be shadowed by active trait
+        // bounds. Trait-object receivers still return above so dynamic dispatch
+        // remains explicit and predictable.
         let started = self.ctx.collects_timings().then(Instant::now);
         if let Some(resolution) =
             self.resolve_bound_member(search_norm, receiver_ty, member_name, env, diagnostic_span)

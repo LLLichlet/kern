@@ -1,3 +1,9 @@
+//! Generic and associated-type substitution for semantic types.
+//!
+//! Substitution walks canonical type structures, replaces type and const
+//! parameters from a caller-provided map, rebuilds interned types, and folds
+//! const-generic expressions when substitution makes them concrete.
+
 use crate::def::{Def, DefId};
 use crate::ty::{ConstGeneric, GenericArg, TypeId, TypeKind, TypeRegistry};
 use kernc_utils::SymbolId;
@@ -70,6 +76,8 @@ where
                 .unwrap_or(ConstGeneric::Param(name, ty)),
             ConstGeneric::Expr(id) => {
                 let expr = *self.registry.const_expr(id);
+                // Rebuild the expression node with substituted children, then
+                // fold it so `N + 1` can become a value once `N` is concrete.
                 let rebuilt = match expr {
                     crate::ty::ConstExprKind::Unary { op, expr, ty } => {
                         crate::ty::ConstExprKind::Unary {
@@ -731,6 +739,7 @@ mod tests {
         let defs = vec![Def::AssociatedType(crate::def::AssociatedTypeDef {
             id: assoc_id,
             name: SymbolId(2),
+            name_span: Default::default(),
             parent_trait: None,
             parent_impl: None,
             implemented_trait_assoc: None,

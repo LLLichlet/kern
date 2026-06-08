@@ -26,13 +26,13 @@ impl Layout {
 /// Returns:
 /// `None` when the rounded value cannot fit in `usize`.
 pub/ fn align_up(value: usize, align: usize) ?usize {
-    let align = if (align == 0) 1usize else align;
+    let align = if align == 0 1usize else align;
     let remainder = value % align;
-    if (remainder == 0) {
+    if remainder == 0 {
         return .{ Some: value };
     }
     let padding = align - remainder;
-    if (value > USIZE_MAX - padding) {
+    if value > USIZE_MAX - padding {
         return .None;
     }
     return .{ Some: value + padding };
@@ -54,7 +54,7 @@ pub/ const fn layout_of[T]() Layout {
 /// `None` when the total size would overflow `usize`.
 pub/ const fn array_layout_of[T](count: usize) ?Layout {
     let elem = layout_of[T]();
-    if (elem.size == 0) {
+    if elem.size == 0 {
         return .{
             Some: .{
                 size: 0,
@@ -63,7 +63,7 @@ pub/ const fn array_layout_of[T](count: usize) ?Layout {
         };
     }
 
-    if (count > USIZE_MAX / elem.size) {
+    if count > USIZE_MAX / elem.size {
         return .None;
     }
 

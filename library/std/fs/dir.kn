@@ -4,7 +4,7 @@
 //! keep traversal explicit, return visited counts, and leave path ownership with the caller.
 
 use std.host.os;
-use base.coll.{List, String};
+use base.coll.{List, SliceIter, SliceMutIter, String};
 use base.mem.array_layout_of;
 use base.mem.alloc.{AllocError, Allocator};
 use base.num;
@@ -55,13 +55,18 @@ impl &mut DirEntries {
         return self.raw..&.as_mut_slice();
     }
 
+    /// Returns an iterator over mutable owned entries.
+    pub fn iter() SliceMutIter[OwnedDirEntry] {
+        return self.raw..&.iter();
+    }
+
     fn try_reserve(
         alloc: &mut Allocator,
         entry_count: usize,
         name_bytes: usize,
     ) void!AllocError {
         self.raw..&.try_reserve_exact(alloc, entry_count).?;
-        if (name_bytes > self.names.&.capacity()) {
+        if name_bytes > self.names.&.capacity() {
             let additional = name_bytes - self.names.&.len();
             self.names..&.try_reserve(alloc, additional).?;
         }
@@ -76,7 +81,7 @@ impl &mut DirEntries {
     }
 
     fn push_copy_reserved(alloc: &mut Allocator, entry: DirEntry) void!AllocError {
-        if (!self.can_push_reserved(entry.name.@len())) {
+        if !self.can_push_reserved(entry.name.@len()) {
             return .{ Err: .CapacityOverflow };
         }
         let start = self.names.&.len();
@@ -92,6 +97,11 @@ impl &DirEntries {
     /// Returns an immutable slice of owned entries.
     pub fn as_slice() &[OwnedDirEntry] {
         return self.raw.&.as_slice();
+    }
+
+    /// Returns an iterator over copied owned entries.
+    pub fn iter() SliceIter[OwnedDirEntry] {
+        return self.raw.&.iter();
     }
 
     /// Returns the number of owned entries.
@@ -118,13 +128,13 @@ fn already_exists_is_false_if_dir(
     path: &[u8],
     err: Error,
 ) bool!Error {
-    match (err) {
+    match err {
         .{ Os: os_err } => {
-            if (!os.is_already_exists(os_err)) {
+            if !os.is_already_exists(os_err) {
                 return .{ Err: .{ Os: os_err } };
             }
 
-            if (path.path().is_dir(alloc).?) {
+            if path.path().is_dir(alloc).? {
                 return .{ Ok: false };
             }
             return .{ Err: .{ Os: os_err } };
@@ -134,9 +144,9 @@ fn already_exists_is_false_if_dir(
 }
 
 fn not_found_is_false(err: Error) bool!Error {
-    match (err) {
+    match err {
         .{ Os: os_err } => {
-            if (os.is_not_found(os_err)) {
+            if os.is_not_found(os_err) {
                 return .{ Ok: false };
             }
             return .{ Err: .{ Os: os_err } };
@@ -146,10 +156,10 @@ fn not_found_is_false(err: Error) bool!Error {
 }
 
 fn dir_search_path_layout(path: &[u8]) ?base.mem.Layout {
-    #[if(os == "windows")]
+    #[if os == "windows"]
     {
-        let needs_sep = if (path.@len() == 0) true else !is_path_separator(path.[path.@len() - 1]);
-        let extra = if (needs_sep) 3usize else 2usize;
+        let needs_sep = if path.@len() == 0 true else !is_path_separator(path.[path.@len() - 1]);
+        let extra = if needs_sep 3usize else 2usize;
         return array_layout_of[u8](path.@len() + extra);
     }
 
@@ -161,15 +171,15 @@ fn alloc_dir_search_path(alloc: &mut Allocator, path: &[u8]) (&mut u8)!Error {
     let .{ Some: ptr } = alloc.alloc(layout) else return .{ Err: .OutOfMemory };
 
     let len = path.@len();
-    if (len > 0) {
+    if len > 0 {
         @memcpy(ptr, path.[0].&, len);
     }
 
-    #[if(os == "windows")]
+    #[if os == "windows"]
     {
         let mut end = len;
-        let needs_sep = if (len == 0) true else !is_path_separator(path.[len - 1]);
-        if (needs_sep) {
+        let needs_sep = if len == 0 true else !is_path_separator(path.[len - 1]);
+        if needs_sep {
             (ptr + end).* = b'\\';
             end += 1usize;
         }
@@ -195,7 +205,7 @@ fn free_dir_search_path(
 fn create_dir(alloc: &mut Allocator, path: &[u8]) bool!Error {
     let c_path = c_path(alloc, path).?..&;
     defer c_path.deinit(alloc);
-    return os.create_dir(c_path.ptr()).map_err(wrap_os_error);
+    return os.create_dir(c_path.view().ptr()).map_err(wrap_os_error);
 }
 
 /// Creates a single directory and treats an existing directory as `Ok(false)`.
@@ -211,12 +221,12 @@ fn create_dir_if_missing(alloc: &mut Allocator, path: &[u8]) bool!Error {
 /// Returns:
 /// `Ok(true)` when the call succeeds, even if some or all components already existed.
 fn create_dir_all(alloc: &mut Allocator, path: &[u8]) bool!Error {
-    if (path.@len() == 0) {
+    if path.@len() == 0 {
         return .{ Err: .InvalidPath };
     }
 
     let trimmed = trim_trailing_separators(path);
-    if (trimmed.@len() == 0) {
+    if trimmed.@len() == 0 {
         return .{ Ok: true };
     }
 
@@ -224,12 +234,12 @@ fn create_dir_all(alloc: &mut Allocator, path: &[u8]) bool!Error {
     let mut index = prefix_len;
     let mut any_created = false;
 
-        while (index < trimmed.@len()) {
-        if (!is_path_separator(trimmed.[index])) {
+        while index < trimmed.@len() {
+        if !is_path_separator(trimmed.[index]) {
             index += 1;
             continue;
         }
-        if (index == 0 or is_path_separator(trimmed.[index - 1])) {
+        if index == 0 or is_path_separator(trimmed.[index - 1]) {
             index += 1;
             continue;
         }
@@ -258,7 +268,7 @@ fn read_dir(
 ) usize!Error {
     let c_path = c_path(alloc, path).?..&;
     defer c_path.deinit(alloc);
-    let search_c_path = match (alloc_dir_search_path(alloc, path)) {
+    let search_c_path = match alloc_dir_search_path(alloc, path) {
         .{ Ok: ptr } => ptr,
         .{ Err: err } => return .{ Err: err },
     };
@@ -268,7 +278,7 @@ fn read_dir(
         return visitor(DirEntry.{ name: name, file_type: file_type });
     };
 
-    return os.scan_dir(c_path.ptr(), search_c_path, bridge)
+    return os.scan_dir(c_path.view().ptr(), search_c_path.view(), bridge)
         .map_err(wrap_os_error);
 }
 
@@ -308,11 +318,11 @@ fn read_dir_entries_into(
         return true;
     };
 
-    let counted = match (read_dir(alloc, path, count_sizes)) {
+    let counted = match read_dir(alloc, path, count_sizes) {
         .{ Ok: count } => count,
         .{ Err: err } => return .{ Err: err },
     };
-    if (size_err or counted != entry_count) {
+    if size_err or counted != entry_count {
         return .{ Err: .OutOfMemory };
     }
 
@@ -320,7 +330,7 @@ fn read_dir_entries_into(
 
     let mut copy_err = ?Error.None;
     let copy = [alloc, entries, copy_err = copy_err..&](entry: DirEntry) bool {
-        match (entries.push_copy_reserved(alloc, entry)) {
+        match entries.push_copy_reserved(alloc, entry) {
             .{ Ok: _ } => return true,
             .{ Err: err } => {
                 copy_err.* = .{ Some: wrap_alloc_error(err) };
@@ -329,7 +339,7 @@ fn read_dir_entries_into(
         }
     };
 
-    let visited = match (read_dir(alloc, path, copy)) {
+    let visited = match read_dir(alloc, path, copy) {
         .{ Ok: count } => count,
         .{ Err: err } => {
             entries.clear();
@@ -337,7 +347,7 @@ fn read_dir_entries_into(
         },
     };
 
-    match (copy_err) {
+    match copy_err {
         .{ Some: err } => {
             entries.clear();
             return .{ Err: err };
@@ -351,7 +361,7 @@ fn read_dir_entries_into(
 /// Reads the direct children of a directory into a newly owned entry buffer.
 fn read_dir_entries(alloc: &mut Allocator, path: &[u8]) DirEntries!Error {
     let mut entries = DirEntries.{};
-    match (read_dir_entries_into(alloc, path, entries..&)) {
+    match read_dir_entries_into(alloc, path, entries..&) {
         .{ Ok: _ } => return .{ Ok: entries },
         .{ Err: err } => {
             entries..&.deinit(alloc);
@@ -376,7 +386,7 @@ fn walk_dir_inner(
         total,
         walk_err
     ](entry: DirEntry) bool {
-        let mut child = match (build_child_path(alloc, base, entry.name)) {
+        let mut child = match build_child_path(alloc, base, entry.name) {
             .{ Ok: child } => child,
             .{ Err: err } => {
                 walk_err.* = .{ Some: err };
@@ -387,13 +397,13 @@ fn walk_dir_inner(
         let child_path = child.&.as_str();
         total.* += 1;
 
-        if (!visitor(child_path, entry, depth)) {
+        if !visitor(child_path, entry, depth) {
             child..&.deinit(alloc);
             return false;
         }
 
-        if (entry.is_dir()) {
-            if (!walk_dir_inner(alloc, child_path, depth + 1, visitor, total, walk_err)) {
+        if entry.is_dir() {
+            if !walk_dir_inner(alloc, child_path, depth + 1, visitor, total, walk_err) {
                 child..&.deinit(alloc);
                 return false;
             }
@@ -403,7 +413,7 @@ fn walk_dir_inner(
         return true;
     };
 
-    match (read_dir(alloc, path, walk)) {
+    match read_dir(alloc, path, walk) {
         .{ Ok: _ } => return true,
         .{ Err: err } => {
             walk_err.* = .{ Some: err };
@@ -426,7 +436,7 @@ fn walk_dir(
 ) usize!Error {
     let meta = path.path().metadata(alloc).?;
 
-    if (!meta.is_dir()) {
+    if !meta.is_dir() {
         return .{ Err: .NotDirectory };
     }
 
@@ -441,7 +451,7 @@ fn walk_dir(
         walk_err..&,
     );
 
-    match (walk_err) {
+    match walk_err {
         .{ Some: err } => return .{ Err: err },
         .None => return .{ Ok: total },
     }
@@ -456,7 +466,7 @@ fn walk_files(
     visitor: &Fn(&[u8], DirEntry, usize) bool,
 ) usize!Error {
     let only_files = [visitor](entry_path: &[u8], entry: DirEntry, depth: usize) bool {
-        if (!entry.is_file()) {
+        if !entry.is_file() {
             return true;
         }
         return visitor(entry_path, entry, depth);
@@ -473,7 +483,7 @@ fn walk_dirs(
     visitor: &Fn(&[u8], DirEntry, usize) bool,
 ) usize!Error {
     let only_dirs = [visitor](entry_path: &[u8], entry: DirEntry, depth: usize) bool {
-        if (!entry.is_dir()) {
+        if !entry.is_dir() {
             return true;
         }
         return visitor(entry_path, entry, depth);
@@ -485,7 +495,7 @@ fn walk_dirs(
 fn remove_dir(alloc: &mut Allocator, path: &[u8]) bool!Error {
     let c_path = c_path(alloc, path).?..&;
     defer c_path.deinit(alloc);
-    return os.remove_dir(c_path.ptr()).map_err(wrap_os_error);
+    return os.remove_dir(c_path.view().ptr()).map_err(wrap_os_error);
 }
 
 /// Removes a single empty directory and treats a missing path as `Ok(false)`.
@@ -500,11 +510,11 @@ fn remove_dir_if_exists(alloc: &mut Allocator, path: &[u8]) bool!Error {
 /// Errors:
 /// returns `NotDirectory` when `path` exists but is not a directory.
 fn remove_dir_all(alloc: &mut Allocator, path: &[u8]) bool!Error {
-    let meta = match (path.path().metadata(alloc)) {
+    let meta = match path.path().metadata(alloc) {
         .{ Ok: meta } => meta,
-        .{ Err: err } => match (err) {
+        .{ Err: err } => match err {
             .{ Os: os_err } => {
-                if (os.is_not_found(os_err)) {
+                if os.is_not_found(os_err) {
                     return .{ Ok: true };
                 }
                 return .{ Err: .{ Os: os_err } };
@@ -513,13 +523,13 @@ fn remove_dir_all(alloc: &mut Allocator, path: &[u8]) bool!Error {
         },
     };
 
-    if (!meta.is_dir()) {
+    if !meta.is_dir() {
         return .{ Err: .NotDirectory };
     }
 
     let mut walk_err = ?Error.None;
     let walk = [alloc, base = path, walk_err = walk_err..&](entry: DirEntry) bool {
-        let mut child = match (build_child_path(alloc, base, entry.name)) {
+        let mut child = match build_child_path(alloc, base, entry.name) {
             .{ Ok: child } => child,
             .{ Err: err } => {
                 walk_err.* = .{ Some: err };
@@ -528,14 +538,14 @@ fn remove_dir_all(alloc: &mut Allocator, path: &[u8]) bool!Error {
         };
 
         let child_path = child.&.as_str();
-        let result = if (entry.is_dir()) {
+        let result = if entry.is_dir() {
             remove_dir_all(alloc, child_path)
         } else {
             child_path.path().remove_file(alloc)
         };
         child..&.deinit(alloc);
 
-        match (result) {
+        match result {
             .{ Ok: _ } => return true,
             .{ Err: err } => {
                 walk_err.* = .{ Some: err };
@@ -544,12 +554,12 @@ fn remove_dir_all(alloc: &mut Allocator, path: &[u8]) bool!Error {
         }
     };
 
-    match (read_dir(alloc, path, walk)) {
+    match read_dir(alloc, path, walk) {
         .{ Ok: _ } => {},
         .{ Err: err } => return .{ Err: err },
     }
 
-    match (walk_err) {
+    match walk_err {
         .{ Some: err } => return .{ Err: err },
         .None => {},
     }

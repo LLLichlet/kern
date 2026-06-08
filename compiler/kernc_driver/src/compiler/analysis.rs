@@ -1,3 +1,9 @@
+//! Editor and analysis artifact pipeline.
+//!
+//! Analysis artifacts reuse frontend and semantic caches to serve outline,
+//! surface, structure, semantic, flow, completion, hover, reference, and lint
+//! data without running full codegen.
+
 mod body;
 mod entry;
 mod lints;
@@ -12,16 +18,20 @@ use self::reuse::{
     rebind_module_defs,
 };
 use super::completion::CompletionModel;
-use super::flow::FlowModel;
+use super::flow::{FlowFunctionValueFacts, FlowModel};
 use super::signature::SignatureModel;
 use super::{
-    AnalysisArtifact, AnalysisDefinitionLink, AnalysisHover, AnalysisNavigationArtifact,
-    AnalysisOutline, AnalysisReference, AnalysisReport, AnalysisSemanticEntry,
-    AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSpanReplacement, AnalysisSurfaceArtifact,
+    AnalysisArtifact, AnalysisCall, AnalysisCallKind, AnalysisCallTargetCompleteness,
+    AnalysisDefinitionLink, AnalysisFlowBindingId, AnalysisFlowDefinitionKind,
+    AnalysisFlowDefinitionRef, AnalysisFlowNodeId, AnalysisHover, AnalysisNavigationArtifact,
+    AnalysisOutline, AnalysisReference, AnalysisReport, AnalysisSemanticArtifact,
+    AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole,
+    AnalysisSemanticTokenArtifact, AnalysisSpanReplacement, AnalysisSurfaceArtifact,
     AnalysisSymbol, AnalysisSymbolKind, AnalysisUnusedBinding, AnalysisUnusedBindingKind,
-    AnalysisUnusedItem, AnalysisUnusedItemKind, CollectedStructureArtifact,
-    CompileStructureArtifact, CompilerDriver, ImportedStructureArtifact, ParsedModule,
-    ParsedModuleArtifact, PhaseTiming, SourceOverrides, StructureArtifact, TargetedAnalysisReport,
+    AnalysisUnusedItem, AnalysisUnusedItemKind, Canceled, CancellationToken,
+    CollectedStructureArtifact, CompileStructureArtifact, CompilerDriver,
+    ImportedStructureArtifact, ParsedModule, ParsedModuleArtifact, PhaseTiming, SourceOverrides,
+    StructureArtifact, TargetedAnalysisReport,
 };
 use crate::doc::{lint_docs, render_hover_markdown};
 use crate::loader::ModuleLoader;
@@ -38,17 +48,17 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 #[derive(Debug)]
-struct FunctionBodyReusePlan {
+pub(in crate::compiler) struct FunctionBodyReusePlan {
     worklist: Vec<(DefId, ScopeId)>,
     replaced_spans: Vec<AnalysisSpanReplacement>,
 }
 
 pub(super) struct LoadedAstArtifact {
-    asts: Vec<(DefId, ast::Module)>,
-    phase_timings: Vec<PhaseTiming>,
+    pub(in crate::compiler) asts: Vec<(DefId, ast::Module)>,
+    pub(super) phase_timings: Vec<PhaseTiming>,
 }
 
-pub(super) struct BodyPipelineReport {
+pub(in crate::compiler) struct BodyPipelineReport {
     pub(super) flow_lowering_hints: FlowLoweringHints,
     pub(super) lowered_module_items: std::collections::HashSet<DefId>,
     pub(super) phase_timings: Vec<PhaseTiming>,
@@ -82,127 +92,306 @@ impl CompilerDriver {
         &self,
         input_file: &str,
         source_overrides: &SourceOverrides,
-    ) -> AnalysisReport {
+        cancellation: &CancellationToken,
+    ) -> Result<AnalysisReport, Canceled> {
+        cancellation.check()?;
         let mut session = Session::new();
         session.apply_options(&self.options);
 
-        match self.try_analyze_structure(session, input_file, source_overrides) {
-            Ok(structure) => self.analyze_report_from_structure(&structure),
+        let report = match self.try_analyze_structure_cancelable(
+            session,
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
+            Ok(structure) => self.analyze_report_from_structure(&structure, cancellation)?,
             Err(session) => AnalysisReport {
                 session: *session,
                 succeeded: false,
             },
-        }
+        };
+        cancellation.check()?;
+        Ok(report)
     }
 
     pub fn analyze_artifact(
         &self,
         input_file: &str,
         source_overrides: &SourceOverrides,
-    ) -> AnalysisArtifact {
+        cancellation: &CancellationToken,
+    ) -> Result<AnalysisArtifact, Canceled> {
+        cancellation.check()?;
         let mut session = Session::new();
         session.apply_options(&self.options);
 
-        match self.try_analyze_structure(session, input_file, source_overrides) {
-            Ok(structure) => self.analyze_artifact_from_structure(&structure),
-            Err(session) => self.empty_analysis_artifact(*session),
-        }
+        let structure = match self.try_analyze_structure_cancelable(
+            session,
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
+            Ok(structure) => structure,
+            Err(_session) => {
+                let mut diagnostic_session = Session::new();
+                diagnostic_session.apply_options(&self.options);
+                match self.analyze_diagnostic_structure_cancelable(
+                    diagnostic_session,
+                    input_file,
+                    source_overrides,
+                    cancellation,
+                )? {
+                    Ok(structure) => {
+                        cancellation.check()?;
+                        let mut artifact =
+                            self.analyze_artifact_from_structure(&structure, cancellation)?;
+                        if artifact.trait_impl_stubs.is_empty()
+                            && !structure.trait_impl_stubs.is_empty()
+                        {
+                            artifact.trait_impl_stubs = structure.trait_impl_stubs.clone();
+                        }
+                        return Ok(artifact);
+                    }
+                    Err(session) => return Ok(self.empty_analysis_artifact(*session)),
+                }
+            }
+        };
+        cancellation.check()?;
+        self.analyze_artifact_from_structure(&structure, cancellation)
     }
 
     pub fn analyze_navigation_artifact(
         &self,
         input_file: &str,
         source_overrides: &SourceOverrides,
-    ) -> AnalysisNavigationArtifact {
+        cancellation: &CancellationToken,
+    ) -> Result<AnalysisNavigationArtifact, Canceled> {
+        cancellation.check()?;
         let mut session = Session::new();
         session.apply_options(&self.options);
 
-        match self.try_analyze_structure(session, input_file, source_overrides) {
-            Ok(structure) => self.analyze_navigation_artifact_from_structure(&structure),
-            Err(session) => self.empty_analysis_navigation_artifact(*session),
-        }
+        let structure = match self.try_analyze_structure_cancelable(
+            session,
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
+            Ok(structure) => structure,
+            Err(session) => {
+                let mut diagnostic_session = Session::new();
+                diagnostic_session.apply_options(&self.options);
+                match self.analyze_diagnostic_structure_cancelable(
+                    diagnostic_session,
+                    input_file,
+                    source_overrides,
+                    cancellation,
+                )? {
+                    Ok(structure) => {
+                        return self
+                            .analyze_navigation_artifact_from_structure(&structure, cancellation);
+                    }
+                    Err(_) => return Ok(self.empty_analysis_navigation_artifact(*session)),
+                }
+            }
+        };
+        cancellation.check()?;
+        self.analyze_navigation_artifact_from_structure(&structure, cancellation)
+    }
+
+    pub fn analyze_semantic_artifact(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+        cancellation: &CancellationToken,
+    ) -> Result<AnalysisSemanticArtifact, Canceled> {
+        cancellation.check()?;
+        let mut session = Session::new();
+        session.apply_options(&self.options);
+
+        let structure = match self.try_analyze_structure_cancelable(
+            session,
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
+            Ok(structure) => structure,
+            Err(session) => {
+                let mut diagnostic_session = Session::new();
+                diagnostic_session.apply_options(&self.options);
+                match self.analyze_diagnostic_structure_cancelable(
+                    diagnostic_session,
+                    input_file,
+                    source_overrides,
+                    cancellation,
+                )? {
+                    Ok(structure) => {
+                        return self
+                            .analyze_semantic_artifact_from_structure(&structure, cancellation);
+                    }
+                    Err(_) => return Ok(self.empty_analysis_semantic_artifact(*session)),
+                }
+            }
+        };
+        cancellation.check()?;
+        self.analyze_semantic_artifact_from_structure(&structure, cancellation)
+    }
+
+    pub fn analyze_semantic_token_artifact(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+        target_path: &Path,
+        cancellation: &CancellationToken,
+    ) -> Result<AnalysisSemanticTokenArtifact, Canceled> {
+        cancellation.check()?;
+        let mut session = Session::new();
+        session.apply_options(&self.options);
+
+        let structure = match self.try_analyze_structure_cancelable(
+            session,
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
+            Ok(structure) => structure,
+            Err(session) => {
+                let mut diagnostic_session = Session::new();
+                diagnostic_session.apply_options(&self.options);
+                match self.analyze_diagnostic_structure_cancelable(
+                    diagnostic_session,
+                    input_file,
+                    source_overrides,
+                    cancellation,
+                )? {
+                    Ok(structure) => {
+                        return self.analyze_semantic_token_artifact_from_structure(
+                            &structure,
+                            target_path,
+                            cancellation,
+                        );
+                    }
+                    Err(_) => return Ok(self.empty_analysis_semantic_token_artifact(*session)),
+                }
+            }
+        };
+        cancellation.check()?;
+        self.analyze_semantic_token_artifact_from_structure(&structure, target_path, cancellation)
     }
 
     pub fn analyze_imported_structure(
         &self,
         input_file: &str,
         source_overrides: &SourceOverrides,
-    ) -> Option<ImportedStructureArtifact> {
+        cancellation: &CancellationToken,
+    ) -> Result<Option<ImportedStructureArtifact>, Canceled> {
+        cancellation.check()?;
         if let Some(structure) = self.cached_structure_artifact(input_file, source_overrides) {
-            return Some(self.finalize_imported_structure_artifact(
+            return Ok(Some(self.finalize_imported_structure_artifact(
                 input_file,
                 source_overrides,
                 self.imported_structure_from_typed(&structure),
-            ));
+            )));
         }
 
+        cancellation.check()?;
         if let Some(imported) =
             self.cached_imported_structure_artifact(input_file, source_overrides)
         {
-            return Some(self.finalize_imported_structure_artifact(
+            return Ok(Some(self.finalize_imported_structure_artifact(
                 input_file,
                 source_overrides,
                 imported,
-            ));
+            )));
         }
 
+        cancellation.check()?;
         if let Some(collected) =
             self.cached_collected_structure_artifact(input_file, source_overrides)
         {
-            return self.build_imported_structure(&collected).map(|imported| {
-                self.finalize_imported_structure_artifact(input_file, source_overrides, imported)
-            });
+            let imported = self
+                .build_imported_structure_cancelable(&collected, cancellation)?
+                .map(|imported| {
+                    self.finalize_imported_structure_artifact(
+                        input_file,
+                        source_overrides,
+                        imported,
+                    )
+                });
+            cancellation.check()?;
+            return Ok(imported);
         }
 
+        cancellation.check()?;
         let mut session = Session::new();
         session.apply_options(&self.options);
-        self.try_analyze_imported_structure(session, input_file, source_overrides)
+        let imported = self
+            .try_analyze_imported_structure_cancelable(
+                session,
+                input_file,
+                source_overrides,
+                cancellation,
+            )?
             .ok()
             .map(|imported| {
                 self.finalize_imported_structure_artifact(input_file, source_overrides, imported)
-            })
+            });
+        cancellation.check()?;
+        Ok(imported)
     }
 
     pub fn analyze_surface(
         &self,
         input_file: &str,
         source_overrides: &SourceOverrides,
-    ) -> Option<AnalysisSurfaceArtifact> {
+        cancellation: &CancellationToken,
+    ) -> Result<Option<AnalysisSurfaceArtifact>, Canceled> {
+        cancellation.check()?;
         if let Some(structure) = self.cached_structure_artifact(input_file, source_overrides) {
-            return Some(self.surface_from_structure(&structure));
+            cancellation.check()?;
+            return Ok(Some(self.surface_from_structure(&structure)));
         }
 
-        let imported = self.analyze_imported_structure(input_file, source_overrides)?;
-        Some(self.surface_from_imported(&imported))
+        cancellation.check()?;
+        let Some(imported) =
+            self.analyze_imported_structure(input_file, source_overrides, cancellation)?
+        else {
+            return Ok(None);
+        };
+        cancellation.check()?;
+        Ok(Some(self.surface_from_imported(&imported)))
     }
 
     pub fn analyze_outline(
         &self,
         input_file: &str,
         source_overrides: &SourceOverrides,
-    ) -> AnalysisOutline {
+        cancellation: &CancellationToken,
+    ) -> Result<AnalysisOutline, Canceled> {
+        cancellation.check()?;
         if let Some(structure) = self.cached_structure_artifact(input_file, source_overrides) {
-            return self.analyze_outline_from_structure(&structure);
+            return Ok(self.analyze_outline_from_structure(&structure));
         }
 
+        cancellation.check()?;
         if let Some(imported) =
             self.cached_imported_structure_artifact(input_file, source_overrides)
         {
-            return self.analyze_outline_from_imported(&imported);
+            return Ok(self.analyze_outline_from_imported(&imported));
         }
 
+        cancellation.check()?;
         if let Some(collected) =
             self.cached_collected_structure_artifact(input_file, source_overrides)
         {
-            return self.analyze_outline_from_collected(&collected);
+            return Ok(self.analyze_outline_from_collected(&collected));
         }
 
-        if let Some(collected) = self.analyze_collected_structure(input_file, source_overrides) {
-            return self.analyze_outline_from_collected(&collected);
-        }
-
-        match self.try_parse_modules_with_frontend_cache(input_file, source_overrides) {
-            Some(parsed) => self.analyze_outline_from_parsed(&parsed),
+        cancellation.check()?;
+        let outline = match self.analyze_collected_structure_cancelable(
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
+            Some(collected) => self.analyze_outline_from_collected(&collected),
             None => {
                 let mut session = Session::new();
                 session.apply_options(&self.options);
@@ -211,35 +400,45 @@ impl CompilerDriver {
                     symbols: Vec::new(),
                 }
             }
-        }
+        };
+        cancellation.check()?;
+        Ok(outline)
     }
 
     pub fn parse_modules(
         &self,
         input_file: &str,
         source_overrides: &SourceOverrides,
-    ) -> Option<ParsedModuleArtifact> {
+        cancellation: &CancellationToken,
+    ) -> Result<Option<ParsedModuleArtifact>, Canceled> {
+        cancellation.check()?;
         if let Some(structure) = self.cached_structure_artifact(input_file, source_overrides) {
-            return Some(self.parsed_modules_from_structure(&structure));
+            cancellation.check()?;
+            return Ok(Some(self.parsed_modules_from_structure(&structure)));
         }
 
+        cancellation.check()?;
         if let Some(imported) =
             self.cached_imported_structure_artifact(input_file, source_overrides)
         {
-            return Some(self.parsed_modules_from_imported(&imported));
+            cancellation.check()?;
+            return Ok(Some(self.parsed_modules_from_imported(&imported)));
         }
 
+        cancellation.check()?;
         if let Some(collected) =
             self.cached_collected_structure_artifact(input_file, source_overrides)
         {
-            return Some(self.parsed_modules_from_collected(&collected));
+            cancellation.check()?;
+            return Ok(Some(self.parsed_modules_from_collected(&collected)));
         }
 
-        if let Some(collected) = self.analyze_collected_structure(input_file, source_overrides) {
-            return Some(self.parsed_modules_from_collected(&collected));
-        }
-
-        self.try_parse_modules_with_frontend_cache(input_file, source_overrides)
+        cancellation.check()?;
+        let parsed = self
+            .analyze_collected_structure_cancelable(input_file, source_overrides, cancellation)?
+            .map(|collected| self.parsed_modules_from_collected(&collected));
+        cancellation.check()?;
+        Ok(parsed)
     }
 }
 

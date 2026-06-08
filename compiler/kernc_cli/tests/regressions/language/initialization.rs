@@ -1,3 +1,5 @@
+//! Initialization and layout language regression tests.
+
 use super::*;
 #[test]
 fn rejects_direct_recursive_struct_layout_cycle() {

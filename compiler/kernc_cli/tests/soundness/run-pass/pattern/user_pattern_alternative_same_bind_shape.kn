@@ -8,7 +8,7 @@ impl Low : Pattern[i32] {
     type Bind = struct { value: i32 };
 
     fn apply(value: i32) ?Bind {
-        if (value < 10) {
+        if value < 10 {
             return .{ Some: .{ value: value } };
         }
         return .None;
@@ -19,7 +19,7 @@ impl High : Pattern[i32] {
     type Bind = struct { value: i32 };
 
     fn apply(value: i32) ?Bind {
-        if (value >= 10) {
+        if value >= 10 {
             return .{ Some: .{ value: value } };
         }
         return .None;
@@ -29,7 +29,7 @@ impl High : Pattern[i32] {
 fn main() i32 {
     let low = Low.{};
     let high = High.{};
-    return match (12) {
+    return match 12 {
         low, high => value - 12,
         _ => 1,
     };

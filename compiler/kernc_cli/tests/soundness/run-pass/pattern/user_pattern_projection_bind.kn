@@ -22,7 +22,7 @@ impl Capture : Pattern[i32] {
 
 fn main() i32 {
     let capture = Capture.{};
-    return match (4) {
+    return match 4 {
         capture => value - 4,
         _ => 1,
     };

@@ -1,3 +1,8 @@
+//! CLI help text rendering.
+//!
+//! Help output is structured through `shared_cli` so overview and full help can
+//! share sections, color handling, usage strings, and package version text.
+
 use shared_cli::{ColorChoice, HelpDoc, HelpSection};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,7 +77,7 @@ fn overview_doc(program_name: &str) -> HelpDoc {
                 )
                 .entry(
                     "--test-mode",
-                    "Compile a test target, collect #[test] cases, and enable #[if(test)]",
+                    "Compile a test target, collect #[test] cases, and enable #[if test]",
                 )
                 .entry(
                     "--test-metadata-output <FILE>",
@@ -155,7 +160,7 @@ fn all_doc(program_name: &str) -> HelpDoc {
                 )
                 .entry(
                     "--test-mode",
-                    "Compile a test target, collect #[test] cases, and enable #[if(test)]",
+                    "Compile a test target, collect #[test] cases, and enable #[if test]",
                 )
                 .entry(
                     "--test-metadata-output <FILE>",

@@ -1,3 +1,8 @@
+//! Structure-cache tests.
+//!
+//! These tests assert that structure artifacts are reused or invalidated based
+//! on source and dependency changes.
+
 use super::*;
 
 #[test]
@@ -152,7 +157,12 @@ fn parse_modules_reuses_cached_structure_without_extra_frontend_parse() {
     let parse_count = driver.uncached_parse_count();
 
     let parsed = driver
-        .parse_modules(main.to_str().unwrap(), &overrides)
+        .parse_modules(
+            main.to_str().unwrap(),
+            &overrides,
+            &CancellationToken::new(),
+        )
+        .unwrap()
         .expect("parsed modules should be available from cached structure");
     assert!(!parsed.modules.is_empty());
     assert_eq!(driver.uncached_parse_count(), parse_count);

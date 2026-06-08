@@ -1,3 +1,9 @@
+//! Dependency source resolver for package graphs.
+//!
+//! Resolution assigns stable external package identifiers, deduplicates shared
+//! git/path sources, and records local versus external source origins for later
+//! fetching and build planning.
+
 use crate::graph::{
     BuildDomain, DependencyKind, DependencyTarget, ExternalDependency, PackageGraph, PackageId,
     SourceId,
@@ -139,7 +145,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 log = { git = "https://example.com/log.git", tag = "v1" }
@@ -152,7 +158,7 @@ log = { git = "https://example.com/log.git", tag = "v1" }
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 log = { git = "https://example.com/log.git", tag = "v1" }
@@ -201,7 +207,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 util = { path = "../util" }
@@ -215,7 +221,7 @@ log = { git = "https://example.com/log.git", branch = "main" }
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 "#,
         )
         .unwrap();

@@ -1,3 +1,9 @@
+//! Text parser for `Craft.lock`.
+//!
+//! The parser keeps lockfile syntax deterministic and rejects incomplete source,
+//! package, dependency, and publish-proof sections before synchronization uses
+//! them.
+
 use super::{
     LockedDependency, LockedExternalPackage, LockedPackage, LockedPackageResource,
     LockedPackageTarget, LockedPublishProof, Lockfile,

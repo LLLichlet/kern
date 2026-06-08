@@ -1,3 +1,8 @@
+//! Scalar MIR builder tests.
+//!
+//! These cases cover arithmetic, casts, loads/stores, memory intrinsics, calls,
+//! and basic expression-to-rvalue lowering without relying on frontend parsing.
+
 use super::*;
 
 #[test]
@@ -180,12 +185,13 @@ fn mir_builder_extracts_structured_scalar_rvalues() {
             kind: MirInstruction::Let {
                 init: MirRvalue::Cast {
                     kind: MirCastKind::SignExt,
+                    target_ty,
                     operand: MirOperand::Local(local),
                 },
                 ..
             },
             ..
-        } if local == &sum_local
+        } if target_ty == &TypeId::I64 && local == &sum_local
     ));
 }
 

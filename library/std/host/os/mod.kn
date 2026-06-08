@@ -3,9 +3,9 @@
 pub/ mod types;
 pub/ use .types.{FileType, Metadata, OpenOptions, TerminalSize};
 
-#[if(os == "linux")]
+#[if os == "linux"]
 pub/ mod linux;
-#[if(os == "linux")]
+#[if os == "linux"]
 pub/ use .linux.{
     Error,
     Handle,
@@ -41,9 +41,9 @@ pub/ use .linux.{
     exit
 };
 
-#[if(os == "darwin")]
+#[if os == "darwin"]
 pub/ mod darwin;
-#[if(os == "darwin")]
+#[if os == "darwin"]
 pub/ use .darwin.{
     Error,
     Handle,
@@ -78,9 +78,9 @@ pub/ use .darwin.{
     exit,
 };
 
-#[if(os == "windows")]
+#[if os == "windows"]
 pub/ mod windows;
-#[if(os == "windows")]
+#[if os == "windows"]
 pub/ use .windows.{
     Error,
     Handle,

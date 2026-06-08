@@ -1,3 +1,9 @@
+//! Partitioned codegen-unit emission.
+//!
+//! This module builds each planned codegen unit, picks object/bitcode output
+//! paths, applies the effective inline-assembly dialect, and records per-unit
+//! codegen/emit reports for the partitioned pipeline.
+
 use super::*;
 use crate::compiler::codegen_units;
 use kernc_utils::config::OptLevel;
@@ -103,15 +109,7 @@ impl CompilerDriver {
             );
         }
 
-        let asm_dialect = match self
-            .options
-            .asm_dialect
-            .effective_for_target(&self.options.target)
-        {
-            AsmDialect::Intel => InlineAsmDialect::Intel,
-            AsmDialect::Att => InlineAsmDialect::ATT,
-            AsmDialect::Auto => unreachable!("effective_for_target must resolve `auto`"),
-        };
+        let asm_dialect = self.codegen_asm_dialect();
         let mut pending: Vec<PendingCodegenUnit> = codegen_unit_plans
             .iter()
             .enumerate()
@@ -226,17 +224,7 @@ impl CompilerDriver {
                 build_context.type_registry,
                 self.options.split_sections_for_gc,
             );
-            codegen.set_asm_dialect(
-                match self
-                    .options
-                    .asm_dialect
-                    .effective_for_target(&self.options.target)
-                {
-                    AsmDialect::Intel => InlineAsmDialect::Intel,
-                    AsmDialect::Att => InlineAsmDialect::ATT,
-                    AsmDialect::Auto => unreachable!("effective_for_target must resolve `auto`"),
-                },
-            );
+            codegen.set_asm_dialect(self.codegen_asm_dialect());
             codegen.set_debug_info(
                 self.options.debug_info,
                 self.options.opt_level != OptLevel::O0,

@@ -35,18 +35,18 @@ fn is_digit(byte: u8) bool {
 }
 
 fn align_for_byte(byte: u8) ?u8 {
-    if (byte == b'<') return .{ Some: FORMAT_ALIGN_LEFT };
-    if (byte == b'>') return .{ Some: FORMAT_ALIGN_RIGHT };
-    if (byte == b'^') return .{ Some: FORMAT_ALIGN_CENTER };
+    if byte == b'<' return .{ Some: FORMAT_ALIGN_LEFT };
+    if byte == b'>' return .{ Some: FORMAT_ALIGN_RIGHT };
+    if byte == b'^' return .{ Some: FORMAT_ALIGN_CENTER };
     return .None;
 }
 
 fn presentation_for_byte(byte: u8) ?FormatPresentation {
-    if (byte == b'd') return .{ Some: FORMAT_DECIMAL };
-    if (byte == b'b') return .{ Some: FORMAT_BINARY };
-    if (byte == b'o') return .{ Some: FORMAT_OCTAL };
-    if (byte == b'x') return .{ Some: FORMAT_HEX_LOWER };
-    if (byte == b'X') return .{ Some: FORMAT_HEX_UPPER };
+    if byte == b'd' return .{ Some: FORMAT_DECIMAL };
+    if byte == b'b' return .{ Some: FORMAT_BINARY };
+    if byte == b'o' return .{ Some: FORMAT_OCTAL };
+    if byte == b'x' return .{ Some: FORMAT_HEX_LOWER };
+    if byte == b'X' return .{ Some: FORMAT_HEX_UPPER };
     return .None;
 }
 
@@ -56,8 +56,8 @@ fn parse_number(
     end: usize,
     empty_ok: bool,
 ) ?usize {
-    if (start >= end) {
-        if (!empty_ok) {
+    if start >= end {
+        if !empty_ok {
             return .None;
         }
         return .{ Some: 0usize };
@@ -65,14 +65,14 @@ fn parse_number(
 
     let mut value = 0usize;
     let mut i = start;
-    while (i < end) {
+    while i < end {
         let byte = spec.[i];
-        if (!is_digit(byte)) {
+        if !is_digit(byte) {
             return .None;
         }
 
         let next = value * 10 + ((byte - b'0') as usize);
-        if (next < value) {
+        if next < value {
             return .None;
         }
         value = next;
@@ -83,8 +83,8 @@ fn parse_number(
 
 fn find_limit_marker(spec: &[u8], start: usize) ?usize {
     let mut i = start;
-    while (i < spec.@len()) {
-        if (spec.[i] == b'.') {
+    while i < spec.@len() {
+        if spec.[i] == b'.' {
             return .{ Some: i };
         }
         i += 1;
@@ -93,20 +93,20 @@ fn find_limit_marker(spec: &[u8], start: usize) ?usize {
 }
 
 fn parse_format_spec(spec: &[u8]) ?FormatSpec {
-    if (spec.@len() == 0) {
+    if spec.@len() == 0 {
         return .{ Some: FormatSpec.{} };
     }
 
     let mut out = FormatSpec.{};
     let mut i = 0usize;
 
-    if (i < spec.@len() and spec.[i] == b'#') {
+    if i < spec.@len() and spec.[i] == b'#' {
         out.alternate = true;
         i += 1;
     }
 
-    if (spec.@len() - i >= 2) {
-        match (align_for_byte(spec.[i + 1])) {
+    if spec.@len() - i >= 2 {
+        match align_for_byte(spec.[i + 1]) {
             .{ Some: align } => {
                 out.fill = spec.[i];
                 out.align = align;
@@ -116,8 +116,8 @@ fn parse_format_spec(spec: &[u8]) ?FormatSpec {
         }
     }
 
-    if (i < spec.@len()) {
-        match (align_for_byte(spec.[i])) {
+    if i < spec.@len() {
+        match align_for_byte(spec.[i]) {
             .{ Some: align } => {
                 out.align = align;
                 i += 1;
@@ -126,15 +126,15 @@ fn parse_format_spec(spec: &[u8]) ?FormatSpec {
         }
     }
 
-    if (spec.@len() - i >= 2 and spec.[i] == b'0' and is_digit(spec.[i + 1])) {
+    if spec.@len() - i >= 2 and spec.[i] == b'0' and is_digit(spec.[i + 1]) {
         out.fill = b'0';
         out.align = FORMAT_ALIGN_RIGHT;
         i += 1;
     }
 
     let mut body_end = spec.@len();
-    if (body_end > i) {
-        match (presentation_for_byte(spec.[body_end - 1])) {
+    if body_end > i {
+        match presentation_for_byte(spec.[body_end - 1]) {
             .{ Some: presentation } => {
                 out.presentation = presentation;
                 body_end -= 1;
@@ -144,9 +144,9 @@ fn parse_format_spec(spec: &[u8]) ?FormatSpec {
     }
 
     let mut width_end = body_end;
-    match (find_limit_marker(spec, i)) {
+    match find_limit_marker(spec, i) {
         .{ Some: marker } => {
-            if (marker > body_end) return .None;
+            if marker > body_end return .None;
             width_end = marker;
             let .{ Some: limit } = parse_number(spec, marker + 1, body_end, false)
                 else return .None;
@@ -167,11 +167,11 @@ fn parse_format_spec(spec: &[u8]) ?FormatSpec {
 
 fn find_placeholder_end(fmt: &[u8], start: usize) ?usize {
     let mut i = start;
-    while (i < fmt.@len()) {
-        if (fmt.[i] == b'}') {
+    while i < fmt.@len() {
+        if fmt.[i] == b'}' {
             return .{ Some: i };
         }
-        if (fmt.[i] == b'{') {
+        if fmt.[i] == b'{' {
             return .None;
         }
         i += 1;
@@ -185,7 +185,7 @@ fn rendered_len(arg: &Formatable, spec: FormatSpec) usize {
     let mut counter = sink_writer.counting();
     let counter_writer = (counter..& as &mut Write);
     arg.write_fmt(spec, counter_writer);
-    return counter..&.bytes_written();
+    return counter..&.view().bytes_written();
 }
 
 fn write_fill(
@@ -197,7 +197,7 @@ fn write_fill(
     buf.[0] = fill;
 
     let mut i = 0usize;
-    while (i < count) {
+    while i < count {
         _ = writer.write(buf.&[0...1]);
         i += 1;
     }
@@ -205,12 +205,12 @@ fn write_fill(
 
 impl &mut LimitWriter : Write {
     pub fn write(buf: &[u8]) usize {
-        if (buf.@len() == 0 or self.remaining == 0) {
+        if buf.@len() == 0 or self.remaining == 0 {
             return 0;
         }
 
         let mut count = buf.@len();
-        if (count > self.remaining) {
+        if count > self.remaining {
             count = self.remaining;
         }
 
@@ -225,7 +225,7 @@ fn write_limited_arg(
     arg: &Formatable,
     spec: FormatSpec,
 ) void {
-    match (spec.limit) {
+    match spec.limit {
         .{ Some: limit } => {
             let mut limited = LimitWriter.{ inner: writer, remaining: limit };
             let limited_writer = (limited..& as &mut Write);
@@ -254,11 +254,11 @@ fn limited_rendered_len(
         alternate: spec.alternate,
         presentation: spec.presentation,
     }, limited_writer);
-    return counter..&.bytes_written();
+    return counter..&.view().bytes_written();
 }
 
 fn formatted_len(arg: &Formatable, spec: FormatSpec) usize {
-    match (spec.limit) {
+    match spec.limit {
         .{ Some: limit } => return limited_rendered_len(arg, spec, limit),
         .None => return rendered_len(arg, spec),
     }
@@ -270,19 +270,19 @@ fn write_formatted_arg(
     spec: FormatSpec,
 ) void {
     let len = formatted_len(arg, spec);
-    if (spec.width <= len) {
+    if spec.width <= len {
         write_limited_arg(writer, arg, spec);
         return;
     }
 
     let padding = spec.width - len;
-    if (spec.align == FORMAT_ALIGN_LEFT) {
+    if spec.align == FORMAT_ALIGN_LEFT {
         write_limited_arg(writer, arg, spec);
         write_fill(writer, spec.fill, padding);
         return;
     }
 
-    if (spec.align == FORMAT_ALIGN_CENTER) {
+    if spec.align == FORMAT_ALIGN_CENTER {
         let left = padding / 2;
         let right = padding - left;
         write_fill(writer, spec.fill, left);
@@ -304,12 +304,12 @@ fn write_format(
     let mut arg_idx = 0usize;
     let mut last_pos = 0usize;
     let mut i = 0usize;
-    while (i < fmt_len) {
-        if (fmt.[i] == b'{') {
-            if (i + 1usize < fmt_len) {
+    while i < fmt_len {
+        if fmt.[i] == b'{' {
+            if i + 1usize < fmt_len {
                 // Handles the escaped left brace `{{`.
-                if (fmt.[i + 1] == b'{') {
-                    if (i > last_pos) {
+                if fmt.[i + 1] == b'{' {
+                    if i > last_pos {
                         let text_slice = fmt.&[last_pos...i];
                         _ = writer.write(text_slice);
                     }
@@ -323,7 +323,7 @@ fn write_format(
                     let mut end = i + 1;
                     let mut spec = FormatSpec.{};
 
-                    if (fmt.[i + 1] != b'}') {
+                    if fmt.[i + 1] != b'}' {
                         let .{ Some: found_end } = find_placeholder_end(fmt, i + 1)
                             else {
                                 i += 1usize;
@@ -338,11 +338,11 @@ fn write_format(
                         end = found_end;
                     }
 
-                    if (i > last_pos) {
+                    if i > last_pos {
                         let text_slice = fmt.&[last_pos...i];
                         _ = writer.write(text_slice);
                     }
-                    if (arg_idx < args.@len()) {
+                    if arg_idx < args.@len() {
                         write_formatted_arg(writer, args.[arg_idx], spec);
                         arg_idx += 1usize;
                     } else {
@@ -355,10 +355,10 @@ fn write_format(
             }
         }
         // Handles the escaped right brace `}}`.
-        else if (fmt.[i] == b'}') {
-            if (i + 1usize < fmt_len) {
-                if (fmt.[i + 1] == b'}') {
-                    if (i > last_pos) {
+        else if fmt.[i] == b'}' {
+            if i + 1usize < fmt_len {
+                if fmt.[i + 1] == b'}' {
+                    if i > last_pos {
                         let text_slice = fmt.&[last_pos...i];
                         _ = writer.write(text_slice);
                     }
@@ -374,7 +374,7 @@ fn write_format(
     }
 
     // Writes the remaining tail of the format string.
-    if (last_pos < fmt_len) {
+    if last_pos < fmt_len {
         let tail_slice = fmt.&[last_pos...fmt_len];
         _ = writer.write(tail_slice);
     }

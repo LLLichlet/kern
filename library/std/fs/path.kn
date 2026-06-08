@@ -5,15 +5,28 @@
 
 use base.mem.alloc.{AllocError, Allocator};
 use base.coll.{String, List};
+use base.num.USIZE_MAX;
 use ..types.{Error, Path};
 
 fn wrap_alloc_error(_: AllocError) Error {
     return .OutOfMemory;
 }
 
+fn checked_add_len(lhs: usize, rhs: usize) usize!Error {
+    if lhs > USIZE_MAX - rhs {
+        return .{ Err: .OutOfMemory };
+    }
+    return .{ Ok: lhs + rhs };
+}
+
+fn reserve_exact(out: &mut String, alloc: &mut Allocator, len: usize) void!Error {
+    out.try_reserve_exact(alloc, len).map_err(wrap_alloc_error).?;
+    return .{ Ok: {} };
+}
+
 /// Returns `true` when `byte` is treated as a path separator on the current platform.
 pub/ fn is_path_separator(byte: u8) bool {
-    #[if(os == "windows")]
+    #[if os == "windows"]
     {
         return byte == b'/' or byte == b'\\';
     }
@@ -23,7 +36,7 @@ pub/ fn is_path_separator(byte: u8) bool {
 
 /// Returns the preferred path separator for the current platform.
 pub/ fn path_separator_byte() u8 {
-    #[if(os == "windows")]
+    #[if os == "windows"]
     {
         return b'\\';
     }
@@ -32,14 +45,14 @@ pub/ fn path_separator_byte() u8 {
 }
 
 fn preferred_separator_byte(path: &[u8]) u8 {
-    #[if(os == "windows")]
+    #[if os == "windows"]
     {
                 let mut i = 0usize;
-        while (i < path.@len()) {
-            if (path.[i] == b'\\') {
+        while i < path.@len() {
+            if path.[i] == b'\\' {
                 return b'\\';
             }
-            if (path.[i] == b'/') {
+            if path.[i] == b'/' {
                 return b'/';
             }
 
@@ -58,44 +71,38 @@ fn preferred_separator_byte(path: &[u8]) u8 {
 /// on Windows this includes drive prefixes and UNC roots.
 pub/ fn root_prefix_len(path: &[u8]) usize {
     let len = path.@len();
-    if (len == 0) {
+    if len == 0 {
         return 0usize;
     }
 
-    #[if(os == "windows")]
+    #[if os == "windows"]
     {
-        if (len >= 2 and is_path_separator(path.[0]) and is_path_separator(path.[1])) {
+        if len >= 2 and is_path_separator(path.[0]) and is_path_separator(path.[1]) {
             let mut index = 2usize;
-            while (
-                index < len and
-                !is_path_separator(path.[index])
-            ) {
+            while index < len and !is_path_separator(path.[index]) {
                 index += 1usize;
             }
-            if (index >= len) {
+            if index >= len {
                 return 2usize;
             }
 
             index += 1usize;
-            while (
-                index < len and
-                !is_path_separator(path.[index])
-            ) {
+            while index < len and !is_path_separator(path.[index]) {
                 index += 1usize;
             }
-            if (index < len and is_path_separator(path.[index])) {
+            if index < len and is_path_separator(path.[index]) {
                 return index + 1usize;
             }
             return index;
         }
 
-        if (len >= 2) {
+        if len >= 2 {
             let drive = path.[0];
             let is_alpha =
                 (drive >= b'a' and drive <= b'z') or
                 (drive >= b'A' and drive <= b'Z');
-            if (is_alpha and path.[1] == b':') {
-                if (len >= 3 and is_path_separator(path.[2])) {
+            if is_alpha and path.[1] == b':' {
+                if len >= 3 and is_path_separator(path.[2]) {
                     return 3usize;
                 }
                 return 2usize;
@@ -103,7 +110,7 @@ pub/ fn root_prefix_len(path: &[u8]) usize {
         }
     }
 
-    if (is_path_separator(path.[0])) {
+    if is_path_separator(path.[0]) {
         return 1usize;
     }
     return 0usize;
@@ -113,8 +120,8 @@ pub/ fn root_prefix_len(path: &[u8]) usize {
 pub/ fn trim_trailing_separators(path: &[u8]) &[u8] {
     let prefix_len = root_prefix_len(path);
     let mut end = path.@len();
-        while (end > prefix_len) {
-        if (!is_path_separator(path.[end - 1])) {
+        while end > prefix_len {
+        if !is_path_separator(path.[end - 1]) {
             break;
         }
         end -= 1;
@@ -130,16 +137,19 @@ pub/ fn build_child_path(
 ) String!Error {
     let mut out = String.{};
     let sep = preferred_separator_byte(base);
+    let needs_sep = base.@len() > 0 and !is_path_separator(base.[base.@len() - 1]);
+    let with_sep = checked_add_len(base.@len(), if needs_sep 1usize else 0usize).?;
+    reserve_exact(out..&, alloc, checked_add_len(with_sep, name.@len()).?).?;
     out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).?;
 
-    if (base.@len() > 0 and !is_path_separator(base.[base.@len() - 1])) {
-        if (out..&.try_push_char(alloc, sep).is_err()) {
+    if needs_sep {
+        if out..&.try_push_char(alloc, sep).is_err() {
             out..&.deinit(alloc);
             return .{ Err: .OutOfMemory };
         }
     }
 
-    if (out..&.try_push_str(alloc, name).is_err()) {
+    if out..&.try_push_str(alloc, name).is_err() {
         out..&.deinit(alloc);
         return .{ Err: .OutOfMemory };
     }
@@ -154,13 +164,9 @@ fn append_path_segment(
     sep: u8,
     segment: &[u8],
 ) bool {
-    let out_len = out.len();
-    if (
-        out_len > 0 and
-        !is_path_separator(out.as_str().[out_len - 1]) and
-        (prefix_len == 0 or out_len > prefix_len)
-    ) {
-        if (out.try_push_char(alloc, sep).is_err()) {
+    let out_len = out.view().len();
+    if out_len > 0 and !is_path_separator(out.view().as_str().[out_len - 1]) and (prefix_len == 0 or out_len > prefix_len) {
+        if out.try_push_char(alloc, sep).is_err() {
             return false;
         }
     }
@@ -171,9 +177,9 @@ fn append_path_segment(
 fn last_separator(path: &[u8]) ?usize {
     let prefix_len = root_prefix_len(path);
         let mut index = path.@len();
-    while (index > prefix_len) {
+    while index > prefix_len {
         index -= 1;
-        if (is_path_separator(path.[index])) {
+        if is_path_separator(path.[index]) {
             return .{ Some: index };
         }
     }
@@ -184,7 +190,7 @@ fn last_separator(path: &[u8]) ?usize {
 pub/ fn file_name(path: &[u8]) ?&[u8] {
     let trimmed = trim_trailing_separators(path);
     let prefix_len = root_prefix_len(trimmed);
-    if (trimmed.@len() == 0 or trimmed.@len() == prefix_len) {
+    if trimmed.@len() == 0 or trimmed.@len() == prefix_len {
         return .None;
     }
 
@@ -196,12 +202,12 @@ pub/ fn file_name(path: &[u8]) ?&[u8] {
 pub/ fn parent(path: &[u8]) ?&[u8] {
     let trimmed = trim_trailing_separators(path);
     let prefix_len = root_prefix_len(trimmed);
-    if (trimmed.@len() == 0 or trimmed.@len() == prefix_len) {
+    if trimmed.@len() == 0 or trimmed.@len() == prefix_len {
         return .None;
     }
 
     let .{ Some: index } = last_separator(trimmed) else {
-        if (prefix_len > 0) {
+        if prefix_len > 0 {
             return .{ Some: trimmed.&[0...prefix_len] };
         }
         return .None;
@@ -214,12 +220,12 @@ pub/ fn extension(path: &[u8]) ?&[u8] {
     let name = file_name(path).?;
 
         let mut index = name.@len();
-    while (index > 0) {
+    while index > 0 {
         index -= 1;
-        if (name.[index] != b'.') {
+        if name.[index] != b'.' {
             continue;
         }
-        if (index == 0 or index + 1 == name.@len()) {
+        if index == 0 or index + 1 == name.@len() {
             return .None;
         }
         return .{ Some: name.&[index + 1...name.@len()] };
@@ -233,12 +239,12 @@ pub/ fn file_stem(path: &[u8]) ?&[u8] {
     let name = file_name(path).?;
 
         let mut index = name.@len();
-    while (index > 0) {
+    while index > 0 {
         index -= 1;
-        if (name.[index] != b'.') {
+        if name.[index] != b'.' {
             continue;
         }
-        if (index == 0) {
+        if index == 0 {
             return .{ Some: name };
         }
         return .{ Some: name.&[0...index] };
@@ -256,20 +262,23 @@ pub/ fn join(
     base: &[u8],
     child: &[u8],
 ) String!Error {
-    if (root_prefix_len(child) > 0) {
+    if root_prefix_len(child) > 0 {
         let mut out = String.{};
+        reserve_exact(out..&, alloc, child.@len()).?;
         out..&.try_push_str(alloc, child).map_err(wrap_alloc_error).?;
         return .{ Ok: out };
     }
 
-    if (base.@len() == 0) {
+    if base.@len() == 0 {
         let mut out = String.{};
+        reserve_exact(out..&, alloc, child.@len()).?;
         out..&.try_push_str(alloc, child).map_err(wrap_alloc_error).?;
         return .{ Ok: out };
     }
 
-    if (child.@len() == 0) {
+    if child.@len() == 0 {
         let mut out = String.{};
+        reserve_exact(out..&, alloc, base.@len()).?;
         out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).?;
         return .{ Ok: out };
     }
@@ -291,29 +300,31 @@ pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
     defer segments.deinit(alloc);
 
     let mut index = prefix_len;
-        while (index < path.@len()) {
-                while (index < path.@len() and is_path_separator(path.[index])) {            index += 1;
+    while index < path.@len() {
+        while index < path.@len() and is_path_separator(path.[index]) {
+            index += 1;
         }
-        if (index >= path.@len()) {
+        if index >= path.@len() {
             break;
         }
 
         let start = index;
-                while (index < path.@len() and !is_path_separator(path.[index])) {            index += 1;
+        while index < path.@len() and !is_path_separator(path.[index]) {
+            index += 1;
         }
         let segment = path.&[start...index];
 
-        if (segment == ".") {
+        if segment == "." {
             continue;
         }
 
-        if (segment == "..") {
-            let can_pop = segments.last().is_some_and([](last: &[u8]) bool {
+        if segment == ".." {
+            let can_pop = segments.view().last().is_some_and([](last: &[u8]) bool {
                 return last != "..";
             });
-            if (can_pop) {
+            if can_pop {
                 _ = segments.pop();
-            } else if (prefix_len == 0) {
+            } else if prefix_len == 0 {
                 segments.try_push(alloc, segment).map_err(wrap_alloc_error).?;
             }
             continue;
@@ -323,12 +334,13 @@ pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
     }
 
     let mut out = String.{};
-    if (prefix_len > 0) {
+    reserve_exact(out..&, alloc, path.@len().max(1usize)).?;
+    if prefix_len > 0 {
         out..&.try_push_str(alloc, path.&[0...prefix_len]).map_err(wrap_alloc_error).?;
     }
 
-    if (segments.is_empty()) {
-        if (prefix_len > 0) {
+    if segments.view().is_empty() {
+        if prefix_len > 0 {
             return .{ Ok: out };
         }
         out..&.try_push_str(alloc, ".").map_err(wrap_alloc_error).?;
@@ -336,12 +348,12 @@ pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
     }
 
     let mut seg_index = 0usize;
-    while (seg_index < segments.len()) {
-        let .{ Some: segment } = segments.get(seg_index) else {
+    while seg_index < segments.view().len() {
+        let .{ Some: segment } = segments.view().get(seg_index) else {
             seg_index += 1;
             continue;
         };
-        if (!append_path_segment(out..&, alloc, prefix_len, sep, segment)) {
+        if !append_path_segment(out..&, alloc, prefix_len, sep, segment) {
             out..&.deinit(alloc);
             return .{ Err: .OutOfMemory };
         }
@@ -361,7 +373,7 @@ pub/ fn with_file_name(
     path: &[u8],
     name: &[u8],
 ) String!Error {
-    if (name.@len() == 0) {
+    if name.@len() == 0 {
         return .{ Err: .InvalidPath };
     }
 
@@ -369,7 +381,7 @@ pub/ fn with_file_name(
     let prefix_len = root_prefix_len(trimmed);
 
     let .{ Some: dir } = parent(trimmed) else {
-        if (trimmed.@len() == prefix_len and prefix_len > 0) {
+        if trimmed.@len() == prefix_len and prefix_len > 0 {
             return join(alloc, trimmed, name);
         }
         return join(alloc, "", name);
@@ -387,23 +399,38 @@ pub/ fn with_extension(
 ) String!Error {
     let stem = file_stem(path).ok_or(.InvalidPath).?;
 
-    let mut new_name = String.{};
-    new_name..&.try_push_str(alloc, stem).map_err(wrap_alloc_error).?;
+    let trimmed = trim_trailing_separators(path);
+    let parent_len = match parent(trimmed) {
+        .{ Some: dir } => dir.@len(),
+        .None => 0usize,
+    };
+    let needs_parent_sep = parent_len > 0
+        and !is_path_separator(trimmed.[parent_len - 1])
+        and stem.@len() > 0;
+    let ext_part_len = if ext.@len() > 0 checked_add_len(1usize, ext.@len()).? else 0usize;
+    let name_len = checked_add_len(stem.@len(), ext_part_len).?;
+    let parent_part_len = checked_add_len(parent_len, if needs_parent_sep 1usize else 0usize).?;
 
-    if (ext.@len() > 0) {
-        if (new_name..&.try_push_char(alloc, b'.').is_err()) {
-            new_name..&.deinit(alloc);
-            return .{ Err: .OutOfMemory };
-        }
-        if (new_name..&.try_push_str(alloc, ext).is_err()) {
-            new_name..&.deinit(alloc);
-            return .{ Err: .OutOfMemory };
-        }
+    let mut out = String.{};
+    reserve_exact(out..&, alloc, checked_add_len(parent_part_len, name_len).?).?;
+
+    match parent(trimmed) {
+        .{ Some: dir } => {
+            out..&.try_push_str(alloc, dir).map_err(wrap_alloc_error).?;
+            if needs_parent_sep {
+                out..&.try_push_char(alloc, preferred_separator_byte(trimmed)).map_err(wrap_alloc_error).?;
+            }
+        },
+        .None => {},
     }
 
-    let result = with_file_name(alloc, path, new_name.&.as_str());
-    new_name..&.deinit(alloc);
-    return result;
+    out..&.try_push_str(alloc, stem).map_err(wrap_alloc_error).?;
+    if ext.@len() > 0 {
+        out..&.try_push_char(alloc, b'.').map_err(wrap_alloc_error).?;
+        out..&.try_push_str(alloc, ext).map_err(wrap_alloc_error).?;
+    }
+
+    return .{ Ok: out };
 }
 
 impl Path {

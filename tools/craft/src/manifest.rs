@@ -1,3 +1,9 @@
+//! Craft manifest model, parsing, and validation entry points.
+//!
+//! The manifest layer keeps raw `Craft.toml` data close to user-facing
+//! validation so later planning stages can rely on normalized package,
+//! workspace, dependency, profile, and style settings.
+
 mod parse;
 #[cfg(test)]
 mod tests;
@@ -194,6 +200,7 @@ pub struct WorkspacePackage {
 }
 
 const CURRENT_KERN_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub(crate) use validate::default_kern_compat_version;
 
 #[derive(Clone, Debug)]
 pub(super) enum Section {

@@ -16,11 +16,12 @@ pub fn page() Page {
     return .{};
 }
 
-#[if(os == "windows")]
+#[if os == "windows"]
 const WINDOWS_PAGE_READWRITE = 4u32;
+const OS_PAGE_MIN_ALIGN = 4096usize;
 
 fn normalize_align(align: usize) usize {
-    return if (align == 0) 1usize else align;
+    return if align == 0 1usize else align;
 }
 
 fn dangling_ptr(align: usize) &mut u8 {
@@ -30,11 +31,17 @@ fn dangling_ptr(align: usize) &mut u8 {
 impl &mut Page : Allocator{
     /// Allocates a region directly from the operating system.
     pub fn alloc(layout: Layout) ?&mut u8 {
-        if (layout.size == 0) {
+        if layout.size == 0 {
             return .{ Some: dangling_ptr(layout.align) };
         }
+        // OS page APIs guarantee page-aligned mappings. Larger alignments need
+        // an over-allocation strategy, so this allocator rejects them instead of
+        // returning a pointer that violates `Allocator.alloc`'s layout contract.
+        if normalize_align(layout.align) > OS_PAGE_MIN_ALIGN {
+            return .None;
+        }
 
-        #[if(os == "linux")] {
+        #[if os == "linux"] {
             let raw = os.linux.mmap(
                 0,
                 layout.size,
@@ -43,13 +50,13 @@ impl &mut Page : Allocator{
                 ~0usize,
                 0
             );
-            if (raw == os.linux.MAP_FAILED) {
+            if raw == os.linux.MAP_FAILED {
                 return .None;
             }
             return .{ Some: raw.as_mut_ptr[u8]() };
         };
 
-        #[if(os == "darwin")] {
+        #[if os == "darwin"] {
             let raw = os.darwin.mmap(
                 null_mut_ptr[void](),
                 layout.size,
@@ -58,24 +65,24 @@ impl &mut Page : Allocator{
                 -1,
                 0
             );
-            if (raw as usize == ~0usize) {
+            if raw as usize == ~0usize {
                 return .None;
             }
-            if ((raw as usize) == 0) {
+            if (raw as usize) == 0 {
                 _ = os.darwin.munmap(raw, layout.size);
                 return .None;
             }
             return .{ Some: raw as &mut u8 };
         };
 
-        #[if(os == "windows")] {
+        #[if os == "windows"] {
             let raw = os.windows.VirtualAlloc(
                 null_mut_ptr[void](),
                 layout.size,
                 (os.windows.MEM_COMMIT | os.windows.MEM_RESERVE) as u32,
                 WINDOWS_PAGE_READWRITE
             );
-            if ((raw as usize) == 0) return .None;
+            if (raw as usize) == 0 return .None;
             return .{ Some: raw as &mut u8 };
         };
     }
@@ -85,19 +92,19 @@ impl &mut Page : Allocator{
     /// Safety:
     /// `ptr` and `layout` must come from this allocator.
     pub fn free(ptr: &mut u8, layout: Layout) void {
-        if ((ptr as usize) == 0 or layout.size == 0) {
+        if (ptr as usize) == 0 or layout.size == 0 {
             return;
         }
 
-        #[if(os == "linux")] {
+        #[if os == "linux"] {
             _ = os.linux.munmap(ptr as usize, layout.size);
         };
 
-        #[if(os == "darwin")] {
+        #[if os == "darwin"] {
             _ = os.darwin.munmap(ptr as &mut void, layout.size);
         };
 
-        #[if(os == "windows")] {
+        #[if os == "windows"] {
             _ = os.windows.VirtualFree(ptr as &mut void, 0, os.windows.MEM_RELEASE as u32);
         };
     }

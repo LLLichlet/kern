@@ -31,5 +31,5 @@ fn project[T](value: T) T.Step.Mid.Finish[Out = i32].Out
 
 fn main() i32 {
     let value = project(X.{});
-    return if (value == 7) { 0 } else { 1 };
+    return if value == 7 { 0 } else { 1 };
 }

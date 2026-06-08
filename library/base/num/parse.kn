@@ -27,7 +27,7 @@ pub enum ParseIntError {
 impl &ParseIntError : Formatable {
     pub fn write_fmt(spec: FormatSpec, writer: &mut Write) void {
         _ = spec;
-        match (self.*) {
+        match self.* {
             .Empty => {
                 _ = writer.write("ParseIntError.Empty");
             },
@@ -50,13 +50,13 @@ pub trait Parse[T] {
 };
 
 fn digit_value(byte: u8) ?u8 {
-    if (byte >= b'0' and byte <= b'9') {
+    if byte >= b'0' and byte <= b'9' {
         return .{ Some: byte - b'0' };
     }
-    if (byte >= b'a' and byte <= b'z') {
+    if byte >= b'a' and byte <= b'z' {
         return .{ Some: byte - b'a' + 10 };
     }
-    if (byte >= b'A' and byte <= b'Z') {
+    if byte >= b'A' and byte <= b'Z' {
         return .{ Some: byte - b'A' + 10 };
     }
     return .None;
@@ -69,7 +69,7 @@ fn checked_add_digit(
 ) u128!ParseIntError {
     let base = radix as u128;
     let next_digit = digit as u128;
-    if (acc > (U128_MAX - next_digit) / base) {
+    if acc > (U128_MAX - next_digit) / base {
         return .{ Err: .Overflow };
     }
     return .{ Ok: acc * base + next_digit };
@@ -80,18 +80,18 @@ fn parse_u128_body(
     start: usize,
     radix: u8,
 ) u128!ParseIntError {
-    if (radix < 2 or radix > 36) {
+    if radix < 2 or radix > 36 {
         return .{ Err: .InvalidRadix };
     }
-    if (start >= text.@len()) {
+    if start >= text.@len() {
         return .{ Err: .Empty };
     }
 
     let mut value = 0u128;
     let mut i = start;
-    while (i < text.@len()) {
+    while i < text.@len() {
         let .{ Some: digit } = digit_value(text.[i]) else return .{ Err: .InvalidDigit };
-        if (digit >= radix) {
+        if digit >= radix {
             return .{ Err: .InvalidDigit };
         }
         value = checked_add_digit(value, digit, radix).?;
@@ -101,18 +101,18 @@ fn parse_u128_body(
 }
 
 fn signed_magnitude(text: &[u8], radix: u8) u128!ParseIntError {
-    if (text.@len() == 0) {
+    if text.@len() == 0 {
         return .{ Err: .Empty };
     }
-    let start = if (text.[0] == b'+' or text.[0] == b'-') 1usize else 0usize;
+    let start = if text.[0] == b'+' or text.[0] == b'-' 1usize else 0usize;
     return parse_u128_body(text, start, radix);
 }
 
 fn parse_unsigned_magnitude(text: &[u8], radix: u8) u128!ParseIntError {
-    if (text.@len() == 0) {
+    if text.@len() == 0 {
         return .{ Err: .Empty };
     }
-    if (text.[0] == b'+' or text.[0] == b'-') {
+    if text.[0] == b'+' or text.[0] == b'-' {
         return .{ Err: .InvalidDigit };
     }
     return parse_u128_body(text, 0, radix);
@@ -124,7 +124,7 @@ fn parse_unsigned_limited(
     max: u128,
 ) u128!ParseIntError {
     let value = parse_unsigned_magnitude(text, radix).?;
-    if (value > max) {
+    if value > max {
         return .{ Err: .Overflow };
     }
     return .{ Ok: value };
@@ -137,8 +137,8 @@ fn parse_signed_magnitude_limited(
 ) u128!ParseIntError {
     let negative = text.@len() != 0 and text.[0] == b'-';
     let magnitude = signed_magnitude(text, radix).?;
-    let max_magnitude = if (negative) max_positive + 1 else max_positive;
-    if (magnitude > max_magnitude) {
+    let max_magnitude = if negative max_positive + 1 else max_positive;
+    if magnitude > max_magnitude {
         return .{ Err: .Overflow };
     }
     return .{ Ok: magnitude };
@@ -180,35 +180,35 @@ fn parse_usize_radix(text: &[u8], radix: u8) usize!ParseIntError {
 fn parse_i8_radix(text: &[u8], radix: u8) i8!ParseIntError {
     let negative = text.@len() != 0 and text.[0] == b'-';
     let magnitude = parse_signed_magnitude_limited(text, radix, I8_MAX_U128).?;
-    let value = if (negative) signed_bits(magnitude) else magnitude;
+    let value = if negative signed_bits(magnitude) else magnitude;
     return .{ Ok: value as i8 };
 }
 
 fn parse_i16_radix(text: &[u8], radix: u8) i16!ParseIntError {
     let negative = text.@len() != 0 and text.[0] == b'-';
     let magnitude = parse_signed_magnitude_limited(text, radix, I16_MAX_U128).?;
-    let value = if (negative) signed_bits(magnitude) else magnitude;
+    let value = if negative signed_bits(magnitude) else magnitude;
     return .{ Ok: value as i16 };
 }
 
 fn parse_i32_radix(text: &[u8], radix: u8) i32!ParseIntError {
     let negative = text.@len() != 0 and text.[0] == b'-';
     let magnitude = parse_signed_magnitude_limited(text, radix, I32_MAX_U128).?;
-    let value = if (negative) signed_bits(magnitude) else magnitude;
+    let value = if negative signed_bits(magnitude) else magnitude;
     return .{ Ok: value as i32 };
 }
 
 fn parse_i64_radix(text: &[u8], radix: u8) i64!ParseIntError {
     let negative = text.@len() != 0 and text.[0] == b'-';
     let magnitude = parse_signed_magnitude_limited(text, radix, I64_MAX_U128).?;
-    let value = if (negative) signed_bits(magnitude) else magnitude;
+    let value = if negative signed_bits(magnitude) else magnitude;
     return .{ Ok: value as i64 };
 }
 
 fn parse_i128_radix(text: &[u8], radix: u8) i128!ParseIntError {
     let negative = text.@len() != 0 and text.[0] == b'-';
     let magnitude = parse_signed_magnitude_limited(text, radix, I128_MAX_U128).?;
-    let value = if (negative) signed_bits(magnitude) else magnitude;
+    let value = if negative signed_bits(magnitude) else magnitude;
     return .{ Ok: value as i128 };
 }
 
@@ -216,7 +216,7 @@ fn parse_isize_radix(text: &[u8], radix: u8) isize!ParseIntError {
     let negative = text.@len() != 0 and text.[0] == b'-';
     let max_positive = (USIZE_MAX >> 1) as u128;
     let magnitude = parse_signed_magnitude_limited(text, radix, max_positive).?;
-    let value = if (negative) signed_bits(magnitude) else magnitude;
+    let value = if negative signed_bits(magnitude) else magnitude;
     return .{ Ok: value as isize };
 }
 

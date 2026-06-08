@@ -12,7 +12,7 @@ impl[T] Any : Pattern[T] {
 }
 
 fn take[T](value: T, pattern: Any) T {
-    return match (value) {
+    return match value {
         pattern => value,
         _ => value,
     };

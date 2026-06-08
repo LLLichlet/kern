@@ -1,3 +1,9 @@
+//! Entry-point and test adapter analysis.
+//!
+//! This module discovers runnable test cases, synthesizes adapter entry points,
+//! and records the symbols needed to dispatch selected tests through generated
+//! driver code.
+
 use super::*;
 use kernc_sema::scope::{SymbolInfo, SymbolKind};
 use std::fs;

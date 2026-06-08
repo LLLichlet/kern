@@ -1,3 +1,10 @@
+//! Parser-owned abstract syntax tree for Kern source.
+//!
+//! The AST keeps source-level structure and spans before semantic resolution.
+//! Names are interned as `SymbolId`, every major node carries a `NodeId`, and
+//! semantic crates attach meaning through side tables instead of mutating these
+//! syntax records in place.
+
 mod attr;
 mod decl;
 mod doc;

@@ -1,3 +1,9 @@
+//! Expression type checker and shared expression-state machinery.
+//!
+//! `ExprChecker` owns local inference variables, numeric literal inference,
+//! trait-obligation recursion guards, pointer escape tracking, and per-expression
+//! timing counters. Specialized syntax families live in sibling modules.
+
 use crate::context::SemaContext;
 use crate::def::DefId;
 use crate::passes::TypeResolver;
@@ -7,7 +13,7 @@ use crate::ty::{
     GenericArg, TypeId, TypeKind,
 };
 use kernc_ast::{self as ast, AssignmentOperator, Expr, ExprKind, UnaryOperator};
-use kernc_utils::{FastHashMap, FastHashSet, NodeId, Span, SymbolId};
+use kernc_utils::{CancellationToken, FastHashMap, FastHashSet, NodeId, Span, SymbolId};
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::time::{Duration, Instant};
@@ -37,6 +43,9 @@ pub(crate) struct NumericInferenceState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum PointerOrigin {
     Temporary(Span),
+    StaticLiteral(Span),
+    Local(Span),
+    CapturingClosure(Span),
     Parameter(usize),
 }
 
@@ -57,9 +66,43 @@ pub(crate) struct ExprChecker<'a, 'ctx> {
         FastHashMap<(ScopeId, SymbolId), FastHashSet<PointerOrigin>>,
     pub(crate) pointer_origin_exprs: FastHashMap<NodeId, FastHashSet<PointerOrigin>>,
     pub(crate) stored_parameters: FastHashSet<usize>,
+    pub(crate) cancellation: CancellationToken,
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    pub(crate) fn new(ctx: &'a mut SemaContext<'ctx>, current_return_type: Option<TypeId>) -> Self {
+        Self::with_cancellation(ctx, current_return_type, CancellationToken::new())
+    }
+
+    pub(crate) fn with_cancellation(
+        ctx: &'a mut SemaContext<'ctx>,
+        current_return_type: Option<TypeId>,
+        cancellation: CancellationToken,
+    ) -> Self {
+        Self {
+            ctx,
+            current_return_type,
+            has_returned: false,
+            type_vars: Vec::new(),
+            numeric_type_vars: Vec::new(),
+            trait_obligation_stack: Vec::new(),
+            projection_normalization_stack: Vec::new(),
+            current_module_cache: None,
+            allow_uninstantiated_generic_function_items: false,
+            touched_expr_nodes: Vec::new(),
+            numeric_literal_exprs: Vec::new(),
+            touched_bindings: Vec::new(),
+            pointer_origin_bindings: FastHashMap::default(),
+            pointer_origin_exprs: FastHashMap::default(),
+            stored_parameters: FastHashSet::default(),
+            cancellation,
+        }
+    }
+
+    pub(crate) fn is_canceled(&self) -> bool {
+        self.cancellation.check().is_err()
+    }
+
     fn string_literal_type(&mut self, value: &str) -> TypeId {
         self.ctx.type_registry.intern(TypeKind::Array {
             elem: TypeId::U8,
@@ -149,26 +192,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     const NUMERIC_CAND_ALL: u16 = Self::NUMERIC_CAND_ALL_INTS | Self::NUMERIC_CAND_ALL_FLOATS;
     const NUMERIC_CAND_POINTER_OFFSETS: u16 = Self::NUMERIC_CAND_ISIZE | Self::NUMERIC_CAND_USIZE;
 
-    pub(crate) fn new(ctx: &'a mut SemaContext<'ctx>, current_return_type: Option<TypeId>) -> Self {
-        Self {
-            ctx,
-            current_return_type,
-            has_returned: false,
-            type_vars: Vec::new(),
-            numeric_type_vars: Vec::new(),
-            trait_obligation_stack: Vec::new(),
-            projection_normalization_stack: Vec::new(),
-            current_module_cache: None,
-            allow_uninstantiated_generic_function_items: false,
-            touched_expr_nodes: Vec::new(),
-            numeric_literal_exprs: Vec::new(),
-            touched_bindings: Vec::new(),
-            pointer_origin_bindings: FastHashMap::default(),
-            pointer_origin_exprs: FastHashMap::default(),
-            stored_parameters: FastHashSet::default(),
-        }
-    }
-
     pub(crate) fn numeric_state_for_kind(kind: NumericInferenceKind) -> NumericInferenceState {
         let candidates = match kind {
             NumericInferenceKind::IntLiteral => Self::NUMERIC_CAND_ALL,
@@ -191,10 +214,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         match &expr.kind {
             ExprKind::Grouped { expr: inner } => self.collect_pointer_origins(inner, out),
             ExprKind::Unary {
-                op: UnaryOperator::MutAddressOf,
+                op: UnaryOperator::AddressOf | UnaryOperator::MutAddressOf,
                 operand,
-            } if self.can_materialize_mut_temporary(operand) => {
-                out.insert(PointerOrigin::Temporary(expr.span));
+            } => {
+                if self.can_materialize_mut_temporary(operand) {
+                    out.insert(PointerOrigin::Temporary(expr.span));
+                } else if let Some(origin) = self.local_storage_pointer_origin(operand, expr.span) {
+                    out.insert(origin);
+                }
             }
             ExprKind::Unary {
                 op: UnaryOperator::PointerDeRef,
@@ -211,7 +238,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             | ExprKind::Range { .. }
             | ExprKind::Assign { .. }
             | ExprKind::FieldAccess { .. }
-            | ExprKind::IndexAccess { .. } => {}
+            | ExprKind::IndexAccess { .. } => {
+                self.collect_direct_pointer_origins(expr, out);
+            }
+            ExprKind::SliceOp { .. } => {
+                self.collect_direct_pointer_origins(expr, out);
+                if let Some(origin) = self.local_storage_pointer_origin(expr, expr.span) {
+                    out.insert(origin);
+                }
+            }
             ExprKind::Call { .. } => {}
             ExprKind::DataInit { literal, .. } => {
                 self.collect_pointer_origins_in_literal(literal, out);
@@ -237,7 +272,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
             ExprKind::While { .. } => {}
-            ExprKind::SliceOp { .. } => {}
             ExprKind::Return(value) => {
                 if let Some(value) = value {
                     self.collect_pointer_origins(value, out);
@@ -312,6 +346,62 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::As { lhs, .. } => self.collect_direct_pointer_origins(lhs, out),
             _ => {}
         }
+    }
+
+    fn local_storage_pointer_origin(
+        &self,
+        expr: &Expr,
+        address_span: Span,
+    ) -> Option<PointerOrigin> {
+        match &expr.kind {
+            ExprKind::Grouped { expr } => self.local_storage_pointer_origin(expr, address_span),
+            ExprKind::Identifier(name) => self.local_binding_pointer_origin(*name, address_span),
+            ExprKind::SelfValue => Some(PointerOrigin::Local(address_span)),
+            ExprKind::FieldAccess { lhs, .. } => {
+                let lhs_ty = self.ctx.node_type_or_error(lhs.id);
+                let lhs_norm = self.ctx.type_registry.normalize(lhs_ty);
+                if matches!(
+                    self.ctx.type_registry.get(lhs_norm),
+                    TypeKind::Pointer { .. }
+                        | TypeKind::VolatilePtr { .. }
+                        | TypeKind::Slice { .. }
+                ) {
+                    None
+                } else {
+                    self.local_storage_pointer_origin(lhs, address_span)
+                }
+            }
+            ExprKind::IndexAccess { lhs, .. } | ExprKind::SliceOp { lhs, .. } => {
+                let lhs_ty = self.ctx.node_type_or_error(lhs.id);
+                let lhs_norm = self.ctx.type_registry.normalize(lhs_ty);
+                match self.ctx.type_registry.get(lhs_norm) {
+                    TypeKind::Array { .. } | TypeKind::ArrayInfer { .. } => {
+                        self.local_storage_pointer_origin(lhs, address_span)
+                    }
+                    _ => None,
+                }
+            }
+            ExprKind::Unary {
+                op: UnaryOperator::PointerDeRef,
+                ..
+            } => None,
+            _ => None,
+        }
+    }
+
+    fn local_binding_pointer_origin(
+        &self,
+        name: SymbolId,
+        address_span: Span,
+    ) -> Option<PointerOrigin> {
+        self.ctx
+            .scopes
+            .resolve_value_symbol(name)
+            .and_then(|info| match info.kind {
+                crate::scope::SymbolKind::Static => None,
+                crate::scope::SymbolKind::Var => Some(PointerOrigin::Local(address_span)),
+                _ => None,
+            })
     }
 
     fn pointer_origin_binding_set(&self, name: SymbolId) -> Option<FastHashSet<PointerOrigin>> {
@@ -405,39 +495,78 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     self.record_pointer_origin_pattern_bindings(&field.pattern, init, origins);
                 }
             }
-            ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {}
+            ast::PatternKind::Ignore
+            | ast::PatternKind::Variant(_)
+            | ast::PatternKind::Value(_) => {}
         }
     }
 
-    pub(crate) fn reject_temporary_address_escape(&mut self, expr: &Expr, destination: &str) {
+    pub(crate) fn reject_stack_pointer_escape(&mut self, expr: &Expr, destination: &str) {
         let origins = self.pointer_origins(expr);
-        self.reject_temporary_origins(&origins, destination);
+        self.reject_stack_pointer_origins(&origins, destination);
         if destination == "static storage" {
             self.record_parameter_store_from_origins(&origins);
         }
     }
 
-    fn reject_temporary_origins(
+    fn reject_stack_pointer_origins(
         &mut self,
         origins: &FastHashSet<PointerOrigin>,
         destination: &str,
     ) {
         for origin in origins {
-            if let PointerOrigin::Temporary(address_span) = origin {
-                self.emit_temporary_address_escape(*address_span, destination);
-            }
+            self.emit_stack_pointer_escape(*origin, destination);
         }
     }
 
-    fn emit_temporary_address_escape(&mut self, address_span: Span, destination: &str) {
-        self.ctx
-            .struct_error(
-                address_span,
-                format!("address of temporary value escapes into {}", destination),
-            )
-            .with_hint("`..&` may materialize a temporary that is only valid in the current scope")
-            .with_hint("bind the value to stable storage before taking its address")
-            .emit();
+    fn emit_stack_pointer_escape(&mut self, origin: PointerOrigin, destination: &str) {
+        match origin {
+            PointerOrigin::Temporary(address_span) | PointerOrigin::StaticLiteral(address_span) => {
+                if matches!(origin, PointerOrigin::StaticLiteral(_))
+                    && destination == "static storage"
+                {
+                    return;
+                }
+                self.ctx
+                    .struct_error(
+                        address_span,
+                        format!("address of temporary value escapes into {}", destination),
+                    )
+                    .with_hint(
+                        "`..&` may materialize a temporary that is only valid in the current scope",
+                    )
+                    .with_hint("bind the value to stable storage before taking its address")
+                    .emit();
+            }
+            PointerOrigin::Local(address_span) => {
+                self.ctx
+                    .struct_error(
+                        address_span,
+                        format!("address of local value escapes into {}", destination),
+                    )
+                    .with_hint("this address points into the current function's stack frame")
+                    .with_hint(
+                        "move the value into storage that outlives the returned or stored pointer",
+                    )
+                    .emit();
+            }
+            PointerOrigin::CapturingClosure(closure_span) => {
+                self.ctx
+                    .struct_error(
+                        closure_span,
+                        format!("capturing closure environment escapes into {}", destination),
+                    )
+                    .with_span_label(
+                        closure_span,
+                        "this closure environment is stored in the current stack frame",
+                    )
+                    .with_hint(
+                        "return a non-capturing closure, or move the captured state into an explicit object that outlives the callback",
+                    )
+                    .emit();
+            }
+            PointerOrigin::Parameter(_) => {}
+        }
     }
 
     fn record_parameter_store_from_origins(&mut self, origins: &FastHashSet<PointerOrigin>) {
@@ -1129,7 +1258,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             | TypeKind::Error
             | TypeKind::Module(_)
             | TypeKind::TypeVar(_) => false,
-            TypeKind::Alias(..) => unreachable!("aliases are removed by resolve_tv"),
+            TypeKind::Alias(..) => {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    "Kern ICE (Typeck): alias type survived resolve_tv during generic occurrence checking",
+                );
+                false
+            }
             TypeKind::Param(name) => {
                 if name == needle {
                     return true;
@@ -1578,6 +1713,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     /// Main entry point for expression type checking.
     pub(crate) fn check_expr(&mut self, expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
+        if self.is_canceled() {
+            return TypeId::ERROR;
+        }
         let ty = match &expr.kind {
             ExprKind::Error => TypeId::ERROR,
 
@@ -1756,6 +1894,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::GenericInstantiation { target, args } => {
                 let started = self.timing_start();
                 for arg in args {
+                    if self.is_canceled() {
+                        return TypeId::ERROR;
+                    }
                     match arg {
                         ast::GenericArg::Type(ty_node)
                         | ast::GenericArg::AssocBinding { value: ty_node, .. } => {
@@ -2213,7 +2354,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         })),
                 )
             }
-            None => unreachable!("non-builtin return enum was rejected above"),
+            None => {
+                self.ctx.emit_ice(
+                    span,
+                    "Kern ICE (Typeck): non-builtin return enum reached propagation lowering",
+                );
+                return TypeId::ERROR;
+            }
         };
 
         let operand_ty = self.check_expr(operand, operand_expected);

@@ -1,7 +1,14 @@
+//! Linkage and exported-symbol validation.
+//!
+//! This pass checks that concrete exported functions/globals do not collide at
+//! the C/LLVM symbol layer, that declarations and definitions agree on
+//! signatures, and that unsupported linkage-facing attributes are diagnosed
+//! before codegen.
+
 use crate::SemaContext;
 use crate::def::Def;
 use crate::ty::TypeId;
-use kernc_utils::Span;
+use kernc_utils::{Canceled, CancellationToken, Span, expect_uncancelable};
 use std::collections::HashMap;
 
 pub struct LinkageChecker<'a, 'ctx> {
@@ -18,15 +25,26 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
     }
 
     pub fn check_all(&mut self) {
+        expect_uncancelable(
+            self.check_all_cancelable(&CancellationToken::new()),
+            "checking linkage",
+        );
+    }
+
+    pub fn check_all_cancelable(
+        &mut self,
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
         // Track: export name -> (is concrete definition, signature, extern flag, declaration span).
         let mut symbols: HashMap<String, (bool, TypeId, bool, Span)> = HashMap::new();
 
         for def_id in self.ctx.defs.ids().collect::<Vec<_>>() {
+            cancellation.check()?;
             let def = self.ctx.defs[def_id.0 as usize].clone(); // Clone to avoid borrow conflicts.
 
             let (is_definition, is_extern, sig_ty, span) = match def {
                 Def::Function(f) => {
-                    self.check_attribute_surface(&f.attributes);
+                    self.check_attribute_surface_cancelable(&f.attributes, cancellation)?;
 
                     // Check whether this is a generic template, either directly or through its impl.
                     let mut is_generic = !f.generics.is_empty();
@@ -46,7 +64,7 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                     (f.body.is_some(), f.is_extern, sig_ty, f.span)
                 }
                 Def::Global(g) => {
-                    self.check_attribute_surface(&g.attributes);
+                    self.check_attribute_surface_cancelable(&g.attributes, cancellation)?;
                     let sig_ty = g
                         .value
                         .as_ref()
@@ -114,15 +132,22 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                 symbols.insert(export_name, (is_definition, sig_ty, is_extern, span));
             }
         }
+        Ok(())
     }
 
-    fn check_attribute_surface(&mut self, attributes: &[kernc_ast::Attribute]) {
+    fn check_attribute_surface_cancelable(
+        &mut self,
+        attributes: &[kernc_ast::Attribute],
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
         for attr in attributes {
+            cancellation.check()?;
             let kernc_ast::AttributeKind::Meta(items) = &attr.kind else {
                 continue;
             };
 
             for item in items {
+                cancellation.check()?;
                 match item {
                     kernc_ast::MetaItem::Marker(name) => {
                         if self.ctx.resolve(*name) == "inline_always" {
@@ -156,5 +181,6 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                 }
             }
         }
+        Ok(())
     }
 }

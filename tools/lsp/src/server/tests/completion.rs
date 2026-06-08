@@ -1,9 +1,11 @@
+//! Server-level completion request tests.
+
 use super::*;
 
 #[test]
 fn completion_request_returns_visible_items() {
     let mut state = initialized_state();
-    let source = "fn helper() i32 { return 1; }\nfn main() i32 {\n    hel\n}\n";
+    let source = "/// Helper docs.\nfn helper() i32 { return 1; }\nfn main() i32 {\n    hel\n}\n";
     let uri = temp_file_uri("server_completion", source);
 
     let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
@@ -15,7 +17,7 @@ fn completion_request_returns_visible_items() {
             method: Some("textDocument/completion".to_string()),
             params: Some(json!({
                 "textDocument": { "uri": uri },
-                "position": { "line": 2, "character": 7 }
+                "position": { "line": 3, "character": 7 }
             })),
         },
     );
@@ -29,6 +31,15 @@ fn completion_request_returns_visible_items() {
         .unwrap();
     assert_eq!(helper["insertText"], json!("helper()$0"));
     assert_eq!(helper["insertTextFormat"], json!(2));
+    assert!(helper.get("documentation").is_none());
+    assert_eq!(helper["data"]["uri"], json!(uri));
+    assert_eq!(helper["data"]["version"], json!(1));
+    assert_eq!(
+        helper["data"]["position"],
+        json!({ "line": 3, "character": 7 })
+    );
+    assert_eq!(helper["data"]["label"], json!("helper"));
+    assert!(helper["data"].get("documentation").is_none());
 }
 
 #[test]
@@ -124,11 +135,32 @@ fn verbose_trace_reports_completion_analysis_tier() {
             .unwrap()
             .contains("tier=lexical")
     );
+    let verbose = messages[1]["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("request_id=37"), "{verbose}");
+    assert!(verbose.contains("document_generation=1"), "{verbose}");
+    assert!(verbose.contains("document_version=1"), "{verbose}");
+    assert!(verbose.contains("snapshot_generation="), "{verbose}");
+    assert!(
+        verbose.contains("cache=lexical:hit=0,miss=1,store=1"),
+        "{verbose}"
+    );
+    assert!(
+        messages[1]["params"]["verbose"]
+            .as_str()
+            .unwrap()
+            .contains("queue_wait_ms=")
+    );
     assert!(
         messages[1]["params"]["verbose"]
             .as_str()
             .unwrap()
             .contains("elapsed_ms=")
+    );
+    assert!(
+        messages[1]["params"]["verbose"]
+            .as_str()
+            .unwrap()
+            .contains("status=completed")
     );
     assert!(
         messages[1]["params"]["verbose"]

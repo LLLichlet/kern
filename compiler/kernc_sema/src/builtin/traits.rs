@@ -1,3 +1,9 @@
+//! Builtin trait declarations and operator trait shapes.
+//!
+//! Operator traits are modeled with associated `Out` types so overload
+//! resolution can express result-type-dependent operators without a separate
+//! hardcoded table in the expression checker.
+
 use super::*;
 
 impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
@@ -37,6 +43,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let trait_def = TraitDef {
             id: def_id,
             name: name_id,
+            name_span: Span::default(),
             vis: Visibility::Public,
             is_imported: false,
             generics: spec.generics,
@@ -82,6 +89,8 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let rhs = self.new_builtin_param("Rhs");
         let rhs_ty = self.ctx.type_registry.intern(TypeKind::Param(rhs.name));
         let out_assoc_id = DefId(def_id.0 + 1);
+        // The associated type is inserted immediately after the trait and is
+        // referenced from the synthetic method signature before insertion.
         let out_ty = self
             .ctx
             .type_registry
@@ -96,6 +105,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.ctx.add_def(Def::Trait(TraitDef {
             id: def_id,
             name: name_id,
+            name_span: Span::default(),
             vis: Visibility::Public,
             is_imported: false,
             generics: vec![rhs],
@@ -112,6 +122,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: out_assoc_id,
             name: out_name_id,
+            name_span: Span::default(),
             parent_trait: Some(def_id),
             parent_impl: None,
             implemented_trait_assoc: None,
@@ -164,6 +175,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.ctx.add_def(Def::Trait(TraitDef {
             id: def_id,
             name: name_id,
+            name_span: Span::default(),
             vis: Visibility::Public,
             is_imported: false,
             generics: vec![],
@@ -180,6 +192,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: out_assoc_id,
             name: out_name_id,
+            name_span: Span::default(),
             parent_trait: Some(def_id),
             parent_impl: None,
             implemented_trait_assoc: None,
@@ -231,6 +244,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.ctx.add_def(Def::Trait(TraitDef {
             id: def_id,
             name: name_id,
+            name_span: Span::default(),
             vis: Visibility::Public,
             is_imported: false,
             generics: vec![value],
@@ -247,6 +261,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: bind_assoc_id,
             name: bind_name_id,
+            name_span: Span::default(),
             parent_trait: Some(def_id),
             parent_impl: None,
             implemented_trait_assoc: None,

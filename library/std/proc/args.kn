@@ -4,7 +4,7 @@
 //! views and iterators. Higher-level CLI parsing belongs in ordinary libraries.
 
 use base.abi;
-use base.coll.Iterator;
+use base.coll.{EnumerateItem, Iterator};
 
 /// A borrowed unmanaged view over process arguments.
 ///
@@ -21,6 +21,12 @@ pub struct ArgsIter {
     index: usize = 0,
 };
 
+/// Iterator over indexed process argument slices.
+pub struct ArgsEnumerateIter {
+    inner: ArgsIter,
+    index: usize = 0,
+};
+
 /// Wraps raw process entry arguments in a borrowed view.
 pub fn args(argc: i32, argv: &&u8) Args {
     return .{ count: argc, values: argv };
@@ -34,7 +40,7 @@ impl Args {
 
     /// Returns the number of arguments as `usize`.
     pub fn len() usize {
-        if (self.count <= 0) {
+        if self.count <= 0 {
             return 0;
         }
         return self.count as usize;
@@ -52,7 +58,7 @@ impl Args {
 
     /// Returns the zero-terminated pointer for one argument.
     pub fn raw(index: usize) ?&u8 {
-        if (index >= self.len()) {
+        if index >= self.len() {
             return .None;
         }
         return .{ Some: (self.values + index).* };
@@ -68,18 +74,65 @@ impl Args {
     pub fn iter() ArgsIter {
         return .{ args: self };
     }
+
+    /// Returns an iterator over arguments after the first `count` entries.
+    ///
+    /// `args.skip(1)` is the usual entry point for user-provided CLI
+    /// arguments because `argv[0]` is the program path/name.
+    pub fn skip(count: usize) ArgsIter {
+        let start = if count > self.len() self.len() else count;
+        return .{ args: self, index: start };
+    }
 }
 
 impl &mut ArgsIter : Iterator {
     type Item = &[u8];
 
     pub fn next() ?Item {
-        if (self.index >= self.args.len()) {
+        if self.index >= self.args.len() {
             return .None;
         }
 
         let value = self.args.get(self.index).?;
         self.index += 1;
         return .{ Some: value };
+    }
+
+    pub fn skip(count: usize) ArgsIter {
+        self.index += count;
+        if self.index > self.args.len() {
+            self.index = self.args.len();
+        }
+        return self.*;
+    }
+
+    pub fn enumerate() ArgsEnumerateIter {
+        return .{ inner: self.* };
+    }
+}
+
+impl ArgsIter {
+    pub fn skip(count: usize) ArgsIter {
+        let mut iter = self;
+        _ = iter..&.skip(count);
+        return iter;
+    }
+
+    pub fn enumerate() ArgsEnumerateIter {
+        return .{ inner: self };
+    }
+}
+
+impl &mut ArgsEnumerateIter : Iterator {
+    type Item = EnumerateItem[&[u8]];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
     }
 }

@@ -1,3 +1,9 @@
+//! Codegen-unit planning.
+//!
+//! Planning assigns roots and reachable helper items to units using either MIR
+//! summary data or MAST workload estimates, then records imports needed for
+//! cross-unit references.
+
 use super::refs::build_item_refs;
 use super::workload::{workload_for_function, workload_for_global};
 use super::*;
@@ -76,24 +82,13 @@ fn plan_codegen_units_impl(
             report,
         };
     }
-    if enable_imports
-        && let Some(summary) = summary
-        && let Some(function) = summary
-            .functions
-            .iter()
-            .find(|function| function.contains_control_flow_asm)
-    {
-        // Raw control-flow asm can hide symbol edges from the MIR summary
-        // planner. Fall back to a single preserved linker input instead of
-        // risking a split that only fails later during ThinLTO/link.
-        report.fallback_reason = Some(CodegenPlanFallback::ContainsControlFlowAsm {
-            function_name: function.name.clone(),
-        });
-        return CodegenPlanOutcome {
-            units: Vec::new(),
-            report,
-        };
-    }
+    let isolated_control_flow_asm_functions = if enable_imports {
+        summary
+            .map(isolated_control_flow_asm_function_ids)
+            .unwrap_or_default()
+    } else {
+        HashSet::new()
+    };
 
     let functions_by_id = module
         .functions
@@ -270,15 +265,20 @@ fn plan_codegen_units_impl(
         .collect::<Vec<_>>();
 
     for cluster in clusters {
-        let (unit_idx, _) = units
-            .iter()
-            .enumerate()
-            .min_by(|(_, lhs), (_, rhs)| {
-                lhs.workload
-                    .cmp(&rhs.workload)
-                    .then_with(|| lhs.name.cmp(&rhs.name))
-            })
-            .expect("at least one codegen unit must exist");
+        let Some((unit_idx, _)) = units.iter().enumerate().min_by(|(_, lhs), (_, rhs)| {
+            lhs.workload
+                .cmp(&rhs.workload)
+                .then_with(|| lhs.name.cmp(&rhs.name))
+        }) else {
+            // This should be unreachable after the target-unit guard above, but
+            // preserving a normal fallback keeps planning robust if the unit
+            // allocation rules change independently later.
+            report.fallback_reason = Some(CodegenPlanFallback::TooFewTargetUnits);
+            return CodegenPlanOutcome {
+                units: Vec::new(),
+                report,
+            };
+        };
         let unit = &mut units[unit_idx];
         unit.root_keys.extend(cluster.root_keys);
         unit.function_ids.extend(cluster.function_ids);
@@ -301,6 +301,7 @@ fn plan_codegen_units_impl(
             summary,
             &functions_by_id,
             &workloads,
+            &isolated_control_flow_asm_functions,
         ));
     }
     report.planned_units = units.len();
@@ -328,6 +329,7 @@ fn assign_imported_inline_functions(
     summary: &MirSummaryIndex,
     functions_by_id: &HashMap<MonoId, &MastFunction>,
     workloads: &HashMap<ItemKey, usize>,
+    isolated_control_flow_asm_functions: &HashSet<MonoId>,
 ) -> CodegenImportPlanReport {
     let root_to_unit = units
         .iter()
@@ -374,6 +376,7 @@ fn assign_imported_inline_functions(
         functions_by_id,
         workloads,
         shared_function_layout: &shared_function_layout,
+        isolated_control_flow_asm_functions,
     };
 
     for unit_idx in 0..units.len() {
@@ -498,6 +501,7 @@ struct ImportClosureContext<'a> {
     functions_by_id: &'a HashMap<MonoId, &'a MastFunction>,
     workloads: &'a HashMap<ItemKey, usize>,
     shared_function_layout: &'a HashMap<MonoId, SharedFunctionLayout>,
+    isolated_control_flow_asm_functions: &'a HashSet<MonoId>,
 }
 
 fn collect_import_closure(
@@ -509,6 +513,12 @@ fn collect_import_closure(
 ) -> Option<usize> {
     if !visited.insert(function_id) {
         return Some(0);
+    }
+    if context
+        .isolated_control_flow_asm_functions
+        .contains(&function_id)
+    {
+        return None;
     }
     let unit = &context.units[importer_unit_idx];
     if unit.function_ids.contains(&function_id) || unit.imported_function_ids.contains(&function_id)
@@ -614,6 +624,15 @@ fn is_partition_root(
             .get(&id)
             .is_some_and(|global| global.linkage == MastLinkage::External),
     }
+}
+
+fn isolated_control_flow_asm_function_ids(summary: &MirSummaryIndex) -> HashSet<MonoId> {
+    summary
+        .functions
+        .iter()
+        .filter(|function| function.contains_control_flow_asm)
+        .map(|function| function.id)
+        .collect()
 }
 
 fn reachable_internal_items(

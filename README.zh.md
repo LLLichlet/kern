@@ -15,7 +15,7 @@
   <a href="#文档">文档</a>
 </p>
 
-> 当前状态：v0.7.6，实验阶段。Kern 尚未进入 1.0；当新的设计已经足够清晰时，语言和工具链会主动清理旧语法与历史包袱。
+> 当前状态：v0.8.2，实验阶段。Kern 尚未进入 1.0；当新的设计已经足够清晰时，语言和工具链会主动清理旧语法与历史包袱。
 
 Kern 面向底层系统开发。它允许你直接面对内存、链接入口和运行时边界，同时仍然使用模块、泛型、代数数据类型、trait 和穷尽模式匹配。Kern 也自带包管理与构建工具，并把 freestanding 目标作为一等场景处理。
 
@@ -35,7 +35,12 @@ Windows PowerShell：
 powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/kern-project/kern/main/install.ps1 -UseBasicParsing).Content"
 ```
 
-安装器会把 SDK 放到 Unix 的 `~/.kern` 或 Windows 的 `%USERPROFILE%\.kern`，并检查 `kernc`、`craft`、`kern-lsp` 是否可以正常启动。
+安装器会先引导 `kernup`，再由 `kernup` 把 SDK 放到 Unix 的 `~/.kern`
+或 Windows 的 `%USERPROFILE%\.kern`，并检查 `kernc`、`craft`、`kern-lsp`
+是否可以正常启动。
+
+如果你在使用 NixOS，或者通过 Nix 管理工具链，请优先阅读
+[docs/nix.md](./docs/nix.md)，不要走这里的 shell 安装流程。
 
 离线安装、源码构建、本地 SDK 归档和可复现性检查见 [Installing Kern](docs/install.md)。
 
@@ -194,7 +199,7 @@ cargo test
 cargo run -p kernworker -- ci kernc-tests --mode smoke
 ```
 
-在 Windows 上从源码构建时，需要完整的 LLVM 21 开发环境，不能只安装面向使用者的 SDK。如果 `cargo build` 报告缺少 `libxml2.lib`、`libxml2s.lib` 等 LLVM 库，请参考 [Windows Distribution](docs/windows-distribution.md#local-development-build) 中的本地构建说明。
+在 Windows 上从源码构建时，需要完整的 LLVM 21 开发环境，不能只安装面向使用者的 SDK。`kernup` 安装 SDK 归档，不会从源码构建 Kern，也不会补齐 `cargo build` 需要的 LLVM 开发库。如果 `cargo build` 报告缺少 `libxml2.lib`、`libxml2s.lib` 等 LLVM 库，请参考 [Windows Distribution](docs/windows-distribution.md#local-development-build) 中的本地构建说明。
 
 安装后的 SDK 目录结构、本地归档、离线安装和 Rust `kernup` 入口见
 [Installing Kern](docs/install.md)。
@@ -223,4 +228,6 @@ cargo run -p kernworker -- ci kernc-tests --mode smoke
 
 ## 许可证
 
-Kern 使用 [MIT License](LICENSE)。
+Kern 使用分层授权模型：核心工具链采用 GPL-3.0-or-later，库、安装器、
+共享辅助 crate、示例、编辑器插件和文档保持 MIT。详见
+[Licensing Policy](docs/licensing.md)。

@@ -1,0 +1,7 @@
+// source: generic #[test] functions must not reach test-mode wrapper generation
+// compile-args: --test-mode --runtime-entry rt --module-path base=library/base
+// stderr: `#[test]` function cannot be generic
+#[test]
+fn bad[T]() i32 {
+    return 0;
+}

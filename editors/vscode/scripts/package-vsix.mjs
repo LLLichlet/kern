@@ -19,17 +19,10 @@ const packageJson = JSON.parse(
     fs.readFileSync(path.join(extensionRoot, "package.json"), "utf8"),
 );
 const args = parseArgs(process.argv.slice(2));
-const target = args.target ?? platformId();
-
-if (!target) {
-    fail(
-        `missing --target and current platform \`${process.platform}-${process.arch}\` is unsupported`,
-    );
-}
 
 const out =
     args.out ??
-    path.join(extensionRoot, `${packageJson.name}-${packageJson.version}-${target}.vsix`);
+    path.join(extensionRoot, `${packageJson.name}-${packageJson.version}.vsix`);
 
 cleanServerDirectory();
 runNpm(["run", "compile"], extensionRoot);
@@ -40,12 +33,9 @@ const rawFiles = fileNames.map((file) => ({
     path: filePathToVsixPath(file),
     localPath: path.join(extensionRoot, file),
 }));
-const files = await processFiles(
-    createDefaultProcessors(manifest, { target }),
-    rawFiles,
-);
+const files = await processFiles(createDefaultProcessors(manifest), rawFiles);
 await writeVsix(files, out);
-console.log(`[kern-vscode] packaged ${out}`);
+console.log(`[kern-language] packaged ${out}`);
 
 function cleanServerDirectory() {
     fs.rmSync(path.join(extensionRoot, "server"), { recursive: true, force: true });
@@ -269,6 +259,9 @@ function parseArgs(argv) {
         }
 
         const key = arg.slice(2);
+        if (key !== "out") {
+            fail(`unsupported argument \`${arg}\``);
+        }
         const value = argv[index + 1];
         if (!value || value.startsWith("--")) {
             fail(`expected a value after \`${arg}\``);
@@ -280,21 +273,7 @@ function parseArgs(argv) {
     return parsed;
 }
 
-function platformId() {
-    const candidate = `${process.platform}-${process.arch}`;
-    switch (candidate) {
-        case "darwin-arm64":
-        case "darwin-x64":
-        case "linux-arm64":
-        case "linux-x64":
-        case "win32-x64":
-            return candidate;
-        default:
-            return undefined;
-    }
-}
-
 function fail(message) {
-    console.error(`[kern-vscode] ${message}`);
+    console.error(`[kern-language] ${message}`);
     process.exit(1);
 }

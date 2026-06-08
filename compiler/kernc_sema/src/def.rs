@@ -1,3 +1,10 @@
+//! Semantic definition table.
+//!
+//! The collect pass lowers AST declarations into stable `DefId` records.  These
+//! records preserve enough source AST to finish type resolution and checking,
+//! while giving later phases a compact, uniform handle for modules, items,
+//! traits, impls, globals, and associated types.
+
 use crate::scope::ScopeId;
 use crate::ty::TypeId;
 use kernc_ast as ast;
@@ -7,6 +14,8 @@ use kernc_utils::{FileId, Span, SymbolId};
 use std::collections::HashMap;
 use std::ops::{Deref, Index, IndexMut};
 use std::path::PathBuf;
+
+pub const TRAIT_DEFAULT_SELF_PARAM_NAME: &str = "\0kern.trait.default.Self";
 
 /// Unified representation for every top-level semantic definition.
 /// The collect pass lowers AST declarations into these records.
@@ -72,6 +81,8 @@ impl DefTable {
 
     pub fn add(&mut self, def: Def) -> DefId {
         let id = self.next_id();
+        // DefIds are dense indices.  Enforce that callers use `add_def_with`
+        // or otherwise construct the record with the exact next ID.
         assert_eq!(
             def.id(),
             id,
@@ -187,6 +198,7 @@ pub struct TraitDefaultMethodInfo {
 pub struct StructDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub vis: Visibility,
     pub parent_module: Option<DefId>,
     pub is_imported: bool,
@@ -203,6 +215,7 @@ pub struct StructDef {
 pub struct UnionDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub vis: Visibility,
     pub parent_module: Option<DefId>,
     pub is_imported: bool,
@@ -218,6 +231,7 @@ pub struct UnionDef {
 pub struct EnumDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub vis: Visibility,
     pub is_imported: bool,
     pub is_extern: bool,
@@ -232,6 +246,7 @@ pub struct EnumDef {
 #[derive(Debug, Clone)]
 pub struct TraitMethodDef {
     pub signature: ast::StructFieldDef,
+    pub params: Vec<ast::FuncParam>,
     pub default_impl: Option<DefId>,
 }
 
@@ -239,6 +254,7 @@ pub struct TraitMethodDef {
 pub struct TraitDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub vis: Visibility,
     pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
@@ -258,8 +274,10 @@ pub struct TraitDef {
 pub struct AssociatedTypeDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub parent_trait: Option<DefId>,
     pub parent_impl: Option<DefId>,
+    /// Trait associated type this impl item satisfies, when known.
     pub implemented_trait_assoc: Option<DefId>,
     pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
@@ -275,6 +293,7 @@ pub struct AssociatedTypeDef {
 pub struct TypeAliasDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub vis: Visibility,
     pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
@@ -295,7 +314,7 @@ pub struct ImplDef {
     pub trait_type: Option<ast::TypeNode>,
     pub resolved_trait_ty: Option<TypeId>,
     pub assoc_types: Vec<DefId>,
-    // Methods collected under this impl block.
+    /// Methods collected under this impl block.
     pub methods: Vec<DefId>,
     pub span: Span,
 }
@@ -304,6 +323,7 @@ pub struct ImplDef {
 pub struct GlobalDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub vis: Visibility,
     pub parent: Option<DefId>,
     pub is_imported: bool,

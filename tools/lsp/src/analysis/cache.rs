@@ -1,8 +1,13 @@
+//! Cache keys and dirty-document snapshots for LSP analysis.
+//!
+//! Cache keys hash compile options, source overrides, target roots, and document
+//! versions so editor requests can reuse compiler artifacts safely.
+
 use craft::project::ResolvedAnalysis;
 use kernc_driver::SourceOverrides;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct DirtyDocumentsSnapshot {
@@ -17,6 +22,13 @@ impl DirtyDocumentsSnapshot {
 
     pub(super) fn len(&self) -> usize {
         self.hashed_overrides.len()
+    }
+
+    pub(super) fn contains_path(&self, path: &Path) -> bool {
+        let normalized = super::normalize_path(path);
+        self.hashed_overrides
+            .iter()
+            .any(|(dirty_path, _)| *dirty_path == normalized)
     }
 
     pub(super) fn remap_for(&self, aliases: &std::collections::BTreeMap<PathBuf, PathBuf>) -> Self {
@@ -82,7 +94,7 @@ impl DirtyDocumentsSnapshot {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct AnalysisCacheKey {
     input_file: PathBuf,
     root_module_name: Option<String>,
@@ -93,7 +105,7 @@ pub(super) struct AnalysisCacheKey {
     source_overrides: Vec<(PathBuf, u64)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct AnalysisCacheFamilyKey {
     input_file: PathBuf,
     root_module_name: Option<String>,
@@ -103,14 +115,20 @@ pub(super) struct AnalysisCacheFamilyKey {
     module_interface_aliases: Vec<(String, String)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct SemanticTokensCacheKey {
     pub(super) analysis: AnalysisCacheKey,
     pub(super) target_path: PathBuf,
-    pub(super) document_version: i64,
+    pub(super) text_hash: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(super) struct SemanticTokenClassificationCacheKey {
+    pub(super) analysis: AnalysisCacheKey,
+    pub(super) target_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct LexicalCacheKey {
     pub(super) uri: String,
     pub(super) document_version: i64,
@@ -194,6 +212,30 @@ impl AnalysisCacheKey {
             module_aliases: self.module_aliases.clone(),
             module_interface_aliases: self.module_interface_aliases.clone(),
         }
+    }
+}
+
+impl SemanticTokenClassificationCacheKey {
+    pub(super) fn for_target(analysis: AnalysisCacheKey, target_path: &Path) -> Self {
+        Self {
+            analysis,
+            target_path: Some(super::normalize_path(target_path)),
+        }
+    }
+
+    pub(super) fn complete(analysis: AnalysisCacheKey) -> Self {
+        Self {
+            analysis,
+            target_path: None,
+        }
+    }
+
+    pub(super) fn family(&self) -> AnalysisCacheFamilyKey {
+        self.analysis.family()
+    }
+
+    pub(super) fn is_clean(&self) -> bool {
+        self.analysis.is_clean()
     }
 }
 

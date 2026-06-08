@@ -1,3 +1,9 @@
+//! Builtin intrinsic call lowering.
+//!
+//! Semantic checking has already validated intrinsic signatures. Lowering maps
+//! those selected intrinsics to dedicated MAST forms for arithmetic, memory,
+//! atomics, SIMD, layout, source location, and low-level pointer operations.
+
 use super::*;
 
 pub(super) struct IntrinsicCallLowering<'a> {

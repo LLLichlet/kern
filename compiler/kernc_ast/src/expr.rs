@@ -1,3 +1,11 @@
+//! Expression syntax tree.
+//!
+//! This file is intentionally broad because Kern expressions include value
+//! literals, control flow, local bindings, aggregate construction, generic
+//! instantiation, closure syntax, and a few builtin operators.  The enum stores
+//! parser-visible form; semantic lowering decides whether a form is legal in a
+//! value, type, constant, or pattern-adjacent context.
+
 use super::{
     AssignmentOperator, BinaryOperator, BindingPattern, FuncParam, GenericArg, LetPattern,
     MatchPattern, PathAnchor, Pattern, Stmt, TypeNode, UnaryOperator,
@@ -134,7 +142,7 @@ pub enum ExprKind {
         result: Option<Box<Expr>>,
     },
 
-    /// `while (cond) body`
+    /// `while cond body`
     While {
         cond: Box<Expr>,
         body: Box<Expr>,
@@ -270,6 +278,9 @@ impl LetElseClause {
             Self::Expr(expr) => expr.span,
             Self::Arms(arms) => arms
                 .first()
+                // Parser recovery can synthesize an empty arm list.  Keep a
+                // default span here instead of forcing every diagnostic path to
+                // special-case malformed `let else`.
                 .map(|arm| arm.span)
                 .unwrap_or_else(Span::default),
         }

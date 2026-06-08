@@ -1,9 +1,15 @@
+//! Definition collection pass.
+//!
+//! Collection walks parsed AST modules, creates stable `DefId` records, defines
+//! symbols in module/trait/impl scopes, records imports for a later fixed-point
+//! resolver, and preserves docs/attributes for diagnostics and tooling.
+
 use crate::SemaContext;
 use crate::def::*;
 use crate::scope::{SymbolInfo, SymbolKind};
 use crate::ty::TypeId;
 use kernc_ast::{self as ast, Decl, DeclKind};
-use kernc_utils::{NodeId, Span, SymbolId};
+use kernc_utils::{Canceled, CancellationToken, NodeId, Span, SymbolId, expect_uncancelable};
 
 struct FunctionCollectSpec<'a> {
     vis: Visibility,
@@ -128,6 +134,19 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
     /// Collect all top-level members from a module AST into semantic definitions.
     pub fn collect_ast(&mut self, mod_id: DefId, module: &ast::Module) {
+        expect_uncancelable(
+            self.collect_ast_cancelable(mod_id, module, &CancellationToken::new()),
+            "collecting AST definitions",
+        );
+    }
+
+    pub fn collect_ast_cancelable(
+        &mut self,
+        mod_id: DefId,
+        module: &ast::Module,
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
+        cancellation.check()?;
         let (scope_id, submodules) =
             if let Some(Def::Module(m)) = self.ctx.defs.get(mod_id.0 as usize) {
                 (m.scope_id, m.submodules.clone())
@@ -139,11 +158,13 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         mod_id.0
                     ),
                 );
-                return;
+                return Ok(());
             };
 
         let parent_module = self.current_module;
         let parent_module_imported = self.current_module_imported;
+        // Collection is recursive over inline modules and imported extern
+        // containers, so preserve the previous module context around this AST.
         self.current_module = Some(mod_id);
         self.current_module_imported = matches!(
             self.ctx.defs.get(mod_id.0 as usize),
@@ -161,6 +182,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
         // Collect imports, submodule declarations, and regular items in one pass.
         for decl in &module.decls {
+            cancellation.check()?;
             match &decl.kind {
                 DeclKind::Use { kind, path, target } => {
                     imports.push(ImportDef {
@@ -187,6 +209,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 }
                 DeclKind::ExternBlock { decls, .. } => {
                     for ext_decl in decls {
+                        cancellation.check()?;
                         if let Some(def_id) = self.collect_decl(ext_decl, None, true, &[]) {
                             item_ids.push(def_id);
                         }
@@ -211,9 +234,23 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         }
         self.current_module = parent_module;
         self.current_module_imported = parent_module_imported;
+        Ok(())
     }
 
     pub fn collect_ast_owned(&mut self, mod_id: DefId, module: ast::Module) {
+        expect_uncancelable(
+            self.collect_ast_owned_cancelable(mod_id, module, &CancellationToken::new()),
+            "collecting owned AST definitions",
+        );
+    }
+
+    pub fn collect_ast_owned_cancelable(
+        &mut self,
+        mod_id: DefId,
+        module: ast::Module,
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
+        cancellation.check()?;
         let (scope_id, submodules) =
             if let Some(Def::Module(m)) = self.ctx.defs.get(mod_id.0 as usize) {
                 (m.scope_id, m.submodules.clone())
@@ -225,7 +262,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         mod_id.0
                     ),
                 );
-                return;
+                return Ok(());
             };
 
         let parent_module = self.current_module;
@@ -247,6 +284,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         let mut imports = Vec::new();
 
         for decl in decls {
+            cancellation.check()?;
             match decl {
                 Decl {
                     kind: DeclKind::Use { kind, path, target },
@@ -288,6 +326,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     ..
                 } => {
                     for ext_decl in decls {
+                        cancellation.check()?;
                         if let Some(def_id) = self.collect_decl_owned(ext_decl, None, true, &[]) {
                             item_ids.push(def_id);
                         }
@@ -312,6 +351,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         }
         self.current_module = parent_module;
         self.current_module_imported = parent_module_imported;
+        Ok(())
     }
 
     /// Collect a single declaration.
@@ -664,7 +704,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
         let default_trait_method = spec.parent_trait.map(|trait_id| TraitDefaultMethodInfo {
             trait_id,
-            self_param: self.ctx.intern("__Self"),
+            self_param: self.trait_default_self_param(),
         });
         let generics = self.function_generics_with_trait_default_self(
             spec.generics,
@@ -778,7 +818,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
         let default_trait_method = parent_trait.map(|trait_id| TraitDefaultMethodInfo {
             trait_id,
-            self_param: self.ctx.intern("__Self"),
+            self_param: self.trait_default_self_param(),
         });
         let generics =
             self.function_generics_with_trait_default_self(&generics, parent_trait, span);
@@ -836,6 +876,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Global(GlobalDef {
                 id: def_id,
                 name: decl.name,
+                name_span: decl.name_span,
                 vis: spec.vis,
                 parent: self.current_module,
                 is_imported: self.current_module_imported,
@@ -892,6 +933,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Global(GlobalDef {
                 id: def_id,
                 name,
+                name_span,
                 vis,
                 parent: self.current_module,
                 is_imported: self.current_module_imported,
@@ -962,6 +1004,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Struct(StructDef {
                 id: def_id,
                 name: decl.name,
+                name_span: decl.name_span,
                 vis,
                 parent_module: self.current_module,
                 is_imported: self.current_module_imported,
@@ -998,6 +1041,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Union(UnionDef {
                 id: def_id,
                 name: decl.name,
+                name_span: decl.name_span,
                 vis,
                 parent_module: self.current_module,
                 is_imported: self.current_module_imported,
@@ -1025,6 +1069,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Enum(EnumDef {
                 id: def_id,
                 name: decl.name,
+                name_span: decl.name_span,
                 vis: spec.vis,
                 is_imported: self.current_module_imported,
                 is_extern: spec.is_extern,
@@ -1052,6 +1097,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Trait(TraitDef {
                 id: def_id,
                 name: decl.name,
+                name_span: decl.name_span,
                 vis: spec.vis,
                 is_imported: self.current_module_imported,
                 generics: spec.generics.to_vec(),
@@ -1107,6 +1153,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Struct(StructDef {
                 id: def_id,
                 name,
+                name_span,
                 vis,
                 parent_module: self.current_module,
                 is_imported: self.current_module_imported,
@@ -1144,6 +1191,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Union(UnionDef {
                 id: def_id,
                 name,
+                name_span,
                 vis,
                 parent_module: self.current_module,
                 is_imported: self.current_module_imported,
@@ -1181,6 +1229,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Enum(EnumDef {
                 id: def_id,
                 name,
+                name_span,
                 vis,
                 is_imported: self.current_module_imported,
                 is_extern,
@@ -1219,6 +1268,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::Trait(TraitDef {
                 id: def_id,
                 name,
+                name_span,
                 vis,
                 is_imported: self.current_module_imported,
                 generics,
@@ -1265,6 +1315,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 Def::AssociatedType(AssociatedTypeDef {
                     id: def_id,
                     name: assoc.name,
+                    name_span: assoc.name_span,
                     parent_trait: Some(trait_id),
                     parent_impl: None,
                     implemented_trait_assoc: None,
@@ -1296,6 +1347,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 Def::AssociatedType(AssociatedTypeDef {
                     id: def_id,
                     name: assoc.name,
+                    name_span: assoc.name_span,
                     parent_trait: Some(trait_id),
                     parent_impl: None,
                     implemented_trait_assoc: None,
@@ -1327,6 +1379,15 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             let mut default_impl = None;
             if method.body.is_some() {
                 let name = method.signature.name;
+                let ret_type = match method.signature.type_node.kind.clone() {
+                    ast::TypeKind::Function { ret: Some(ret), .. } => *ret,
+                    _ => ast::TypeNode {
+                        id: self.ctx.next_node_id(),
+                        span: method.signature.span,
+                        kind: ast::TypeKind::Void,
+                    },
+                };
+                let body = method.body.clone();
                 let decl = Decl {
                     id: self.ctx.next_node_id(),
                     span: method.span,
@@ -1339,20 +1400,15 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         generics: Vec::new(),
                         where_clauses: Vec::new(),
                         params: method.params.clone(),
-                        ret_type: match method.signature.type_node.kind.clone() {
-                            ast::TypeKind::Function { ret: Some(ret), .. } => *ret,
-                            _ => ast::TypeNode {
-                                id: self.ctx.next_node_id(),
-                                span: method.signature.span,
-                                kind: ast::TypeKind::Void,
-                            },
-                        },
-                        body: method.body.clone(),
+                        ret_type: ret_type.clone(),
+                        body: body.clone(),
                         is_const: false,
                         is_extern: false,
                         is_variadic: false,
                     },
                 };
+                // Default trait bodies are collected as hidden functions owned by the trait so
+                // later impl checking can reuse the normal function-resolution path.
                 default_impl = self.collect_function(
                     &decl,
                     FunctionCollectSpec {
@@ -1363,24 +1419,16 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         is_extern: false,
                         generics: trait_generics,
                         where_clauses: &[],
-                        params: match &decl.kind {
-                            DeclKind::Function { params, .. } => params,
-                            _ => unreachable!(),
-                        },
-                        ret_type: match &decl.kind {
-                            DeclKind::Function { ret_type, .. } => ret_type,
-                            _ => unreachable!(),
-                        },
-                        body: match &decl.kind {
-                            DeclKind::Function { body, .. } => body,
-                            _ => unreachable!(),
-                        },
+                        params: &method.params,
+                        ret_type: &ret_type,
+                        body: &body,
                         is_variadic: false,
                     },
                 );
             }
             method_defs.push(TraitMethodDef {
                 signature: method.signature.clone(),
+                params: method.params.clone(),
                 default_impl,
             });
         }
@@ -1405,6 +1453,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::TypeAlias(TypeAliasDef {
                 id: def_id,
                 name: decl.name,
+                name_span: decl.name_span,
                 vis: spec.vis,
                 is_imported: self.current_module_imported,
                 generics: spec.generics.to_vec(),
@@ -1446,6 +1495,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Def::TypeAlias(TypeAliasDef {
                 id: def_id,
                 name,
+                name_span,
                 vis,
                 is_imported: self.current_module_imported,
                 generics,
@@ -1518,6 +1568,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     Def::AssociatedType(AssociatedTypeDef {
                         id: def_id,
                         name: method_decl.name,
+                        name_span: method_decl.name_span,
                         parent_trait: None,
                         parent_impl: Some(impl_id),
                         implemented_trait_assoc: None,
@@ -1609,6 +1660,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 }
                 Decl {
                     name,
+                    name_span,
                     span,
                     docs,
                     kind:
@@ -1630,6 +1682,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         Def::AssociatedType(AssociatedTypeDef {
                             id: def_id,
                             name,
+                            name_span,
                             parent_trait: None,
                             parent_impl: Some(impl_id),
                             implemented_trait_assoc: None,
@@ -1755,7 +1808,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         let mut out = generics.to_vec();
         if parent_trait.is_some() {
             out.push(ast::GenericParam {
-                name: self.ctx.intern("__Self"),
+                name: self.trait_default_self_param(),
                 span,
                 kind: ast::GenericParamKind::Type,
             });
@@ -1812,7 +1865,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         };
         let trait_name = trait_def.name;
         let trait_generics = trait_def.generics.clone();
-        let self_param = self.ctx.intern("__Self");
+        let self_param = self.trait_default_self_param();
         let target_ty = self.simple_type_path(self_param, span);
         let args = trait_generics
             .iter()
@@ -1836,6 +1889,13 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             bounds: vec![trait_bound],
         });
         out
+    }
+
+    fn trait_default_self_param(&mut self) -> SymbolId {
+        // This hidden generic represents the unknown implementor when a trait
+        // default method is checked.  Keep the symbol unlexable so user code
+        // such as `struct __Self {}` or `trait T[__Self]` cannot collide with it.
+        self.ctx.intern(TRAIT_DEFAULT_SELF_PARAM_NAME)
     }
 
     fn current_owner_scope(&self) -> Option<crate::scope::ScopeId> {

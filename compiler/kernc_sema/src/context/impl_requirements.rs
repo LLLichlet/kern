@@ -1,3 +1,9 @@
+//! Impl-requirement recursion and Paterson-style boundedness checks.
+//!
+//! Trait impls may depend on where-clause obligations.  This module detects
+//! direct and indirect self-recursive obligations, then applies a boundedness
+//! measure so proof search does not accept impl chains that can grow forever.
+
 use super::*;
 
 #[derive(Clone)]
@@ -1205,6 +1211,7 @@ mod tests {
         let trait_id = ctx.add_def(Def::Trait(TraitDef {
             id: trait_id_value,
             name: marker_name,
+            name_span: Span::default(),
             vis: Visibility::Private,
             is_imported: false,
             generics: vec![generic_param.clone()],
@@ -1294,6 +1301,7 @@ mod tests {
         let trait_id = ctx.add_def(Def::Trait(TraitDef {
             id: trait_id_value,
             name: trait_name,
+            name_span: Span::default(),
             vis: Visibility::Private,
             is_imported: false,
             generics: Vec::new(),
@@ -1312,6 +1320,7 @@ mod tests {
         let assoc_id = ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: assoc_id_value,
             name: assoc_name,
+            name_span: Span::default(),
             parent_trait: Some(trait_id),
             parent_impl: None,
             implemented_trait_assoc: None,

@@ -15,7 +15,7 @@
   <a href="#documentation">Documentation</a>
 </p>
 
-> Status: v0.7.6, experimental. Kern is pre-1.0 and deliberately removes
+> Status: v0.8.2, experimental. Kern is pre-1.0 and deliberately removes
 > historical syntax or toolchain baggage when the current design becomes clear.
 
 Kern is designed for low-level software that still wants modern language
@@ -41,9 +41,12 @@ Windows PowerShell:
 powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/kern-project/kern/main/install.ps1 -UseBasicParsing).Content"
 ```
 
-The installer places the SDK under `~/.kern` on Unix and
-`%USERPROFILE%\.kern` on Windows, then verifies that `kernc`, `craft`, and
-`kern-lsp` start successfully.
+The installer bootstraps `kernup`, which installs the SDK under `~/.kern` on
+Unix and `%USERPROFILE%\.kern` on Windows, then verifies that `kernc`, `craft`,
+and `kern-lsp` start successfully.
+
+If you are using NixOS or otherwise manage your toolchain through Nix, see
+[docs/nix.md](./docs/nix.md) instead of the shell installer flow.
 
 For offline installs, source builds, local SDK archives, and reproducibility
 details, see [Installing Kern](docs/install.md).
@@ -195,7 +198,8 @@ to drive a specific compile or link action directly.
 
 The first-party VS Code extension lives in [editors/vscode](editors/vscode).
 It provides Kern language support, language icons, semantic tokens,
-completion, hover, diagnostics, rename, and code actions.
+completion, hover, diagnostics, rename, code actions, code lenses, document
+links, folding ranges, selection ranges, inlay hints, and workspace symbols.
 
 ## Build From Source
 
@@ -221,7 +225,9 @@ cargo run -p kernworker -- ci kernc-tests --mode smoke
 ```
 
 Windows source builds require a full LLVM 21 development prefix, not only the
-installed end-user SDK. If `cargo build` reports missing LLVM libraries such as
+installed end-user SDK. `kernup` installs SDK archives; it does not build Kern
+from source or add the LLVM development libraries required by
+`cargo build`. If `cargo build` reports missing LLVM libraries such as
 `libxml2.lib` or `libxml2s.lib`, follow the Windows source-build setup in
 [Windows Distribution](docs/windows-distribution.md#local-development-build).
 
@@ -263,4 +269,7 @@ proposal can be checked against Kern's freestanding, explicit semantics.
 
 ## License
 
-Kern is licensed under the [MIT License](LICENSE).
+Kern uses a split licensing model. The core toolchain is licensed under
+GPL-3.0-or-later, while the libraries, installer, shared helper crates,
+examples, editor extension, and documentation remain MIT. See
+[Licensing Policy](docs/licensing.md).

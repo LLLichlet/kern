@@ -1,3 +1,9 @@
+//! Compile report aggregation.
+//!
+//! Reporting merges phase timings, frontend/cache stats, lowering/MIR workload,
+//! codegen-plan information, LLVM cleanup diagnostics, and final emitted object
+//! information into the public `CompileReport`.
+
 use super::*;
 use std::collections::HashMap;
 

@@ -1,3 +1,10 @@
+//! Static initializer lowering.
+//!
+//! Compile-time constant values are lowered to MIR static-initializer trees.
+//! This module keeps that lowering separate from runtime expression lowering so
+//! globals can carry data, pointer, aggregate, and relocation initializers
+//! directly into codegen.
+
 use super::*;
 
 pub(super) fn lower_static_init(expr: &MastExpr) -> LowerResult<MirStaticInit> {
@@ -141,6 +148,9 @@ pub(super) fn lower_static_init(expr: &MastExpr) -> LowerResult<MirStaticInit> {
                     | MastExprKind::ArrayInit(_)
                     | MastExprKind::StructInit { .. }
                     | MastExprKind::UnionInit { .. }
+                    // These are the direct static-initializer forms handled before the diagnostic
+                    // path above; reaching this arm means a new variant was added without updating
+                    // static-init classification.
                     | MastExprKind::DataInit { .. } => unreachable!(),
                     MastExprKind::FieldAccess { .. } => "field access",
                     MastExprKind::IndexAccess { .. } => "index access",
@@ -237,6 +247,8 @@ fn lower_static_address_of(ty: TypeId, inner: &MastExpr, span: Span) -> LowerRes
                     MastExprKind::Float(_) => "float literal",
                     MastExprKind::Bool(_) => "bool literal",
                     MastExprKind::StringLiteral(_) => "string literal",
+                    // Direct symbol references are lowered by dedicated relocation branches before
+                    // this diagnostic path.
                     MastExprKind::GlobalRef(_) | MastExprKind::FuncRef(_) => unreachable!(),
                     MastExprKind::ArrayInit(_) => "array init",
                     MastExprKind::StructInit { .. } => "struct init",

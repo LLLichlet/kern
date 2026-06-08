@@ -1,5 +1,12 @@
 #![doc = include_str!("../README.md")]
 
+//! Lowers checked semantic definitions into the monomorphized AST.
+//!
+//! This crate owns the transition from typed source-level definitions to MAST:
+//! it schedules generic instantiations, materializes globals, records
+//! monomorphization metadata, and keeps lowering cache statistics for
+//! incremental analysis.
+
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
@@ -14,7 +21,7 @@ use kernc_sema::ty::{
     ConstExprKind, ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg, Substituter,
     TypeId, TypeKind,
 };
-use kernc_utils::{NodeId, Span, SymbolId};
+use kernc_utils::{Canceled, CancellationToken, NodeId, Span, SymbolId, expect_uncancelable};
 
 pub(crate) mod expr;
 mod inline;
@@ -118,6 +125,7 @@ pub struct Lowerer<'a, 'ctx> {
     collect_phase_timings: bool,
     phase_totals: HashMap<&'static str, Duration>,
     cache_stats: LowerCacheStats,
+    cancellation: CancellationToken,
 }
 
 type StructLayoutMapping = (Vec<usize>, Vec<usize>);
@@ -185,7 +193,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             collect_phase_timings,
             phase_totals: HashMap::new(),
             cache_stats: LowerCacheStats::default(),
+            cancellation: CancellationToken::new(),
         }
+    }
+
+    pub fn set_cancellation_token(&mut self, cancellation: CancellationToken) {
+        self.cancellation = cancellation;
+    }
+
+    pub(crate) fn check_canceled(&self) -> Result<(), Canceled> {
+        self.cancellation.check()
     }
 
     fn cached_forwarding_symbol(&mut self, name: &str) -> SymbolId {
@@ -324,6 +341,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         Some(self.cached_forwarding_symbol(&name))
     }
 
+    pub(crate) fn types_match_for_forwarding(&self, lhs: TypeId, rhs: TypeId) -> bool {
+        self.ctx.type_registry.normalize(lhs) == self.ctx.type_registry.normalize(rhs)
+    }
+
     pub(crate) fn is_forwardable_value_binding(&self, expr_id: NodeId) -> bool {
         self.current_owner_flow_hints().is_some_and(|hints| {
             hints
@@ -345,6 +366,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         forwarded_to: SymbolId,
         context: &str,
     ) -> bool {
+        let Some((name_ty, _)) = self.local_binding(name) else {
+            return false;
+        };
+        let Some((forwarded_ty, _)) = self.local_binding(forwarded_to) else {
+            return false;
+        };
+        if !self.types_match_for_forwarding(name_ty, forwarded_ty) {
+            return false;
+        }
+
         if let Some(scope) = self.local_forwardings.last_mut() {
             scope.insert(name, forwarded_to);
             true
@@ -470,6 +501,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         false
     }
 
+    fn function_is_trait_impl_method(&self, f: &kernc_sema::def::FunctionDef) -> bool {
+        if let Some(parent_id) = f.parent
+            && let Some(Def::Impl(impl_def)) = self.ctx.defs.get(parent_id.0 as usize)
+        {
+            return impl_def.trait_type.is_some();
+        }
+        false
+    }
+
+    fn function_needs_metadata_export(&self, f: &kernc_sema::def::FunctionDef) -> bool {
+        self.ctx.sess.publishing_metadata && self.function_is_trait_impl_method(f)
+    }
+
     pub(crate) fn function_owner_scope(&self, f: &FunctionDef) -> Option<ScopeId> {
         let parent_id = f.parent?;
         match &self.ctx.defs[parent_id.0 as usize] {
@@ -499,11 +543,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     /// Entry point for lowering with internal timing breakdowns.
     pub fn lower_all_with_report(&mut self) -> LowerReport {
+        expect_uncancelable(
+            self.lower_all_with_report_cancelable(),
+            "lowering all semantic roots",
+        )
+    }
+
+    pub fn lower_all_with_report_cancelable(&mut self) -> Result<LowerReport, Canceled> {
+        self.check_canceled()?;
         let def_ids: Vec<_> = self.ctx.defs.ids().collect();
 
         // Phase 1: preallocate `MonoId`s for globals.
         self.measure_phase("  lower_preallocate_globals", |this| {
             for &id in &def_ids {
+                if this.check_canceled().is_err() {
+                    break;
+                }
                 let global_name = if let Def::Global(g) = &this.ctx.defs[id.0 as usize] {
                     Some(g.name)
                 } else {
@@ -518,11 +573,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             }
         });
+        self.check_canceled()?;
 
         // Phase 2: lower concrete entities for real.
         let actions = self.measure_phase("  lower_collect_roots", |this| {
             let mut actions = Vec::new();
             for id in def_ids {
+                if this.check_canceled().is_err() {
+                    break;
+                }
                 match &this.ctx.defs[id.0 as usize] {
                     Def::Function(f) => {
                         if f.is_imported || f.is_intrinsic {
@@ -532,6 +591,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             .reachable_module_items
                             .as_ref()
                             .is_some_and(|reachable| !reachable.contains(&id))
+                            && !this.function_needs_metadata_export(f)
                         {
                             continue;
                         }
@@ -563,8 +623,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
             actions
         });
+        self.check_canceled()?;
 
         for action in actions {
+            self.check_canceled()?;
             match action {
                 LowerRootAction::InstantiateFunction(id) => {
                     self.measure_phase("  lower_root_functions", |this| {
@@ -586,7 +648,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             return;
                         };
 
-                        // Safety: lowering does not mutate semantic definition storage.
+                        // SAFETY: lowering reads semantic definitions but does not mutate,
+                        // reorder, or remove entries from `ctx.defs`.
                         let global = unsafe { &*global_ptr };
                         this.lower_global(global);
                     })
@@ -594,10 +657,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        self.drain_pending_function_instantiations();
+        self.drain_pending_function_instantiations_cancelable()?;
         self.measure_phase("  lower_inline", |this| {
             this.run_inline_pass();
         });
+        self.check_canceled()?;
 
         self.module.mono = MonoModuleMetadata {
             def_mono_map: self.mono_cache.clone(),
@@ -626,11 +690,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .collect::<Vec<_>>();
         phase_timings.sort_by_key(|timing| timing.name);
 
-        LowerReport {
+        Ok(LowerReport {
             module,
             phase_timings,
             cache_stats: self.cache_stats,
-        }
+        })
     }
 
     pub(crate) fn extract_meta_items(&self, attrs: &[ast::Attribute]) -> Vec<ast::MetaItem> {
@@ -681,13 +745,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &self,
         vis: Visibility,
         is_extern: bool,
+        is_imported_declaration: bool,
         attrs: &[ast::Attribute],
         uses_odr_linkage: bool,
     ) -> MastLinkage {
         if uses_odr_linkage {
             return MastLinkage::LinkOnceOdr;
         }
-        if is_extern || !vis.is_private() || self.has_meta_attr(attrs, "export_name") {
+        if is_imported_declaration
+            || is_extern
+            || !vis.is_private()
+            || self.has_meta_attr(attrs, "export_name")
+        {
             MastLinkage::External
         } else {
             MastLinkage::Internal

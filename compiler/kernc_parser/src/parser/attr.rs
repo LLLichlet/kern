@@ -1,3 +1,10 @@
+//! Attribute parsing.
+//!
+//! Attribute syntax is split into module-level `#![...]`, item-level `#[...]`,
+//! conditional attributes, and generic metadata lists.  Payload validation is
+//! deliberately deferred to semantic analysis so the parser can preserve source
+//! expressions and keep recovery local to the bracketed attribute.
+
 use super::expr::Precedence;
 use super::{ParseResult, Parser};
 use kernc_ast::*;
@@ -27,6 +34,7 @@ impl<'a> Parser<'a> {
         let mut attrs = Vec::new();
 
         while self.is_at_attribute() {
+            self.check_canceled()?;
             let is_bang = self.stream.peek_tag_nth(1) == TokenType::Bang;
 
             // Stop as soon as the attribute level no longer matches the caller's expectation.
@@ -44,13 +52,11 @@ impl<'a> Parser<'a> {
             self.expect(TokenType::LBracket)?;
 
             let kind = if self.match_token(&[TokenType::If]) {
-                // Form 1: conditional attributes, for example `#[if(expr)]`.
-                self.expect(TokenType::LParen)?;
+                // Form 1: conditional attributes, for example `#[if os == "linux"]`.
                 let expr = self.parse_expression(Precedence::Lowest)?;
-                self.expect(TokenType::RParen)?;
 
                 if self.match_token(&[TokenType::Comma]) {
-                    self.add_error(self.stream.prev_span(), "`#[if(...)]` must be standalone and cannot be mixed with metadata in the same bracket".to_string());
+                    self.add_error(self.stream.prev_span(), "`#[if ...]` must be standalone and cannot be mixed with metadata in the same bracket".to_string());
                 }
 
                 AttributeKind::If(Box::new(expr))
@@ -58,6 +64,7 @@ impl<'a> Parser<'a> {
                 // Form 2: metadata attributes such as `#[cold, export_name("foo")]`.
                 let mut items = Vec::new();
                 while !self.check(TokenType::RBracket) && !self.check(TokenType::Eof) {
+                    self.check_canceled()?;
                     let ident_tok = self.expect(TokenType::Identifier)?;
                     let ident_id = self.intern_token(ident_tok);
 

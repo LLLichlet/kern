@@ -16,9 +16,14 @@ impl &mut File : Write {
     /// Writes the provided bytes to the underlying file handle.
     pub fn write(buf: &[u8]) usize {
         let len = buf.@len();
-        if (len == 0) return 0;
+        if len == 0 return 0;
 
         return os.write(self.inner.handle, buf.[0].&, len);
+    }
+
+    /// Flushes the underlying file handle.
+    pub fn flush_write() bool {
+        return self.inner..&.flush().is_ok();
     }
 }
 
@@ -26,9 +31,9 @@ impl &mut File : Read {
     /// Reads bytes from the underlying file handle.
     pub fn read(buf: &mut [u8]) usize {
         let len = buf.@len();
-        if (len == 0) return 0;
+        if len == 0 return 0;
 
-        match (os.read_file(self.inner.handle, buf.[0]..&, len)) {
+        match os.read_file(self.inner.handle, buf.[0]..&, len) {
             .{ Ok: n } => return n,
             .{ Err: _ } => return 0,
         }

@@ -1,3 +1,8 @@
+//! Rendering for persisted analysis-context files.
+//!
+//! The renderer emits deterministic text so digest comparison and editor cache
+//! reuse remain stable across process runs.
+
 use super::AnalysisContext;
 use std::collections::BTreeMap;
 

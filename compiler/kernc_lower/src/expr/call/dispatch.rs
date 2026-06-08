@@ -1,3 +1,9 @@
+//! Direct, method, and dynamic-dispatch call lowering.
+//!
+//! This module decides whether a call is a plain function call, a statically
+//! resolved method call, a member intrinsic, or trait-object dispatch, then
+//! materializes the receiver/arguments and concrete call target.
+
 use super::*;
 
 struct PlainFnCallLowering<'a> {

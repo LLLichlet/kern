@@ -1,16 +1,30 @@
+//! Shared host-side operations used by release, installer, and CI helper tools.
+//!
+//! This crate keeps filesystem, archive, SDK, and process helpers out of the
+//! small command binaries so each tool can share the same path handling and
+//! user-facing error formatting.
+
+use flate2::read::GzDecoder;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::env;
 use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::io;
+use std::io::BufReader;
+use std::io::Read;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const HOST_TOOL_BINARIES: &[&str] = &["kernc", "craft", "kern-lsp"];
 pub const OFFICIAL_LIBRARY_LAYERS: &[&str] = &["base", "rt", "std"];
+pub const OFFICIAL_LIBRARY_ENTRY: &str = "lib.kn";
+static COMMAND_LOGGING_ENABLED: AtomicBool = AtomicBool::new(true);
+static STATUS_LOGGING_ENABLED: AtomicBool = AtomicBool::new(true);
 
 #[derive(Debug)]
 pub struct OpsError {
@@ -104,6 +118,27 @@ pub struct CommandResult {
     pub stderr: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DownloadProgress {
+    pub downloaded: u64,
+    pub total: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ArchiveExtractProgress {
+    pub entries: u64,
+    pub bytes: u64,
+    pub total_entries: Option<u64>,
+    pub total_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SdkValidationProgress {
+    pub completed: u64,
+    pub total: Option<u64>,
+    pub current: &'static str,
+}
+
 #[derive(Debug, Clone)]
 pub struct BundledToolchain {
     pub source_label: String,
@@ -131,6 +166,22 @@ pub fn repo_root() -> OpsResult<PathBuf> {
 
 pub fn read_json_value(path: &Path) -> OpsResult<serde_json::Value> {
     Ok(serde_json::from_str(&fs::read_to_string(path)?)?)
+}
+
+pub fn set_command_logging_enabled(enabled: bool) -> bool {
+    COMMAND_LOGGING_ENABLED.swap(enabled, Ordering::Relaxed)
+}
+
+pub fn set_status_logging_enabled(enabled: bool) -> bool {
+    STATUS_LOGGING_ENABLED.swap(enabled, Ordering::Relaxed)
+}
+
+fn command_logging_enabled() -> bool {
+    COMMAND_LOGGING_ENABLED.load(Ordering::Relaxed)
+}
+
+fn status_logging_enabled() -> bool {
+    STATUS_LOGGING_ENABLED.load(Ordering::Relaxed)
 }
 
 pub fn write_json_value(path: &Path, value: &serde_json::Value) -> OpsResult<()> {
@@ -208,7 +259,26 @@ pub fn read_sdk_manifest(sdk_root: &Path) -> OpsResult<SdkManifest> {
 }
 
 pub fn validate_sdk_root(sdk_root: &Path, expected_target: &str) -> OpsResult<SdkManifest> {
+    validate_sdk_root_with_progress(sdk_root, expected_target, |_| {})
+}
+
+pub fn validate_sdk_root_with_progress(
+    sdk_root: &Path,
+    expected_target: &str,
+    mut progress: impl FnMut(SdkValidationProgress),
+) -> OpsResult<SdkManifest> {
+    let total = sdk_validation_step_count(sdk_root)?;
+    let mut completed = 0u64;
+    let mut tick = |current: &'static str| {
+        completed += 1;
+        progress(SdkValidationProgress {
+            completed,
+            total: Some(total),
+            current,
+        });
+    };
     let manifest = read_sdk_manifest(sdk_root)?;
+    tick("manifest");
     if manifest.host_target != expected_target {
         return Err(OpsError::new(format!(
             "SDK host target mismatch in `{}`: expected `{expected_target}`, found `{}`",
@@ -227,6 +297,7 @@ pub fn validate_sdk_root(sdk_root: &Path, expected_target: &str) -> OpsResult<Sd
                 sdk_root.display()
             )));
         }
+        tick("binary");
     }
 
     let library_root = sdk_root.join("lib").join("kern");
@@ -236,27 +307,59 @@ pub fn validate_sdk_root(sdk_root: &Path, expected_target: &str) -> OpsResult<Sd
         ));
     }
     for layer in OFFICIAL_LIBRARY_LAYERS {
-        if !library_root.join(layer).join("mod.kn").is_file() {
+        if !library_root
+            .join(layer)
+            .join(OFFICIAL_LIBRARY_ENTRY)
+            .is_file()
+        {
             return Err(OpsError::new(format!(
                 "SDK official library `{layer}` is missing"
             )));
         }
+        tick("library");
     }
     if !library_root.join("craft").join("mod.kn").is_file() {
         return Err(OpsError::new("SDK craft build modules are missing"));
     }
+    tick("library");
     if !sdk_root.join("toolchain").join("host").join("bin").is_dir() {
         return Err(OpsError::new("SDK toolchain layout is incomplete"));
     }
+    tick("toolchain");
 
-    validate_sdk_toolchain_manifest(sdk_root)?;
+    validate_sdk_toolchain_manifest_with_progress(sdk_root, |update| {
+        completed += 1;
+        progress(SdkValidationProgress {
+            completed,
+            total: Some(total),
+            current: update.current,
+        });
+    })?;
 
     Ok(manifest)
 }
 
 pub fn validate_sdk_toolchain_manifest(sdk_root: &Path) -> OpsResult<()> {
+    validate_sdk_toolchain_manifest_with_progress(sdk_root, |_| {})
+}
+
+pub fn validate_sdk_toolchain_manifest_with_progress(
+    sdk_root: &Path,
+    mut progress: impl FnMut(SdkValidationProgress),
+) -> OpsResult<()> {
+    let total = sdk_toolchain_validation_step_count(sdk_root)?;
+    let mut completed = 0u64;
+    let mut tick = |current: &'static str| {
+        completed += 1;
+        progress(SdkValidationProgress {
+            completed,
+            total: Some(total),
+            current,
+        });
+    };
     let manifest_path = sdk_root.join("manifest").join("sdk.json");
     let manifest = read_json_value(&manifest_path)?;
+    tick("toolchain manifest");
     let Some(toolchain) = manifest
         .get("toolchain")
         .and_then(|value| value.as_object())
@@ -293,9 +396,13 @@ pub fn validate_sdk_toolchain_manifest(sdk_root: &Path) -> OpsResult<()> {
                     "SDK manifest is missing bundled component `{component}`"
                 )));
             }
+            tick("required component");
         }
+        validate_sdk_clang_resource_headers(sdk_root, components)?;
+        tick("clang resource");
         for (component, entry) in components {
             validate_component_record(sdk_root, component, entry, "SDK bundled component")?;
+            tick(component_validation_label(component));
         }
         for check in manifest_health_checks(toolchain, &required, "SDK manifest toolchain")? {
             let entry = components.get(&check.component).ok_or_else(|| {
@@ -304,10 +411,104 @@ pub fn validate_sdk_toolchain_manifest(sdk_root: &Path) -> OpsResult<()> {
                     check.component
                 ))
             })?;
-            validate_manifest_health_check(sdk_root, &check.component, entry, &check.kind)?;
+            validate_manifest_health_check(
+                sdk_root,
+                host_target,
+                &check.component,
+                entry,
+                &check.kind,
+            )?;
+            tick(component_health_label(&check.kind));
         }
     }
     Ok(())
+}
+
+fn sdk_validation_step_count(sdk_root: &Path) -> OpsResult<u64> {
+    Ok(1 + HOST_TOOL_BINARIES.len() as u64
+        + OFFICIAL_LIBRARY_LAYERS.len() as u64
+        + 1
+        + 1
+        + sdk_toolchain_validation_step_count(sdk_root).unwrap_or(0))
+}
+
+fn sdk_toolchain_validation_step_count(sdk_root: &Path) -> OpsResult<u64> {
+    let manifest_path = sdk_root.join("manifest").join("sdk.json");
+    let manifest = read_json_value(&manifest_path)?;
+    let Some(toolchain) = manifest
+        .get("toolchain")
+        .and_then(|value| value.as_object())
+    else {
+        return Ok(1);
+    };
+    if !toolchain
+        .get("bundled")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        return Ok(1);
+    }
+    let host_target = manifest
+        .get("host_target")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let Some(components) = toolchain
+        .get("components")
+        .and_then(|value| value.as_object())
+    else {
+        return Ok(1);
+    };
+    let required = manifest_required_components(
+        toolchain,
+        sdk_runtime_required_components(host_target),
+        "SDK manifest toolchain",
+    )?;
+    let checks = manifest_health_checks(toolchain, &required, "SDK manifest toolchain")?;
+    Ok(1 + required.len() as u64 + 1 + components.len() as u64 + checks.len() as u64)
+}
+
+fn validate_sdk_clang_resource_headers(
+    sdk_root: &Path,
+    components: &serde_json::Map<String, serde_json::Value>,
+) -> OpsResult<()> {
+    let Some(entry) = components.get("clang_resource_dir") else {
+        return Err(OpsError::new(
+            "SDK manifest is missing bundled component `clang_resource_dir`",
+        ));
+    };
+    let relative_path = entry
+        .as_object()
+        .and_then(|obj| obj.get("path"))
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| OpsError::new("SDK bundled component `clang_resource_dir` has no path"))?;
+    let stdarg = sdk_root
+        .join(relative_path)
+        .join("include")
+        .join("stdarg.h");
+    if !stdarg.is_file() {
+        return Err(OpsError::new(format!(
+            "SDK clang resource headers are incomplete; missing `{}`",
+            stdarg.display()
+        )));
+    }
+    Ok(())
+}
+
+fn component_validation_label(component: &str) -> &'static str {
+    if component.ends_with("_dir") {
+        "checksum directory"
+    } else {
+        "checksum file"
+    }
+}
+
+fn component_health_label(kind: &str) -> &'static str {
+    match kind {
+        "starts-with-version" => "start tool",
+        "creates-empty-library" => "probe tool",
+        "exists" => "check component",
+        _ => "health check",
+    }
 }
 
 pub fn validate_toolchain_root(toolchain_root: &Path, expected_target: &str) -> OpsResult<()> {
@@ -370,7 +571,13 @@ pub fn validate_toolchain_root(toolchain_root: &Path, expected_target: &str) -> 
                 check.component
             ))
         })?;
-        validate_manifest_health_check(toolchain_root, &check.component, entry, &check.kind)?;
+        validate_manifest_health_check(
+            toolchain_root,
+            expected_target,
+            &check.component,
+            entry,
+            &check.kind,
+        )?;
     }
     Ok(())
 }
@@ -433,9 +640,10 @@ pub fn copy_sdk_contents(sdk_root: &Path, install_root: &Path) -> OpsResult<()> 
 
 pub fn verify_installed_tools(install_root: &Path, host: &HostTarget) -> OpsResult<()> {
     let bin_dir = install_root.join("bin");
+    let runtime_env = toolchain_runtime_library_env(install_root, &host.archive_target);
     for binary in HOST_TOOL_BINARIES {
         let binary_path = bin_dir.join(format!("{binary}{}", host.exe_suffix));
-        verify_binary_starts(&binary_path)?;
+        verify_binary_starts_with_env(&binary_path, &runtime_env)?;
     }
     Ok(())
 }
@@ -449,87 +657,128 @@ pub fn configure_path(install_bin: &Path, host: &HostTarget) -> OpsResult<()> {
 }
 
 pub fn download_file(url: &str, dest: &Path) -> OpsResult<()> {
+    download_file_with_progress(url, dest, |_| {})
+}
+
+pub fn download_file_with_progress(
+    url: &str,
+    dest: &Path,
+    mut progress: impl FnMut(DownloadProgress),
+) -> OpsResult<()> {
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent)?;
     }
-    if cfg!(windows) {
-        let escaped_url = powershell_quote(url);
-        let escaped_dest = powershell_quote(&dest.display().to_string());
-        let script = format!(
-            "Invoke-WebRequest -Uri {escaped_url} -OutFile {escaped_dest} -UseBasicParsing"
-        );
-        run_command(
-            &[
-                OsString::from("powershell"),
-                OsString::from("-NoProfile"),
-                OsString::from("-ExecutionPolicy"),
-                OsString::from("Bypass"),
-                OsString::from("-Command"),
-                OsString::from(script),
-            ],
-            None,
-        )
-    } else {
-        run_command(
-            &[
-                OsString::from("curl"),
-                OsString::from("-fsSL"),
-                OsString::from(url),
-                OsString::from("-o"),
-                dest.as_os_str().to_owned(),
-            ],
-            None,
-        )
+
+    let client = http_client()?;
+    let mut response = client
+        .get(url)
+        .send()
+        .map_err(|err| OpsError::new(format!("failed to download `{url}`: {err}")))?;
+    if !response.status().is_success() {
+        return Err(OpsError::new(format!(
+            "failed to download `{url}`: HTTP {}",
+            response.status()
+        )));
     }
+
+    let total = response.content_length();
+    let temp_path = temp_download_path(dest);
+    let mut file = fs::File::create(&temp_path).map_err(|err| {
+        OpsError::new(format!(
+            "failed to create download file `{}`: {err}",
+            temp_path.display()
+        ))
+    })?;
+    let mut downloaded = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    progress(DownloadProgress { downloaded, total });
+    let transfer_result = loop {
+        let read = match response.read(&mut buffer) {
+            Ok(read) => read,
+            Err(err) => {
+                break Err(OpsError::new(format!(
+                    "failed while reading download `{url}`: {err}"
+                )));
+            }
+        };
+        if read == 0 {
+            break Ok(());
+        }
+        if let Err(err) = file.write_all(&buffer[..read]) {
+            break Err(OpsError::new(format!(
+                "failed to write download file `{}`: {err}",
+                temp_path.display()
+            )));
+        }
+        downloaded += read as u64;
+        progress(DownloadProgress { downloaded, total });
+    };
+    if let Err(err) = transfer_result {
+        let _ = remove_path_if_exists(&temp_path);
+        return Err(err);
+    }
+    if let Err(err) = file.flush() {
+        let _ = remove_path_if_exists(&temp_path);
+        return Err(OpsError::new(format!(
+            "failed to flush download file `{}`: {err}",
+            temp_path.display()
+        )));
+    }
+    drop(file);
+    if let Some(total) = total
+        && downloaded != total
+    {
+        let _ = remove_path_if_exists(&temp_path);
+        return Err(OpsError::new(format!(
+            "downloaded {downloaded} byte(s) from `{url}`, expected {total}"
+        )));
+    }
+    fs::rename(&temp_path, dest).map_err(|err| {
+        OpsError::new(format!(
+            "failed to move download `{}` to `{}`: {err}",
+            temp_path.display(),
+            dest.display()
+        ))
+    })?;
+    Ok(())
 }
 
 pub fn fetch_latest_github_release(github_repo: &str) -> OpsResult<Option<String>> {
-    if cfg!(windows) {
-        let script = format!(
-            "(Invoke-RestMethod -Uri {}).tag_name",
-            powershell_quote(&format!(
-                "https://api.github.com/repos/{github_repo}/releases/latest"
-            ))
-        );
-        let result = run_command_capture(
-            &[
-                OsString::from("powershell"),
-                OsString::from("-NoProfile"),
-                OsString::from("-ExecutionPolicy"),
-                OsString::from("Bypass"),
-                OsString::from("-Command"),
-                OsString::from(script),
-            ],
-            None,
-        )?;
-        if result.status_code == Some(0) {
-            let tag = result.stdout.trim();
-            return Ok((!tag.is_empty()).then(|| tag.to_string()));
-        }
+    let url = format!("https://api.github.com/repos/{github_repo}/releases/latest");
+    let response = match http_client()?.get(&url).send() {
+        Ok(response) => response,
+        Err(_) => return Ok(None),
+    };
+    if !response.status().is_success() {
         return Ok(None);
     }
-
-    let result = run_command_capture(
-        &[
-            OsString::from("curl"),
-            OsString::from("-fsSLI"),
-            OsString::from("-o"),
-            OsString::from("/dev/null"),
-            OsString::from("-w"),
-            OsString::from("%{url_effective}"),
-            OsString::from(format!("https://github.com/{github_repo}/releases/latest")),
-        ],
-        None,
-    )?;
-    if result.status_code != Some(0) {
-        return Ok(None);
-    }
-    let resolved = result.stdout.trim();
-    Ok(resolved
-        .split("/releases/tag/")
-        .nth(1)
+    let value = match response.json::<serde_json::Value>() {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+    Ok(value
+        .get("tag_name")
+        .and_then(|tag| tag.as_str())
         .filter(|tag| !tag.is_empty())
         .map(str::to_string))
+}
+
+fn http_client() -> OpsResult<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .user_agent(format!("kernup/{}", env!("CARGO_PKG_VERSION")))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|err| OpsError::new(format!("failed to initialize HTTP client: {err}")))
+}
+
+fn temp_download_path(dest: &Path) -> PathBuf {
+    let mut name = dest
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("download")
+        .to_string();
+    name.push_str(&format!(".part-{}", unique_suffix()));
+    dest.with_file_name(name)
 }
 
 pub fn infer_release_version_from_archive_name(name: &str, target: &str) -> Option<String> {
@@ -543,34 +792,45 @@ pub fn infer_release_version_from_archive_name(name: &str, target: &str) -> Opti
 }
 
 pub fn verify_binary_starts(binary_path: &Path) -> OpsResult<CommandResult> {
+    verify_binary_starts_with_env(binary_path, &[])
+}
+
+fn verify_binary_starts_with_env(
+    binary_path: &Path,
+    envs: &[(&str, String)],
+) -> OpsResult<CommandResult> {
     if !binary_path.is_file() {
         return Err(OpsError::new(format!(
             "installed binary `{}` is missing",
             binary_path.display()
         )));
     }
-    let output = Command::new(binary_path)
-        .arg("--version")
-        .output()
-        .map_err(|err| {
-            OpsError::new(format!(
-                "failed to start `{}`: {err}",
-                binary_path.display()
-            ))
-        })?;
+    let mut command = Command::new(binary_path);
+    command.arg("--version");
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let output = command.output().map_err(|err| {
+        OpsError::new(format!(
+            "failed to start `{}`: {err}",
+            binary_path.display()
+        ))
+    })?;
     let result = command_result(output);
     if result.status_code == Some(0) {
         let first = first_non_empty_line(&result.stdout)
             .or_else(|| first_non_empty_line(&result.stderr))
             .unwrap_or("<no version output>");
-        println!(
-            "=> Verified {}: {}",
-            binary_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("<unknown>"),
-            first
-        );
+        if status_logging_enabled() {
+            println!(
+                "=> Verified {}: {}",
+                binary_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("<unknown>"),
+                first
+            );
+        }
         Ok(result)
     } else {
         Err(OpsError::new(format!(
@@ -594,13 +854,15 @@ pub fn run_command_with_env(
     if cmd.is_empty() {
         return Err(OpsError::new("cannot run an empty command"));
     }
-    eprintln!(
-        "=> Running: {}",
-        cmd.iter()
-            .map(|part| part.to_string_lossy())
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
+    if command_logging_enabled() {
+        eprintln!(
+            "=> Running: {}",
+            cmd.iter()
+                .map(|part| part.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+    }
     let mut command = Command::new(&cmd[0]);
     command.args(&cmd[1..]);
     if let Some(cwd) = cwd {
@@ -630,20 +892,33 @@ pub fn run_command_with_env(
 }
 
 pub fn run_command_capture(cmd: &[OsString], cwd: Option<&Path>) -> OpsResult<CommandResult> {
+    run_command_capture_with_env(cmd, cwd, &[])
+}
+
+pub fn run_command_capture_with_env(
+    cmd: &[OsString],
+    cwd: Option<&Path>,
+    envs: &[(&str, &str)],
+) -> OpsResult<CommandResult> {
     if cmd.is_empty() {
         return Err(OpsError::new("cannot run an empty command"));
     }
-    eprintln!(
-        "=> Running: {}",
-        cmd.iter()
-            .map(|part| part.to_string_lossy())
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
+    if command_logging_enabled() {
+        eprintln!(
+            "=> Running: {}",
+            cmd.iter()
+                .map(|part| part.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+    }
     let mut command = Command::new(&cmd[0]);
     command.args(&cmd[1..]);
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
+    }
+    for (key, value) in envs {
+        command.env(key, value);
     }
     let output = command.output().map_err(|err| {
         OpsError::new(format!(
@@ -689,9 +964,12 @@ pub fn resolve_official_library_root(root: &Path) -> OpsResult<PathBuf> {
         root.join(candidate)
     };
     if library_root.join("Craft.toml").is_file()
-        && OFFICIAL_LIBRARY_LAYERS
-            .iter()
-            .all(|layer| library_root.join(layer).join("mod.kn").is_file())
+        && OFFICIAL_LIBRARY_LAYERS.iter().all(|layer| {
+            library_root
+                .join(layer)
+                .join(OFFICIAL_LIBRARY_ENTRY)
+                .is_file()
+        })
     {
         return Ok(library_root);
     }
@@ -883,6 +1161,13 @@ pub fn sdk_manifest_json(
             ];
         }
         required_components = sdk_runtime_required_components(archive_target);
+        if components.contains_key("runtime_lib_dir")
+            && !required_components
+                .iter()
+                .any(|component| component == "runtime_lib_dir")
+        {
+            required_components.push("runtime_lib_dir".into());
+        }
         health_checks = toolchain_component_health_checks_json(&required_components);
     }
     serde_json::json!({
@@ -954,51 +1239,20 @@ pub fn sha256_file(path: &Path) -> OpsResult<String> {
             path.display()
         )));
     }
-    if cfg!(windows) {
-        let script = format!(
-            "(Get-FileHash -Algorithm SHA256 -LiteralPath {}).Hash.ToLowerInvariant()",
-            powershell_quote(&path.display().to_string())
-        );
-        let result = run_command_capture(
-            &[
-                OsString::from("powershell"),
-                OsString::from("-NoProfile"),
-                OsString::from("-ExecutionPolicy"),
-                OsString::from("Bypass"),
-                OsString::from("-Command"),
-                OsString::from(script),
-            ],
-            None,
-        )?;
-        if result.status_code == Some(0) {
-            return Ok(result.stdout.trim().to_ascii_lowercase());
+    let file = fs::File::open(path).map_err(|err| OpsError::io(path, "open", err))?;
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|err| OpsError::io(path, "read", err))?;
+        if read == 0 {
+            break;
         }
-    } else {
-        for command in ["sha256sum", "shasum"] {
-            let args = if command == "shasum" {
-                vec![
-                    OsString::from(command),
-                    OsString::from("-a"),
-                    OsString::from("256"),
-                    path.as_os_str().to_owned(),
-                ]
-            } else {
-                vec![OsString::from(command), path.as_os_str().to_owned()]
-            };
-            let Ok(result) = run_command_capture(&args, None) else {
-                continue;
-            };
-            if result.status_code == Some(0)
-                && let Some(hash) = result.stdout.split_whitespace().next()
-            {
-                return Ok(hash.to_ascii_lowercase());
-            }
-        }
+        hasher.update(&buffer[..read]);
     }
-    Err(OpsError::new(format!(
-        "failed to compute sha256 for `{}`",
-        path.display()
-    )))
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 pub fn sha256_directory(path: &Path) -> OpsResult<String> {
@@ -1023,13 +1277,9 @@ pub fn sha256_directory(path: &Path) -> OpsResult<String> {
         payload.extend_from_slice(sha256_file(&file)?.as_bytes());
         payload.push(0);
     }
-    let temp = make_temp_dir("kern-sha256-dir-")?.join("payload");
-    fs::write(&temp, payload)?;
-    let digest = sha256_file(&temp);
-    if let Some(parent) = temp.parent() {
-        let _ = remove_path_if_exists(parent);
-    }
-    digest
+    let mut hasher = Sha256::new();
+    hasher.update(payload);
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 pub fn file_size(path: &Path) -> OpsResult<u64> {
@@ -1039,57 +1289,159 @@ pub fn file_size(path: &Path) -> OpsResult<u64> {
         .len())
 }
 
-pub fn extract_archive_with_system_tool(
+pub fn extract_archive(
     archive_path: &Path,
     extract_root: &Path,
     kind: ArchiveKind,
 ) -> OpsResult<PathBuf> {
+    extract_archive_with_progress(archive_path, extract_root, kind, |_| {})
+}
+
+pub fn extract_archive_with_progress(
+    archive_path: &Path,
+    extract_root: &Path,
+    kind: ArchiveKind,
+    mut progress: impl FnMut(ArchiveExtractProgress),
+) -> OpsResult<PathBuf> {
     fs::create_dir_all(extract_root)?;
     match kind {
-        ArchiveKind::TarGz => run_command(
-            &[
-                OsString::from("tar"),
-                OsString::from("-xf"),
-                archive_path.as_os_str().to_owned(),
-                OsString::from("-C"),
-                extract_root.as_os_str().to_owned(),
-            ],
-            None,
-        )?,
-        ArchiveKind::Zip => {
-            if cfg!(windows) {
-                let script = format!(
-                    "Expand-Archive -LiteralPath {} -DestinationPath {} -Force",
-                    powershell_quote(&archive_path.display().to_string()),
-                    powershell_quote(&extract_root.display().to_string())
-                );
-                run_command(
-                    &[
-                        OsString::from("powershell"),
-                        OsString::from("-NoProfile"),
-                        OsString::from("-ExecutionPolicy"),
-                        OsString::from("Bypass"),
-                        OsString::from("-Command"),
-                        OsString::from(script),
-                    ],
-                    None,
-                )?;
-            } else {
-                run_command(
-                    &[
-                        OsString::from("unzip"),
-                        OsString::from("-q"),
-                        archive_path.as_os_str().to_owned(),
-                        OsString::from("-d"),
-                        extract_root.as_os_str().to_owned(),
-                    ],
-                    None,
-                )?;
-            }
-        }
+        ArchiveKind::TarGz => extract_tar_gz_archive(archive_path, extract_root, &mut progress)?,
+        ArchiveKind::Zip => extract_zip_archive(archive_path, extract_root, &mut progress)?,
     }
 
     single_directory_child(extract_root)
+}
+
+fn extract_tar_gz_archive(
+    archive_path: &Path,
+    extract_root: &Path,
+    progress: &mut impl FnMut(ArchiveExtractProgress),
+) -> OpsResult<()> {
+    let file =
+        fs::File::open(archive_path).map_err(|err| OpsError::io(archive_path, "open", err))?;
+    let total_bytes = file.metadata().ok().map(|metadata| metadata.len());
+    let entries = std::cell::Cell::new(0u64);
+    let compressed_bytes = std::cell::Cell::new(0u64);
+    {
+        let reader = CountingReader::new(BufReader::new(file), |read| {
+            compressed_bytes.set(read);
+            progress(ArchiveExtractProgress {
+                entries: entries.get(),
+                bytes: read,
+                total_entries: None,
+                total_bytes,
+            });
+        });
+        let decoder = GzDecoder::new(reader);
+        let mut archive = tar::Archive::new(decoder);
+        let mut archive_entries = archive
+            .entries()
+            .map_err(|err| OpsError::new(format!("failed to read archive entries: {err}")))?;
+        while let Some(entry) = archive_entries.next() {
+            let mut entry = entry
+                .map_err(|err| OpsError::new(format!("failed to read archive entry: {err}")))?;
+            entry.unpack_in(extract_root).map_err(|err| {
+                OpsError::new(format!(
+                    "failed to extract `{}`: {err}",
+                    archive_path.display()
+                ))
+            })?;
+            entries.set(entries.get().saturating_add(1));
+        }
+    }
+    if compressed_bytes.get() > 0 || entries.get() > 0 {
+        progress(ArchiveExtractProgress {
+            entries: entries.get(),
+            bytes: compressed_bytes.get(),
+            total_entries: None,
+            total_bytes,
+        });
+    }
+    Ok(())
+}
+
+fn extract_zip_archive(
+    archive_path: &Path,
+    extract_root: &Path,
+    progress: &mut impl FnMut(ArchiveExtractProgress),
+) -> OpsResult<()> {
+    let file =
+        fs::File::open(archive_path).map_err(|err| OpsError::io(archive_path, "open", err))?;
+    let mut archive = zip::ZipArchive::new(BufReader::new(file))
+        .map_err(|err| OpsError::new(format!("failed to read zip archive: {err}")))?;
+    let total_entries = archive.len() as u64;
+    let mut total_bytes = 0u64;
+    for index in 0..archive.len() {
+        let entry = archive
+            .by_index(index)
+            .map_err(|err| OpsError::new(format!("failed to read zip entry: {err}")))?;
+        total_bytes = total_bytes.saturating_add(entry.size());
+    }
+    let mut count = 0u64;
+    let mut bytes = 0u64;
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|err| OpsError::new(format!("failed to read zip entry: {err}")))?;
+        let Some(enclosed) = entry.enclosed_name() else {
+            continue;
+        };
+        let destination = extract_root.join(enclosed);
+        if entry.is_dir() {
+            fs::create_dir_all(&destination)
+                .map_err(|err| OpsError::io(&destination, "create directory", err))?;
+        } else {
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|err| OpsError::io(parent, "create directory", err))?;
+            }
+            let mut output = fs::File::create(&destination)
+                .map_err(|err| OpsError::io(&destination, "create", err))?;
+            io::copy(&mut entry, &mut output).map_err(|err| {
+                OpsError::new(format!(
+                    "failed to extract `{}` from `{}`: {err}",
+                    destination.display(),
+                    archive_path.display()
+                ))
+            })?;
+        }
+        count += 1;
+        bytes = bytes.saturating_add(entry.size());
+        progress(ArchiveExtractProgress {
+            entries: count,
+            bytes,
+            total_entries: Some(total_entries),
+            total_bytes: Some(total_bytes),
+        });
+    }
+    Ok(())
+}
+
+struct CountingReader<R, F> {
+    inner: R,
+    read: u64,
+    progress: F,
+}
+
+impl<R, F> CountingReader<R, F> {
+    fn new(inner: R, progress: F) -> Self {
+        Self {
+            inner,
+            read: 0,
+            progress,
+        }
+    }
+}
+
+impl<R: Read, F: FnMut(u64)> Read for CountingReader<R, F> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let read = self.inner.read(buf)?;
+        if read > 0 {
+            self.read = self.read.saturating_add(read as u64);
+            (self.progress)(self.read);
+        }
+        Ok(read)
+    }
 }
 
 pub fn archive_kind_from_path(path: &Path) -> OpsResult<ArchiveKind> {
@@ -1360,18 +1712,22 @@ fn configure_unix_path(install_bin: &Path) -> OpsResult<()> {
     let marker = install_bin.to_string_lossy();
     let contents = fs::read_to_string(&rc_file)?;
     if contents.contains(marker.as_ref()) {
-        println!("{} is already in your PATH.", install_bin.display());
+        if status_logging_enabled() {
+            println!("{} is already in your PATH.", install_bin.display());
+        }
         return Ok(());
     }
     let mut file = fs::OpenOptions::new().append(true).open(&rc_file)?;
     writeln!(file)?;
     writeln!(file, "# Kern Programming Language")?;
     writeln!(file, "export PATH=\"{}:$PATH\"", install_bin.display())?;
-    println!(
-        "Added {} to your PATH in {}.",
-        install_bin.display(),
-        rc_file.display()
-    );
+    if status_logging_enabled() {
+        println!(
+            "Added {} to your PATH in {}.",
+            install_bin.display(),
+            rc_file.display()
+        );
+    }
     Ok(())
 }
 
@@ -1394,7 +1750,9 @@ fn configure_windows_path(install_bin: &Path) -> OpsResult<()> {
         ],
         None,
     )?;
-    println!("Added {} to your user PATH.", install_bin.display());
+    if status_logging_enabled() {
+        println!("Added {} to your user PATH.", install_bin.display());
+    }
     Ok(())
 }
 
@@ -1412,11 +1770,11 @@ fn select_unix_rc_file() -> OpsResult<PathBuf> {
 }
 
 fn sdk_runtime_required_components(target: &str) -> Vec<String> {
+    let mut components = vec!["clang".into(), "lld".into(), "clang_resource_dir".into()];
     if target.ends_with("windows-msvc") {
-        vec!["clang".into(), "lld".into(), "llvm_lib".into()]
-    } else {
-        vec!["clang".into(), "lld".into()]
+        components.push("llvm_lib".into());
     }
+    components
 }
 
 fn full_toolchain_required_components(target: &str) -> Vec<String> {
@@ -1567,12 +1925,13 @@ fn validate_component_record(
 
 fn validate_manifest_health_check(
     root: &Path,
+    host_target: &str,
     component: &str,
     entry: &serde_json::Value,
     kind: &str,
 ) -> OpsResult<()> {
     if kind == "exists" {
-        return validate_component_record(root, component, entry, "toolchain component");
+        return validate_component_exists(root, component, entry, "toolchain component");
     }
     let path = entry
         .as_object()
@@ -1580,11 +1939,13 @@ fn validate_manifest_health_check(
         .and_then(|value| value.as_str())
         .ok_or_else(|| OpsError::new(format!("toolchain component `{component}` has no path")))?;
     let target = root.join(path);
+    let runtime_env = toolchain_runtime_library_env(root, host_target);
     if kind == "starts-with-version" {
         validate_component_record(root, component, entry, "toolchain component")?;
-        let result = run_command_capture(
+        let result = run_command_capture_with_env_owned(
             &[target.as_os_str().to_owned(), OsString::from("--version")],
             None,
+            &runtime_env,
         )?;
         if result.status_code == Some(0) {
             return Ok(());
@@ -1598,13 +1959,14 @@ fn validate_manifest_health_check(
         validate_component_record(root, component, entry, "toolchain component")?;
         let temp = make_temp_dir("kern-llvm-lib-probe-")?;
         let probe = temp.join("empty.lib");
-        let result = run_command_capture(
+        let result = run_command_capture_with_env_owned(
             &[
                 target.as_os_str().to_owned(),
                 OsString::from("/llvmlibempty"),
                 OsString::from(format!("/out:{}", probe.display())),
             ],
             Some(&temp),
+            &runtime_env,
         );
         let _ = remove_path_if_exists(&temp);
         let result = result?;
@@ -1619,6 +1981,60 @@ fn validate_manifest_health_check(
     Err(OpsError::new(format!(
         "toolchain manifest component `{component}` has unsupported health check `{kind}`"
     )))
+}
+
+fn validate_component_exists(
+    root: &Path,
+    component: &str,
+    entry: &serde_json::Value,
+    label: &str,
+) -> OpsResult<()> {
+    let Some(obj) = entry.as_object() else {
+        return Err(OpsError::new(format!("{label} `{component}` is invalid")));
+    };
+    let relative_path = json_string(obj, "path")?;
+    let kind = obj
+        .get("kind")
+        .and_then(|value| value.as_str())
+        .unwrap_or("file");
+    let target = root.join(&relative_path);
+    if kind == "directory" {
+        if target.is_dir() {
+            return Ok(());
+        }
+    } else if target.is_file() {
+        return Ok(());
+    }
+    Err(OpsError::new(format!(
+        "{label} `{component}` is missing at `{}`",
+        target.display()
+    )))
+}
+
+fn toolchain_runtime_library_env(root: &Path, host_target: &str) -> Vec<(&'static str, String)> {
+    let lib_dir = root.join("toolchain").join("host").join("lib");
+    if !lib_dir.is_dir() {
+        return Vec::new();
+    }
+    if host_target.ends_with("apple-darwin") {
+        return vec![("DYLD_LIBRARY_PATH", lib_dir.to_string_lossy().to_string())];
+    }
+    if host_target.ends_with("linux-gnu") {
+        return vec![("LD_LIBRARY_PATH", lib_dir.to_string_lossy().to_string())];
+    }
+    Vec::new()
+}
+
+fn run_command_capture_with_env_owned(
+    cmd: &[OsString],
+    cwd: Option<&Path>,
+    envs: &[(&str, String)],
+) -> OpsResult<CommandResult> {
+    let borrowed = envs
+        .iter()
+        .map(|(key, value)| (*key, value.as_str()))
+        .collect::<Vec<_>>();
+    run_command_capture_with_env(cmd, cwd, &borrowed)
 }
 
 fn normalize_runner_os(value: &str) -> OpsResult<String> {
@@ -1908,14 +2324,137 @@ mod tests {
     #[test]
     fn archive_kind_accepts_release_archive_extensions() {
         assert_eq!(
-            archive_kind_from_path(Path::new("kern-v0.7.6-x86_64-linux-gnu.tar.gz")).unwrap(),
+            archive_kind_from_path(Path::new("kern-v0.8.2-x86_64-linux-gnu.tar.gz")).unwrap(),
             ArchiveKind::TarGz
         );
         assert_eq!(
-            archive_kind_from_path(Path::new("kern-v0.7.6-x86_64-windows-msvc.zip")).unwrap(),
+            archive_kind_from_path(Path::new("kern-v0.8.2-x86_64-windows-msvc.zip")).unwrap(),
             ArchiveKind::Zip
         );
         assert!(archive_kind_from_path(Path::new("kern.tar")).is_err());
+    }
+
+    #[test]
+    fn sha256_file_uses_in_process_digest() {
+        let root = make_temp_dir("shared-ops-sha256-file-").unwrap();
+        let file = root.join("hello.txt");
+        fs::write(&file, "hello\n").unwrap();
+
+        assert_eq!(
+            sha256_file(&file).unwrap(),
+            "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        );
+        remove_path_if_exists(&root).unwrap();
+    }
+
+    #[test]
+    fn extract_zip_archive_uses_in_process_reader() {
+        let root = make_temp_dir("shared-ops-extract-zip-").unwrap();
+        let archive_path = root.join("archive.zip");
+        let extract_root = root.join("extract");
+        {
+            let file = fs::File::create(&archive_path).unwrap();
+            let mut archive = zip::ZipWriter::new(file);
+            let options = zip::write::SimpleFileOptions::default();
+            archive.add_directory("sdk/", options).unwrap();
+            archive.start_file("sdk/manifest.txt", options).unwrap();
+            archive.write_all(b"manifest").unwrap();
+            archive.start_file("sdk/bin/tool.exe", options).unwrap();
+            archive.write_all(b"tool").unwrap();
+            archive.finish().unwrap();
+        }
+
+        let mut updates = Vec::new();
+        let sdk_root = extract_archive_with_progress(
+            &archive_path,
+            &extract_root,
+            ArchiveKind::Zip,
+            |update| {
+                updates.push(update);
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            sdk_root.file_name().and_then(|name| name.to_str()),
+            Some("sdk")
+        );
+        assert_eq!(
+            fs::read_to_string(sdk_root.join("manifest.txt")).unwrap(),
+            "manifest"
+        );
+        assert_eq!(
+            fs::read_to_string(sdk_root.join("bin/tool.exe")).unwrap(),
+            "tool"
+        );
+        assert!(!updates.is_empty());
+        remove_path_if_exists(&root).unwrap();
+    }
+
+    #[test]
+    fn extract_tar_gz_archive_reports_archive_byte_progress() {
+        let root = make_temp_dir("shared-ops-extract-targz-").unwrap();
+        let archive_path = root.join("archive.tar.gz");
+        let extract_root = root.join("extract");
+        {
+            let file = fs::File::create(&archive_path).unwrap();
+            let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            let mut archive = tar::Builder::new(encoder);
+            let mut header = tar::Header::new_gnu();
+            let contents = b"hello from tar\n";
+            header.set_path("sdk/readme.txt").unwrap();
+            header.set_size(contents.len() as u64);
+            header.set_cksum();
+            archive.append(&header, &contents[..]).unwrap();
+            archive.finish().unwrap();
+        }
+
+        let mut updates = Vec::new();
+        let sdk_root = extract_archive_with_progress(
+            &archive_path,
+            &extract_root,
+            ArchiveKind::TarGz,
+            |update| {
+                updates.push(update);
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(sdk_root.join("readme.txt")).unwrap(),
+            "hello from tar\n"
+        );
+        let last = updates.last().expect("expected progress update");
+        assert_eq!(
+            last.total_bytes,
+            Some(fs::metadata(&archive_path).unwrap().len())
+        );
+        assert!(last.bytes > 0);
+        remove_path_if_exists(&root).unwrap();
+    }
+
+    #[test]
+    fn exists_health_check_does_not_rehash_component() {
+        let root = make_temp_dir("shared-ops-exists-health-").unwrap();
+        let directory = root.join("component");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("file.txt"), "changed contents").unwrap();
+        let entry = serde_json::json!({
+            "path": "component",
+            "kind": "directory",
+            "sha256": "intentionally-wrong"
+        });
+
+        validate_manifest_health_check(
+            &root,
+            "x86_64-linux-gnu",
+            "runtime_lib_dir",
+            &entry,
+            "exists",
+        )
+        .unwrap();
+
+        remove_path_if_exists(&root).unwrap();
     }
 
     #[test]
@@ -1923,11 +2462,11 @@ mod tests {
         let root = make_temp_dir("shared-ops-version-test-").unwrap();
         fs::write(
             root.join("Cargo.toml"),
-            "[package]\nversion = \"9.9.9\"\n\n[workspace.package]\nversion = \"0.7.6\"\n",
+            "[package]\nversion = \"9.9.9\"\n\n[workspace.package]\nversion = \"0.8.2\"\n",
         )
         .unwrap();
 
-        assert_eq!(load_workspace_version(&root).unwrap(), "0.7.6");
+        assert_eq!(load_workspace_version(&root).unwrap(), "0.8.2");
         remove_path_if_exists(&root).unwrap();
     }
 
@@ -1940,6 +2479,180 @@ mod tests {
         copy_path(&file, &file).unwrap();
 
         assert_eq!(fs::read_to_string(&file).unwrap(), "contents");
+        remove_path_if_exists(&root).unwrap();
+    }
+
+    #[test]
+    fn official_library_root_accepts_workspace_lib_entries() {
+        let root = make_temp_dir("shared-ops-library-root-test-").unwrap();
+        let library_root = root.join("library");
+        fs::create_dir_all(&library_root).unwrap();
+        fs::write(library_root.join("Craft.toml"), "").unwrap();
+        for layer in OFFICIAL_LIBRARY_LAYERS {
+            fs::create_dir_all(library_root.join(layer)).unwrap();
+            fs::write(library_root.join(layer).join(OFFICIAL_LIBRARY_ENTRY), "").unwrap();
+        }
+
+        assert_eq!(resolve_official_library_root(&root).unwrap(), library_root);
+        remove_path_if_exists(&root).unwrap();
+    }
+
+    #[test]
+    fn sdk_manifest_requires_clang_resource_dir() {
+        let manifest = sdk_manifest_json(
+            "v0.8.2",
+            "x86_64-linux-gnu",
+            Some(&BundledToolchain {
+                source_label: "test".into(),
+                prefix: PathBuf::from("/toolchain"),
+                bindir: PathBuf::from("/toolchain/bin"),
+                libdir: PathBuf::from("/toolchain/lib"),
+                includedir: PathBuf::from("/toolchain/include"),
+                version: "21.1.8".into(),
+                tools: serde_json::Map::new(),
+                resource_dir: Some(PathBuf::from("/toolchain/lib/clang/21")),
+                sysroot_dir: None,
+            }),
+            Some(&serde_json::Map::new()),
+        );
+        let required = manifest
+            .get("toolchain")
+            .and_then(|toolchain| toolchain.get("required_components"))
+            .and_then(|required| required.as_array())
+            .unwrap()
+            .iter()
+            .filter_map(|item| item.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(required.contains(&"clang"));
+        assert!(required.contains(&"lld"));
+        assert!(required.contains(&"clang_resource_dir"));
+    }
+
+    #[test]
+    fn sdk_manifest_requires_runtime_lib_dir_when_bundled() {
+        let mut records = serde_json::Map::new();
+        records.insert(
+            "runtime_lib_dir".into(),
+            serde_json::json!({
+                "path": "toolchain/host/lib",
+                "kind": "directory",
+                "sha256": "abc"
+            }),
+        );
+        let manifest = sdk_manifest_json(
+            "v0.8.2",
+            "x86_64-linux-gnu",
+            Some(&BundledToolchain {
+                source_label: "test".into(),
+                prefix: PathBuf::from("/toolchain"),
+                bindir: PathBuf::from("/toolchain/bin"),
+                libdir: PathBuf::from("/toolchain/lib"),
+                includedir: PathBuf::from("/toolchain/include"),
+                version: "21.1.8".into(),
+                tools: serde_json::Map::new(),
+                resource_dir: Some(PathBuf::from("/toolchain/lib/clang/21")),
+                sysroot_dir: None,
+            }),
+            Some(&records),
+        );
+        let toolchain = manifest.get("toolchain").unwrap();
+        let required = toolchain
+            .get("required_components")
+            .and_then(|required| required.as_array())
+            .unwrap()
+            .iter()
+            .filter_map(|item| item.as_str())
+            .collect::<Vec<_>>();
+        let health_checks = toolchain
+            .get("health_checks")
+            .and_then(|checks| checks.as_array())
+            .unwrap();
+
+        assert!(required.contains(&"runtime_lib_dir"));
+        assert!(health_checks.iter().any(|check| {
+            check.get("component").and_then(|value| value.as_str()) == Some("runtime_lib_dir")
+                && check.get("kind").and_then(|value| value.as_str()) == Some("exists")
+        }));
+    }
+
+    #[test]
+    fn sdk_validation_rejects_missing_clang_resource_headers() {
+        let root = make_temp_dir("shared-ops-sdk-resource-test-").unwrap();
+        fs::create_dir_all(root.join("bin")).unwrap();
+        for binary in HOST_TOOL_BINARIES {
+            fs::write(root.join("bin").join(binary), "").unwrap();
+        }
+        let library_root = root.join("lib").join("kern");
+        fs::create_dir_all(&library_root).unwrap();
+        fs::write(library_root.join("Craft.toml"), "").unwrap();
+        for layer in OFFICIAL_LIBRARY_LAYERS {
+            fs::create_dir_all(library_root.join(layer)).unwrap();
+            fs::write(library_root.join(layer).join(OFFICIAL_LIBRARY_ENTRY), "").unwrap();
+        }
+        fs::create_dir_all(library_root.join("craft")).unwrap();
+        fs::write(library_root.join("craft").join("mod.kn"), "").unwrap();
+        fs::create_dir_all(root.join("toolchain").join("host").join("bin")).unwrap();
+        fs::create_dir_all(
+            root.join("toolchain")
+                .join("host")
+                .join("lib")
+                .join("clang")
+                .join("21"),
+        )
+        .unwrap();
+        let manifest_dir = root.join("manifest");
+        fs::create_dir_all(&manifest_dir).unwrap();
+        write_json_value(
+            &manifest_dir.join("sdk.json"),
+            &serde_json::json!({
+                "schema_version": 1,
+                "sdk_version": "v0.8.2",
+                "host_target": "x86_64-linux-gnu",
+                "binaries": HOST_TOOL_BINARIES,
+                "libraries": OFFICIAL_LIBRARY_LAYERS,
+                "toolchain": {
+                    "bundled": true,
+                    "components": {
+                        "clang": {"path": "toolchain/host/bin/clang", "kind": "file"},
+                        "lld": {"path": "toolchain/host/bin/ld.lld", "kind": "file"},
+                        "clang_resource_dir": {
+                            "path": "toolchain/host/lib/clang/21",
+                            "kind": "directory"
+                        }
+                    },
+                    "required_components": ["clang", "lld", "clang_resource_dir"],
+                    "health_checks": [
+                        {"component": "clang_resource_dir", "kind": "exists"}
+                    ]
+                }
+            }),
+        )
+        .unwrap();
+        fs::write(
+            root.join("toolchain")
+                .join("host")
+                .join("bin")
+                .join("clang"),
+            "",
+        )
+        .unwrap();
+        fs::write(
+            root.join("toolchain")
+                .join("host")
+                .join("bin")
+                .join("ld.lld"),
+            "",
+        )
+        .unwrap();
+
+        let err = validate_sdk_root(&root, "x86_64-linux-gnu").unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("SDK clang resource headers are incomplete")
+        );
+        assert!(err.to_string().contains("stdarg.h"));
         remove_path_if_exists(&root).unwrap();
     }
 }

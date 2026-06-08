@@ -1,3 +1,5 @@
+//! Language regression submodules.
+
 pub(crate) use super::*;
 
 #[path = "language/const_generics.rs"]
@@ -6,6 +8,8 @@ mod const_generics;
 mod core;
 #[path = "language/initialization.rs"]
 mod initialization;
+#[path = "language/robustness.rs"]
+mod robustness;
 #[path = "language/runtime.rs"]
 mod runtime;
 #[path = "language/trait_solver.rs"]

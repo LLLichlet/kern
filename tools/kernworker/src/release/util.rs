@@ -1,3 +1,8 @@
+//! Small release helper functions shared by archive, checksum, and dependency code.
+//!
+//! The helpers here focus on deterministic path rendering and command quoting,
+//! which keeps generated release artifacts stable across platforms.
+
 use shared_ops::{
     ArtifactRecord, BundledToolchain, OpsError, OpsResult, artifact_record_json, file_size,
     sha256_file,

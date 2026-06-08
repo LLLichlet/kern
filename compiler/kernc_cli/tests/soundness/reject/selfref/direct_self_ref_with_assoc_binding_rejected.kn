@@ -1,0 +1,20 @@
+// class: selfref-trait-proof
+// source: a direct self-referential impl remains invalid even when the recursive prerequisite carries an associated-type binding
+// stderr: impl cannot require itself in its own where-clause
+// stderr: Carrier[T]: Forge
+
+trait Forge {
+    type Out;
+};
+
+struct Carrier[T] {};
+
+impl[T] Carrier[T]: Forge
+    where Carrier[T]: Forge[Out = T],
+{
+    type Out = T;
+}
+
+fn main() i32 {
+    return 0;
+}

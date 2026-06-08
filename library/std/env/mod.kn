@@ -28,13 +28,13 @@ pub struct Key {
 };
 
 fn bytes_eq(lhs: &[u8], rhs: &[u8]) bool {
-    if (lhs.@len() != rhs.@len()) {
+    if lhs.@len() != rhs.@len() {
         return false;
     }
 
     let mut i = 0usize;
-    while (i < lhs.@len()) {
-        if (lhs.[i] != rhs.[i]) {
+    while i < lhs.@len() {
+        if lhs.[i] != rhs.[i] {
             return false;
         }
         i += 1;
@@ -59,20 +59,20 @@ impl Var {
     }
 }
 
-#[if((os == "linux" or os == "darwin") or os == "windows")]
+#[if os == "linux" or os == "darwin" or os == "windows"]
 fn split_var(entry: &[u8]) ?Var {
-    if (entry.@len() == 0) {
+    if entry.@len() == 0 {
         return .None;
     }
 
     let mut start = 0usize;
-    if (entry.[0] == b'=' and entry.@len() > 1) {
+    if entry.[0] == b'=' and entry.@len() > 1 {
         start = 1;
     }
 
         let mut i = start;
-    while (i < entry.@len()) {
-        if (entry.[i] != b'=') {
+    while i < entry.@len() {
+        if entry.[i] != b'=' {
             i += 1;
             continue;
         }
@@ -89,38 +89,38 @@ fn split_var(entry: &[u8]) ?Var {
     return .None;
 }
 
-#[if((os == "linux" or os == "darwin") or os == "windows")]
+#[if os == "linux" or os == "darwin" or os == "windows"]
 fn clone_c_value(
     alloc: &mut Allocator,
     ptr: &u8,
     len: usize,
 ) String!AllocError {
     let mut value = String.{};
-    if (value..&.try_push_str(alloc, ptr.&[0...len]).is_err()) {
+    if value..&.try_push_str(alloc, ptr.&[0...len]).is_err() {
         value..&.deinit(alloc);
         return .{ Err: .OutOfMemory };
     }
     return .{ Ok: value };
 }
 
-#[if(os == "linux" or os == "darwin")]
+#[if os == "linux" or os == "darwin"]
 fn get_posix(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
     let c_name = abi.cstr.owned(alloc, name).?..&;
     defer c_name.deinit(alloc);
 
-    let .{ Some: value_ptr } = os.find_environment_value(c_name.ptr())
+    let .{ Some: value_ptr } = os.find_environment_value(c_name.view().ptr())
         else return .{ Ok: .None };
     let value = clone_c_value(alloc, value_ptr, value_ptr.cstr_len()).?;
     return .{ Ok: .{ Some: value } };
 }
 
-#[if(os == "windows")]
+#[if os == "windows"]
 fn get_windows(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
     let c_name = abi.cstr.owned(alloc, name).?..&;
     defer c_name.deinit(alloc);
 
-    let required = os.get_environment_variable(c_name.ptr(), null_mut_ptr[u8](), 0) as usize;
-    if (required == 0) {
+    let required = os.get_environment_variable(c_name.view().ptr(), null_mut_ptr[u8](), 0) as usize;
+    if required == 0 {
         return .{ Ok: .None };
     }
 
@@ -128,24 +128,24 @@ fn get_windows(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
     let buffer = alloc.alloc(layout).ok_or(.OutOfMemory).?;
     defer alloc.free(buffer, layout);
 
-    let written = os.get_environment_variable(c_name.ptr(), buffer, required as u32) as usize;
-    if (written == 0) {
+    let written = os.get_environment_variable(c_name.view().ptr(), buffer, required as u32) as usize;
+    if written == 0 {
         return .{ Ok: .None };
     }
 
-    let value = clone_c_value(alloc, buffer, written).?;
+    let value = clone_c_value(alloc, buffer.view(), written).?;
     return .{ Ok: .{ Some: value } };
 }
 
-#[if(os == "linux" or os == "darwin")]
+#[if os == "linux" or os == "darwin"]
 fn visit_posix(visitor: &Fn(Var) bool) usize {
     let .{ Some: envp_start } = os.environment_entries() else return 0usize;
     let mut envp = envp_start;
 
     let mut total = 0usize;
-        while (true) {
+        while true {
         let entry_ptr = envp.*;
-        if ((entry_ptr as usize) == 0) {
+        if (entry_ptr as usize) == 0 {
             return total;
         }
 
@@ -157,7 +157,7 @@ fn visit_posix(visitor: &Fn(Var) bool) usize {
         };
 
         total += 1;
-        if (!visitor(var)) {
+        if !visitor(var) {
             return total;
         }
 
@@ -165,10 +165,10 @@ fn visit_posix(visitor: &Fn(Var) bool) usize {
     }
 }
 
-#[if(os == "windows")]
+#[if os == "windows"]
 fn visit_windows(visitor: &Fn(Var) bool) usize {
     let block = os.get_environment_strings();
-    if ((block as usize) == 0) {
+    if (block as usize) == 0 {
         return 0usize;
     }
     defer {
@@ -177,9 +177,9 @@ fn visit_windows(visitor: &Fn(Var) bool) usize {
 
     let mut cursor = block;
     let mut total = 0usize;
-        while (true) {
-        let len = cursor.cstr_len();
-        if (len == 0) {
+        while true {
+        let len = cursor.view().cstr_len();
+        if len == 0 {
             return total;
         }
 
@@ -191,7 +191,7 @@ fn visit_windows(visitor: &Fn(Var) bool) usize {
         };
 
         total += 1;
-        if (!visitor(var)) {
+        if !visitor(var) {
             return total;
         }
 
@@ -217,12 +217,12 @@ impl Vars {
     /// Returns:
     /// the number of entries observed, including the last one passed to the visitor.
     pub fn visit(visitor: &Fn(Var) bool) usize {
-        #[if(os == "linux" or os == "darwin")]
+        #[if os == "linux" or os == "darwin"]
         {
             return visit_posix(visitor);
         }
 
-        #[if(os == "windows")]
+        #[if os == "windows"]
         {
             return visit_windows(visitor);
         }
@@ -240,16 +240,16 @@ impl Key {
 
     /// Reads this environment variable into an owned `String`.
     pub fn get(alloc: &mut Allocator) (?String)!AllocError {
-        if (self.name.@len() == 0) {
+        if self.name.@len() == 0 {
             return .{ Ok: .None };
         }
 
-        #[if(os == "linux" or os == "darwin")]
+        #[if os == "linux" or os == "darwin"]
         {
             return get_posix(alloc, self.name);
         }
 
-        #[if(os == "windows")]
+        #[if os == "windows"]
         {
             return get_windows(alloc, self.name);
         }
@@ -260,7 +260,7 @@ impl Key {
 
     /// Returns `true` when this environment variable exists.
     pub fn has() bool {
-        if (self.name.@len() == 0) {
+        if self.name.@len() == 0 {
             return false;
         }
 
@@ -277,7 +277,7 @@ impl Key {
         let .{ Ok: maybe } = self.get(alloc) else {
             .{ Err: err } => return .{ Err: err },
         };
-        match (maybe) {
+        match maybe {
             .{ Some: value } => return .{ Ok: value },
             .None => {
                 let mut value = String.{};
@@ -294,13 +294,13 @@ impl Key {
 
     /// Visits this environment variable's value when it exists.
     pub fn visit(visitor: &Fn(&[u8]) bool) bool {
-        if (self.name.@len() == 0) {
+        if self.name.@len() == 0 {
             return false;
         }
 
         let mut found = false;
         _ = vars().visit([needle = self.name, target = visitor, found = found..&](entry: Var) bool {
-            if (!entry.name_eq(needle)) {
+            if !entry.name_eq(needle) {
                 return true;
             }
             found.* = true;
@@ -313,7 +313,7 @@ impl Key {
     pub fn equals(expected: &[u8]) bool {
         let mut matched = false;
         let found = self.visit([expected, matched = matched..&](value: &[u8]) bool {
-            if (bytes_eq(value, expected)) {
+            if bytes_eq(value, expected) {
                 matched.* = true;
             }
             return false;

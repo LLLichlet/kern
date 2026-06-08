@@ -1,3 +1,9 @@
+//! Source file storage and byte-offset location lookups.
+//!
+//! All parser spans are file-relative byte offsets.  `SourceFile` precomputes
+//! line starts once, then `SourceManager` maps spans to user-facing file, line,
+//! and column information for diagnostics, LSP responses, and tests.
+
 use super::Span;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -39,6 +45,8 @@ pub struct SourceFile {
 impl SourceFile {
     pub fn new(path: PathBuf, src: impl Into<Arc<str>>) -> Self {
         let src = src.into();
+        // Store the first byte of every line.  The initial zero represents the
+        // first line even for empty files.
         let line_starts = std::iter::once(0)
             .chain(src.match_indices('\n').map(|(i, _)| i + 1))
             .collect();
@@ -55,6 +63,8 @@ impl SourceFile {
 
     /// Map a byte offset to a 1-based line number via binary search.
     pub fn lookup_line(&self, offset: usize) -> usize {
+        // `Err(line)` is already the count of line starts before `offset`,
+        // which is the desired 1-based line number.
         match self.line_starts.binary_search(&offset) {
             Ok(line) => line + 1,
             Err(line) => line,
@@ -95,7 +105,7 @@ impl SourceFile {
     /// Convert a 1-based line/column pair back into a byte offset.
     pub fn offset_at(&self, line: usize, col: usize) -> Option<usize> {
         // The compiler uses 1-based coordinates internally.
-        if line == 0 || line > self.line_starts.len() {
+        if line == 0 || line > self.line_starts.len() || col == 0 {
             return None;
         }
 
@@ -108,7 +118,7 @@ impl SourceFile {
         } else {
             self.src.len() + 1 // Allow callers to point at EOF.
         };
-        let target = start + col;
+        let target = start + col.saturating_sub(1);
         if target >= end_limit {
             return None;
         }
@@ -138,6 +148,8 @@ impl SourceManager {
     /// Load a file, deduplicating identical canonical paths.
     pub fn load_file<P: AsRef<Path>>(&mut self, path: P) -> io::Result<FileId> {
         let path = path.as_ref();
+        // Canonical paths prevent duplicate file IDs when imports reach the
+        // same module through different relative paths.
         let abs_path = fs::canonicalize(path)?;
 
         if let Some(file_id) = self.file_ids_by_path.get(&abs_path).copied() {
@@ -217,5 +229,22 @@ impl SourceManager {
             // Replace the contents while preserving the logical path.
             *file = SourceFile::new(file.path.clone(), new_src);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SourceFile;
+    use std::path::PathBuf;
+
+    #[test]
+    fn offset_at_uses_one_based_columns() {
+        let file = SourceFile::new(PathBuf::from("test.kn"), "abc\ndef");
+
+        assert_eq!(file.lookup_line_col(0), (1, 1));
+        assert_eq!(file.offset_at(1, 0), None);
+        assert_eq!(file.offset_at(1, 1), Some(0));
+        assert_eq!(file.offset_at(1, 3), Some(2));
+        assert_eq!(file.offset_at(2, 1), Some(4));
     }
 }

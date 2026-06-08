@@ -1,3 +1,9 @@
+//! `kernc` command-line entry point.
+//!
+//! The CLI parses driver modes, target/options, library bundles, output paths,
+//! help/version requests, and then delegates compilation, C compilation, link
+//! only, or analysis-style modes to `kernc_driver`.
+
 mod help;
 
 use help::{HelpTopic, render_help, version_text};

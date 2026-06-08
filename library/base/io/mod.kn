@@ -31,10 +31,13 @@ pub use .writers.{
     FixedBufferWriter,
     StringWriter,
     CountingWriter,
+    BufWriter,
+    LineWriter,
     NullWriter,
     discard,
 };
 pub use .readers.{
     SliceReader,
     LimitReader,
+    BufReader,
 };

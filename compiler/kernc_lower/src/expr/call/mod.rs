@@ -1,3 +1,9 @@
+//! Call lowering.
+//!
+//! This module lowers direct calls, method calls, dynamic dispatch, intrinsics,
+//! inline assembly, and call argument materialization into MAST call and
+//! dispatch forms suitable for monomorphization and MIR lowering.
+
 use super::Lowerer;
 use std::collections::HashMap;
 
@@ -92,6 +98,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut field_exprs = Vec::with_capacity(natural_fields.len());
         for &ast_idx in &physical_to_ast {
+            if self.check_canceled().is_err() {
+                break;
+            }
             let field = &natural_fields[ast_idx];
             let name = self.ctx.resolve(field.name);
             let expr = match name {
@@ -178,6 +187,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut field_exprs = Vec::with_capacity(natural_fields.len());
         for &ast_idx in &physical_to_ast {
+            if self.check_canceled().is_err() {
+                break;
+            }
             let field = &natural_fields[ast_idx];
             let name = self.ctx.resolve(field.name);
             let expr = match name {
@@ -214,37 +226,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     fn receiver_search_types(&mut self, receiver_ty: TypeId) -> Vec<TypeId> {
         let receiver_norm = self.ctx.type_registry.normalize(receiver_ty);
-        let mut search_tys = vec![receiver_norm];
-
-        let downgraded = match self.ctx.type_registry.get(receiver_norm).clone() {
-            TypeKind::Pointer { is_mut: true, elem } => {
-                Some(self.ctx.type_registry.intern(TypeKind::Pointer {
-                    is_mut: false,
-                    elem,
-                }))
-            }
-            TypeKind::VolatilePtr { is_mut: true, elem } => {
-                Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                    is_mut: false,
-                    elem,
-                }))
-            }
-            TypeKind::Slice { is_mut: true, elem } => {
-                Some(self.ctx.type_registry.intern(TypeKind::Slice {
-                    is_mut: false,
-                    elem,
-                }))
-            }
-            _ => None,
-        };
-
-        if let Some(down_ty) = downgraded
-            && !search_tys.contains(&down_ty)
-        {
-            search_tys.push(down_ty);
-        }
-
-        search_tys
+        vec![receiver_norm]
     }
 
     fn intrinsic_name_for_lowering(&mut self, callee_ty: TypeId) -> Option<String> {

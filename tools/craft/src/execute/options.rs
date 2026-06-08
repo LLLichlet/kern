@@ -1,3 +1,9 @@
+//! Translation from Craft action plans to compiler/linker options.
+//!
+//! Option builders combine manifest profiles, runtime defaults, target kind,
+//! generated roots, dependency aliases, and linker input policy into concrete
+//! `CompileOptions` and link flags.
+
 use super::{
     BuiltExternalPackage, BuiltStdPackage, ManifestRuntimeOptions, PackageInstanceKey,
     runtime_profile_key,
@@ -175,6 +181,7 @@ pub(super) fn compile_action_options(
     built_std_packages: &BTreeMap<String, BuiltStdPackage>,
     built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
     manifest_runtime_options: &mut BTreeMap<std::path::PathBuf, ManifestRuntimeOptions>,
+    report_timings: bool,
 ) -> Result<CompileOptions> {
     let mut options = CompileOptions {
         input_file: Some(action.source_path().to_string_lossy().to_string()),
@@ -205,6 +212,7 @@ pub(super) fn compile_action_options(
             &action.profile,
             action.domain,
         ),
+        report_timings,
         split_sections_for_gc: true,
         ..default_target_compile_options(action.target_kind)
     };
@@ -465,7 +473,7 @@ mod tests {
         let manifest_path = root.join("Craft.toml");
         fs::write(
             &manifest_path,
-            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nkern = \"0.7.6\"\n",
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nkern = \"0.8.2\"\n",
         )
         .unwrap();
         let source_path = root.join("src/main.kn");
@@ -508,6 +516,7 @@ mod tests {
             &BTreeMap::new(),
             &BTreeMap::new(),
             &mut manifest_runtime_options,
+            false,
         )
         .unwrap();
 
@@ -526,7 +535,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 bundle = "base"
@@ -547,6 +556,7 @@ root = "src/lib.kn"
             &built_std_packages,
             &BTreeMap::new(),
             &mut manifest_runtime_options,
+            false,
         )
         .unwrap();
 
@@ -577,7 +587,7 @@ root = "src/lib.kn"
 [package]
 name = "base"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 bundle = "base"
@@ -598,6 +608,7 @@ root = "src/lib.kn"
             &built_std_packages,
             &BTreeMap::new(),
             &mut manifest_runtime_options,
+            false,
         )
         .unwrap();
 
@@ -621,7 +632,7 @@ root = "src/lib.kn"
 [package]
 name = "rt"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 bundle = "none"
@@ -642,6 +653,7 @@ root = "src/lib.kn"
             &built_std_packages,
             &BTreeMap::new(),
             &mut manifest_runtime_options,
+            false,
         )
         .unwrap();
 
@@ -665,7 +677,7 @@ root = "src/lib.kn"
 [package]
 name = "std"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 bundle = "std"
@@ -686,6 +698,7 @@ root = "src/lib.kn"
             &built_std_packages,
             &BTreeMap::new(),
             &mut manifest_runtime_options,
+            false,
         )
         .unwrap();
 

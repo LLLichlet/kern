@@ -1,3 +1,8 @@
+//! Argument parsing and help text for `kernworker`.
+//!
+//! Parsing is intentionally hand-written so CI/release commands can reject
+//! ambiguous options with precise messages and keep the shipped binary light.
+
 use shared_cli::{ColorChoice, HelpDoc, HelpSection};
 use shared_ops::{OpsError, OpsResult};
 use std::path::PathBuf;
@@ -28,6 +33,7 @@ pub enum ReleaseCommand {
     Package(ReleasePackageArgs),
     PackageToolchain(ReleaseToolchainPackageArgs),
     WriteChecksums(ReleaseChecksumsArgs),
+    BumpVersion(ReleaseBumpVersionArgs),
     Help,
 }
 
@@ -85,6 +91,7 @@ pub struct ReleasePackageArgs {
     pub version: Option<String>,
     pub target: Option<String>,
     pub skip_build: bool,
+    pub skip_kernup: bool,
     pub toolchain_prefix: Option<PathBuf>,
 }
 
@@ -101,6 +108,13 @@ pub struct ReleaseChecksumsArgs {
     pub manifest_path: Option<PathBuf>,
     pub channel: String,
     pub release_tag: Option<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct ReleaseBumpVersionArgs {
+    pub version: Option<String>,
+    pub from: Option<String>,
+    pub check: bool,
 }
 pub fn parse_args(args: Vec<String>) -> OpsResult<Command> {
     let Some(command) = args.first().map(String::as_str) else {
@@ -160,6 +174,9 @@ fn parse_release_args(args: &[String]) -> OpsResult<ReleaseCommand> {
         "write-checksums" => {
             parse_release_checksums_args(&args[1..]).map(ReleaseCommand::WriteChecksums)
         }
+        "bump-version" => {
+            parse_release_bump_version_args(&args[1..]).map(ReleaseCommand::BumpVersion)
+        }
         "help" | "--help" | "-h" => Ok(ReleaseCommand::Help),
         other => Err(OpsError::new(format!(
             "unknown release command `{other}`; run `kernworker release help`"
@@ -189,6 +206,7 @@ fn parse_release_package_args(args: &[String]) -> OpsResult<ReleasePackageArgs> 
                 );
             }
             "--skip-build" => parsed.skip_build = true,
+            "--skip-kernup" => parsed.skip_kernup = true,
             "--toolchain-prefix" => {
                 index += 1;
                 parsed.toolchain_prefix =
@@ -304,6 +322,43 @@ fn parse_release_checksums_args(args: &[String]) -> OpsResult<ReleaseChecksumsAr
         return Err(OpsError::new(
             "`kernworker release write-checksums` requires at least one path or glob pattern",
         ));
+    }
+    Ok(parsed)
+}
+
+fn parse_release_bump_version_args(args: &[String]) -> OpsResult<ReleaseBumpVersionArgs> {
+    let mut parsed = ReleaseBumpVersionArgs::default();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--version" => {
+                index += 1;
+                parsed.version = Some(
+                    args.get(index)
+                        .ok_or_else(|| OpsError::new("`--version` requires a value"))?
+                        .to_string(),
+                );
+            }
+            "--from" => {
+                index += 1;
+                parsed.from = Some(
+                    args.get(index)
+                        .ok_or_else(|| OpsError::new("`--from` requires a value"))?
+                        .to_string(),
+                );
+            }
+            "--check" => parsed.check = true,
+            "--help" | "-h" => {
+                print!("{}", release_bump_version_help().render(ColorChoice::Auto));
+                std::process::exit(0);
+            }
+            other => {
+                return Err(OpsError::new(format!(
+                    "unexpected release bump-version argument `{other}`"
+                )));
+            }
+        }
+        index += 1;
     }
     Ok(parsed)
 }
@@ -540,7 +595,7 @@ pub fn help() -> HelpDoc {
             "run craft release policy fixtures",
         )
         .example(
-            "kernworker release package --version v0.7.6",
+            "kernworker release package --version v0.8.2",
             "build a host-native SDK archive",
         )
 }
@@ -593,7 +648,8 @@ pub fn release_help() -> HelpDoc {
                 .entry(
                     "write-checksums",
                     "Generate sha256 sidecars and optional release manifest",
-                ),
+                )
+                .entry("bump-version", "Rewrite checked-in Kern release versions"),
         )
 }
 
@@ -612,6 +668,7 @@ fn release_package_help() -> HelpDoc {
                     "archive target label; defaults to current host",
                 )
                 .entry("--skip-build", "reuse existing release binaries")
+                .entry("--skip-kernup", "do not package the kernup bootstrapper")
                 .entry(
                     "--toolchain-prefix <path>",
                     "LLVM toolchain prefix to bundle",
@@ -655,6 +712,21 @@ fn release_checksums_help() -> HelpDoc {
                     "--release-tag <tag>",
                     "release tag recorded in the manifest",
                 ),
+        )
+}
+
+fn release_bump_version_help() -> HelpDoc {
+    HelpDoc::new("kernworker release bump-version")
+        .summary("Rewrite checked-in Kern release versions.")
+        .usage("kernworker release bump-version --version <semver> [options]")
+        .section(
+            HelpSection::new("Options")
+                .entry("--version <semver>", "new version without the leading v")
+                .entry(
+                    "--from <semver>",
+                    "old version; defaults to the workspace package version",
+                )
+                .entry("--check", "fail if files would need rewriting"),
         )
 }
 
@@ -722,7 +794,7 @@ mod tests {
             "release".to_string(),
             "package".to_string(),
             "--version".to_string(),
-            "v0.7.6".to_string(),
+            "v0.8.2".to_string(),
             "--target".to_string(),
             "x86_64-linux-gnu".to_string(),
             "--skip-build".to_string(),
@@ -733,13 +805,33 @@ mod tests {
         let Command::Release(ReleaseCommand::Package(args)) = command else {
             panic!("expected release package command");
         };
-        assert_eq!(args.version.as_deref(), Some("v0.7.6"));
+        assert_eq!(args.version.as_deref(), Some("v0.8.2"));
         assert_eq!(args.target.as_deref(), Some("x86_64-linux-gnu"));
         assert!(args.skip_build);
         assert_eq!(
             args.toolchain_prefix.as_deref(),
             Some(Path::new("/opt/llvm"))
         );
+    }
+
+    #[test]
+    fn parses_release_bump_version() {
+        let command = parse_args(vec![
+            "release".to_string(),
+            "bump-version".to_string(),
+            "--version".to_string(),
+            "0.8.2".to_string(),
+            "--from".to_string(),
+            "0.8.2".to_string(),
+            "--check".to_string(),
+        ])
+        .unwrap();
+        let Command::Release(ReleaseCommand::BumpVersion(args)) = command else {
+            panic!("expected release bump-version command");
+        };
+        assert_eq!(args.version.as_deref(), Some("0.8.2"));
+        assert_eq!(args.from.as_deref(), Some("0.8.2"));
+        assert!(args.check);
     }
 
     #[test]

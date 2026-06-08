@@ -1,4 +1,4 @@
-#![if(os == "linux")]
+#![if os == "linux"]
 
 const CLOCK_GETTIME = 228usize;
 const CLOCK_MONOTONIC = 1usize;
@@ -35,20 +35,20 @@ fn syscall2_raw(
 }
 
 fn timespec_to_nanos(ts: Timespec) u64 {
-    if (ts.tv_sec < 0) {
+    if ts.tv_sec < 0 {
         return 0;
     }
 
     let secs = ts.tv_sec as u64;
-    let nanos = if (ts.tv_nsec < 0) {
+    let nanos = if ts.tv_nsec < 0 {
         0u64
-    } else if (ts.tv_nsec > 999_999_999i64) {
+    } else if ts.tv_nsec > 999_999_999i64 {
         999_999_999u64
     } else {
         ts.tv_nsec as u64
     };
 
-    if (secs > U64_MAX / NS_PER_SEC) {
+    if secs > U64_MAX / NS_PER_SEC {
         return U64_MAX;
     }
     return secs * NS_PER_SEC + nanos;
@@ -64,7 +64,7 @@ fn nanos_to_timespec(nanos: u64) Timespec {
 pub/ fn monotonic_now_nanos() u64 {
     let mut ts = Timespec.{ tv_sec: 0, tv_nsec: 0 };
     let ret = syscall2_raw(CLOCK_GETTIME, CLOCK_MONOTONIC, ts..& as usize);
-    if (ret < 0) {
+    if ret < 0 {
         return 0;
     }
     return timespec_to_nanos(ts);
@@ -74,12 +74,12 @@ pub/ fn sleep_nanos(nanos: u64) void {
     let mut req = nanos_to_timespec(nanos);
     let mut rem = Timespec.{ tv_sec: 0, tv_nsec: 0 };
 
-        while (true) {
+        while true {
         let ret = syscall2_raw(NANOSLEEP, req..& as usize, rem..& as usize);
-        if (ret == 0) {
+        if ret == 0 {
             return;
         }
-        if (ret == -EINTR) {
+        if ret == -EINTR {
             req = rem;
             rem = .{ tv_sec: 0, tv_nsec: 0 };
             continue;

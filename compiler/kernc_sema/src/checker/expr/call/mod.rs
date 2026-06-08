@@ -1,3 +1,10 @@
+//! Function, method, closure, and intrinsic call checking.
+//!
+//! This module chooses the callable target, deduces generic arguments from the
+//! receiver and actual arguments, checks arity/coercions, handles method lookup
+//! fallbacks, and delegates special call forms to the asm/intrinsic/signature
+//! submodules.
+
 use super::ExprChecker;
 use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
@@ -271,6 +278,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return TypeId::ERROR;
             }
         };
+        // SAFETY: `params_ptr` points into the immutable interned type registry for the duration
+        // of this call. The checker may mutate diagnostics and inference state, but it does not
+        // remove or move interned type payloads.
         let params = unsafe { &*params_ptr };
 
         self.check_call_arity(args.len(), params.len(), is_method, is_variadic, span);
@@ -357,7 +367,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 stats.call_arguments += elapsed;
             });
         }
-        self.record_pending_temporary_address_escape_checks(
+        self.record_pending_stack_pointer_escape_checks(
             inferred_callee_ty.unwrap_or(norm_callee),
             args,
             is_method,
@@ -365,7 +375,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         final_ret
     }
 
-    fn record_pending_temporary_address_escape_checks(
+    fn record_pending_stack_pointer_escape_checks(
         &mut self,
         callee_ty: TypeId,
         args: &[Expr],
@@ -381,16 +391,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let origins = self.pointer_origins(arg);
             let param_index = arg_index + param_offset;
             for origin in origins {
-                let crate::checker::expr::PointerOrigin::Temporary(address_span) = origin else {
+                if !matches!(
+                    origin,
+                    crate::checker::expr::PointerOrigin::Temporary(_)
+                        | crate::checker::expr::PointerOrigin::StaticLiteral(_)
+                        | crate::checker::expr::PointerOrigin::Local(_)
+                        | crate::checker::expr::PointerOrigin::CapturingClosure(_)
+                ) {
                     continue;
-                };
+                }
                 self.ctx
                     .analysis
                     .pending_escape_checks
                     .push(crate::context::PendingEscapeCheck {
                         callee: def_id,
                         arg_index: param_index,
-                        address_span,
+                        origin,
                     });
             }
         }
@@ -422,11 +438,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let resolution = match resolution {
             Some(resolution) if resolution.candidate.type_id != TypeId::ERROR => resolution,
-            Some(_) if args.is_some() => {
+            Some(_) if let Some(args) = args => {
                 let candidate = match self.resolve_method_with_call_arguments(
                     receiver_ty,
                     *field,
-                    args.unwrap(),
+                    args,
                     callee.span,
                 ) {
                     Ok(Some(candidate)) => candidate,
@@ -468,8 +484,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     callee.span,
                 );
             }
-            None if args.is_some() => {
-                return self.check_method_callee_expr_with_arguments(callee, args.unwrap());
+            None if let Some(args) = args => {
+                return self.check_method_callee_expr_with_arguments(callee, args);
             }
             None => return None,
         };
@@ -806,36 +822,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
                 | TypeKind::ArrayInfer { elem: actual_elem },
             ) if self.resolve_tv(*expected_elem) == self.resolve_tv(*actual_elem) => Some(1),
-            (
-                TypeKind::Slice {
-                    is_mut: false,
-                    elem: expected_elem,
-                },
-                TypeKind::Slice {
-                    is_mut: true,
-                    elem: actual_elem,
-                },
-            ) if self.resolve_tv(*expected_elem) == self.resolve_tv(*actual_elem) => Some(1),
-            (
-                TypeKind::Pointer {
-                    is_mut: false,
-                    elem: expected_elem,
-                },
-                TypeKind::Pointer {
-                    is_mut: true,
-                    elem: actual_elem,
-                },
-            ) if self.resolve_tv(*expected_elem) == self.resolve_tv(*actual_elem) => Some(1),
-            (
-                TypeKind::VolatilePtr {
-                    is_mut: false,
-                    elem: expected_elem,
-                },
-                TypeKind::VolatilePtr {
-                    is_mut: true,
-                    elem: actual_elem,
-                },
-            ) if self.resolve_tv(*expected_elem) == self.resolve_tv(*actual_elem) => Some(1),
             _ => None,
         }
     }
@@ -854,27 +840,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
         let mut search_tys = vec![receiver_norm];
 
-        let downgraded = match self.ctx.type_registry.get(receiver_norm).clone() {
-            TypeKind::Pointer { is_mut: true, elem } => Some(TypeKind::Pointer {
-                is_mut: false,
-                elem,
-            }),
-            TypeKind::VolatilePtr { is_mut: true, elem } => Some(TypeKind::VolatilePtr {
-                is_mut: false,
-                elem,
-            }),
-            TypeKind::Slice { is_mut: true, elem } => Some(TypeKind::Slice {
-                is_mut: false,
-                elem,
-            }),
-            _ => None,
-        };
-        if let Some(kind) = downgraded {
-            let ty = self.ctx.type_registry.intern(kind);
-            if !search_tys.contains(&ty) {
-                search_tys.push(ty);
-            }
-        }
         if let TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem } =
             self.ctx.type_registry.get(receiver_norm).clone()
         {
@@ -1036,7 +1001,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         let (actual_ret_ty, has_returned) = {
-            let mut sub_checker = ExprChecker::new(self.ctx, Some(expected_ret));
+            let mut sub_checker = ExprChecker::with_cancellation(
+                self.ctx,
+                Some(expected_ret),
+                self.cancellation.clone(),
+            );
             let ty = {
                 let ty = sub_checker.check_expr(body, Some(expected_ret));
                 sub_checker.finalize_numeric_inference(ty)

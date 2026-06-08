@@ -1,5 +1,11 @@
+//! Human-readable semantic type formatting for diagnostics.
+//!
+//! Formatting has access to the semantic context so it can render names,
+//! generic arguments, enum const-generic tags, projections, and anonymous types
+//! using source-friendly syntax rather than raw `TypeId` internals.
+
 use crate::SemaContext;
-use crate::def::Def;
+use crate::def::{Def, TRAIT_DEFAULT_SELF_PARAM_NAME};
 
 use super::{
     BuiltinAnonymousEnumKind, ConstExprBinaryOp, ConstExprUnaryOp, ConstGeneric, GenericArg,
@@ -12,6 +18,15 @@ pub(crate) struct TypeFormatter<'a, 'ctx> {
 }
 
 impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
+    fn format_param_symbol(&self, sym: kernc_utils::SymbolId) -> String {
+        let name = self.ctx.resolve(sym);
+        if name == TRAIT_DEFAULT_SELF_PARAM_NAME {
+            "Self".to_string()
+        } else {
+            name.to_string()
+        }
+    }
+
     fn format_const_generic_value(&self, value: super::ConstGenericValue) -> String {
         match value.kind {
             super::ConstGenericValueKind::Bool(value) => value.to_string(),
@@ -64,6 +79,9 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
         let mut current_tag = 0i128;
         for variant in &enum_def.variants {
             if let Some(value_expr) = &variant.value {
+                // Keep this evaluator intentionally small: it mirrors accepted
+                // discriminant syntax well enough for display, not full const
+                // evaluation.
                 current_tag = self.eval_const_discriminant(value_expr)?;
             }
             if variant.payload_type.is_none() && current_tag == tag {
@@ -146,7 +164,7 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
     fn format_const_generic(&self, value: ConstGeneric) -> String {
         match value {
             ConstGeneric::Value(value) => self.format_const_generic_value(value),
-            ConstGeneric::Param(symbol, _) => self.ctx.resolve(symbol).to_string(),
+            ConstGeneric::Param(symbol, _) => self.format_param_symbol(symbol),
             ConstGeneric::Expr(id) => match self.ctx.type_registry.const_expr(id) {
                 super::ConstExprKind::Unary { op, expr, .. } => {
                     let op_str = match op {
@@ -312,7 +330,7 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
             }
 
             TypeKind::Alias(sym, _) => self.ctx.resolve(*sym).to_string(),
-            TypeKind::Param(sym) => self.ctx.resolve(*sym).to_string(),
+            TypeKind::Param(sym) => self.format_param_symbol(*sym),
             TypeKind::Associated(def_id, generics) => {
                 let def = &self.ctx.defs[def_id.0 as usize];
                 let name = def

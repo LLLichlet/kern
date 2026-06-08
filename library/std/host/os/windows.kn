@@ -1,4 +1,4 @@
-#![if(os == "windows")]
+#![if os == "windows"]
 
 //! Windows-specific operating-system shims.
 //!
@@ -312,8 +312,8 @@ fn wrap_alloc_error(_: AllocError) Error {
 
 fn build_shell_command_line(alloc: &mut Allocator, command: &[u8]) String!Error {
     let wrapped = String.{}..&;
-    if (wrapped.try_push_str(alloc, "cmd.exe /d /c ").is_err()
-        or wrapped.try_push_str(alloc, command).is_err())
+    if wrapped.try_push_str(alloc, "cmd.exe /d /c ").is_err()
+        or wrapped.try_push_str(alloc, command).is_err()
     {
         wrapped.deinit(alloc);
         return .{ Err: out_of_memory_error() };
@@ -322,7 +322,7 @@ fn build_shell_command_line(alloc: &mut Allocator, command: &[u8]) String!Error 
 }
 
 fn wait_for_process_exit(process: Handle) bool {
-    if ((process as usize) == 0) {
+    if (process as usize) == 0 {
         return false;
     }
     return WaitForSingleObject(process, INFINITE) != WAIT_FAILED;
@@ -382,7 +382,7 @@ pub fn is_terminal(handle: Handle) bool {
 /// Returns the visible terminal dimensions for `handle`.
 pub fn terminal_size(handle: Handle) TerminalSize!Error {
     let mut info: ConsoleScreenBufferInfo = undef;
-    if (GetConsoleScreenBufferInfo(handle, info..&) == 0) {
+    if GetConsoleScreenBufferInfo(handle, info..&) == 0 {
         return .{ Err: last_error() };
     }
 
@@ -394,7 +394,7 @@ pub fn terminal_size(handle: Handle) TerminalSize!Error {
 /// Enables raw-ish console mode on one terminal handle and returns the previous state.
 pub fn enable_raw_mode(handle: Handle) TerminalState!Error {
     let mut mode = 0u32;
-    if (GetConsoleMode(handle, mode..&) == 0) {
+    if GetConsoleMode(handle, mode..&) == 0 {
         return .{ Err: last_error() };
     }
 
@@ -402,7 +402,7 @@ pub fn enable_raw_mode(handle: Handle) TerminalState!Error {
     let raw_mode =
         (mode & ~(ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT))
         | ENABLE_VIRTUAL_TERMINAL_INPUT;
-    if (SetConsoleMode(handle, raw_mode) == 0) {
+    if SetConsoleMode(handle, raw_mode) == 0 {
         return .{ Err: last_error() };
     }
 
@@ -411,7 +411,7 @@ pub fn enable_raw_mode(handle: Handle) TerminalState!Error {
 
 /// Restores a previously captured console mode.
 pub fn restore_terminal_mode(handle: Handle, state: &TerminalState) bool!Error {
-    if (SetConsoleMode(handle, state.mode) == 0) {
+    if SetConsoleMode(handle, state.mode) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -426,30 +426,30 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
     };
     let mut read_pipe = 0usize as Handle;
     let mut write_pipe = 0usize as Handle;
-    if (CreatePipe(read_pipe..&, write_pipe..&, pipe_attrs..&, 0) == 0) {
+    if CreatePipe(read_pipe..&, write_pipe..&, pipe_attrs..&, 0) == 0 {
         return .{ Err: last_error() };
     }
     defer {
-        if ((read_pipe as usize) != 0) {
+        if (read_pipe as usize) != 0 {
             _ = CloseHandle(read_pipe);
         }
-        if ((write_pipe as usize) != 0) {
+        if (write_pipe as usize) != 0 {
             _ = CloseHandle(write_pipe);
         }
     };
 
-    if (SetHandleInformation(read_pipe, HANDLE_FLAG_INHERIT, 0) == 0) {
+    if SetHandleInformation(read_pipe, HANDLE_FLAG_INHERIT, 0) == 0 {
         return .{ Err: last_error() };
     }
 
     let command_line = build_shell_command_line(alloc, command).?..&;
     defer command_line.deinit(alloc);
 
-    let command_line_c = abi.cstr.owned(alloc, command_line.as_str())
+    let command_line_c = abi.cstr.owned(alloc, command_line.view().as_str())
         .map_err(wrap_alloc_error).?..&;
     defer command_line_c.deinit(alloc);
 
-    let wide_command_line = utf8_z_to_wide(command_line_c.ptr()).?;
+    let wide_command_line = utf8_z_to_wide(command_line_c.view().ptr()).?;
     defer free_wide_units(wide_command_line);
 
     let mut startup = StartupInfoW.{
@@ -479,7 +479,7 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
         dwThreadId: 0,
     };
 
-    if (CreateProcessW(
+    if CreateProcessW(
             null_ptr[u16](),
             wide_command_line,
             null_mut_ptr[SecurityAttributes](),
@@ -490,15 +490,15 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
             null_ptr[u16](),
             startup..&,
             proc_info..&
-        ) == 0)
+        ) == 0
     {
         return .{ Err: last_error() };
     }
     defer {
-        if ((proc_info.hThread as usize) != 0) {
+        if (proc_info.hThread as usize) != 0 {
             _ = CloseHandle(proc_info.hThread);
         }
-        if ((proc_info.hProcess as usize) != 0) {
+        if (proc_info.hProcess as usize) != 0 {
             _ = CloseHandle(proc_info.hProcess);
         }
     };
@@ -507,13 +507,13 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
 
     let output = String.{}..&;
     let mut chunk: [1024]u8 = undef;
-        while (true) {
-        match (read_file(read_pipe, chunk.[0]..&, 1024)) {
+        while true {
+        match read_file(read_pipe, chunk.[0]..&, 1024) {
             .{ Ok: read } => {
-                if (read == 0) {
+                if read == 0 {
                     break;
                 }
-                if (output.try_push_str(alloc, chunk.&[0...read]).is_err()) {
+                if output.try_push_str(alloc, chunk.&[0...read]).is_err() {
                     _ = CloseHandle(read_pipe);
                     _ = wait_for_process_exit(proc_info.hProcess);
                     output.deinit(alloc);
@@ -521,7 +521,7 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
                 }
             },
             .{ Err: err } => {
-                if (err.code == ERROR_BROKEN_PIPE) {
+                if err.code == ERROR_BROKEN_PIPE {
                     break;
                 }
                 _ = CloseHandle(read_pipe);
@@ -535,13 +535,13 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
     _ = CloseHandle(read_pipe);
 
     let wait_status = WaitForSingleObject(proc_info.hProcess, INFINITE);
-    if (wait_status == WAIT_FAILED) {
+    if wait_status == WAIT_FAILED {
         output.deinit(alloc);
         return .{ Err: last_error() };
     }
 
     let mut exit_code = 0u32;
-    if (GetExitCodeProcess(proc_info.hProcess, exit_code..&) == 0) {
+    if GetExitCodeProcess(proc_info.hProcess, exit_code..&) == 0 {
         output.deinit(alloc);
         return .{ Err: last_error() };
     }
@@ -552,9 +552,9 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
 /// Returns the number of UTF-16 code units before the terminating zero.
 pub fn utf16_z_len(str: &u16) usize {
     let mut len = 0usize;
-        while (true) {
+        while true {
         let current_ptr = str + len;
-        if (current_ptr.* == 0) {
+        if current_ptr.* == 0 {
             return len;
         }
         len += 1usize;
@@ -569,7 +569,7 @@ fn alloc_wide_units(units: usize) (&mut u16)!Error {
         (MEM_COMMIT | MEM_RESERVE) as u32,
         PAGE_READWRITE as u32
     );
-    if ((ptr as usize) == 0) {
+    if (ptr as usize) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: (ptr as usize).as_mut_ptr[u16]() };
@@ -577,7 +577,7 @@ fn alloc_wide_units(units: usize) (&mut u16)!Error {
 
 /// Releases a page-backed UTF-16 buffer previously allocated by this module.
 pub fn free_wide_units(ptr: &mut u16) void {
-    if ((ptr as usize) == 0) {
+    if (ptr as usize) == 0 {
         return;
     }
     _ = VirtualFree(ptr as &mut void, 0, MEM_RELEASE as u32);
@@ -590,7 +590,7 @@ fn alloc_utf8_units(bytes: usize) (&mut u8)!Error {
         (MEM_COMMIT | MEM_RESERVE) as u32,
         PAGE_READWRITE as u32
     );
-    if ((ptr as usize) == 0) {
+    if (ptr as usize) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: (ptr as usize).as_mut_ptr[u8]() };
@@ -598,7 +598,7 @@ fn alloc_utf8_units(bytes: usize) (&mut u8)!Error {
 
 /// Releases a page-backed UTF-8 buffer previously allocated by this module.
 pub fn free_utf8_units(ptr: &mut u8) void {
-    if ((ptr as usize) == 0) {
+    if (ptr as usize) == 0 {
         return;
     }
     _ = VirtualFree(ptr as &mut void, 0, MEM_RELEASE as u32);
@@ -615,7 +615,7 @@ pub fn utf8_z_to_wide(path: &u8) (&mut u16)!Error {
         null_mut_ptr[u16](),
         0,
     );
-    if (required <= 0) {
+    if required <= 0 {
         return .{ Err: last_error() };
     }
 
@@ -629,7 +629,7 @@ pub fn utf8_z_to_wide(path: &u8) (&mut u16)!Error {
         wide,
         required
     );
-    if (written <= 0) {
+    if written <= 0 {
         free_wide_units(wide);
         return .{ Err: last_error() };
     }
@@ -640,7 +640,7 @@ pub fn utf8_z_to_wide(path: &u8) (&mut u16)!Error {
 
 /// Converts a UTF-16 slice into UTF-8 bytes written into `out`.
 pub fn wide_to_utf8_into(wide: &[u16], out: &mut [u8]) usize!Error {
-    if (wide.@len() == 0) {
+    if wide.@len() == 0 {
         return .{ Ok: 0 };
     }
 
@@ -654,10 +654,10 @@ pub fn wide_to_utf8_into(wide: &[u16], out: &mut [u8]) usize!Error {
         null_ptr[u8](),
         null_mut_ptr[u8]()
     );
-    if (required <= 0) {
+    if required <= 0 {
         return .{ Err: last_error() };
     }
-    if ((required as usize) > out.@len()) {
+    if (required as usize) > out.@len() {
         return .{ Err: conversion_error() };
     }
 
@@ -671,7 +671,7 @@ pub fn wide_to_utf8_into(wide: &[u16], out: &mut [u8]) usize!Error {
         null_ptr[u8](),
         null_mut_ptr[u8]()
     );
-    if (written <= 0) {
+    if written <= 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: written as usize };
@@ -680,7 +680,7 @@ pub fn wide_to_utf8_into(wide: &[u16], out: &mut [u8]) usize!Error {
 /// Converts a zero-terminated UTF-16 string into an owned zero-terminated UTF-8 buffer.
 pub fn wide_z_to_utf8_alloc(ptr: &u16) (&mut u8)!Error {
     let len = utf16_z_len(ptr);
-    if (len == 0) {
+    if len == 0 {
         let out = alloc_utf8_units(1).?;
         out.* = 0;
         return .{ Ok: out };
@@ -696,7 +696,7 @@ pub fn wide_z_to_utf8_alloc(ptr: &u16) (&mut u8)!Error {
         null_ptr[u8](),
         null_mut_ptr[u8](),
     );
-    if (required <= 0) {
+    if required <= 0 {
         return .{ Err: last_error() };
     }
 
@@ -712,7 +712,7 @@ pub fn wide_z_to_utf8_alloc(ptr: &u16) (&mut u8)!Error {
         null_ptr[u8](),
         null_mut_ptr[u8]()
     );
-    if (written <= 0) {
+    if written <= 0 {
         free_utf8_units(out);
         return .{ Err: last_error() };
     }
@@ -724,7 +724,7 @@ pub fn wide_z_to_utf8_alloc(ptr: &u16) (&mut u8)!Error {
 /// Reads up to `len` bytes from `handle` into `ptr`.
 pub fn read_file(handle: Handle, ptr: &mut u8, len: usize) usize!Error {
     let mut read = 0u32;
-    if (ReadFile(handle, ptr, len as u32, read..&, null_mut_ptr[void]()) == 0) {
+    if ReadFile(handle, ptr, len as u32, read..&, null_mut_ptr[void]()) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: read as usize };
@@ -733,7 +733,7 @@ pub fn read_file(handle: Handle, ptr: &mut u8, len: usize) usize!Error {
 /// Writes up to `len` bytes from `ptr` into `handle`.
 pub fn write_file(handle: Handle, ptr: &u8, len: usize) usize!Error {
     let mut written = 0u32;
-    if (WriteFile(handle, ptr, len as u32, written..&, null_mut_ptr[void]()) == 0) {
+    if WriteFile(handle, ptr, len as u32, written..&, null_mut_ptr[void]()) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: written as usize };
@@ -743,8 +743,8 @@ pub fn write_file(handle: Handle, ptr: &u8, len: usize) usize!Error {
 pub fn seek_file(handle: Handle, offset: isize, whence: i32) usize!Error {
     let mut out = LargeInteger.{ QuadPart: 0 };
     let distance = LargeInteger.{ QuadPart: offset as i64 };
-    let method = if (whence == 0) FILE_BEGIN else if (whence == 1) FILE_CURRENT else FILE_END;
-    if (SetFilePointerEx(handle, distance, out..&, method) == 0) {
+    let method = if whence == 0 FILE_BEGIN else if whence == 1 FILE_CURRENT else FILE_END;
+    if SetFilePointerEx(handle, distance, out..&, method) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: out.QuadPart as usize };
@@ -754,7 +754,7 @@ pub fn seek_file(handle: Handle, offset: isize, whence: i32) usize!Error {
 pub fn truncate_file(handle: Handle, size: usize) bool!Error {
     let current = seek_file(handle, 0, 1).?;
     _ = seek_file(handle, size as isize, 0).?;
-    if (SetEndOfFile(handle) == 0) {
+    if SetEndOfFile(handle) == 0 {
         return .{ Err: last_error() };
     }
     _ = seek_file(handle, current as isize, 0).?;
@@ -763,7 +763,7 @@ pub fn truncate_file(handle: Handle, size: usize) bool!Error {
 
 /// Flushes file contents and metadata to the backing store.
 pub fn flush_file(handle: Handle) bool!Error {
-    if (FlushFileBuffers(handle) == 0) {
+    if FlushFileBuffers(handle) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -771,7 +771,7 @@ pub fn flush_file(handle: Handle) bool!Error {
 
 /// Closes an open file handle.
 pub fn close_file(handle: Handle) bool!Error {
-    if (CloseHandle(handle) == 0) {
+    if CloseHandle(handle) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -783,13 +783,13 @@ pub fn metadata(path: &u8) Metadata!Error {
     defer free_wide_units(wide_path);
 
     let mut data: Win32FileAttributeData = undef;
-    if (GetFileAttributesExW(wide_path, GET_FILE_EX_INFO_STANDARD, data..&) == 0) {
+    if GetFileAttributesExW(wide_path.view(), GET_FILE_EX_INFO_STANDARD, data..&) == 0 {
         return .{ Err: last_error() };
     }
 
     let size64 = ((data.nFileSizeHigh as u64) << 32) | (data.nFileSizeLow as u64);
 
-    if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+    if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 {
         return .{
             Ok: .{
                 file_type: .Directory,
@@ -807,7 +807,7 @@ pub fn metadata(path: &u8) Metadata!Error {
 }
 
 fn find_data_file_type(data: &Win32FindDataW) FileType {
-    if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+    if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 {
         return .Directory;
     }
     return .File;
@@ -815,8 +815,8 @@ fn find_data_file_type(data: &Win32FindDataW) FileType {
 
 fn find_data_name_len(data: &Win32FindDataW) usize {
     let mut len = 0usize;
-        while (len < 260usize) {
-        if (data.cFileName.[len] == 0) {
+        while len < 260usize {
+        if data.cFileName.[len] == 0 {
             return len;
         }
 
@@ -826,10 +826,10 @@ fn find_data_name_len(data: &Win32FindDataW) usize {
 }
 
 fn is_dot_entry(name: &[u16]) bool {
-    if (name.@len() == 1 and name.[0] == 46u16) {
+    if name.@len() == 1 and name.[0] == 46u16 {
         return true;
     }
-    if (name.@len() == 2 and name.[0] == 46u16 and name.[1] == 46u16) {
+    if name.@len() == 2 and name.[0] == 46u16 and name.[1] == 46u16 {
         return true;
     }
     return false;
@@ -841,8 +841,8 @@ pub fn scan_dir(path: &u8, search_path: &u8, visitor: &Fn(&[u8], FileType) bool)
     defer free_wide_units(wide_search_path);
 
     let mut data: Win32FindDataW = undef;
-    let handle = FindFirstFileW(wide_search_path, data..&);
-    if (handle == invalid_handle()) {
+    let handle = FindFirstFileW(wide_search_path.view(), data..&);
+    if handle == invalid_handle() {
         return .{ Err: last_error() };
     }
     defer {
@@ -850,22 +850,22 @@ pub fn scan_dir(path: &u8, search_path: &u8, visitor: &Fn(&[u8], FileType) bool)
     };
 
     let mut total = 0usize;
-        while (true) {
+        while true {
         let name_len = find_data_name_len(data.&);
         let name = data.cFileName.&[0...name_len];
-        if (!is_dot_entry(name)) {
+        if !is_dot_entry(name) {
             let mut utf8_name_buf: [1040]u8 = undef;
             let utf8_name_len = wide_to_utf8_into(name, utf8_name_buf..&[0...1040]).?;
             let utf8_name = utf8_name_buf.&[0...utf8_name_len];
             total += 1usize;
-            if (!visitor(utf8_name, find_data_file_type(data.&))) {
+            if !visitor(utf8_name, find_data_file_type(data.&)) {
                 return .{ Ok: total };
             }
         }
 
-        if (FindNextFileW(handle, data..&) == 0) {
+        if FindNextFileW(handle, data..&) == 0 {
             let err = last_error();
-            if (err.code == ERROR_NO_MORE_FILES) {
+            if err.code == ERROR_NO_MORE_FILES {
                 return .{ Ok: total };
             }
             return .{ Err: err };
@@ -882,25 +882,25 @@ pub fn open_file(
     defer free_wide_units(wide_path);
 
     let mut access = 0u32;
-    if (options.read) access |= GENERIC_READ;
-    if (options.append) {
+    if options.read access |= GENERIC_READ;
+    if options.append {
         access |= FILE_APPEND_DATA;
-    } else if (options.write) {
+    } else if options.write {
         access |= GENERIC_WRITE;
     }
 
-    let disposition = if (options.create and options.truncate) {
+    let disposition = if options.create and options.truncate {
         CREATE_ALWAYS
-    } else if (options.create_new) {
+    } else if options.create_new {
         CREATE_NEW
-    } else if (options.create) {
+    } else if options.create {
         OPEN_ALWAYS
     } else {
         OPEN_EXISTING
     };
 
     let handle = CreateFileW(
-        wide_path,
+        wide_path.view(),
         access,
         FILE_SHARE_READ | FILE_SHARE_WRITE,
         0usize as &mut SecurityAttributes,
@@ -908,7 +908,7 @@ pub fn open_file(
         FILE_ATTRIBUTE_NORMAL,
         0usize as Handle
     );
-    if (handle == invalid_handle()) {
+    if handle == invalid_handle() {
         return .{ Err: last_error() };
     }
     return .{ Ok: handle };
@@ -919,7 +919,7 @@ pub fn create_dir(path: &u8) bool!Error {
     let wide_path = utf8_z_to_wide(path).?;
     defer free_wide_units(wide_path);
 
-    if (CreateDirectoryW(wide_path, 0usize as &mut SecurityAttributes) == 0) {
+    if CreateDirectoryW(wide_path.view(), 0usize as &mut SecurityAttributes) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -930,7 +930,7 @@ pub fn remove_dir(path: &u8) bool!Error {
     let wide_path = utf8_z_to_wide(path).?;
     defer free_wide_units(wide_path);
 
-    if (RemoveDirectoryW(wide_path) == 0) {
+    if RemoveDirectoryW(wide_path.view()) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -941,7 +941,7 @@ pub fn remove_file(path: &u8) bool!Error {
     let wide_path = utf8_z_to_wide(path).?;
     defer free_wide_units(wide_path);
 
-    if (DeleteFileW(wide_path) == 0) {
+    if DeleteFileW(wide_path.view()) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
@@ -955,7 +955,7 @@ pub fn rename(old_path: &u8, new_path: &u8) bool!Error {
     let wide_new_path = utf8_z_to_wide(new_path).?;
     defer free_wide_units(wide_new_path);
 
-    if (MoveFileExW(wide_old_path, wide_new_path, MOVEFILE_REPLACE_EXISTING) == 0) {
+    if MoveFileExW(wide_old_path.view(), wide_new_path.view(), MOVEFILE_REPLACE_EXISTING) == 0 {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };

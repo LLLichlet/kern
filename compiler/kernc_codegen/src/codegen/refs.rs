@@ -1,3 +1,8 @@
+//! Global and function reference lookup.
+//!
+//! This module resolves MIR ids and names to LLVM values, creating declarations
+//! or reporting backend ICEs when the lowering/codegen symbol maps disagree.
+
 use super::CodeGenerator;
 use crate::types::{BasicTypeEnum, StructType};
 use crate::values::{BasicValueEnum, FunctionValue, PointerValue};

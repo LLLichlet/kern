@@ -1,5 +1,13 @@
+//! Compiler configuration and target/runtime option normalization.
+//!
+//! This module is the narrow waist between the CLI/project loader and the rest
+//! of the compiler.  It keeps command modes, target-machine facts, official
+//! library aliases, runtime entry choices, and LTO/linker validation in one
+//! place so later stages can assume a consistent `CompileOptions` value.
+
 use std::collections::HashMap;
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use target_lexicon::{Architecture, PointerWidth, Triple};
@@ -233,7 +241,7 @@ impl OfficialLibrary {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetMachine {
     pub triple: Triple,
     pub pointer_size: u64,
@@ -258,6 +266,9 @@ impl TargetMachine {
     }
 
     pub fn max_lock_free_atomic_bits(&self) -> u64 {
+        // The current backend treats atomics up to twice a native pointer pair
+        // as potentially lock-free, capped at i128/u128 because that is the
+        // largest scalar integer kind in Kern today.
         (self.pointer_size * 16).min(128)
     }
 }
@@ -305,7 +316,7 @@ impl AsmDialect {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileOptions {
     pub input_file: Option<String>,
     pub output_file: String,
@@ -403,10 +414,9 @@ impl Default for CompileOptions {
 }
 
 fn official_library_workspace_is_present(path: &Path) -> bool {
-    path.join("Craft.toml").is_file()
-        && path.join("base").join("mod.kn").is_file()
-        && path.join("std").join("mod.kn").is_file()
-        && path.join("rt").join("mod.kn").is_file()
+    official_library_root(path, OfficialLibrary::Base).is_ok()
+        && official_library_root(path, OfficialLibrary::Std).is_ok()
+        && official_library_root(path, OfficialLibrary::Rt).is_ok()
 }
 
 fn official_library_workspace_error(path: &Path) -> String {
@@ -424,6 +434,9 @@ pub fn resolve_library_workspace_path() -> PathBuf {
     if let Ok(exe_path) = env::current_exe()
         && let Some(exe_dir) = exe_path.parent()
     {
+        // Prefer colocated development or install layouts so `kernc` can find
+        // the official libraries when run from cargo, a build tree, or an
+        // installed prefix.
         for ancestor in exe_dir.ancestors() {
             let candidate = ancestor.join("library");
             if official_library_workspace_is_present(&candidate) {
@@ -458,7 +471,9 @@ fn alias_uses_official_path(options: &CompileOptions, library: OfficialLibrary) 
 }
 
 fn resolve_official_library_path(library: OfficialLibrary) -> PathBuf {
-    resolve_library_workspace_path().join(library.alias())
+    let workspace_root = resolve_library_workspace_path();
+    official_library_root(&workspace_root, library)
+        .unwrap_or_else(|_| workspace_root.join(library.alias()).join("lib.kn"))
 }
 
 pub fn resolve_std_path() -> PathBuf {
@@ -471,6 +486,129 @@ pub fn resolve_base_path() -> PathBuf {
 
 pub fn resolve_rt_path() -> PathBuf {
     resolve_official_library_path(OfficialLibrary::Rt)
+}
+
+fn official_library_root(
+    workspace_root: &Path,
+    library: OfficialLibrary,
+) -> Result<PathBuf, String> {
+    let workspace_manifest = workspace_root.join("Craft.toml");
+    let exports = parse_workspace_exports(&workspace_manifest)?;
+    let member = exports
+        .get(library.alias())
+        .ok_or_else(|| format!("official library export `{}` is missing", library.alias()))?;
+    let package_root = workspace_root.join(member);
+    let package_manifest = package_root.join("Craft.toml");
+    let lib_root = parse_lib_root(&package_manifest)?;
+    let source_root = package_root.join(lib_root);
+    if !source_root.is_file() {
+        return Err(format!(
+            "official library root `{}` is missing",
+            source_root.display()
+        ));
+    }
+    Ok(source_root)
+}
+
+fn parse_workspace_exports(path: &Path) -> Result<HashMap<String, String>, String> {
+    let contents = fs::read_to_string(path)
+        .map_err(|err| format!("failed to read `{}`: {err}", path.display()))?;
+    let mut exports = HashMap::new();
+    let mut in_exports = false;
+    for raw_line in contents.lines() {
+        let line = strip_toml_comment(raw_line).trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(section) = toml_section_name(line) {
+            in_exports = section == "workspace.exports";
+            continue;
+        }
+        if !in_exports {
+            continue;
+        }
+        let Some((name, raw_value)) = line.split_once('=') else {
+            continue;
+        };
+        let Some(member) = extract_inline_table_string(raw_value, "member") else {
+            return Err(format!(
+                "`{}` has invalid [workspace.exports].{}; expected {{ member = \"...\" }}",
+                path.display(),
+                name.trim()
+            ));
+        };
+        exports.insert(name.trim().trim_matches('"').to_string(), member);
+    }
+    Ok(exports)
+}
+
+fn parse_lib_root(path: &Path) -> Result<String, String> {
+    let contents = fs::read_to_string(path)
+        .map_err(|err| format!("failed to read `{}`: {err}", path.display()))?;
+    let mut in_lib = false;
+    for raw_line in contents.lines() {
+        let line = strip_toml_comment(raw_line).trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(section) = toml_section_name(line) {
+            in_lib = section == "lib";
+            continue;
+        }
+        if !in_lib {
+            continue;
+        }
+        let Some((key, raw_value)) = line.split_once('=') else {
+            continue;
+        };
+        if key.trim() == "root"
+            && let Some(root) = parse_toml_string(raw_value)
+        {
+            return Ok(root);
+        }
+    }
+    Err(format!("`{}` is missing [lib].root", path.display()))
+}
+
+fn strip_toml_comment(line: &str) -> &str {
+    let mut in_string = false;
+    let mut escaped = false;
+    for (idx, ch) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_string => escaped = true,
+            '"' => in_string = !in_string,
+            '#' if !in_string => return &line[..idx],
+            _ => {}
+        }
+    }
+    line
+}
+
+fn toml_section_name(line: &str) -> Option<&str> {
+    line.strip_prefix('[')?.strip_suffix(']').map(str::trim)
+}
+
+fn extract_inline_table_string(raw_value: &str, key: &str) -> Option<String> {
+    let table = raw_value.trim().strip_prefix('{')?.strip_suffix('}')?;
+    for field in table.split(',') {
+        let (field_key, value) = field.split_once('=')?;
+        if field_key.trim() == key {
+            return parse_toml_string(value);
+        }
+    }
+    None
+}
+
+fn parse_toml_string(raw: &str) -> Option<String> {
+    let value = raw.trim();
+    if !value.starts_with('"') || !value.ends_with('"') || value.len() < 2 {
+        return None;
+    }
+    Some(value[1..value.len() - 1].to_string())
 }
 
 fn ensure_official_library_alias(options: &mut CompileOptions, library: OfficialLibrary) {
@@ -548,6 +686,9 @@ pub fn validate_runtime_options(options: &CompileOptions) -> Result<(), String> 
 
 pub fn validate_compile_options(options: &CompileOptions) -> Result<(), String> {
     validate_runtime_options(options)?;
+    // Only validate the bundled workspace when an official alias is actually
+    // needed.  User-provided aliases may point at generated or external module
+    // roots, so they should not require the in-tree library layout.
     let needs_base_alias = matches!(
         options.library_bundle,
         LibraryBundle::Base | LibraryBundle::Std
@@ -616,6 +757,9 @@ pub fn validate_compile_options(options: &CompileOptions) -> Result<(), String> 
 }
 
 pub fn inject_driver_condition_defines(options: &mut CompileOptions) {
+    // These defines make runtime/library choices visible to conditional
+    // compilation without requiring every frontend caller to duplicate the
+    // command-line normalization logic.
     options
         .custom_defines
         .insert("test".to_string(), options.test_mode.to_string());
@@ -667,10 +811,40 @@ mod tests {
     }
 
     fn write_minimal_library_workspace(root: &Path) {
-        write_file(&root.join("Craft.toml"));
-        write_file(&root.join("base").join("mod.kn"));
-        write_file(&root.join("std").join("mod.kn"));
-        write_file(&root.join("rt").join("mod.kn"));
+        fs::create_dir_all(root).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            "\
+[workspace]
+name = \"workspace\"
+members = [\"base\", \"std\", \"rt\"]
+
+[workspace.exports]
+base = { member = \"base\" }
+std = { member = \"std\" }
+rt = { member = \"rt\" }
+",
+        )
+        .unwrap();
+        for package in ["base", "std", "rt"] {
+            fs::create_dir_all(root.join(package)).unwrap();
+            fs::write(
+                root.join(package).join("Craft.toml"),
+                format!(
+                    "\
+[package]
+name = \"{package}\"
+version = \"0.8.2\"
+kern = \"0.8\"
+
+[lib]
+root = \"lib.kn\"
+"
+                ),
+            )
+            .unwrap();
+            write_file(&root.join(package).join("lib.kn"));
+        }
     }
 
     #[test]
@@ -679,13 +853,16 @@ mod tests {
         let root = unique_temp_dir("kernlib_env_root");
         write_minimal_library_workspace(&root);
 
+        // SAFETY: tests that mutate process environment hold `ENV_LOCK`, so no
+        // other test in this module can concurrently read or write KERNLIB_PATH.
         unsafe {
             std::env::set_var("KERNLIB_PATH", &root);
         }
         assert_eq!(resolve_library_workspace_path(), root);
-        assert_eq!(resolve_base_path(), root.join("base"));
-        assert_eq!(resolve_std_path(), root.join("std"));
-        assert_eq!(resolve_rt_path(), root.join("rt"));
+        assert_eq!(resolve_base_path(), root.join("base/lib.kn"));
+        assert_eq!(resolve_std_path(), root.join("std/lib.kn"));
+        assert_eq!(resolve_rt_path(), root.join("rt/lib.kn"));
+        // SAFETY: guarded by `ENV_LOCK`; see the matching `set_var` above.
         unsafe {
             std::env::remove_var("KERNLIB_PATH");
         }
@@ -698,6 +875,8 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let root = unique_temp_dir("kernlib_missing_root");
 
+        // SAFETY: tests that mutate process environment hold `ENV_LOCK`, so no
+        // other test in this module can concurrently read or write KERNLIB_PATH.
         unsafe {
             std::env::set_var("KERNLIB_PATH", &root);
         }
@@ -716,6 +895,7 @@ mod tests {
             .module_aliases
             .insert("std".to_string(), "/tmp/std".to_string());
         validate_compile_options(&options).unwrap();
+        // SAFETY: guarded by `ENV_LOCK`; see the matching `set_var` above.
         unsafe {
             std::env::remove_var("KERNLIB_PATH");
         }

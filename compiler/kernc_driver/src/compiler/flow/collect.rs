@@ -1,18 +1,27 @@
+// Flow model collection.
+//
+// Collection walks semantic definitions, lowers function bodies into flow CFGs,
+// computes reaching definitions, liveness, use-def links, control regions, and
+// phase timings for editor/compile diagnostics.
+
 use super::control::collect_control_facts;
 use super::optimize::collect_owner_optimization_facts;
+
 use super::*;
 use crate::compiler::AnalysisFlowOwner;
 use kernc_flow::FlowLoweringHints;
 use kernc_flow::{
-    CfgTopology, collect_binding_summaries, collect_def_uses, collect_definition_facts,
-    collect_node_facts, collect_node_transfers, collect_resolved_uses, collect_single_source_uses,
-    collect_use_defs, compute_liveness, compute_reaching_definitions, materialize_liveness,
-    materialize_reaching_definitions,
+    CfgTopology, collect_binding_summaries_cancelable, collect_def_uses_cancelable,
+    collect_definition_facts_cancelable, collect_node_facts_cancelable,
+    collect_node_transfers_cancelable, collect_resolved_uses_cancelable,
+    collect_single_source_uses_cancelable, collect_use_defs_cancelable,
+    compute_liveness_cancelable, compute_reaching_definitions_cancelable,
+    materialize_liveness_cancelable, materialize_reaching_definitions_cancelable,
 };
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId};
 use kernc_sema::semantic::SemanticSymbolKind;
-use kernc_utils::Span;
+use kernc_utils::{Span, expect_uncancelable};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
@@ -21,12 +30,36 @@ impl FlowModel {
         &self.phase_timings
     }
 
+    #[cfg(test)]
     pub fn collect(
         ctx: &SemaContext<'_>,
         module_item_definition_spans: &HashMap<DefId, Span>,
         references: &[(Span, Span)],
     ) -> Self {
-        Self::collect_with_mode(ctx, module_item_definition_spans, references, true)
+        expect_uncancelable(
+            Self::collect_cancelable(
+                ctx,
+                module_item_definition_spans,
+                references,
+                &CancellationToken::new(),
+            ),
+            "collecting flow model for tests",
+        )
+    }
+
+    pub fn collect_cancelable(
+        ctx: &SemaContext<'_>,
+        module_item_definition_spans: &HashMap<DefId, Span>,
+        references: &[(Span, Span)],
+        cancellation: &CancellationToken,
+    ) -> Result<Self, Canceled> {
+        Self::collect_with_mode(
+            ctx,
+            module_item_definition_spans,
+            references,
+            true,
+            cancellation,
+        )
     }
 
     pub fn collect_for_compile(
@@ -34,7 +67,30 @@ impl FlowModel {
         module_item_definition_spans: &HashMap<DefId, Span>,
         references: &[(Span, Span)],
     ) -> Self {
-        Self::collect_with_mode(ctx, module_item_definition_spans, references, false)
+        expect_uncancelable(
+            Self::collect_for_compile_cancelable(
+                ctx,
+                module_item_definition_spans,
+                references,
+                &CancellationToken::new(),
+            ),
+            "collecting flow model for compilation",
+        )
+    }
+
+    pub fn collect_for_compile_cancelable(
+        ctx: &SemaContext<'_>,
+        module_item_definition_spans: &HashMap<DefId, Span>,
+        references: &[(Span, Span)],
+        cancellation: &CancellationToken,
+    ) -> Result<Self, Canceled> {
+        Self::collect_with_mode(
+            ctx,
+            module_item_definition_spans,
+            references,
+            false,
+            cancellation,
+        )
     }
 
     fn collect_with_mode(
@@ -42,7 +98,9 @@ impl FlowModel {
         module_item_definition_spans: &HashMap<DefId, Span>,
         references: &[(Span, Span)],
         include_analysis_details: bool,
-    ) -> Self {
+        cancellation: &CancellationToken,
+    ) -> Result<Self, Canceled> {
+        cancellation.check()?;
         let mut phase_totals = HashMap::<&'static str, Duration>::new();
         let record =
             |totals: &mut HashMap<&'static str, Duration>, name: &'static str, started: Instant| {
@@ -51,6 +109,7 @@ impl FlowModel {
         let mut owners = Vec::new();
 
         for def in &ctx.defs {
+            cancellation.check()?;
             match def {
                 Def::Function(function) => {
                     let started = Instant::now();
@@ -157,6 +216,7 @@ impl FlowModel {
         record(&mut phase_totals, "  flow_owner_lookup", started);
         let started = Instant::now();
         for definition in ctx.semantic_definitions() {
+            cancellation.check()?;
             let Some((kind, is_mut)) = flow_binding_kind(definition.kind, definition.is_mut) else {
                 continue;
             };
@@ -178,6 +238,7 @@ impl FlowModel {
         record(&mut phase_totals, "  flow_bindings", started);
 
         let started = Instant::now();
+        cancellation.check()?;
         let item_by_definition_span = module_item_definition_spans
             .iter()
             .map(|(&def_id, &span)| (span, def_id))
@@ -201,6 +262,7 @@ impl FlowModel {
         let owner_body_lookup_by_file =
             build_owner_lookup_by_file(&owners, |owner| owner.body_span);
         for (reference_span, definition_span) in references {
+            cancellation.check()?;
             if let Some(&(owner_index, binding_index)) =
                 local_binding_by_definition_span.get(definition_span)
             {
@@ -224,9 +286,11 @@ impl FlowModel {
 
         let started = Instant::now();
         for owner in &mut owners {
+            cancellation.check()?;
             dedup_preserving_order(&mut owner.referenced_def_ids);
             dedup_preserving_order(&mut owner.referenced_definition_spans);
             for binding in &mut owner.bindings {
+                cancellation.check()?;
                 dedup_preserving_order(&mut binding.reference_spans);
             }
             owner
@@ -239,6 +303,7 @@ impl FlowModel {
         record(&mut phase_totals, "  flow_finalize_bindings", started);
 
         for owner in &mut owners {
+            cancellation.check()?;
             let binding_ids_by_span = owner
                 .bindings
                 .iter()
@@ -260,6 +325,7 @@ impl FlowModel {
                     let Some(body) = function.body.as_ref() else {
                         continue;
                     };
+                    cancellation.check()?;
                     let started = Instant::now();
                     let cfg_build = FlowCfgBuilder::build(
                         body,
@@ -270,65 +336,89 @@ impl FlowModel {
                     record(&mut phase_totals, "  flow_cfg_build", started);
                     owner.cfg = cfg_build.cfg;
                     let started = Instant::now();
-                    owner.node_facts = collect_node_facts(
+                    owner.node_facts = collect_node_facts_cancelable(
                         &owner.cfg,
                         &cfg_build.node_uses,
                         &cfg_build.node_defs,
                         &cfg_build.node_def_kinds,
-                    );
+                        cancellation,
+                    )?;
                     record(&mut phase_totals, "  flow_node_facts", started);
                     let started = Instant::now();
-                    let node_transfers = collect_node_transfers(&owner.node_facts);
+                    let node_transfers =
+                        collect_node_transfers_cancelable(&owner.node_facts, cancellation)?;
                     record(&mut phase_totals, "  flow_node_transfers", started);
-                    let topology = CfgTopology::from_cfg(&owner.cfg);
+                    let topology = CfgTopology::from_cfg_cancelable(&owner.cfg, cancellation)?;
                     let started = Instant::now();
-                    let computed_liveness = compute_liveness(&topology, &node_transfers);
+                    let computed_liveness =
+                        compute_liveness_cancelable(&topology, &node_transfers, cancellation)?;
                     record(&mut phase_totals, "  flow_liveness", started);
                     let started = Instant::now();
-                    let computed_reaching =
-                        compute_reaching_definitions(&topology, &node_transfers);
+                    let computed_reaching = compute_reaching_definitions_cancelable(
+                        &topology,
+                        &node_transfers,
+                        cancellation,
+                    )?;
                     record(&mut phase_totals, "  flow_reaching", started);
                     let started = Instant::now();
-                    let use_defs = collect_use_defs(&owner.node_facts, &computed_reaching);
+                    let use_defs = collect_use_defs_cancelable(
+                        &owner.node_facts,
+                        &computed_reaching,
+                        cancellation,
+                    )?;
                     record(&mut phase_totals, "  flow_use_defs", started);
                     let started = Instant::now();
-                    owner.def_uses = collect_def_uses(&node_transfers, &use_defs);
+                    owner.def_uses =
+                        collect_def_uses_cancelable(&node_transfers, &use_defs, cancellation)?;
                     record(&mut phase_totals, "  flow_def_uses", started);
                     let started = Instant::now();
-                    owner.definition_facts = collect_definition_facts(
+                    owner.definition_facts = collect_definition_facts_cancelable(
                         &owner.node_facts,
                         &cfg_build.node_value_uses,
                         &cfg_build.node_copy_sources,
-                    );
+                        cancellation,
+                    )?;
                     record(&mut phase_totals, "  flow_definition_facts", started);
                     let started = Instant::now();
-                    let resolved_uses = collect_resolved_uses(&use_defs);
+                    let resolved_uses = collect_resolved_uses_cancelable(&use_defs, cancellation)?;
                     record(&mut phase_totals, "  flow_resolved_uses", started);
                     let started = Instant::now();
-                    owner.single_source_uses =
-                        collect_single_source_uses(&resolved_uses, &owner.definition_facts);
+                    owner.single_source_uses = collect_single_source_uses_cancelable(
+                        &resolved_uses,
+                        &owner.definition_facts,
+                        cancellation,
+                    )?;
                     record(&mut phase_totals, "  flow_single_source_uses", started);
                     let started = Instant::now();
-                    owner.binding_summaries = collect_binding_summaries(
+                    owner.binding_summaries = collect_binding_summaries_cancelable(
                         owner.bindings.len(),
                         &owner.cfg,
                         &owner.node_facts,
                         &computed_liveness,
-                    );
+                        cancellation,
+                    )?;
                     record(&mut phase_totals, "  flow_binding_summaries", started);
                     owner.computed_liveness = Some(computed_liveness.clone());
                     if include_analysis_details {
+                        cancellation.check()?;
                         let started = Instant::now();
                         let (control_regions, summary) = collect_control_facts(body);
                         record(&mut phase_totals, "  flow_control", started);
                         owner.node_effects = cfg_build.node_effects;
                         owner.node_transfers = node_transfers;
-                        owner.reaching_definitions =
-                            materialize_reaching_definitions(&owner.cfg, &computed_reaching);
-                        owner.liveness = materialize_liveness(
+                        owner.reaching_definitions = materialize_reaching_definitions_cancelable(
                             &owner.cfg,
-                            owner.computed_liveness.as_ref().unwrap(),
-                        );
+                            &computed_reaching,
+                            cancellation,
+                        )?;
+                        // Keep the raw fixed-point result for later consumers, but materialize
+                        // the public view from the local value so this path does not depend on a
+                        // just-written cache slot.
+                        owner.liveness = materialize_liveness_cancelable(
+                            &owner.cfg,
+                            &computed_liveness,
+                            cancellation,
+                        )?;
                         owner.use_defs = use_defs;
                         owner.resolved_uses = resolved_uses;
                         owner.control_regions = control_regions;
@@ -339,6 +429,7 @@ impl FlowModel {
                     let Some(value) = global.value.as_ref() else {
                         continue;
                     };
+                    cancellation.check()?;
                     let started = Instant::now();
                     let cfg_build = FlowCfgBuilder::build(
                         value,
@@ -349,65 +440,86 @@ impl FlowModel {
                     record(&mut phase_totals, "  flow_cfg_build", started);
                     owner.cfg = cfg_build.cfg;
                     let started = Instant::now();
-                    owner.node_facts = collect_node_facts(
+                    owner.node_facts = collect_node_facts_cancelable(
                         &owner.cfg,
                         &cfg_build.node_uses,
                         &cfg_build.node_defs,
                         &cfg_build.node_def_kinds,
-                    );
+                        cancellation,
+                    )?;
                     record(&mut phase_totals, "  flow_node_facts", started);
                     let started = Instant::now();
-                    let node_transfers = collect_node_transfers(&owner.node_facts);
+                    let node_transfers =
+                        collect_node_transfers_cancelable(&owner.node_facts, cancellation)?;
                     record(&mut phase_totals, "  flow_node_transfers", started);
-                    let topology = CfgTopology::from_cfg(&owner.cfg);
+                    let topology = CfgTopology::from_cfg_cancelable(&owner.cfg, cancellation)?;
                     let started = Instant::now();
-                    let computed_liveness = compute_liveness(&topology, &node_transfers);
+                    let computed_liveness =
+                        compute_liveness_cancelable(&topology, &node_transfers, cancellation)?;
                     record(&mut phase_totals, "  flow_liveness", started);
                     let started = Instant::now();
-                    let computed_reaching =
-                        compute_reaching_definitions(&topology, &node_transfers);
+                    let computed_reaching = compute_reaching_definitions_cancelable(
+                        &topology,
+                        &node_transfers,
+                        cancellation,
+                    )?;
                     record(&mut phase_totals, "  flow_reaching", started);
                     let started = Instant::now();
-                    let use_defs = collect_use_defs(&owner.node_facts, &computed_reaching);
+                    let use_defs = collect_use_defs_cancelable(
+                        &owner.node_facts,
+                        &computed_reaching,
+                        cancellation,
+                    )?;
                     record(&mut phase_totals, "  flow_use_defs", started);
                     let started = Instant::now();
-                    owner.def_uses = collect_def_uses(&node_transfers, &use_defs);
+                    owner.def_uses =
+                        collect_def_uses_cancelable(&node_transfers, &use_defs, cancellation)?;
                     record(&mut phase_totals, "  flow_def_uses", started);
                     let started = Instant::now();
-                    owner.definition_facts = collect_definition_facts(
+                    owner.definition_facts = collect_definition_facts_cancelable(
                         &owner.node_facts,
                         &cfg_build.node_value_uses,
                         &cfg_build.node_copy_sources,
-                    );
+                        cancellation,
+                    )?;
                     record(&mut phase_totals, "  flow_definition_facts", started);
                     let started = Instant::now();
-                    let resolved_uses = collect_resolved_uses(&use_defs);
+                    let resolved_uses = collect_resolved_uses_cancelable(&use_defs, cancellation)?;
                     record(&mut phase_totals, "  flow_resolved_uses", started);
                     let started = Instant::now();
-                    owner.single_source_uses =
-                        collect_single_source_uses(&resolved_uses, &owner.definition_facts);
+                    owner.single_source_uses = collect_single_source_uses_cancelable(
+                        &resolved_uses,
+                        &owner.definition_facts,
+                        cancellation,
+                    )?;
                     record(&mut phase_totals, "  flow_single_source_uses", started);
                     let started = Instant::now();
-                    owner.binding_summaries = collect_binding_summaries(
+                    owner.binding_summaries = collect_binding_summaries_cancelable(
                         owner.bindings.len(),
                         &owner.cfg,
                         &owner.node_facts,
                         &computed_liveness,
-                    );
+                        cancellation,
+                    )?;
                     record(&mut phase_totals, "  flow_binding_summaries", started);
                     owner.computed_liveness = Some(computed_liveness.clone());
                     if include_analysis_details {
+                        cancellation.check()?;
                         let started = Instant::now();
                         let (control_regions, summary) = collect_control_facts(value);
                         record(&mut phase_totals, "  flow_control", started);
                         owner.node_effects = cfg_build.node_effects;
                         owner.node_transfers = node_transfers;
-                        owner.reaching_definitions =
-                            materialize_reaching_definitions(&owner.cfg, &computed_reaching);
-                        owner.liveness = materialize_liveness(
+                        owner.reaching_definitions = materialize_reaching_definitions_cancelable(
                             &owner.cfg,
-                            owner.computed_liveness.as_ref().unwrap(),
-                        );
+                            &computed_reaching,
+                            cancellation,
+                        )?;
+                        owner.liveness = materialize_liveness_cancelable(
+                            &owner.cfg,
+                            &computed_liveness,
+                            cancellation,
+                        )?;
                         owner.use_defs = use_defs;
                         owner.resolved_uses = resolved_uses;
                         owner.control_regions = control_regions;
@@ -418,7 +530,13 @@ impl FlowModel {
             }
         }
 
+        cancellation.check()?;
         let owner_body_lookup_by_file = build_owner_def_lookup_by_file(&owners);
+        let owner_lookup_by_def_id = owners
+            .iter()
+            .enumerate()
+            .map(|(index, owner)| (owner.def_id, index))
+            .collect();
         let referenced_item_edges = owners
             .iter()
             .flat_map(|owner| {
@@ -433,12 +551,13 @@ impl FlowModel {
             .map(|(name, duration)| FlowTiming { name, duration })
             .collect::<Vec<_>>();
         phase_timings.sort_by_key(|timing| timing.name);
-        Self {
+        Ok(Self {
             owners,
             owner_body_lookup_by_file,
+            owner_lookup_by_def_id,
             referenced_item_edges,
             phase_timings,
-        }
+        })
     }
 
     pub fn owner_def_id(&self, reference_span: Span) -> Option<DefId> {
@@ -447,6 +566,15 @@ impl FlowModel {
 
     pub fn referenced_item_edges(&self) -> &[(DefId, DefId)] {
         &self.referenced_item_edges
+    }
+
+    pub(in crate::compiler) fn function_value_facts(
+        &self,
+        owner_def_id: DefId,
+    ) -> Option<FlowFunctionValueFacts<'_>> {
+        let owner_index = self.owner_lookup_by_def_id.get(&owner_def_id).copied()?;
+        let owner = self.owners.get(owner_index)?;
+        Some(FlowFunctionValueFacts::new(owner))
     }
 
     pub fn public_owners(&self) -> Vec<AnalysisFlowOwner> {

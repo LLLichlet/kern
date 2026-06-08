@@ -1,3 +1,9 @@
+//! Cross-item reference summaries for MIR.
+//!
+//! The driver builds these summaries before partitioning codegen units. They
+//! capture direct references, direct callsite counts, body availability, and a
+//! small workload estimate for functions and globals.
+
 use crate::{
     MirCallTarget, MirConst, MirFunction, MirGlobal, MirInlineAsm, MirInlineHint, MirInstruction,
     MirLinkage, MirMemoryIntrinsic, MirModule, MirOperand, MirPlace, MirRvalue, MirSliceBase,

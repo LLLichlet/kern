@@ -1,9 +1,16 @@
+//! Control-flow expression checking.
+//!
+//! Blocks, `if`, `while`, `for`, `match`, `return`, `defer`, and pattern
+//! exhaustiveness live here. The match checker builds constructor/scalar
+//! coverage state so diagnostics can distinguish unreachable arms from missing
+//! cases.
+
 use super::ExprChecker;
 use crate::LayoutEngine;
 use crate::checker::{ConstEvaluator, ConstValue};
 use crate::def::{Def, ImportDef};
 use crate::passes::ImportResolver;
-use crate::ty::{AnonymousField, PrimitiveType, TypeId, TypeKind};
+use crate::ty::{AnonymousField, GenericArg, PrimitiveType, TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
 use kernc_utils::{DiagnosticCode, DiagnosticTag, Span, SymbolId};
 
@@ -24,6 +31,11 @@ pub(super) enum CoverageConstructorKind {
 pub(super) struct CoverageConstructor {
     kind: CoverageConstructorKind,
     arg_tys: Vec<TypeId>,
+}
+
+struct CoverageValuePatternField {
+    name: SymbolId,
+    pattern: CoveragePattern,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -445,7 +457,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             TypeKind::Enum(def_id, generic_args) => {
                 let adt_def =
                     self.match_enum_def(def_id, Span::default(), "inspect enum coverage")?;
-                // Safety: semantic defs are immutable while type checking expressions.
+                // SAFETY: semantic defs are immutable while type checking expressions.
                 let adt_def = unsafe { &*adt_def }.clone();
                 if adt_def.is_extern {
                     return None;
@@ -515,6 +527,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ast::PatternKind::Binding(_) | ast::PatternKind::Ignore => {
                 Some(CoveragePattern::Wildcard)
             }
+            ast::PatternKind::Value(value) => {
+                if self.ctx.match_value_pattern_bind_ty(value.id).is_some() {
+                    return None;
+                }
+                self.coverage_lower_expr_pattern(value, target_ty)
+            }
             ast::PatternKind::Variant(variant) => Some(CoveragePattern::Constructor(
                 CoverageConstructorKind::EnumVariant(variant.variant_name),
                 Vec::new(),
@@ -537,7 +555,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                 let ctor = self.coverage_struct_constructor(norm_target)?;
                 let CoverageConstructorKind::Struct(field_names) = ctor.kind.clone() else {
-                    unreachable!("struct constructor expected for struct coverage lowering");
+                    self.ctx.emit_ice(
+                        pattern.span,
+                        "Kern ICE (Typeck): expected struct constructor while lowering match coverage",
+                    );
+                    return None;
                 };
 
                 let mut args = Vec::with_capacity(field_names.len());
@@ -599,7 +621,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             })
                 {
                     let args = if let Some(&payload_ty) = ctor.arg_tys.first() {
-                        vec![self.coverage_lower_expr_pattern(&field.value, payload_ty)?]
+                        vec![self.coverage_lower_nested_expr_pattern(&field.value, payload_ty)?]
                     } else {
                         Vec::new()
                     };
@@ -608,13 +630,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                 let ctor = self.coverage_struct_constructor(norm_target)?;
                 let CoverageConstructorKind::Struct(field_names) = ctor.kind.clone() else {
-                    unreachable!("struct constructor expected for struct value-pattern coverage");
+                    self.ctx.emit_ice(
+                        expr.span,
+                        "Kern ICE (Typeck): expected struct constructor while lowering value-pattern coverage",
+                    );
+                    return None;
                 };
 
+                let expanded_fields =
+                    self.coverage_expand_struct_value_pattern_fields(norm_target, fields, &ctor)?;
+
                 let mut args = Vec::with_capacity(field_names.len());
-                for (index, field_name) in field_names.iter().enumerate() {
-                    let field = fields.iter().find(|field| field.name == *field_name)?;
-                    args.push(self.coverage_lower_expr_pattern(&field.value, ctor.arg_tys[index])?);
+                for field_name in &field_names {
+                    let field = expanded_fields
+                        .iter()
+                        .find(|field| field.name == *field_name)?;
+                    args.push(field.pattern.clone());
                 }
 
                 Some(CoveragePattern::Constructor(
@@ -624,6 +655,92 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             _ => None,
         }
+    }
+
+    fn coverage_lower_nested_expr_pattern(
+        &mut self,
+        expr: &Expr,
+        target_ty: TypeId,
+    ) -> Option<CoveragePattern> {
+        if self.ctx.match_value_pattern_bind_ty(expr.id).is_some() {
+            return None;
+        }
+        self.coverage_lower_expr_pattern(expr, target_ty)
+    }
+
+    fn coverage_expand_struct_value_pattern_fields<'b>(
+        &mut self,
+        norm_target: TypeId,
+        fields: &'b [ast::StructFieldInit],
+        ctor: &CoverageConstructor,
+    ) -> Option<Vec<CoverageValuePatternField>> {
+        let TypeKind::Def(def_id, generic_args) = self.ctx.type_registry.get(norm_target).clone()
+        else {
+            return self.coverage_lower_written_value_pattern_fields(fields, &ctor.arg_tys);
+        };
+        let Def::Struct(def) = self.ctx.defs.get(def_id.0 as usize)? else {
+            return self.coverage_lower_written_value_pattern_fields(fields, &ctor.arg_tys);
+        };
+        if fields.len() >= def.fields.len() {
+            return self.coverage_lower_written_value_pattern_fields(fields, &ctor.arg_tys);
+        }
+
+        let mut subst_map = std::collections::HashMap::<SymbolId, GenericArg>::new();
+        for (index, param) in def.generics.iter().enumerate() {
+            if let Some(arg) = generic_args.get(index).copied() {
+                subst_map.insert(param.name, arg);
+            }
+        }
+
+        let def_fields = def.fields.clone();
+        let mut expanded = Vec::with_capacity(def_fields.len());
+        for (index, field_def) in def_fields.iter().enumerate() {
+            let field_ty = *ctor.arg_tys.get(index)?;
+            if let Some(field) = fields.iter().find(|field| field.name == field_def.name) {
+                expanded.push(CoverageValuePatternField {
+                    name: field.name,
+                    pattern: self.coverage_lower_nested_expr_pattern(&field.value, field_ty)?,
+                });
+                continue;
+            }
+
+            let default_value = field_def.default_value.as_deref()?;
+            let prev_scope = self.ctx.scopes.current_scope_id();
+            if let Some(owner_scope) = self.ctx.def_owner_scope(def_id) {
+                self.ctx.scopes.set_current_scope(owner_scope);
+            }
+            let lowered = self.coverage_lower_nested_expr_pattern(default_value, field_ty);
+            if let Some(prev_scope) = prev_scope {
+                self.ctx.scopes.set_current_scope(prev_scope);
+            }
+            if lowered.is_none() {
+                return None;
+            }
+
+            expanded.push(CoverageValuePatternField {
+                name: field_def.name,
+                pattern: lowered?,
+            });
+        }
+
+        Some(expanded)
+    }
+
+    fn coverage_lower_written_value_pattern_fields(
+        &mut self,
+        fields: &[ast::StructFieldInit],
+        arg_tys: &[TypeId],
+    ) -> Option<Vec<CoverageValuePatternField>> {
+        fields
+            .iter()
+            .zip(arg_tys.iter())
+            .map(|(field, &field_ty)| {
+                Some(CoverageValuePatternField {
+                    name: field.name,
+                    pattern: self.coverage_lower_nested_expr_pattern(&field.value, field_ty)?,
+                })
+            })
+            .collect()
     }
 
     fn expr_pattern_is_qualified_enum_variant(&mut self, expr: &Expr, target_ty: TypeId) -> bool {
@@ -657,7 +774,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ast::MatchPatternKind::Pattern(pattern) => {
                 self.coverage_lower_pattern(pattern, target_ty)
             }
-            ast::MatchPatternKind::Value(expr) => self.coverage_lower_expr_pattern(expr, target_ty),
+            ast::MatchPatternKind::Value(expr) => {
+                if self.ctx.match_value_pattern_bind_ty(expr.id).is_some() {
+                    return None;
+                }
+                self.coverage_lower_expr_pattern(expr, target_ty)
+            }
         }
     }
 
@@ -1150,6 +1272,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {
                 self.void_pattern_bind_shape()
             }
+            ast::PatternKind::Value(value) => self
+                .ctx
+                .match_value_pattern_bind_ty(value.id)
+                .map(|bind_ty| self.bind_shape_from_pattern_bind_ty(bind_ty, value.span))
+                .unwrap_or_else(|| self.void_pattern_bind_shape()),
             ast::PatternKind::Destructure(destructure) => {
                 let norm_target = self.resolve_tv(actual_ty);
                 match self.ctx.type_registry.get(norm_target).clone() {
@@ -1239,6 +1366,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     fn pattern_trait_bind_ty(&mut self, pattern_ty: TypeId, target_ty: TypeId) -> Option<TypeId> {
+        let mut candidate_pattern_tys = vec![pattern_ty];
+        if let Some(slice_ty) = self.immutable_slice_type_for_array(pattern_ty) {
+            candidate_pattern_tys.push(slice_ty);
+        }
+
         let trait_def_id = self.ctx.builtin_def("Pattern")?;
         let bind_assoc_id = match self.ctx.defs.get(trait_def_id.0 as usize) {
             Some(Def::Trait(trait_def)) => {
@@ -1254,41 +1386,44 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
         let trait_args = vec![crate::ty::GenericArg::Type(target_ty)];
         let trait_ty = self.ctx.builtin_trait_ty("Pattern", vec![target_ty])?;
-        if !self.check_trait_impl(pattern_ty, trait_ty) {
-            return None;
-        }
 
-        if let Some((concrete_target, bind_ty)) = self.pattern_impl_head_bind_ty(
-            pattern_ty,
-            target_ty,
-            trait_def_id,
-            &trait_args,
-            bind_assoc_id,
-        ) {
-            let resolved_target = self.resolve_tv(target_ty);
-            if let TypeKind::TypeVar(target_vid) =
-                self.ctx.type_registry.get(resolved_target).clone()
-            {
-                self.bind_type_var(target_vid, concrete_target);
+        for candidate_pattern_ty in candidate_pattern_tys {
+            if !self.check_trait_impl(candidate_pattern_ty, trait_ty) {
+                continue;
             }
-            return Some(self.ctx.normalize_concrete_type(bind_ty));
+
+            if let Some((concrete_target, bind_ty)) = self.pattern_impl_head_bind_ty(
+                candidate_pattern_ty,
+                trait_def_id,
+                &trait_args,
+                bind_assoc_id,
+            ) {
+                let resolved_target = self.resolve_tv(target_ty);
+                if let TypeKind::TypeVar(target_vid) =
+                    self.ctx.type_registry.get(resolved_target).clone()
+                {
+                    self.bind_type_var(target_vid, concrete_target);
+                }
+                return Some(self.ctx.normalize_concrete_type(bind_ty));
+            }
+
+            let target_ty = self.resolve_tv(target_ty);
+            let projection = self.ctx.type_registry.intern(TypeKind::Projection {
+                target: candidate_pattern_ty,
+                trait_def_id,
+                trait_args: vec![crate::ty::GenericArg::Type(target_ty)],
+                assoc_def_id: bind_assoc_id,
+                assoc_args: vec![],
+            });
+            return Some(self.ctx.normalize_concrete_type(projection));
         }
 
-        let target_ty = self.resolve_tv(target_ty);
-        let projection = self.ctx.type_registry.intern(TypeKind::Projection {
-            target: pattern_ty,
-            trait_def_id,
-            trait_args: vec![crate::ty::GenericArg::Type(target_ty)],
-            assoc_def_id: bind_assoc_id,
-            assoc_args: vec![],
-        });
-        Some(self.ctx.normalize_concrete_type(projection))
+        None
     }
 
     fn pattern_impl_head_bind_ty(
         &mut self,
         pattern_ty: TypeId,
-        _target_ty: TypeId,
         trait_def_id: crate::def::DefId,
         trait_args: &[crate::ty::GenericArg],
         bind_assoc_id: crate::def::DefId,
@@ -1329,7 +1464,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let norm_target = self.resolve_tv(target_ty);
         match &value.kind {
             ExprKind::Grouped { expr, .. } => self.value_pattern_is_compiler_known(expr, target_ty),
-            ExprKind::Range { .. } => true,
+            ExprKind::Range { .. } => self.scalar_domain(norm_target).is_some(),
             ExprKind::Bool(_) => true,
             ExprKind::Integer { .. } | ExprKind::Char(_) | ExprKind::ByteChar(_)
                 if self.ctx.type_registry.is_integer(norm_target) =>
@@ -1367,12 +1502,33 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn check_compiler_known_value_pattern(&mut self, value: &Expr, target_ty: TypeId) {
-        let v_ty = self.check_expr(value, Some(target_ty));
-        self.check_coercion(value, target_ty, v_ty);
+    pub(super) fn check_value_pattern(&mut self, value: &Expr, target_ty: TypeId) -> bool {
+        if self.check_core_value_pattern(value, target_ty) {
+            return true;
+        }
+        if self.try_user_value_pattern(value, target_ty).is_some() {
+            return true;
+        }
+        false
     }
 
-    fn try_user_value_pattern(&mut self, value: &Expr, target_ty: TypeId) -> Option<TypeId> {
+    fn check_core_value_pattern(&mut self, value: &Expr, target_ty: TypeId) -> bool {
+        if self.check_match_range_value_pattern(value, target_ty) {
+            return true;
+        }
+        if self.value_pattern_is_compiler_known(value, target_ty) {
+            let v_ty = self.check_expr(value, Some(target_ty));
+            self.check_coercion(value, target_ty, v_ty);
+            return true;
+        }
+        false
+    }
+
+    pub(super) fn try_user_value_pattern(
+        &mut self,
+        value: &Expr,
+        target_ty: TypeId,
+    ) -> Option<TypeId> {
         let pattern_ty = self.check_expr(value, None);
         if pattern_ty == TypeId::ERROR {
             return Some(TypeId::ERROR);
@@ -1382,6 +1538,47 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         self.ctx.set_match_value_pattern_bind_ty(value.id, bind_ty);
         Some(bind_ty)
+    }
+
+    pub(super) fn emit_invalid_match_value_pattern(&mut self, value: &Expr, target_ty: TypeId) {
+        let pattern_ty = self.ctx.node_type_or_error(value.id);
+        let pattern_str = self.ctx.ty_to_string(pattern_ty);
+        let target_str = self.ctx.ty_to_string(target_ty);
+        self.ctx
+            .struct_error(value.span, "match value is not a valid pattern")
+            .with_hint(format!(
+                "`{}` can be a pattern for `{}` only if it is a compiler-known scalar, enum, struct, or range pattern, or implements `Pattern[{}]`",
+                pattern_str, target_str, target_str
+            ))
+            .emit();
+    }
+
+    fn check_match_range_value_pattern(&mut self, value: &Expr, target_ty: TypeId) -> bool {
+        match &value.kind {
+            ExprKind::Grouped { expr, .. } => self.check_match_range_value_pattern(expr, target_ty),
+            ExprKind::Range {
+                start: Some(start),
+                end: Some(end),
+                ..
+            } if self.scalar_domain(target_ty).is_some() => {
+                let start_ty = self.check_expr(start, Some(target_ty));
+                self.check_coercion(start, target_ty, start_ty);
+                let end_ty = self.check_expr(end, Some(target_ty));
+                self.check_coercion(end, target_ty, end_ty);
+                true
+            }
+            ExprKind::Range { .. } if self.scalar_domain(target_ty).is_some() => {
+                self.ctx
+                    .struct_error(
+                        value.span,
+                        "open-ended range patterns are not supported here",
+                    )
+                    .with_hint("use a closed scalar range such as `start...end` or `start..=end`")
+                    .emit();
+                true
+            }
+            _ => false,
+        }
     }
 
     fn emit_match_arm_bind_shape_error(
@@ -1412,6 +1609,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         if norm_target == TypeId::ERROR {
             for arm in arms {
+                if self.is_canceled() {
+                    return TypeId::ERROR;
+                }
                 self.check_expr(&arm.body, None);
             }
             return TypeId::ERROR;
@@ -1426,6 +1626,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let mut match_closed = false;
 
         for arm in arms {
+            if self.is_canceled() {
+                return TypeId::ERROR;
+            }
             let mut arm_state = MatchArmCheckState {
                 norm_target,
                 has_constructor_coverage,
@@ -1503,23 +1706,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let pattern_started = self.timing_start();
         let mut arm_bind_shape = None;
         for pat in &arm.patterns {
+            if self.is_canceled() {
+                self.ctx.scopes.exit_scope();
+                return TypeId::ERROR;
+            }
             match &pat.kind {
                 ast::MatchPatternKind::Value(v) => {
-                    if self.check_match_range_value_pattern(v, state.norm_target) {
-                    } else if self.value_pattern_is_compiler_known(v, state.norm_target) {
-                        self.check_compiler_known_value_pattern(v, state.norm_target);
-                    } else if self.try_user_value_pattern(v, state.norm_target).is_some() {
-                    } else {
-                        let pattern_ty = self.ctx.node_type_or_error(v.id);
-                        let pattern_str = self.ctx.ty_to_string(pattern_ty);
-                        let target_str = self.ctx.ty_to_string(state.norm_target);
-                        self.ctx
-                            .struct_error(v.span, "match value is not a valid pattern")
-                            .with_hint(format!(
-                                "`{}` can be a pattern for `{}` only if it is a compiler-known scalar, enum, struct, or range pattern, or implements `Pattern[{}]`",
-                                pattern_str, target_str, target_str
-                            ))
-                            .emit();
+                    if !self.check_value_pattern(v, state.norm_target) {
+                        self.emit_invalid_match_value_pattern(v, state.norm_target);
                     }
                     if *state.match_closed {
                         self.warn_unreachable_match_pattern(pat.span);
@@ -1613,6 +1807,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
         if let Some(bind_shape) = &arm_bind_shape {
             for field in &bind_shape.fields {
+                if self.is_canceled() {
+                    self.ctx.scopes.exit_scope();
+                    return TypeId::ERROR;
+                }
                 let binding = ast::BindingPattern {
                     name: field.name,
                     name_span: field.name_span,
@@ -1635,34 +1833,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         body_ty
     }
 
-    fn check_match_range_value_pattern(&mut self, value: &Expr, target_ty: TypeId) -> bool {
-        match &value.kind {
-            ExprKind::Grouped { expr, .. } => self.check_match_range_value_pattern(expr, target_ty),
-            ExprKind::Range {
-                start: Some(start),
-                end: Some(end),
-                ..
-            } => {
-                let start_ty = self.check_expr(start, Some(target_ty));
-                self.check_coercion(start, target_ty, start_ty);
-                let end_ty = self.check_expr(end, Some(target_ty));
-                self.check_coercion(end, target_ty, end_ty);
-                true
-            }
-            ExprKind::Range { .. } => {
-                self.ctx
-                    .struct_error(
-                        value.span,
-                        "open-ended range patterns are not supported here",
-                    )
-                    .with_hint("use a closed scalar range such as `start...end` or `start..=end`")
-                    .emit();
-                true
-            }
-            _ => false,
-        }
-    }
-
     pub(crate) fn check_return(&mut self, val: Option<&Expr>, span: Span) -> TypeId {
         self.has_returned = true;
         let expected_ret = self.current_return_type.unwrap_or(TypeId::VOID);
@@ -1676,7 +1846,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             {
                 self.check_coercion(v, ret_ty, val_ty);
             }
-            self.reject_temporary_address_escape(v, "a return value");
+            self.reject_stack_pointer_escape(v, "a return value");
         } else if expected_ret != TypeId::VOID && expected_ret != TypeId::ERROR {
             let ret_str = self.ctx.ty_to_string(expected_ret);
             self.ctx
@@ -1727,6 +1897,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let mut entered_scope = false;
         let mut saw_diverging_stmt = false;
         for stmt in stmts {
+            if self.is_canceled() {
+                if entered_scope {
+                    if let Some(scope_id) = outer_scope {
+                        self.ctx.scopes.set_current_scope(scope_id);
+                    } else {
+                        self.ctx.scopes.exit_scope();
+                    }
+                }
+                return TypeId::ERROR;
+            }
             match &stmt.kind {
                 StmtKind::Use(use_stmt) => {
                     let import = ImportDef {

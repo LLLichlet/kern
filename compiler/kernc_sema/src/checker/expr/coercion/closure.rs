@@ -1,3 +1,9 @@
+//! Closure and function-interface coercions.
+//!
+//! This file handles non-capturing closure decay to function values, function
+//! and fn-def coercion to closure interfaces, and validation that captured
+//! closure environments cannot be stored behind raw function pointers.
+
 use super::*;
 
 use crate::ty::{ConstGeneric, GenericArg};
@@ -73,7 +79,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected_ret: TypeId,
         act_kind: &TypeKind,
     ) -> bool {
-        let TypeKind::AnonymousState { params, ret, .. } = act_kind else {
+        let TypeKind::AnonymousState {
+            captures,
+            params,
+            ret,
+            ..
+        } = act_kind
+        else {
             return false;
         };
 
@@ -91,7 +103,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return false;
         }
 
-        self.signatures_compatible(expected_params, expected_ret, params, *ret)
+        if !self.signatures_compatible(expected_params, expected_ret, params, *ret) {
+            return false;
+        }
+
+        if !captures.is_empty() {
+            self.record_pointer_origin_expr(
+                expr.id,
+                crate::checker::expr::PointerOrigin::CapturingClosure(expr.span),
+            );
+        }
+        true
     }
 
     fn check_fn_like_to_closure_interface(

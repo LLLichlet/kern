@@ -1,4 +1,7 @@
+//! Analysis tests against real repository example projects.
+
 use super::*;
+use std::time::Instant;
 
 fn write_lsp_navigation_fixture() -> PathBuf {
     let root = unique_temp_dir("analysis_lsp_navigation_fixture");
@@ -219,6 +222,167 @@ fn stdlib_document_symbols_render_real_impl_target_types() {
 }
 
 #[test]
+#[ignore = "prints local real-project cold-start timings for manual LSP profiling"]
+fn profile_real_project_lsp_cold_start() {
+    let kern_workspace = workspace_root();
+    let project_root = kern_workspace
+        .parent()
+        .expect("kern workspace has a parent directory");
+    let candidates = [
+        kern_workspace.join("examples/limine-mkiso/src/main.kn"),
+        project_root.join("json-kern/json/src/parser.kn"),
+        project_root.join("xml-kern/src/reader_impl.kn"),
+        project_root.join("regex-kern/src/parser.kn"),
+        project_root.join("bitio-kern/src/lib.kn"),
+    ];
+
+    for path in candidates {
+        if !path.is_file() {
+            eprintln!("SKIP {}", path.display());
+            continue;
+        }
+
+        let mut analysis = AnalysisEngine::default();
+        let uri = file_path_to_uri(&path).unwrap();
+        let source = fs::read_to_string(&path).unwrap();
+        eprintln!("\n== {} ==", path.display());
+        eprintln!("source_bytes={}", source.len());
+
+        profile_step_mut("open_document_state", &mut analysis, |analysis| {
+            let action = analysis.open_document_state(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: uri.clone(),
+                    _language_id: "kern".to_string(),
+                    version: 1,
+                    text: source.clone(),
+                },
+            });
+            match action {
+                DocumentSyncAction::ScheduleTarget { .. } => Ok(()),
+                DocumentSyncAction::Immediate(outcome) => {
+                    if outcome
+                        .bundles
+                        .iter()
+                        .any(|bundle| !bundle.diagnostics.is_empty())
+                    {
+                        Err(format!("open produced diagnostics: {:?}", outcome.bundles))
+                    } else {
+                        Ok(())
+                    }
+                }
+            }
+        })
+        .unwrap();
+
+        profile_step("structure_diagnostics", &analysis, || {
+            let outcome = analysis.analyze_document_structure_uri(&uri);
+            if outcome
+                .bundles
+                .iter()
+                .any(|bundle| !bundle.diagnostics.is_empty())
+            {
+                Err(format!(
+                    "structure diagnostics produced diagnostics: {:?}",
+                    outcome.bundles
+                ))
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
+
+        profile_step("semantic_tokens_cold", &analysis, || {
+            let tokens = analysis.semantic_tokens(&uri)?;
+            if tokens.data.is_empty() {
+                Err("semantic tokens were empty".to_string())
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
+
+        if let Some(position) = first_identifier_position(&source) {
+            profile_step("hover_after_tokens", &analysis, || {
+                let _ = analysis.hover(&uri, position)?;
+                Ok(())
+            })
+            .unwrap();
+        }
+
+        let workspace_root = path
+            .ancestors()
+            .find(|candidate| candidate.join("Craft.toml").is_file())
+            .unwrap_or(path.parent().unwrap_or_else(|| std::path::Path::new(".")))
+            .to_path_buf();
+        profile_step("workspace_index_warm", &analysis, || {
+            analysis
+                .warm_workspace_symbol_indexes_with_cancellation_for_testing(
+                    vec![workspace_root.clone()],
+                    CancellationToken::new(),
+                )
+                .map(|_| ())
+        })
+        .unwrap();
+
+        profile_step("semantic_tokens_warm", &analysis, || {
+            let tokens = analysis.semantic_tokens(&uri)?;
+            if tokens.data.is_empty() {
+                Err("semantic tokens were empty".to_string())
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
+    }
+}
+
+fn profile_step<F>(label: &str, analysis: &AnalysisEngine, f: F) -> Result<(), String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    analysis.clear_last_analysis_tier();
+    analysis.clear_last_analysis_trace();
+    let started = Instant::now();
+    let result = f();
+    let elapsed = started.elapsed();
+    eprintln!(
+        "{label}: elapsed_ms={} tier={:?} trace={}",
+        elapsed.as_millis(),
+        analysis.last_analysis_tier(),
+        analysis.last_analysis_trace().cache_summary()
+    );
+    result
+}
+
+fn profile_step_mut<F>(label: &str, analysis: &mut AnalysisEngine, f: F) -> Result<(), String>
+where
+    F: FnOnce(&mut AnalysisEngine) -> Result<(), String>,
+{
+    analysis.clear_last_analysis_tier();
+    analysis.clear_last_analysis_trace();
+    let started = Instant::now();
+    let result = f(analysis);
+    let elapsed = started.elapsed();
+    eprintln!(
+        "{label}: elapsed_ms={} tier={:?} trace={}",
+        elapsed.as_millis(),
+        analysis.last_analysis_tier(),
+        analysis.last_analysis_trace().cache_summary()
+    );
+    result
+}
+
+fn first_identifier_position(source: &str) -> Option<IdePosition> {
+    for needle in ["parse", "read", "write", "main", "fn", "lib"] {
+        if let Some(offset) = source.find(needle) {
+            let file = SourceFile::new(PathBuf::from("profile.kn"), source.to_string());
+            return Some(byte_offset_to_position(&file, offset));
+        }
+    }
+    None
+}
+
+#[test]
 fn package_api_compile_survives_discard_assignment_queries() {
     let root = unique_temp_dir("analysis_package_api_compile");
     fs::create_dir_all(root.join("src")).unwrap();
@@ -331,9 +495,9 @@ fn limine_smoke_resolves_real_freestanding_project_runtime() {
         .unwrap()
         .unwrap();
     assert!(
-        hover.contents.value.contains("fn serial_write:"),
+        hover.contents.contains("fn serial_write(text: &[u8]) void"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 
@@ -367,9 +531,11 @@ fn limine_mkiso_resolves_real_hosted_build_tool_runtime() {
         .unwrap()
         .unwrap();
     assert!(
-        hover.contents.value.contains("fn push_shell_arg:"),
+        hover.contents.contains(
+            "fn push_shell_arg(out: &mut String, alloc: &mut Allocator, arg: &[u8]) bool"
+        ),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 
@@ -385,9 +551,9 @@ fn hover_renders_optional_mut_pointer_field() {
         .unwrap();
 
     assert!(
-        hover.contents.value.contains("field ptr: ?&mut u8"),
+        hover.contents.contains("field ptr: ?&mut u8"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 
@@ -421,9 +587,11 @@ fn hover_on_impl_method_call_uses_method_signature() {
         .unwrap();
 
     assert!(
-        hover.contents.value.contains("fn write_bit:"),
+        hover
+            .contents
+            .contains("fn write_bit(self: &mut BitWriter, value: bool) usize!BitIoError"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 
@@ -519,9 +687,11 @@ fn hover_on_private_method_call_uses_method_signature() {
         .unwrap();
 
     assert!(
-        hover.contents.value.contains("fn buffer_slot_mut:"),
+        hover
+            .contents
+            .contains("fn buffer_slot_mut(self: &mut Editor, index: usize) &mut BufferSlot"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 
@@ -594,10 +764,9 @@ fn hover_resolves_imported_function_signature() {
     assert!(
         hover
             .contents
-            .value
-            .contains("fn clone_owned_value_in_arena:"),
+            .contains("fn clone_owned_value_in_arena(value: Value) Value!CloneError"),
         "{}",
-        hover.contents.value
+        hover.contents
     );
 }
 

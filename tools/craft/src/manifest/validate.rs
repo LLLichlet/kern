@@ -1,3 +1,9 @@
+//! Semantic validation for parsed Craft manifests.
+//!
+//! Validation rejects unsupported sections, invalid target/source combinations,
+//! malformed profile/style settings, and dependency forms before planning uses
+//! the manifest.
+
 use super::{
     CURRENT_KERN_VERSION, CraftFmtConfig, CraftStyleConfig, DependencySpec, Manifest, Package,
     Profile, ResourceSpec, WorkspaceExport, WorkspacePackage,
@@ -506,15 +512,69 @@ fn validate_non_empty(path: &Path, field: &str, value: &str) -> Result<()> {
 }
 
 fn validate_kern_version(path: &Path, value: &str) -> Result<()> {
-    if value != CURRENT_KERN_VERSION {
-        return Err(Error::Validation {
-            path: path.to_path_buf(),
-            message: format!(
-                "[package].kern must match the current toolchain version `{CURRENT_KERN_VERSION}`, found `{value}`"
-            ),
-        });
+    if kern_version_matches_current(value) {
+        return Ok(());
     }
-    Ok(())
+    let current_line = current_kern_minor_line().unwrap_or(CURRENT_KERN_VERSION);
+    Err(Error::Validation {
+        path: path.to_path_buf(),
+        message: format!(
+            "[package].kern must match the current Kern minor line `{current_line}` or full toolchain version `{CURRENT_KERN_VERSION}`, found `{value}`"
+        ),
+    })
+}
+
+fn kern_version_matches_current(value: &str) -> bool {
+    if value == CURRENT_KERN_VERSION {
+        return true;
+    }
+    current_kern_minor_line().is_some_and(|line| value == line)
+}
+
+fn current_kern_minor_line() -> Option<&'static str> {
+    let mut dots_seen = 0;
+    for (index, ch) in CURRENT_KERN_VERSION.char_indices() {
+        if ch == '.' {
+            dots_seen += 1;
+            if dots_seen == 2 {
+                return Some(&CURRENT_KERN_VERSION[..index]);
+            }
+        } else if !ch.is_ascii_digit() {
+            return None;
+        }
+    }
+    None
+}
+
+pub(crate) fn default_kern_compat_version() -> &'static str {
+    current_kern_minor_line().unwrap_or(CURRENT_KERN_VERSION)
+}
+
+#[cfg(test)]
+mod kern_version_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_current_minor_line_and_exact_version() {
+        assert!(kern_version_matches_current(CURRENT_KERN_VERSION));
+        assert!(kern_version_matches_current(
+            current_kern_minor_line().expect("current version should have a minor line")
+        ));
+    }
+
+    #[test]
+    fn rejects_other_minor_lines() {
+        assert!(!kern_version_matches_current("0.999"));
+        assert!(!kern_version_matches_current("1.0"));
+    }
+
+    #[test]
+    fn default_compat_version_uses_minor_line() {
+        assert_eq!(
+            default_kern_compat_version(),
+            current_kern_minor_line().unwrap()
+        );
+    }
 }
 
 fn validate_source_name(path: &Path, field: &str, value: &str) -> Result<()> {

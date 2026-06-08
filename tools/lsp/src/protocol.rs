@@ -1,6 +1,12 @@
+//! Minimal LSP protocol data model used by the server.
+//!
+//! Types in this module mirror the JSON-RPC/LSP payloads that `kern-lsp`
+//! decodes and encodes without depending on a large protocol crate.
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 pub const JSONRPC_VERSION: &str = "2.0";
 pub const TEXT_DOCUMENT_SYNC_INCREMENTAL: u8 = 2;
@@ -16,10 +22,7 @@ pub const SEMANTIC_TOKEN_TYPES: &[&str] = &[
     "property",
     "function",
     "method",
-    "keyword",
-    "string",
-    "number",
-    "operator",
+    "enumMember",
 ];
 pub const SEMANTIC_TOKEN_MODIFIERS: &[&str] = &["declaration", "readonly", "static"];
 
@@ -40,9 +43,34 @@ pub struct InitializeParams {
     #[serde(default)]
     pub capabilities: ClientCapabilities,
     #[serde(default)]
+    pub root_uri: Option<String>,
+    #[serde(default)]
+    pub workspace_folders: Option<Vec<WorkspaceFolder>>,
+    #[serde(default)]
     pub trace: Option<String>,
     #[serde(default)]
     pub client_info: Option<ClientInfo>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceFolder {
+    pub uri: String,
+    #[serde(rename = "name")]
+    pub _name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DidChangeWorkspaceFoldersParams {
+    pub event: WorkspaceFoldersChangeEvent,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WorkspaceFoldersChangeEvent {
+    #[serde(default)]
+    pub added: Vec<WorkspaceFolder>,
+    #[serde(default)]
+    pub removed: Vec<WorkspaceFolder>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -51,7 +79,16 @@ pub struct ClientCapabilities {
     #[serde(default)]
     pub general: GeneralClientCapabilities,
     #[serde(default)]
+    pub window: WindowClientCapabilities,
+    #[serde(default)]
     pub text_document: TextDocumentClientCapabilities,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowClientCapabilities {
+    #[serde(default)]
+    pub work_done_progress: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -106,7 +143,32 @@ pub struct InlayHintClientCapabilities {
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensClientCapabilities {
     #[serde(default)]
-    pub _requests: Option<Value>,
+    pub requests: Option<SemanticTokensClientRequests>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensClientRequests {
+    #[serde(default)]
+    pub full: Option<SemanticTokensFullClientRequest>,
+    #[serde(default)]
+    pub _range: Option<Value>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(untagged)]
+pub enum SemanticTokensFullClientRequest {
+    Bool(bool),
+    Options(SemanticTokensFullClientRequestOptions),
+    #[default]
+    Missing,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensFullClientRequestOptions {
+    #[serde(default)]
+    pub delta: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,6 +187,33 @@ pub struct SetTraceParams {
 #[derive(Debug, Deserialize)]
 pub struct CancelRequestParams {
     pub id: Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DidChangeConfigurationParams {
+    #[serde(default)]
+    pub settings: Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DidChangeWatchedFilesParams {
+    #[serde(default)]
+    pub changes: Vec<FileEvent>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FileEvent {
+    pub uri: String,
+    #[serde(rename = "type")]
+    pub _type: u8,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSymbolParams {
+    pub query: String,
+    #[serde(default, rename = "workDoneToken")]
+    pub work_done_token: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -183,6 +272,27 @@ pub struct TextDocumentIdentifier {
     pub uri: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionResolveData {
+    pub uri: String,
+    pub version: i64,
+    pub position: Position,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionResolveData {
+    pub uri: String,
+    pub version: i64,
+    pub range: Range,
+    pub diagnostic_range: Range,
+    pub diagnostic_code: Option<String>,
+    pub action_kind: String,
+    pub fix_id: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentSymbolParams {
@@ -198,9 +308,34 @@ pub struct DefinitionParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CallHierarchyPrepareParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallHierarchyIncomingCallsParams {
+    pub item: CallHierarchyItem,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallHierarchyOutgoingCallsParams {
+    pub item: CallHierarchyItem,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentHighlightParams {
     pub text_document: TextDocumentIdentifier,
     pub position: Position,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeLensParams {
+    pub text_document: TextDocumentIdentifier,
 }
 
 #[derive(Debug, Deserialize)]
@@ -223,6 +358,8 @@ pub struct ReferenceParams {
     pub text_document: TextDocumentIdentifier,
     pub position: Position,
     pub context: ReferenceContext,
+    #[serde(default, rename = "workDoneToken")]
+    pub work_done_token: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -247,9 +384,82 @@ pub struct SemanticTokensParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SemanticTokensDeltaParams {
+    pub text_document: TextDocumentIdentifier,
+    pub previous_result_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensRangeParams {
+    pub text_document: TextDocumentIdentifier,
+    pub range: Range,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InlayHintParams {
     pub text_document: TextDocumentIdentifier,
     pub range: Range,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldingRangeParams {
+    pub text_document: TextDocumentIdentifier,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectionRangeParams {
+    pub text_document: TextDocumentIdentifier,
+    pub positions: Vec<Position>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentLinkParams {
+    pub text_document: TextDocumentIdentifier,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeLensResolveData {
+    pub title: String,
+    pub command: String,
+    pub arguments: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentLinkResolveData {
+    pub target: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormattingParams {
+    pub text_document: TextDocumentIdentifier,
+    #[serde(rename = "options")]
+    pub _options: FormattingOptions,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RangeFormattingParams {
+    pub text_document: TextDocumentIdentifier,
+    pub range: Range,
+    #[serde(rename = "options")]
+    pub _options: FormattingOptions,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormattingOptions {
+    #[serde(rename = "tabSize")]
+    pub _tab_size: u32,
+    #[serde(rename = "insertSpaces")]
+    pub _insert_spaces: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -309,9 +519,9 @@ pub struct ParameterInformation {
     pub label: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MarkupContent {
-    pub kind: &'static str,
+    pub kind: String,
     pub value: String,
 }
 
@@ -322,43 +532,69 @@ pub struct PrepareRenameResult {
     pub placeholder: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextEdit {
     pub range: Range,
     pub new_text: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct WorkspaceEdit {
     pub changes: BTreeMap<String, Vec<TextEdit>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeAction {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<&'static str>,
+    pub kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<Vec<Diagnostic>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edit: Option<WorkspaceEdit>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_preferred: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeLens {
+    pub range: Range,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<Command>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Command {
+    pub title: String,
+    pub command: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub arguments: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionItem {
     pub label: String,
-    pub kind: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub insert_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub insert_text_format: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub documentation: Option<MarkupContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -366,6 +602,14 @@ pub struct ResponseMessage {
     pub jsonrpc: &'static str,
     pub id: Value,
     pub result: Value,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RequestMessage<T> {
+    pub jsonrpc: &'static str,
+    pub id: Value,
+    pub method: &'static str,
+    pub params: T,
 }
 
 #[derive(Debug, Serialize)]
@@ -404,18 +648,43 @@ pub struct LogMessageParams {
 }
 
 #[derive(Debug, Serialize)]
+pub struct WorkDoneProgressCreateParams {
+    pub token: Value,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProgressParams<T> {
+    pub token: Value,
+    pub value: T,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WorkDoneProgressValue {
+    Begin {
+        title: String,
+        message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        percentage: Option<u32>,
+    },
+    End {
+        message: String,
+    },
+}
+
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublishDiagnosticsParams {
     pub uri: String,
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
     pub range: Range,
     pub severity: u8,
-    pub source: &'static str,
+    pub source: String,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
@@ -425,11 +694,20 @@ pub struct Diagnostic {
     pub related_information: Option<Vec<DiagnosticRelatedInformation>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(into = "u8")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(from = "u8", into = "u8")]
 pub enum DiagnosticTag {
     Unnecessary,
     Deprecated,
+}
+
+impl From<u8> for DiagnosticTag {
+    fn from(value: u8) -> Self {
+        match value {
+            2 => Self::Deprecated,
+            _ => Self::Unnecessary,
+        }
+    }
 }
 
 impl From<DiagnosticTag> for u8 {
@@ -442,8 +720,35 @@ impl From<DiagnosticTag> for u8 {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SemanticTokens {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_id: Option<String>,
     pub data: Vec<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensDelta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_id: Option<String>,
+    pub edits: Vec<SemanticTokensEdit>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensEdit {
+    pub start: u32,
+    pub delete_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Vec<u32>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum SemanticTokensDeltaResult {
+    Tokens(SemanticTokens),
+    Delta(SemanticTokensDelta),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -459,6 +764,37 @@ pub struct InlayHint {
     pub padding_right: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldingRange {
+    pub start_line: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_character: Option<u32>,
+    pub end_line: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_character: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectionRange {
+    pub range: Range,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Box<SelectionRange>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentLink {
+    pub range: Range,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Range {
     pub start: Position,
@@ -471,13 +807,47 @@ pub struct Position {
     pub character: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Location {
     pub uri: String,
     pub range: Range,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSymbol {
+    pub name: String,
+    pub kind: u8,
+    pub location: Location,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallHierarchyItem {
+    pub name: String,
+    pub kind: u8,
+    pub uri: String,
+    pub range: Range,
+    pub selection_range: Range,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallHierarchyIncomingCall {
+    pub from: CallHierarchyItem,
+    pub from_ranges: Vec<Range>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallHierarchyOutgoingCall {
+    pub to: CallHierarchyItem,
+    pub from_ranges: Vec<Range>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticRelatedInformation {
     pub location: Location,
@@ -511,6 +881,8 @@ pub struct InitializeResultOptions {
     pub inlay_hint: bool,
     pub rename_prepare_support: bool,
     pub semantic_tokens: bool,
+    pub semantic_tokens_delta: bool,
+    pub work_done_progress: bool,
 }
 
 impl Default for InitializeResultOptions {
@@ -520,6 +892,8 @@ impl Default for InitializeResultOptions {
             inlay_hint: true,
             rename_prepare_support: true,
             semantic_tokens: true,
+            semantic_tokens_delta: true,
+            work_done_progress: true,
         }
     }
 }
@@ -538,9 +912,44 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
     );
     capabilities.insert("documentSymbolProvider".to_string(), Value::Bool(true));
     capabilities.insert("definitionProvider".to_string(), Value::Bool(true));
+    capabilities.insert("declarationProvider".to_string(), Value::Bool(true));
+    capabilities.insert("typeDefinitionProvider".to_string(), Value::Bool(true));
+    capabilities.insert("implementationProvider".to_string(), Value::Bool(true));
+    capabilities.insert(
+        "callHierarchyProvider".to_string(),
+        json!({ "workDoneProgress": false }),
+    );
     capabilities.insert("documentHighlightProvider".to_string(), Value::Bool(true));
-    capabilities.insert("referencesProvider".to_string(), Value::Bool(true));
+    capabilities.insert(
+        "codeLensProvider".to_string(),
+        json!({ "resolveProvider": true }),
+    );
+    capabilities.insert(
+        "referencesProvider".to_string(),
+        json!({ "workDoneProgress": true }),
+    );
     capabilities.insert("hoverProvider".to_string(), Value::Bool(true));
+    capabilities.insert("foldingRangeProvider".to_string(), Value::Bool(true));
+    capabilities.insert("selectionRangeProvider".to_string(), Value::Bool(true));
+    capabilities.insert(
+        "documentLinkProvider".to_string(),
+        json!({ "resolveProvider": true }),
+    );
+    capabilities.insert("documentFormattingProvider".to_string(), Value::Bool(true));
+    capabilities.insert(
+        "documentRangeFormattingProvider".to_string(),
+        Value::Bool(true),
+    );
+    capabilities.insert("workspaceSymbolProvider".to_string(), Value::Bool(true));
+    capabilities.insert(
+        "workspace".to_string(),
+        json!({
+            "workspaceFolders": {
+                "supported": true,
+                "changeNotifications": true
+            }
+        }),
+    );
     capabilities.insert(
         "signatureHelpProvider".to_string(),
         json!({
@@ -551,7 +960,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
     capabilities.insert(
         "completionProvider".to_string(),
         json!({
-            "resolveProvider": false,
+            "resolveProvider": true,
             "triggerCharacters": ["."]
         }),
     );
@@ -563,9 +972,9 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
                     "tokenTypes": SEMANTIC_TOKEN_TYPES,
                     "tokenModifiers": SEMANTIC_TOKEN_MODIFIERS
                 },
-                "range": false,
+                "range": true,
                 "full": {
-                    "delta": false
+                    "delta": options.semantic_tokens_delta
                 }
             }),
         );
@@ -578,7 +987,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
         if options.code_action_literals {
             json!({
                 "codeActionKinds": ["quickfix"],
-                "resolveProvider": false
+                "resolveProvider": true
             })
         } else {
             Value::Bool(false)
@@ -631,6 +1040,90 @@ pub fn error_response(id: Value, code: i64, message: impl Into<String>) -> Error
             code,
             message: message.into(),
         },
+    }
+}
+
+pub fn file_uri_to_path(uri: &str) -> Option<PathBuf> {
+    let raw = uri.strip_prefix("file://")?;
+    let decoded = percent_decode(raw).ok()?;
+
+    #[cfg(windows)]
+    {
+        let trimmed = normalize_windows_file_uri_path(&decoded);
+        let with_separators = trimmed.replace('/', "\\");
+        Some(PathBuf::from(with_separators))
+    }
+
+    #[cfg(not(windows))]
+    {
+        Some(PathBuf::from(decoded))
+    }
+}
+
+pub fn work_done_progress_create(
+    id: Value,
+    token: Value,
+) -> RequestMessage<WorkDoneProgressCreateParams> {
+    RequestMessage {
+        jsonrpc: JSONRPC_VERSION,
+        id,
+        method: "window/workDoneProgress/create",
+        params: WorkDoneProgressCreateParams { token },
+    }
+}
+
+#[cfg(windows)]
+fn normalize_windows_file_uri_path(decoded: &str) -> &str {
+    let trimmed = decoded.trim_start_matches('/');
+    trimmed
+        .strip_prefix("?/UNC/")
+        .or_else(|| trimmed.strip_prefix("?/"))
+        .unwrap_or(trimmed)
+}
+
+fn percent_decode(input: &str) -> Result<String, ()> {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut idx = 0;
+
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b'%' => {
+                if idx + 2 >= bytes.len() {
+                    return Err(());
+                }
+                let hi = hex_value(bytes[idx + 1]).ok_or(())?;
+                let lo = hex_value(bytes[idx + 2]).ok_or(())?;
+                out.push((hi << 4) | lo);
+                idx += 3;
+            }
+            b => {
+                out.push(b);
+                idx += 1;
+            }
+        }
+    }
+
+    String::from_utf8(out).map_err(|_| ())
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+pub fn progress(
+    token: Value,
+    value: WorkDoneProgressValue,
+) -> NotificationMessage<ProgressParams<WorkDoneProgressValue>> {
+    NotificationMessage {
+        jsonrpc: JSONRPC_VERSION,
+        method: "$/progress",
+        params: ProgressParams { token, value },
     }
 }
 

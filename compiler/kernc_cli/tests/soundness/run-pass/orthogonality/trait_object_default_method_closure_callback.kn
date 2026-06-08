@@ -1,0 +1,31 @@
+// source: trait object dispatch, default methods, and closure callbacks compose without bypassing receiver metadata
+// exit: 0
+
+trait Source {
+    fn value() i32;
+
+    fn map(callback: &Fn(i32) i32) i32 {
+        return callback(self.value());
+    }
+};
+
+struct Cell {
+    value: i32,
+};
+
+impl &Cell: Source {
+    fn value() i32 {
+        return self.value;
+    }
+}
+
+fn run(source: &Source) i32 {
+    return source.map([](value: i32) i32 {
+        return value + 5;
+    });
+}
+
+fn main() i32 {
+    let cell = Cell.{ value: 7 };
+    return run(cell.& as &Source) - 12;
+}

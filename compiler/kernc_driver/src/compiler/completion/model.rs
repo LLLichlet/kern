@@ -1,3 +1,9 @@
+//! Completion model queries.
+//!
+//! The model decides whether a request needs body-aware completion and provides
+//! utilities for locating the syntax region and span that should receive
+//! completion items.
+
 use super::facts::{query_span_for_expr, span_contains_offset};
 use super::*;
 

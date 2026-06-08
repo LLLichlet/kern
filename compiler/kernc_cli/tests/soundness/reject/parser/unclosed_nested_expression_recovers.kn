@@ -1,0 +1,5 @@
+// source: parser recovery must reject nested broken expressions without hanging or ICEing
+// stderr: expected
+fn main() i32 {
+    return foo(bar([.{ .a = (1 + 2 };
+}

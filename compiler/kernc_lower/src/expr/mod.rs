@@ -1,3 +1,10 @@
+//! Expression lowering from checked AST to MAST.
+//!
+//! This module coordinates expression lowering after semantic checking has
+//! assigned concrete types. It preserves source spans for diagnostics, applies
+//! generic substitutions, and delegates access, calls, control flow, literals,
+//! casts, and operators to focused submodules.
+
 use super::Lowerer;
 use kernc_ast::{Expr, ExprKind};
 use kernc_mast::*;
@@ -68,6 +75,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, GenericArg>,
         expected_ty: Option<TypeId>,
     ) -> MastExpr {
+        if self.check_canceled().is_err() {
+            return MastExpr::new(TypeId::ERROR, MastExprKind::Trap, expr.span);
+        }
         let raw_ty = self.resolve_expr_type(expr);
         let concrete_ty = self.substitute_type_with_map(raw_ty, subst_map);
         let exp_ty = expected_ty.unwrap_or(concrete_ty);
@@ -116,7 +126,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         _ => {
                             let lowered_ident =
                                 this.measure_phase("          lower_ident_value", |this| {
-                                    this.lower_identifier_with_locality(expr.id, *name, subst_map)
+                                    this.lower_identifier_with_locality(
+                                        expr.id,
+                                        *name,
+                                        subst_map,
+                                        concrete_ty,
+                                    )
                                 });
                             let kind = lowered_ident.kind;
 
@@ -809,6 +824,7 @@ mod tests {
                 fields: vec![],
                 is_extern: false,
                 span: Span::default(),
+                name_span: Span::default(),
                 docs: None,
             })
         });

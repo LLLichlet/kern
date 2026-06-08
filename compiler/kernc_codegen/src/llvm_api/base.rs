@@ -1,3 +1,15 @@
+//! Base LLVM wrapper types.
+//!
+//! This file defines typed handles for LLVM values, types, blocks, modules, and
+//! attributes. Handles are non-owning unless their wrapper implements `Drop`;
+//! callers must ensure they belong to the live LLVM context/module that created
+//! them.
+//!
+//! Safety model: most wrappers are transparent handles around LLVM C API
+//! pointers. They do not prove lifetime relationships in Rust's type system;
+//! higher-level code must keep the originating `Context`/`Module` alive and must
+//! use the typed constructors instead of fabricating raw handles.
+
 use llvm_sys::LLVMAttributeFunctionIndex;
 use llvm_sys::core::{
     LLVMAddAttributeAtIndex, LLVMAddIncoming, LLVMArrayType2, LLVMConstArray2, LLVMConstBitCast,
@@ -26,7 +38,8 @@ use std::slice;
 use super::{Context, DISubprogram};
 
 pub(super) fn to_c_string(input: &str) -> CString {
-    CString::new(input).expect("LLVM strings cannot contain interior NUL bytes")
+    CString::new(input)
+        .unwrap_or_else(|_| panic!("Kern ICE (LLVM): string contains interior NUL byte: {input:?}"))
 }
 
 pub(super) fn bool_to_llvm(value: bool) -> i32 {
@@ -571,7 +584,7 @@ impl<'ctx> BasicTypeEnum<'ctx> {
             LLVMTypeKind::LLVMScalableVectorTypeKind => {
                 Self::ScalableVectorType(ScalableVectorType::new(raw))
             }
-            other => panic!("unsupported LLVM basic type kind: {:?}", other),
+            other => panic!("Kern ICE (LLVM): unsupported LLVM basic type kind: {other:?}"),
         }
     }
 
@@ -602,35 +615,35 @@ impl<'ctx> BasicTypeEnum<'ctx> {
     pub fn into_array_type(self) -> ArrayType<'ctx> {
         match self {
             Self::ArrayType(value) => value,
-            _ => panic!("expected array type"),
+            _ => panic!("Kern ICE (LLVM): expected array type"),
         }
     }
 
     pub fn into_float_type(self) -> FloatType<'ctx> {
         match self {
             Self::FloatType(value) => value,
-            _ => panic!("expected float type"),
+            _ => panic!("Kern ICE (LLVM): expected float type"),
         }
     }
 
     pub fn into_int_type(self) -> IntType<'ctx> {
         match self {
             Self::IntType(value) => value,
-            _ => panic!("expected int type"),
+            _ => panic!("Kern ICE (LLVM): expected int type"),
         }
     }
 
     pub fn into_pointer_type(self) -> PointerType<'ctx> {
         match self {
             Self::PointerType(value) => value,
-            _ => panic!("expected pointer type"),
+            _ => panic!("Kern ICE (LLVM): expected pointer type"),
         }
     }
 
     pub fn into_struct_type(self) -> StructType<'ctx> {
         match self {
             Self::StructType(value) => value,
-            _ => panic!("expected struct type"),
+            _ => panic!("Kern ICE (LLVM): expected struct type"),
         }
     }
 }
@@ -837,42 +850,42 @@ impl<'ctx> BasicValueEnum<'ctx> {
     pub fn into_array_value(self) -> ArrayValue<'ctx> {
         match self {
             Self::ArrayValue(value) => value,
-            _ => panic!("expected array value"),
+            _ => panic!("Kern ICE (LLVM): expected array value"),
         }
     }
 
     pub fn into_vector_value(self) -> VectorValue<'ctx> {
         match self {
             Self::VectorValue(value) => value,
-            _ => panic!("expected vector value"),
+            _ => panic!("Kern ICE (LLVM): expected vector value"),
         }
     }
 
     pub fn into_float_value(self) -> FloatValue<'ctx> {
         match self {
             Self::FloatValue(value) => value,
-            _ => panic!("expected float value"),
+            _ => panic!("Kern ICE (LLVM): expected float value"),
         }
     }
 
     pub fn into_int_value(self) -> IntValue<'ctx> {
         match self {
             Self::IntValue(value) => value,
-            _ => panic!("expected int value"),
+            _ => panic!("Kern ICE (LLVM): expected int value"),
         }
     }
 
     pub fn into_pointer_value(self) -> PointerValue<'ctx> {
         match self {
             Self::PointerValue(value) => value,
-            _ => panic!("expected pointer value"),
+            _ => panic!("Kern ICE (LLVM): expected pointer value"),
         }
     }
 
     pub fn into_struct_value(self) -> StructValue<'ctx> {
         match self {
             Self::StructValue(value) => value,
-            _ => panic!("expected struct value"),
+            _ => panic!("Kern ICE (LLVM): expected struct value"),
         }
     }
 
@@ -1260,7 +1273,12 @@ pub struct CallSiteTryAsValue<'ctx> {
 }
 
 impl<'ctx> CallSiteTryAsValue<'ctx> {
+    pub fn basic(self) -> Option<BasicValueEnum<'ctx>> {
+        self.value
+    }
+
     pub fn unwrap_basic(self) -> BasicValueEnum<'ctx> {
-        self.value.expect("expected non-void call result")
+        self.value
+            .expect("Kern ICE (LLVM): expected non-void call result")
     }
 }

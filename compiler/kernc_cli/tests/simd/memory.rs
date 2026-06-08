@@ -1,3 +1,5 @@
+//! SIMD memory operation tests.
+
 use super::*;
 
 #[test]

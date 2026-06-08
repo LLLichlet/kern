@@ -1,3 +1,5 @@
+//! SIMD LLVM IR shape tests.
+
 use super::*;
 
 #[test]

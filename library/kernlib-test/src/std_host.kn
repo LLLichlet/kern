@@ -6,6 +6,7 @@ use base.mem.alloc.gpa;
 use base.test.{Report, report};
 use std.mem.Page;
 use std.proc;
+use std.sync.{ACQUIRE, SEQ_CST, atomic, channel, mutex, once, rwlock, spawn};
 use std.term;
 use std.time;
 
@@ -73,7 +74,7 @@ fn check_term[W](t: &mut Report[W]) void
     let _ = term.stderr().is_terminal();
 
     let out_size = term.stdout().size();
-    if (out_size.is_ok()) {
+    if out_size.is_ok() {
         let size = out_size.should_ok().sum(@loc(), t);
         (size.rows != 0).should().sum(@loc(), t);
         (size.cols != 0).should().sum(@loc(), t);
@@ -85,11 +86,102 @@ fn check_term[W](t: &mut Report[W]) void
     let _ = term.stdout().columns();
 }
 
+fn check_std_sync_reexports[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let mut hits = once();
+    let mut count = 0usize;
+    hits..&.call_once([count = count..&]() void {
+        count.* += 1;
+    });
+    hits..&.call_once([count = count..&]() void {
+        count.* += 10;
+    });
+    count.should().eq(1usize).sum(@loc(), t);
+
+    let mut value = atomic[usize](1usize);
+    value..&.fetch_add[SEQ_CST](2usize).should().eq(1usize).sum(@loc(), t);
+    value..&.view().load[ACQUIRE]().should().eq(3usize).sum(@loc(), t);
+}
+
+fn check_std_sync_blocking_primitives[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let mut lock = mutex();
+    let mut guarded = 1i32;
+    lock..&.with_lock[i32]([guarded = guarded..&]() i32 {
+        guarded.* += 4;
+        return guarded.*;
+    }).should().eq(5i32).sum(@loc(), t);
+    guarded.should().eq(5i32).sum(@loc(), t);
+    lock..&.try_lock().should().sum(@loc(), t);
+    lock..&.unlock();
+
+    let mut rw = rwlock();
+    rw..&.read_lock();
+    rw..&.read_unlock();
+    rw..&.write_lock();
+    guarded += 2;
+    rw..&.write_unlock();
+    guarded.should().eq(7i32).sum(@loc(), t);
+
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let mut ch = channel[i32]();
+    ch..&.send(gpa, 10i32).should_ok().eq(true).sum(@loc(), t);
+    ch..&.send(gpa, 20i32).should_ok().eq(true).sum(@loc(), t);
+    ch..&.recv(gpa).should_some().eq(10i32).sum(@loc(), t);
+    ch..&.recv(gpa).should_some().eq(20i32).sum(@loc(), t);
+    ch..&.close();
+    ch..&.recv(gpa).should_none().sum(@loc(), t);
+    defer ch..&.deinit(gpa);
+}
+
+struct ThreadProbe {
+    lock: std.sync.Mutex,
+    value: i32,
+};
+
+fn thread_probe_entry(arg: &mut void) usize {
+    let probe = arg as &mut ThreadProbe;
+    probe.lock..&.lock();
+    probe.value += 11;
+    probe.lock..&.unlock();
+    return 33usize;
+}
+
+fn check_std_thread[W](t: &mut Report[W]) void
+    where &mut W: io.Write,
+{
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let mut probe = ThreadProbe.{ lock: mutex(), value: 4 };
+    spawn(gpa, 0usize, thread_probe_entry, probe..& as &mut void)
+        .should_err()
+        .eq(std.sync.Error.StackTooSmall)
+        .sum(@loc(), t);
+
+    let mut worker = spawn(gpa, 65536usize, thread_probe_entry, probe..& as &mut void)
+        .should_ok()
+        .sum(@loc(), t);
+    let result = worker..&.join(gpa).should_ok().sum(@loc(), t);
+    result.should().eq(33usize).sum(@loc(), t);
+    worker..&.join(gpa).should_err().eq(std.sync.Error.JoinFailed).sum(@loc(), t);
+    probe.value.should().eq(15i32).sum(@loc(), t);
+}
+
 #[test]
 fn hosted_std_helpers() i32 {
     let t = report(io.discard())..&;
     check_proc(t);
     check_time(t);
     check_term(t);
+    check_std_sync_reexports(t);
+    check_std_sync_blocking_primitives(t);
+    check_std_thread(t);
     return 0;
 }

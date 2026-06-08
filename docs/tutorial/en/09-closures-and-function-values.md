@@ -162,7 +162,7 @@ fn create_heap_closure(alloc: &mut Allocator, factor: i32) StoredClosure {
     };
 
     let layout = layout_of[@typeOf(stack_closure)]();
-    let raw = match (alloc.alloc(layout)) {
+    let raw = match alloc.alloc(layout) {
         .{ Some: storage } => storage as &mut @typeOf(stack_closure),
         .None => @trap(),
     };

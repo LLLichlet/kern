@@ -1,3 +1,10 @@
+//! Type parser.
+//!
+//! Type grammar overlaps with expressions in array lengths, generic arguments,
+//! and type namespace expressions.  Where the grammar is ambiguous, this module
+//! uses bounded speculative parsing and restores the token stream, diagnostics,
+//! panic mode, and node-id cursor before trying the alternate interpretation.
+
 use super::expr::Precedence;
 use super::{ParseError, ParseResult, Parser};
 use kernc_ast::*;
@@ -46,6 +53,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_type(&mut self) -> ParseResult<TypeNode> {
+        self.check_canceled()?;
         let current = self.peek();
         if Self::token_can_end_missing_type(current.tag) {
             return Ok(self.error_type(current.span, "Expected type"));
@@ -135,6 +143,8 @@ impl<'a> Parser<'a> {
         start_token: kernc_lexer::Token,
     ) -> ParseResult<TypeNode> {
         if start_token.tag == TokenType::Question {
+            // Optional type syntax binds tightly: `?A!E` parses as `(?A)!E`
+            // because this routine runs before result-type parsing resumes.
             let inner = self.parse_prefixed_type()?;
             return Ok(TypeNode {
                 id: self.new_id(),
@@ -216,11 +226,21 @@ impl<'a> Parser<'a> {
                 span: start_token.span,
                 kind: TypeKind::Infer,
             }),
-            TokenType::SelfType => Ok(TypeNode {
-                id: self.new_id(),
-                span: start_token.span,
-                kind: TypeKind::SelfType,
-            }),
+            TokenType::SelfType => {
+                if self.check(TokenType::Dot) {
+                    // In type position, `Self` is normally a standalone type.
+                    // `Self.Trait.Assoc` is the explicit projection form used
+                    // by trait and impl signatures; later path segments still
+                    // require ordinary identifiers, so `A.Self` stays invalid.
+                    self.parse_path_type_from_consumed(start_token)
+                } else {
+                    Ok(TypeNode {
+                        id: self.new_id(),
+                        span: start_token.span,
+                        kind: TypeKind::SelfType,
+                    })
+                }
+            }
             TokenType::Extern => {
                 if self.check(TokenType::Struct) {
                     let struct_token = self.advance();
@@ -292,6 +312,8 @@ impl<'a> Parser<'a> {
                 && self.match_token(&[TokenType::RBracket])
                 && Self::token_can_start_array_element_type(self.peek().tag)
             {
+                // `&[_]T` is a pointer to an inferred-length array, distinct
+                // from the slice type `&[T]`.
                 let elem = self.parse_prefixed_type()?;
                 let array = TypeNode {
                     id: self.new_id(),
@@ -319,6 +341,8 @@ impl<'a> Parser<'a> {
                 && self.match_token(&[TokenType::RBracket])
                 && Self::token_can_start_array_element_type(self.peek().tag)
             {
+                // `&[N]T` is a pointer to an array.  If the expression parse
+                // does not form that shape, fall back to slice parsing below.
                 let elem = self.parse_prefixed_type()?;
                 let array = TypeNode {
                     id: self.new_id(),
@@ -453,6 +477,7 @@ impl<'a> Parser<'a> {
 
         if !self.check(TokenType::RParen) {
             loop {
+                self.check_canceled()?;
                 // Variadic `...` must appear in the final parameter slot.
                 if self.match_token(&[TokenType::Ellipsis]) {
                     is_variadic = true;
@@ -506,6 +531,8 @@ impl<'a> Parser<'a> {
     ) -> ParseResult<TypeNode> {
         let mut span = start_span;
         let mut segments = vec![self.parse_type_path_segment_after_name(start_token)?];
+        // There is always one segment because `start_token` is already a
+        // consumed identifier or anchored-path identifier.
         span = span.to(segments.last().unwrap().name_span);
         if let Some(last_arg_span) =
             segments
@@ -521,6 +548,7 @@ impl<'a> Parser<'a> {
         }
 
         while self.match_token(&[TokenType::Dot]) {
+            self.check_canceled()?;
             let id_token = self.expect(TokenType::Identifier)?;
             let segment = self.parse_type_path_segment_after_name(id_token)?;
             span = span.to(segment.name_span);
@@ -585,6 +613,9 @@ impl<'a> Parser<'a> {
         if let Ok(ty) = self.parse_type()
             && matches!(self.peek().tag, TokenType::Comma | TokenType::RBracket)
         {
+            // Generic arguments prefer type syntax when it parses cleanly up to
+            // the delimiter.  Otherwise the same token sequence may be a const
+            // expression such as `N + 1`.
             return Ok(GenericArg::Type(ty));
         }
 
@@ -603,6 +634,7 @@ impl<'a> Parser<'a> {
         let mut args = Vec::new();
         if !self.check(TokenType::RBracket) {
             loop {
+                self.check_canceled()?;
                 args.push(self.parse_generic_arg(true)?);
                 if !self.continue_after_comma(&[TokenType::RBracket]) {
                     break;
@@ -641,6 +673,7 @@ impl<'a> Parser<'a> {
 
         let mut fields = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let docs = self.parse_item_doc_block(doc_target);
             let (vis, _) = self.parse_visibility();
             let name_token = self.expect(TokenType::Identifier)?;
@@ -700,6 +733,7 @@ impl<'a> Parser<'a> {
         let mut variants = Vec::new();
 
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let docs = self.parse_item_doc_block("variant");
             let name_token = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name_token);
@@ -766,6 +800,7 @@ impl<'a> Parser<'a> {
         let mut assoc_types = Vec::new();
         let mut methods = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let docs = self.parse_item_doc_block("trait item");
             if self.match_token(&[TokenType::Type]) {
                 let name_token = self.expect(TokenType::Identifier)?;
@@ -773,6 +808,7 @@ impl<'a> Parser<'a> {
                 let mut bounds = Vec::new();
                 if self.match_token(&[TokenType::Colon]) {
                     loop {
+                        self.check_canceled()?;
                         bounds.push(self.parse_type()?);
                         if !self.match_token(&[TokenType::Plus]) {
                             break;
@@ -805,6 +841,7 @@ impl<'a> Parser<'a> {
                 let mut is_variadic = false;
                 if !self.check(TokenType::RParen) {
                     loop {
+                        self.check_canceled()?;
                         if self.match_token(&[TokenType::Ellipsis]) {
                             is_variadic = true;
                             break;
@@ -918,6 +955,7 @@ impl<'a> Parser<'a> {
         let mut params = Vec::new();
         if !self.check(TokenType::RParen) {
             loop {
+                self.check_canceled()?;
                 params.push(self.parse_type()?);
                 if !self.continue_after_comma(&[TokenType::RParen]) {
                     break;

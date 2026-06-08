@@ -1,0 +1,16 @@
+// class: selfref-trait-proof
+// source: const-generic impl prerequisites must reject direct self-recursive proof obligations without overflowing
+// stderr: impl cannot require itself in its own where-clause
+// stderr: Buf[N]: SizedValue[N]
+
+trait SizedValue[N: usize] {};
+
+struct Buf[N: usize] {};
+
+impl[N: usize] Buf[N]: SizedValue[N]
+    where Buf[N]: SizedValue[N],
+{}
+
+fn main() i32 {
+    return 0;
+}

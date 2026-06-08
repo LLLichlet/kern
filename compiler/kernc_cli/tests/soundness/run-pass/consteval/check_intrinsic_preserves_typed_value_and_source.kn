@@ -13,29 +13,29 @@ fn len[N: usize](source: [N]u8) usize {
 }
 
 fn main() i32 {
-    if (GLOBAL.value != 42usize) {
+    if GLOBAL.value != 42usize {
         return 1;
     }
-    if (GLOBAL.source != "40usize + 2usize") {
+    if GLOBAL.source != "40usize + 2usize" {
         return 2;
     }
 
     let captured = @check(id[usize](7usize));
-    if (captured.value != 7usize) {
+    if captured.value != 7usize {
         return 3;
     }
-    if (captured.source != "id[usize](7usize)") {
+    if captured.source != "id[usize](7usize)" {
         return 4;
     }
-    if (len(captured.source) != captured.source.@len()) {
+    if len(captured.source) != captured.source.@len() {
         return 5;
     }
 
     let explicit = @check[u64](7);
-    if (explicit.value != 7u64) {
+    if explicit.value != 7u64 {
         return 6;
     }
-    if (explicit.source != "7") {
+    if explicit.source != "7" {
         return 7;
     }
 

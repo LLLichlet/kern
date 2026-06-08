@@ -1,3 +1,8 @@
+//! Cache reporting tests.
+//!
+//! These tests assert cache statistics, metadata emission, timing diagnostics,
+//! and workload reporting in compile/analysis reports.
+
 use super::*;
 
 #[test]
@@ -78,7 +83,7 @@ fn custom_runtime_entry_define_does_not_enable_program_entry_mode() {
     fs::write(
         &source,
         concat!(
-            "#[if(runtime_entry == \"rt\")]\n",
+            "#[if runtime_entry == \"rt\"]\n",
             "fn helper() i32 {\n",
             "    return 7;\n",
             "}\n",

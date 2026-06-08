@@ -1,11 +1,16 @@
+//! CI maintenance commands implemented for the `kernworker` binary.
+//!
+//! These routines encode repository-specific checks, toolchain activation, and
+//! archive verification that would otherwise be duplicated in workflow YAML.
+
 use crate::args::{
     ActivateToolchainArgs, PackagedToolchainInstallArgs, PackagedToolchainVerifyArgs, TestMode,
     ToolchainArchiveArgs, ToolchainSpecArgs, VsixVerifyArgs,
 };
 use shared_ops::{
     OpsError, OpsResult, archive_kind_from_path, copy_dir_recursive, copy_path, detect_host_target,
-    expected_archive_sha256, extract_archive_with_system_tool, first_non_empty_line,
-    format_policy_value, load_workspace_version, make_temp_dir, remove_path_if_exists, repo_root,
+    expected_archive_sha256, extract_archive, first_non_empty_line, format_policy_value,
+    load_workspace_version, make_temp_dir, remove_path_if_exists, repo_root,
     resolve_bundled_toolchain, resolve_ci_toolchain_policy, run_command, run_command_capture,
     runner_os_for_host, runner_os_for_target, validate_toolchain_root, verify_archive_checksum,
 };
@@ -365,7 +370,7 @@ pub fn verify_packaged_toolchain(args: PackagedToolchainVerifyArgs) -> OpsResult
     let target = args.target.unwrap_or(host.archive_target);
     let temp = make_temp_dir("kern-toolchain-verify-")?;
     let result = (|| -> OpsResult<()> {
-        let root = extract_archive_with_system_tool(
+        let root = extract_archive(
             &archive,
             &temp.join("extract"),
             archive_kind_from_path(&archive)?,
@@ -389,7 +394,7 @@ pub fn install_packaged_toolchain(args: PackagedToolchainInstallArgs) -> OpsResu
     let target = args.target.unwrap_or(host.archive_target);
     let temp = make_temp_dir("kern-toolchain-install-")?;
     let result = (|| -> OpsResult<()> {
-        let root = extract_archive_with_system_tool(
+        let root = extract_archive(
             &archive,
             &temp.join("extract"),
             archive_kind_from_path(&archive)?,
@@ -429,7 +434,7 @@ pub fn verify_vscode_extension_archive(args: VsixVerifyArgs) -> OpsResult<()> {
         .ok_or_else(|| OpsError::new("VS Code package.json has no string `version`"))?;
     let vsix_path = args
         .vsix_path
-        .unwrap_or_else(|| PathBuf::from(format!("kern-vscode-{version}-linux-x64.vsix")));
+        .unwrap_or_else(|| PathBuf::from(format!("kern-language-{version}.vsix")));
     if !vsix_path.is_file() {
         return Err(OpsError::new(format!(
             "VSIX archive `{}` is missing",
@@ -657,6 +662,7 @@ fn prepare_fixture(source: &Path, temp_root: &Path, version: &str) -> OpsResult<
 }
 
 pub(crate) fn rewrite_kern_versions(root: &Path, version: &str) -> OpsResult<()> {
+    let compat_version = kern_minor_line(version).unwrap_or(version);
     for entry in walk_files(root)? {
         if entry.file_name().and_then(|name| name.to_str()) != Some("Craft.toml") {
             continue;
@@ -667,7 +673,7 @@ pub(crate) fn rewrite_kern_versions(root: &Path, version: &str) -> OpsResult<()>
             .map(|line| {
                 if line.trim_start().starts_with("kern = ") {
                     let indent_len = line.len() - line.trim_start().len();
-                    format!("{}kern = \"{}\"", &line[..indent_len], version)
+                    format!("{}kern = \"{}\"", &line[..indent_len], compat_version)
                 } else {
                     line.to_string()
                 }
@@ -678,6 +684,21 @@ pub(crate) fn rewrite_kern_versions(root: &Path, version: &str) -> OpsResult<()>
         fs::write(&entry, rewritten)?;
     }
     Ok(())
+}
+
+fn kern_minor_line(version: &str) -> Option<&str> {
+    let mut dots_seen = 0;
+    for (index, ch) in version.char_indices() {
+        if ch == '.' {
+            dots_seen += 1;
+            if dots_seen == 2 {
+                return Some(&version[..index]);
+            }
+        } else if !ch.is_ascii_digit() {
+            return None;
+        }
+    }
+    None
 }
 
 fn walk_files(root: &Path) -> OpsResult<Vec<PathBuf>> {
@@ -733,17 +754,17 @@ mod tests {
         )
         .unwrap();
 
-        rewrite_kern_versions(&root, "0.7.6").unwrap();
+        rewrite_kern_versions(&root, "0.8.2").unwrap();
 
         assert!(
             fs::read_to_string(root.join("Craft.toml"))
                 .unwrap()
-                .contains("kern = \"0.7.6\"")
+                .contains("kern = \"0.8\"")
         );
         assert!(
             fs::read_to_string(package.join("Craft.toml"))
                 .unwrap()
-                .contains("    kern = \"0.7.6\"")
+                .contains("    kern = \"0.8\"")
         );
         remove_path_if_exists(&root).unwrap();
     }

@@ -37,7 +37,7 @@ impl &mut Allocator {
     /// `items` must have been allocated by `try_alloc_array[T]` from the same allocator.
     pub fn free_array[T](items: &mut [T]) void {
         let .{ Some: layout } = array_layout_of[T](items.@len()) else return;
-        if (items.@len() == 0 or layout.size == 0) {
+        if items.@len() == 0 or layout.size == 0 {
             return;
         }
         self.free(items.[0]..& as &mut u8, layout);
@@ -50,7 +50,7 @@ impl &mut Allocator {
             self.free_array[T](out);
             return .{ Err: .CapacityOverflow };
         };
-        if (items.@len() != 0 and layout.size != 0) {
+        if items.@len() != 0 and layout.size != 0 {
             @memcpy(out.[0]..& as &mut u8, items.[0].& as &u8, layout.size);
         }
         return .{ Ok: out };

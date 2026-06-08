@@ -1,3 +1,5 @@
+//! Analysis project resolution tests.
+
 use super::AnalysisProject;
 use super::paths::normalize_platform_path;
 use crate::analysis_context;
@@ -64,7 +66,7 @@ fn resolves_workspace_local_library_aliases_for_analysis() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [lib]
 root = \"src/lib.kn\"
@@ -81,7 +83,7 @@ util = { path = \"../util\" }
 [package]
 name = \"util\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [lib]
 root = \"src/lib.kn\"
@@ -114,6 +116,120 @@ root = \"src/lib.kn\"
             .and_then(|path| normalize_test_optional_path(Some(path))),
         Some(normalize_test_path(&util_dir.join("src/lib.kn")))
     );
+    let target = resolved.target.as_ref().expect("expected target metadata");
+    assert_eq!(
+        normalize_test_path(&target.manifest_path),
+        normalize_test_path(&app_dir.join("Craft.toml"))
+    );
+    assert_eq!(target.package_name, "app");
+    assert_eq!(target.target_kind, Some(TargetKind::Lib));
+    assert_eq!(target.target_name, None);
+    assert_eq!(
+        normalize_test_path(&target.workspace_root),
+        normalize_test_path(&root)
+    );
+    assert_eq!(
+        normalize_test_path(&target.analysis_context_path),
+        normalize_test_path(&root.join(".craft/analysis.toml"))
+    );
+}
+
+#[test]
+fn official_library_test_targets_resolve_base_and_std_aliases() {
+    let root = temp_dir("craft-project-official-kernlib");
+    for package in ["base", "std", "rt"] {
+        fs::create_dir_all(root.join(package)).unwrap();
+        fs::write(
+            root.join(package).join("Craft.toml"),
+            format!(
+                "\
+[package]
+name = \"{package}\"
+version = \"0.8.2\"
+kern = \"0.8.2\"
+
+[lib]
+root = \"lib.kn\"
+"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join(package).join("lib.kn"),
+            "pub fn marker() void {}\n",
+        )
+        .unwrap();
+    }
+
+    fs::create_dir_all(root.join("kernlib-test/src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        "\
+[workspace]
+name = \"workspace\"
+members = [\"base\", \"kernlib-test\", \"std\", \"rt\"]
+
+[workspace.exports]
+base = { member = \"base\" }
+std = { member = \"std\" }
+rt = { member = \"rt\" }
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("kernlib-test/Craft.toml"),
+        "\
+[package]
+name = \"kernlib-test\"
+version = \"0.8.2\"
+kern = \"0.8.2\"
+
+[test]
+roots = [\"src/coll_seq.kn\"]
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("kernlib-test/src/coll_seq.kn"),
+        "use base;\nuse std;\n#[test]\nfn smoke() void {}\n",
+    )
+    .unwrap();
+
+    let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
+    let resolved = project.resolve_for_file(
+        &root.join("kernlib-test/src/coll_seq.kn"),
+        &CompileOptions::default(),
+    );
+
+    assert!(resolved.compile_options.test_mode);
+    assert_eq!(
+        resolved.compile_options.root_module_name,
+        Some("coll_seq".to_string())
+    );
+    assert_eq!(
+        resolved
+            .compile_options
+            .module_aliases
+            .get("base")
+            .and_then(|path| normalize_test_optional_path(Some(path))),
+        Some(normalize_test_path(&root.join("base/lib.kn")))
+    );
+    assert_eq!(
+        resolved
+            .compile_options
+            .module_aliases
+            .get("std")
+            .and_then(|path| normalize_test_optional_path(Some(path))),
+        Some(normalize_test_path(&root.join("std/lib.kn")))
+    );
+    assert_eq!(
+        resolved
+            .compile_options
+            .module_aliases
+            .get("rt")
+            .and_then(|path| normalize_test_optional_path(Some(path))),
+        Some(normalize_test_path(&root.join("rt/lib.kn")))
+    );
 }
 
 #[test]
@@ -127,7 +243,7 @@ fn bin_analysis_maps_current_package_name_to_local_library_root() {
 [package]
 name = \"demo\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [lib]
 root = \"src/lib.kn\"
@@ -168,7 +284,7 @@ fn analysis_project_clones_share_build_plan_cache() {
 [package]
 name = \"demo\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [[bin]]
 name = \"demo\"
@@ -205,7 +321,7 @@ fn resolves_external_path_dependency_aliases_for_analysis() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [lib]
 root = \"src/lib.kn\"
@@ -222,7 +338,7 @@ util = { path = \"../deps/util\" }
 [package]
 name = \"util\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [lib]
 root = \"src/lib.kn\"
@@ -260,7 +376,7 @@ fn library_analysis_keeps_lib_runtime_defaults_even_with_runtime_section() {
 [package]
 name = \"demo\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [runtime]
 entry = \"rt\"
@@ -298,7 +414,7 @@ fn package_file_outside_declared_targets_uses_file_as_analysis_root() {
 [package]
 name = \"raylike\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [lib]
 root = \"src/lib.kn\"
@@ -336,7 +452,7 @@ fn test_analysis_applies_runtime_section_to_tests() {
 [package]
 name = \"demo\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [runtime]
 entry = \"rt\"
@@ -354,6 +470,7 @@ roots = [\"tests/smoke.kn\"]
     let resolved =
         project.resolve_for_file(&root.join("tests/smoke.kn"), &CompileOptions::default());
 
+    assert!(resolved.compile_options.test_mode);
     assert_eq!(resolved.compile_options.runtime_entry, RuntimeEntry::Rt);
     assert!(!resolved.compile_options.runtime_libc);
     assert_eq!(resolved.compile_options.library_bundle, LibraryBundle::Base);
@@ -376,7 +493,7 @@ fn prefers_exact_named_target_root_over_library_root() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [lib]
 root = \"src/lib.kn\"
@@ -422,7 +539,7 @@ fn prefers_named_target_module_directory_over_library_root() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [lib]
 root = \"src/lib.kn\"
@@ -473,7 +590,7 @@ fn resolve_for_file_applies_build_cfg_and_define_values() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [features]
 experimental = []
@@ -531,7 +648,7 @@ fn resolve_for_file_prefers_persisted_analysis_context_without_explicit_features
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [features]
 experimental = []
@@ -605,7 +722,7 @@ fn resolve_for_generated_source_root_uses_analysis_unit_matching() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [[bin]]
 name = \"app\"
@@ -670,6 +787,14 @@ pub fn build(b: &mut builder.Builder) void {
         normalize_test_path(&resolved.input_file),
         normalize_test_path(&generated_root)
     );
+    let target = resolved.target.as_ref().expect("expected target metadata");
+    assert_eq!(
+        normalize_test_path(&target.manifest_path),
+        normalize_test_path(&manifest_path)
+    );
+    assert_eq!(target.package_name, "app");
+    assert_eq!(target.target_kind, Some(TargetKind::Bin));
+    assert_eq!(target.target_name, None);
     assert_eq!(defines.get("generated").map(String::as_str), Some("true"));
     assert_eq!(
         defines.get("ENTRY_KIND").map(String::as_str),
@@ -688,7 +813,7 @@ fn resolve_for_copied_template_source_uses_generated_unit_root() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [[bin]]
 name = \"app\"
@@ -729,7 +854,7 @@ pub fn build(b: &mut builder.Builder) void {
         .join("dev")
         .join("target")
         .join("gen")
-        .join("app-0.1.0")
+        .join("app")
         .join("bin")
         .join("app")
         .join("src")
@@ -767,7 +892,7 @@ fn explicit_feature_selection_overrides_persisted_analysis_context() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 
 [features]
 experimental = []
@@ -828,7 +953,7 @@ fn resolve_project_manifest_path_handles_nonexistent_generated_descendant() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.6\"
+kern = \"0.8.2\"
 ",
     )
     .unwrap();
@@ -839,7 +964,7 @@ kern = \"0.7.6\"
         .join("dev")
         .join("target")
         .join("gen")
-        .join("app-0.1.0")
+        .join("app")
         .join("bin")
         .join("app")
         .join("src")
@@ -850,4 +975,58 @@ kern = \"0.7.6\"
         normalize_test_path(&manifest),
         normalize_test_path(&root.join("Craft.toml"))
     );
+}
+
+#[test]
+fn analysis_targets_include_build_and_test_roots() {
+    let root = temp_dir("craft-project-analysis-targets");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"0.8.2\"
+
+[lib]
+root = \"src/lib.kn\"
+
+[[bin]]
+name = \"app\"
+root = \"src/main.kn\"
+
+[test]
+roots = [\"tests/smoke.kn\"]
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.kn"),
+        "pub fn value() i32 { return 1; }\n",
+    )
+    .unwrap();
+    fs::write(root.join("src/main.kn"), "fn main() void {}\n").unwrap();
+    fs::write(root.join("tests/smoke.kn"), "fn test_smoke() void {}\n").unwrap();
+
+    let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
+    let targets = project.analysis_targets().unwrap();
+
+    assert!(targets.iter().any(|target| {
+        target.kind == TargetKind::Lib
+            && target.name.is_none()
+            && normalize_test_path(&target.root) == normalize_test_path(&root.join("src/lib.kn"))
+    }));
+    assert!(targets.iter().any(|target| {
+        target.kind == TargetKind::Bin
+            && target.name.as_deref() == Some("app")
+            && normalize_test_path(&target.root) == normalize_test_path(&root.join("src/main.kn"))
+    }));
+    assert!(targets.iter().any(|target| {
+        target.kind == TargetKind::Test
+            && target.name.as_deref() == Some("smoke")
+            && normalize_test_path(&target.root)
+                == normalize_test_path(&root.join("tests/smoke.kn"))
+    }));
 }

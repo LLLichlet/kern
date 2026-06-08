@@ -1,3 +1,8 @@
+//! Filesystem bundling logic for release directories.
+//!
+//! This module copies host tools, official libraries, metadata manifests, and
+//! runtime dependencies into the staging layout that archive creation consumes.
+
 use super::deps::{
     external_runtime_libdirs_for_bundled_tools, linux_collect_bundled_runtime_libs,
     macos_collect_external_runtime_libs, macos_collect_runtime_libs,
@@ -10,7 +15,7 @@ use super::util::{
 };
 use shared_ops::{
     ArtifactRecord, BundledToolchain, OpsError, OpsResult, copy_dir_recursive, copy_path,
-    remove_path_if_exists, run_command_capture, sha256_directory, sha256_file,
+    remove_path_if_exists, run_command_capture_with_env, sha256_directory, sha256_file,
 };
 use std::ffi::OsString;
 use std::fs;
@@ -138,6 +143,9 @@ pub fn bundle_host_toolchain(
     {
         let resource_dest = dist_dir.join(bundled_resource_dir_path(bundled_toolchain)?);
         if !resource_dest.exists() {
+            if let Some(parent) = resource_dest.parent() {
+                fs::create_dir_all(parent)?;
+            }
             copy_dir_recursive(resource_dir, &resource_dest)?;
         }
         insert_record(
@@ -213,12 +221,13 @@ pub fn bundle_sdk_runtime_toolchain(
         bundled_toolchain.source_label,
         bundled_toolchain.prefix.display()
     );
+    fs::create_dir_all(&lib_dir)?;
 
     let runtime_tools = sdk_runtime_tool_paths(host, bundled_toolchain)?;
     let runtime_tool_roots = runtime_tool_source_roots(&runtime_tools);
     let mut copied_tools = Vec::new();
     for (component, source) in runtime_tools {
-        let destination = bin_dir.join(source.file_name().unwrap());
+        let destination = bin_dir.join(path_file_name(&source, "runtime tool")?);
         copy_path(&source, &destination)?;
         insert_file_record(&mut records, &component, &destination, dist_dir)?;
         copied_tools.push((component, destination));
@@ -241,7 +250,10 @@ pub fn bundle_sdk_runtime_toolchain(
         if host.archive_target.ends_with("apple-darwin") {
             copy_runtime_library(library, &lib_dir)?;
         } else {
-            copy_path(library, &lib_dir.join(library.file_name().unwrap()))?;
+            copy_path(
+                library,
+                &lib_dir.join(path_file_name(library, "runtime library")?),
+            )?;
         }
     }
     if host.archive_target.ends_with("apple-darwin") && !is_empty_dir(&lib_dir)? {
@@ -254,26 +266,41 @@ pub fn bundle_sdk_runtime_toolchain(
         rewrite_macos_toolchain_load_commands(&host_root, &original_libdirs)?;
     }
 
+    let should_record_runtime_lib_dir = !runtime_libs.is_empty();
     for (component, path) in &copied_tools {
-        verify_sdk_runtime_tool_starts(component, path)?;
+        verify_sdk_runtime_tool_starts(component, path, &lib_dir, host)?;
     }
-    if !is_empty_dir(&lib_dir)? {
+
+    if let Some(resource_dir) = &bundled_toolchain.resource_dir
+        && resource_dir.exists()
+    {
+        let resource_dest = dist_dir.join(bundled_resource_dir_path(bundled_toolchain)?);
+        if !resource_dest.exists() {
+            if let Some(parent) = resource_dest.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            copy_dir_recursive(resource_dir, &resource_dest)?;
+        }
         insert_record(
             &mut records,
-            "runtime_lib_dir",
+            "clang_resource_dir",
             ArtifactRecord {
-                path: path_relative_to(&lib_dir, dist_dir)?,
+                path: path_relative_to(&resource_dest, dist_dir)?,
                 kind: "directory".into(),
-                sha256: Some(sha256_directory(&lib_dir)?),
+                sha256: Some(sha256_directory(&resource_dest)?),
                 size: None,
             },
         );
     }
 
+    if should_record_runtime_lib_dir {
+        insert_runtime_lib_dir_record(&mut records, dist_dir, &lib_dir)?;
+    }
+
     fs::write(
         dist_dir.join("toolchain").join("README.md"),
         format!(
-            "# Bundled Host Toolchain\n\nThis SDK bundles the minimal host LLVM/Clang runtime needed by installed Kern tools.\n\n- Source: {}\n- Version: {}\n- Bundled runtime tools: {}\n\nThis is intentionally smaller than the standalone toolchain artifact.\nEnd-user SDKs omit the Clang resource dir because Kern only uses Clang as a linker driver here.\nHeaders, llvm-config, and the full LLVM development prefix are not part of the end-user SDK.\nClone the repository and configure the host environment directly for source builds.\n",
+            "# Bundled Host Toolchain\n\nThis SDK bundles the minimal host LLVM/Clang runtime needed by installed Kern tools.\n\n- Source: {}\n- Version: {}\n- Bundled runtime tools: {}\n\nThis is intentionally smaller than the standalone toolchain artifact.\nThe SDK includes Clang's resource headers so package `build.kn` C-family compilation can use the bundled SDK clang.\nllvm-config, C++ compiler tools, LLVM libraries for source builds, and the full LLVM development prefix are not part of the end-user SDK.\nClone the repository and configure the host environment directly for source builds.\n",
             bundled_toolchain.source_label,
             bundled_toolchain.version,
             copied_tools
@@ -284,6 +311,24 @@ pub fn bundle_sdk_runtime_toolchain(
         ),
     )?;
     Ok(records)
+}
+
+fn insert_runtime_lib_dir_record(
+    records: &mut serde_json::Map<String, serde_json::Value>,
+    dist_dir: &Path,
+    lib_dir: &Path,
+) -> OpsResult<()> {
+    insert_record(
+        records,
+        "runtime_lib_dir",
+        ArtifactRecord {
+            path: path_relative_to(lib_dir, dist_dir)?,
+            kind: "directory".into(),
+            sha256: Some(sha256_directory(lib_dir)?),
+            size: None,
+        },
+    );
+    Ok(())
 }
 
 fn tool_paths(bundled_toolchain: &BundledToolchain) -> OpsResult<Vec<(String, PathBuf)>> {
@@ -298,6 +343,15 @@ fn tool_paths(bundled_toolchain: &BundledToolchain) -> OpsResult<Vec<(String, Pa
     }
     tools.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(tools)
+}
+
+fn path_file_name<'a>(path: &'a Path, label: &str) -> OpsResult<&'a std::ffi::OsStr> {
+    path.file_name().ok_or_else(|| {
+        OpsError::new(format!(
+            "{label} path `{}` has no file name",
+            path.display()
+        ))
+    })
 }
 
 fn copy_runtime_library(source: &Path, lib_dir: &Path) -> OpsResult<()> {
@@ -359,26 +413,45 @@ fn runtime_tool_source_roots(runtime_tools: &[(String, PathBuf)]) -> Vec<PathBuf
         .collect::<Vec<_>>()
 }
 
-fn verify_sdk_runtime_tool_starts(component: &str, path: &Path) -> OpsResult<()> {
+fn verify_sdk_runtime_tool_starts(
+    component: &str,
+    path: &Path,
+    lib_dir: &Path,
+    host: &shared_ops::HostTarget,
+) -> OpsResult<()> {
+    let runtime_env_name = if host.archive_target.ends_with("apple-darwin") {
+        Some("DYLD_LIBRARY_PATH")
+    } else if host.archive_target.ends_with("linux-gnu") && lib_dir.is_dir() {
+        Some("LD_LIBRARY_PATH")
+    } else {
+        None
+    };
+    let runtime_env_value = runtime_env_name.map(|_| lib_dir.to_string_lossy().to_string());
+    let runtime_env = match (runtime_env_name, runtime_env_value.as_deref()) {
+        (Some(name), Some(value)) => vec![(name, value)],
+        _ => Vec::new(),
+    };
     let result = if component == "llvm_lib" {
         let probe = path
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join("__kern_llvm_lib_probe.lib");
-        let result = run_command_capture(
+        let result = run_command_capture_with_env(
             &[
                 path.as_os_str().to_owned(),
                 OsString::from("/llvmlibempty"),
                 OsString::from(format!("/out:{}", probe.display())),
             ],
             path.parent(),
+            &runtime_env,
         );
         let _ = remove_path_if_exists(&probe);
         result?
     } else {
-        run_command_capture(
+        run_command_capture_with_env(
             &[path.as_os_str().to_owned(), OsString::from("--version")],
             path.parent(),
+            &runtime_env,
         )?
     };
     if result.status_code == Some(0) {
@@ -402,7 +475,7 @@ fn verify_sdk_runtime_tool_starts(component: &str, path: &Path) -> OpsResult<()>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared_ops::make_temp_dir;
+    use shared_ops::{BundledToolchain, make_temp_dir};
 
     #[test]
     fn copy_runtime_library_skips_existing_library_with_same_contents() {
@@ -461,5 +534,101 @@ mod tests {
                 PathBuf::from("/source/toolchain/bin/ld64.lld"),
             ]
         );
+    }
+
+    #[test]
+    fn runtime_lib_dir_record_hashes_final_lib_tree_after_resource_headers() {
+        let root = make_temp_dir("kernworker-sdk-runtime-lib-hash-").unwrap();
+        let dist = root.join("dist");
+        let lib_dir = dist.join("toolchain").join("host").join("lib");
+        fs::create_dir_all(lib_dir.join("clang").join("21").join("include")).unwrap();
+        fs::write(lib_dir.join("libclang.so.21.1"), "runtime lib\n").unwrap();
+        fs::write(
+            lib_dir
+                .join("clang")
+                .join("21")
+                .join("include")
+                .join("stdarg.h"),
+            "/* resource header */\n",
+        )
+        .unwrap();
+
+        let mut records = serde_json::Map::new();
+        insert_runtime_lib_dir_record(&mut records, &dist, &lib_dir).unwrap();
+
+        let runtime_lib_dir = records
+            .get("runtime_lib_dir")
+            .and_then(|value| value.as_object())
+            .expect("expected runtime_lib_dir record");
+        assert_eq!(
+            runtime_lib_dir.get("path").and_then(|value| value.as_str()),
+            Some("toolchain/host/lib")
+        );
+        let expected = sha256_directory(&lib_dir).unwrap();
+        assert_eq!(
+            runtime_lib_dir
+                .get("sha256")
+                .and_then(|value| value.as_str()),
+            Some(expected.as_str())
+        );
+        remove_path_if_exists(&root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sdk_runtime_bundle_includes_clang_resource_dir() {
+        let root = make_temp_dir("kernworker-sdk-resource-dir-").unwrap();
+        let source = root.join("source");
+        let dist = root.join("dist");
+        let bin = source.join("bin");
+        let lib = source.join("lib");
+        let include = source.join("include");
+        let resource = lib.join("clang").join("21");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(&lib).unwrap();
+        fs::create_dir_all(&include).unwrap();
+        fs::create_dir_all(resource.join("include")).unwrap();
+        fs::write(resource.join("include").join("stdarg.h"), "/* builtin */\n").unwrap();
+
+        let clang = PathBuf::from("/bin/true");
+        let lld = PathBuf::from("/bin/echo");
+
+        let mut tools = serde_json::Map::new();
+        tools.insert(
+            "clang".into(),
+            serde_json::Value::String(clang.display().to_string()),
+        );
+        tools.insert(
+            "lld".into(),
+            serde_json::Value::String(lld.display().to_string()),
+        );
+
+        let bundled = BundledToolchain {
+            source_label: "test".into(),
+            prefix: source,
+            bindir: bin,
+            libdir: lib,
+            includedir: include,
+            version: "21.1.8".into(),
+            tools,
+            resource_dir: Some(resource),
+            sysroot_dir: None,
+        };
+        let host = shared_ops::HostTarget {
+            archive_target: "x86_64-linux-gnu".into(),
+            cargo_target: None,
+            exe_suffix: "",
+            archive_extension: "tar.gz".into(),
+            is_windows: false,
+        };
+
+        let records = bundle_sdk_runtime_toolchain(&dist, &host, &bundled).unwrap();
+
+        assert!(
+            dist.join("toolchain/host/lib/clang/21/include/stdarg.h")
+                .is_file()
+        );
+        assert!(records.contains_key("clang_resource_dir"));
+        remove_path_if_exists(&root).unwrap();
     }
 }

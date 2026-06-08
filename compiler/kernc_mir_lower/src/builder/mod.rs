@@ -1,3 +1,9 @@
+//! MAST-to-MIR function and module builder.
+//!
+//! The builder lowers monomorphized AST items into typed MIR, allocating dense
+//! locals/blocks, translating linkage/attributes, and validating the finished
+//! module before optional MIR optimization passes run.
+
 mod control;
 mod expr;
 mod static_init;
@@ -373,6 +379,13 @@ impl MirFunctionBuilder {
                 self.expr_kind_name(expr),
                 context
             ),
+        ))
+    }
+
+    pub(super) fn missing_switch_default_block<T>(&self, span: Span) -> LowerResult<T> {
+        Err(MirLowerError::new(
+            span,
+            "Kern ICE (MIR Lower): switch default case was present but no default block was allocated.",
         ))
     }
 

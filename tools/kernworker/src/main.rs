@@ -1,3 +1,8 @@
+//! `kernworker` maintenance command entry point.
+//!
+//! The binary collects release packaging and CI-only maintenance operations
+//! behind a stable CLI so workflow files can stay small and auditable.
+
 mod args;
 mod ci;
 mod release;
@@ -44,6 +49,7 @@ fn run() -> OpsResult<()> {
         Command::Release(ReleaseCommand::WriteChecksums(args)) => {
             release::write_release_checksums(args)
         }
+        Command::Release(ReleaseCommand::BumpVersion(args)) => release::bump_release_version(args),
         Command::Release(ReleaseCommand::Help) => {
             print!("{}", args::release_help().render(ColorChoice::Auto));
             Ok(())

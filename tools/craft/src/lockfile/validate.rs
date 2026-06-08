@@ -1,3 +1,8 @@
+//! Consistency checks for parsed lockfiles.
+//!
+//! Validation verifies references between packages, dependencies, sources, and
+//! publish proofs before a lockfile is accepted as current.
+
 use super::Lockfile;
 use crate::error::{Error, Result};
 use crate::publish;

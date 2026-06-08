@@ -1,3 +1,9 @@
+//! Cooperative filesystem locks for Craft operations.
+//!
+//! Workspace, output, and cache locks prevent concurrent builds from corrupting
+//! shared state. Stale lock recovery uses process liveness and Linux start-time
+//! checks where available.
+
 use crate::error::{Error, Result};
 use crate::local_state;
 use std::fs::{self, OpenOptions};
@@ -16,6 +22,15 @@ pub(crate) struct WorkspaceOperationLock {
 }
 
 pub(crate) struct OutputOperationLock {
+    path: PathBuf,
+}
+
+pub(crate) struct CacheOperationLock {
+    path: PathBuf,
+}
+
+#[cfg(test)]
+pub(crate) struct TestResourceLock {
     path: PathBuf,
 }
 
@@ -40,6 +55,30 @@ impl OutputOperationLock {
     }
 }
 
+impl CacheOperationLock {
+    pub(crate) fn acquire(cache_path: &Path, operation: &str) -> Result<Self> {
+        let path = cache_lock_path(cache_path);
+        acquire_lock(&path, operation).map(|lock| Self { path: lock.path })
+    }
+}
+
+#[cfg(test)]
+impl TestResourceLock {
+    pub(crate) fn try_acquire(path: &Path, operation: &str) -> Result<Option<Self>> {
+        local_state::ensure_parent_dir(path)?;
+        match try_acquire(path, operation) {
+            Ok(lock) => Ok(Some(Self { path: lock.path })),
+            Err(err) if is_lock_contention_error(path, &err) => {
+                if reclaim_stale_lock(path)? {
+                    return Self::try_acquire(path, operation);
+                }
+                Ok(None)
+            }
+            Err(err) => Err(Error::from_io(path, err)),
+        }
+    }
+}
+
 fn is_lock_contention_error(path: &Path, err: &std::io::Error) -> bool {
     err.kind() == ErrorKind::AlreadyExists
         || (cfg!(windows) && err.kind() == ErrorKind::PermissionDenied && path.exists())
@@ -56,6 +95,27 @@ impl Drop for WorkspaceOperationLock {
 }
 
 impl Drop for OutputOperationLock {
+    fn drop(&mut self) {
+        if let Err(err) = fs::remove_file(&self.path)
+            && err.kind() != ErrorKind::NotFound
+        {
+            let _ = err;
+        }
+    }
+}
+
+impl Drop for CacheOperationLock {
+    fn drop(&mut self) {
+        if let Err(err) = fs::remove_file(&self.path)
+            && err.kind() != ErrorKind::NotFound
+        {
+            let _ = err;
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestResourceLock {
     fn drop(&mut self) {
         if let Err(err) = fs::remove_file(&self.path)
             && err.kind() != ErrorKind::NotFound
@@ -148,6 +208,18 @@ fn output_lock_path(output_path: &Path) -> PathBuf {
         .join(format!(".{file_name}.craft.lock"))
 }
 
+fn cache_lock_path(cache_path: &Path) -> PathBuf {
+    let file_name = cache_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("cache");
+    let file_name = sanitize_lock_component(file_name);
+    cache_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!(".{file_name}.craft.lock"))
+}
+
 fn sanitize_lock_component(value: &str) -> String {
     value
         .chars()
@@ -162,22 +234,46 @@ fn sanitize_lock_component(value: &str) -> String {
 }
 
 fn reclaim_stale_lock(path: &Path) -> Result<bool> {
-    match read_lock_owner(path)? {
+    let owner = match read_lock_owner(path) {
+        Ok(owner) => owner,
+        Err(err) if lock_file_may_be_busy_on_windows(&err) => return Ok(false),
+        Err(err) => return Err(err),
+    };
+
+    match owner {
         Some(owner) if lock_owner_is_alive(owner) => {
             return Ok(false);
         }
         Some(_) => {}
-        None if !invalid_lock_metadata_is_stale(path)? => {
-            return Ok(false);
+        None => {
+            let stale = match invalid_lock_metadata_is_stale(path) {
+                Ok(stale) => stale,
+                Err(err) if lock_file_may_be_busy_on_windows(&err) => return Ok(false),
+                Err(err) => return Err(err),
+            };
+            if !stale {
+                return Ok(false);
+            }
         }
-        None => {}
     }
 
     match fs::remove_file(path) {
         Ok(()) => Ok(true),
         Err(err) if err.kind() == ErrorKind::NotFound => Ok(true),
+        Err(err) if transient_windows_lock_error(&err) => Ok(false),
         Err(err) => Err(Error::from_io(path, err)),
     }
+}
+
+fn lock_file_may_be_busy_on_windows(err: &Error) -> bool {
+    matches!(
+        err,
+        Error::Io { source, .. } if transient_windows_lock_error(source)
+    )
+}
+
+fn transient_windows_lock_error(err: &std::io::Error) -> bool {
+    cfg!(windows) && err.kind() == ErrorKind::PermissionDenied
 }
 
 fn invalid_lock_metadata_is_stale(path: &Path) -> Result<bool> {
@@ -291,7 +387,11 @@ fn report_lock_wait(
         return Ok(());
     }
 
-    let owner = read_lock_owner(path)?;
+    let owner = match read_lock_owner(path) {
+        Ok(owner) => owner,
+        Err(err) if lock_file_may_be_busy_on_windows(&err) => None,
+        Err(err) => return Err(err),
+    };
     let owner_text = owner
         .map(|owner| format!(" held by pid {}", owner.pid))
         .unwrap_or_default();
@@ -341,8 +441,8 @@ mod tests {
     #[cfg(target_os = "linux")]
     use super::read_process_start_ticks;
     use super::{
-        INVALID_LOCK_METADATA_GRACE, OutputOperationLock, WorkspaceOperationLock, output_lock_path,
-        workspace_lock_path,
+        CacheOperationLock, INVALID_LOCK_METADATA_GRACE, OutputOperationLock,
+        WorkspaceOperationLock, cache_lock_path, output_lock_path, workspace_lock_path,
     };
     #[cfg(windows)]
     use super::{LockOwner, lock_owner_is_alive};
@@ -473,6 +573,15 @@ mod tests {
     }
 
     #[test]
+    fn cache_lock_uses_cache_parent_directory() {
+        let cache = Path::new("/tmp/demo/.craft/git-dependencies/pkg/abcdef");
+        assert_eq!(
+            cache_lock_path(cache),
+            PathBuf::from("/tmp/demo/.craft/git-dependencies/pkg/.abcdef.craft.lock")
+        );
+    }
+
+    #[test]
     fn output_lock_waits_until_existing_lock_is_released() {
         let root = temp_dir("craft-output-lock-wait");
         let output = root.join("build").join("demo.o");
@@ -491,6 +600,39 @@ mod tests {
         let output_for_waiter = output.clone();
         let waiter = thread::spawn(move || {
             let _lock = OutputOperationLock::acquire(&output_for_waiter, "compile").unwrap();
+            acquired_tx.send(()).unwrap();
+        });
+
+        thread::sleep(Duration::from_millis(150));
+        assert!(acquired_rx.try_recv().is_err());
+        release_tx.send(()).unwrap();
+
+        worker.join().unwrap();
+        waiter.join().unwrap();
+        acquired_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cache_lock_waits_until_existing_lock_is_released() {
+        let root = temp_dir("craft-cache-lock-wait");
+        let cache = root.join(".craft").join("git-dependencies/pkg/abcdef");
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (acquired_tx, acquired_rx) = mpsc::channel();
+        let cache_for_worker = cache.clone();
+
+        let worker = thread::spawn(move || {
+            let _lock = CacheOperationLock::acquire(&cache_for_worker, "git-source").unwrap();
+            ready_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+
+        ready_rx.recv().unwrap();
+        let cache_for_waiter = cache.clone();
+        let waiter = thread::spawn(move || {
+            let _lock = CacheOperationLock::acquire(&cache_for_waiter, "git-source").unwrap();
             acquired_tx.send(()).unwrap();
         });
 

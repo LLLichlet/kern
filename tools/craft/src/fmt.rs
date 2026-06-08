@@ -1,3 +1,9 @@
+//! Formatter for Kern source files managed by Craft.
+//!
+//! The formatter performs conservative whitespace, argument-list, postfix-chain,
+//! boolean-chain, and line-width adjustments without needing a full semantic
+//! analysis pass.
+
 use crate::error::{Error, Result};
 use crate::manifest::Manifest;
 use crate::workspace::WorkspaceMember;
@@ -69,7 +75,7 @@ impl Default for FormatConfig {
 }
 
 impl FormatConfig {
-    fn from_manifest(manifest: &Manifest) -> Self {
+    pub fn from_manifest(manifest: &Manifest) -> Self {
         let mut config = Self::default();
         if let Some(line_width) = manifest
             .craft
@@ -258,7 +264,7 @@ pub fn format_source_text(source: &str) -> String {
     format_source_text_with_config(source, &FormatConfig::default())
 }
 
-fn format_source_text_with_config(source: &str, config: &FormatConfig) -> String {
+pub fn format_source_text_with_config(source: &str, config: &FormatConfig) -> String {
     format_source_text_with_config_inner(source, config)
 }
 
@@ -607,7 +613,9 @@ fn top_level_boolean_operators(input: &str) -> Vec<(usize, &'static str, usize)>
     let mut scanner = Scanner::default();
     let mut index = 0usize;
     while index < input.len() {
-        let ch = input[index..].chars().next().expect("valid char boundary");
+        let Some(ch) = input[index..].chars().next() else {
+            break;
+        };
         if !scanner.scan(index, ch) {
             index += ch.len_utf8();
             continue;
@@ -953,11 +961,13 @@ impl Scanner {
 }
 
 fn package_label(manifest: &Manifest) -> String {
-    manifest
-        .package
-        .as_ref()
-        .map(|package| format!("{} {}", package.name, package.version))
-        .unwrap_or_else(|| "<workspace>".to_string())
+    if let Some(package) = &manifest.package {
+        return format!("{} {}", package.name, package.version);
+    }
+    if let Some(workspace) = &manifest.workspace {
+        return format!("workspace {}", workspace.name);
+    }
+    "manifest".to_string()
 }
 
 #[cfg(test)]

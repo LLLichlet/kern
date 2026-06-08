@@ -1,3 +1,9 @@
+//! AST `TypeNode` to semantic `TypeId` resolution.
+//!
+//! This module handles the structural cases of type syntax: builtins, optional
+//! and result sugar, anonymous aggregates, closure interfaces, pointers,
+//! arrays/slices, ranges, and enum payload/discriminant validation.
+
 use super::*;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
@@ -37,6 +43,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     self.resolve_anonymous_fields(fields, env_scope, ty_node.span, "struct", true);
 
                 if !*is_extern {
+                    // Native anonymous structs use structural identity, so field order should not
+                    // affect interning. Extern structs keep source order because it is ABI-visible.
                     anon_fields.sort_by_key(|f| f.name);
                 }
 
@@ -48,6 +56,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::TypeKind::Union { is_extern, fields } => {
                 let mut anon_fields =
                     self.resolve_anonymous_fields(fields, env_scope, ty_node.span, "union", false);
+                // Anonymous unions are matched structurally; there is no field order in the ABI.
                 anon_fields.sort_by_key(|f| f.name);
                 self.check_duplicate_anon_fields(&anon_fields, ty_node.span, "anonymous union");
                 self.ctx

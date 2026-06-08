@@ -1,3 +1,9 @@
+//! Broad CLI regression test harness.
+//!
+//! Submodules group historical language, package, mutability, Paterson,
+//! supertrait, and match-exhaustiveness regressions around shared compile/run
+//! helpers.
+
 use std::fs;
 use std::process::Command;
 use std::sync::{Arc, Barrier};

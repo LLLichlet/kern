@@ -153,6 +153,16 @@ test("auto-trigger suggest avoids comments and strings", () => {
         ),
         false,
     );
+    assert.equal(
+        shouldAutoTriggerSuggest(
+            "aggressive",
+            "l",
+            0,
+            createAutoSuggestDocument("\\\\l"),
+            { line: 0, character: 3 },
+        ),
+        false,
+    );
 });
 
 test("auto-trigger suggest tracks multiline lexical state incrementally", () => {

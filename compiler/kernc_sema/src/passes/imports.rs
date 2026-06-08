@@ -1,9 +1,16 @@
+//! Import resolution pass.
+//!
+//! Imports are collected before every target can be resolved, especially across
+//! modules that import each other.  This pass flattens use trees, resolves roots
+//! from the correct module/package anchor, and repeats until no new import can
+//! be added before emitting diagnostics for the remaining failures.
+
 use crate::SemaContext;
 use crate::def::*;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
 use kernc_ast::Visibility;
 use kernc_ast::{UsePathKind, UseTarget, UseTree};
-use kernc_utils::{Span, SymbolId};
+use kernc_utils::{Canceled, CancellationToken, Span, SymbolId, expect_uncancelable};
 
 pub struct ImportResolver<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
@@ -32,6 +39,17 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
 
     /// Resolve all imports, repeating until the graph reaches a fixed point.
     pub fn resolve_all(&mut self) {
+        expect_uncancelable(
+            self.resolve_all_cancelable(&CancellationToken::new()),
+            "resolving imports",
+        );
+    }
+
+    pub fn resolve_all_cancelable(
+        &mut self,
+        cancellation: &CancellationToken,
+    ) -> Result<(), Canceled> {
+        cancellation.check()?;
         let module_ids: Vec<DefId> = self
             .ctx
             .defs
@@ -47,8 +65,10 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
 
         let mut pending_imports: Vec<(DefId, ImportDef)> = Vec::new();
         for mod_id in module_ids {
+            cancellation.check()?;
             if let Def::Module(m) = &self.ctx.defs[mod_id.0 as usize] {
                 for imp in &m.imports {
+                    cancellation.check()?;
                     pending_imports.push((mod_id, imp.clone()));
                 }
             }
@@ -57,10 +77,12 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         // Fixed-point iteration handles imports whose dependencies resolve later.
         let mut progress = true;
         while progress && !pending_imports.is_empty() {
+            cancellation.check()?;
             progress = false;
             let mut unresolved = Vec::new();
 
             for (mod_id, import) in pending_imports {
+                cancellation.check()?;
                 // Stay quiet during speculative iterations.
                 if self.resolve_single_import(mod_id, &import, false) {
                     progress = true;
@@ -73,8 +95,10 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
 
         // Run one final pass with diagnostics enabled for anything still unresolved.
         for (mod_id, failed_import) in pending_imports {
+            cancellation.check()?;
             self.resolve_single_import(mod_id, &failed_import, true);
         }
+        Ok(())
     }
 
     pub fn binding_names(import: &ImportDef) -> Vec<SymbolId> {
@@ -179,6 +203,8 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                 full_path.extend(path.iter().copied());
 
                 if alias.is_some() || nested.is_none() {
+                    // A node with nested children is only itself imported when
+                    // it has an alias or no nested tree.
                     flat.push(FlatImport {
                         path: full_path.clone(),
                         alias: *alias,
@@ -217,6 +243,8 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         if let Some((mod_id, mod_scope)) =
             self.resolve_path(current_mod_id, kind, &flat.path, flat.span, false)
         {
+            // Empty import paths returned above, so `last` is the imported binding name unless an
+            // explicit alias overrides it.
             let target_name = flat.alias.unwrap_or(*flat.path.last().unwrap());
             let symbol_info = if matches!(kind, UsePathKind::External) && flat.path.len() == 1 {
                 self.ctx

@@ -1,5 +1,12 @@
 #![doc = include_str!("../README.md")]
 
+//! High-level compiler driver API used by the CLI, tools, and language server.
+//!
+//! The driver coordinates parsing, semantic analysis, lowering, MIR, codegen,
+//! documentation metadata, and analysis artifacts.  Most public exports here
+//! are stable data shapes consumed by external tooling rather than phase-local
+//! implementation details.
+
 mod compiler;
 mod doc;
 mod frontend;
@@ -9,8 +16,9 @@ mod metadata;
 
 pub use compiler::CompilerDriver;
 pub use compiler::{
-    AnalysisArtifact, AnalysisCompletionItem, AnalysisCompletionKind, AnalysisDeadStore,
-    AnalysisDeadStoreKind, AnalysisDefinitionLink, AnalysisFlowBinding, AnalysisFlowBindingId,
+    AnalysisArtifact, AnalysisCall, AnalysisCallKind, AnalysisCallTargetCompleteness,
+    AnalysisCompletionItem, AnalysisCompletionKind, AnalysisDeadStore, AnalysisDeadStoreKind,
+    AnalysisDefinitionLink, AnalysisDocumentLink, AnalysisFlowBinding, AnalysisFlowBindingId,
     AnalysisFlowBindingKind, AnalysisFlowBindingSummary, AnalysisFlowCfg, AnalysisFlowCfgEdge,
     AnalysisFlowCfgEdgeKind, AnalysisFlowCfgNode, AnalysisFlowCfgNodeKind, AnalysisFlowDefUse,
     AnalysisFlowDefinitionFacts, AnalysisFlowDefinitionKind, AnalysisFlowDefinitionRef,
@@ -18,15 +26,16 @@ pub use compiler::{
     AnalysisFlowNodeTransfer, AnalysisFlowOwner, AnalysisFlowOwnerKind, AnalysisFlowReaching,
     AnalysisFlowRegion, AnalysisFlowRegionKind, AnalysisFlowResolvedUse,
     AnalysisFlowResolvedUseKind, AnalysisFlowSingleSourceUse, AnalysisFlowSummary,
-    AnalysisFlowUseDef, AnalysisHover, AnalysisNavigationArtifact, AnalysisOutline,
-    AnalysisParameterInformation, AnalysisReference, AnalysisReport, AnalysisSemanticEntry,
-    AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSignatureHelp,
-    AnalysisSignatureInformation, AnalysisSpanReplacement, AnalysisSurfaceArtifact, AnalysisSymbol,
-    AnalysisSymbolKind, AnalysisTypeHint, AnalysisTypeHintKind, AnalysisUnusedBinding,
-    AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind, CodegenImportPlanReport,
-    CodegenPlanFallback, CodegenPlanReport, CompileCacheStats, CompileReport,
-    ImportedStructureArtifact, IncrementalDriverKey, ParsedModuleArtifact, PhaseTiming,
-    SourceOverrides, StructureArtifact, TargetedAnalysisReport,
+    AnalysisFlowUseDef, AnalysisHover, AnalysisImportCandidate, AnalysisNavigationArtifact,
+    AnalysisOutline, AnalysisParameterInformation, AnalysisReference, AnalysisReport,
+    AnalysisSemanticArtifact, AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole,
+    AnalysisSemanticTokenArtifact, AnalysisSignatureHelp, AnalysisSignatureInformation,
+    AnalysisSpanReplacement, AnalysisSurfaceArtifact, AnalysisSymbol, AnalysisSymbolKind,
+    AnalysisTraitImplStub, AnalysisTypeHint, AnalysisTypeHintKind, AnalysisUnusedBinding,
+    AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind, Canceled,
+    CancellationToken, CodegenImportPlanReport, CodegenPlanFallback, CodegenPlanReport,
+    CompileCacheStats, CompileReport, ImportedStructureArtifact, IncrementalDriverKey,
+    ParsedModuleArtifact, PhaseTiming, SourceOverrides, StructureArtifact, TargetedAnalysisReport,
 };
 pub use doc::{KernDoc, KernDocEntry, KernDocSection, KernDocSectionKind, KmetaDocItem};
 pub use metadata::{

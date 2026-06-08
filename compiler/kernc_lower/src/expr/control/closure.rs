@@ -1,3 +1,9 @@
+//! Closure lowering.
+//!
+//! Captures, closure interface signatures, environment layout, and call entry
+//! thunks are lowered here. The produced MAST keeps capture storage explicit so
+//! MIR/codegen can treat closures as ordinary aggregate values plus entry funcs.
+
 use super::*;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {

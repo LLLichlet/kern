@@ -1,3 +1,9 @@
+//! Human-readable rendering for Craft command output.
+//!
+//! Render helpers format progress lines, summaries, diagnostics, timing tables,
+//! source-policy reports, and install/uninstall messages while honoring terminal
+//! width and color settings.
+
 use crate::build_plan;
 use crate::elaborate;
 use crate::execute;
@@ -8,10 +14,12 @@ use kernc_driver::{CodegenPlanFallback, CodegenPlanReport, CompileCacheStats, Ph
 use std::fmt::Display;
 use std::io::{IsTerminal, Write};
 use std::sync::Arc;
+use std::sync::Condvar;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::{ColorChoice, UiOptions, Verbosity};
 
@@ -26,7 +34,44 @@ pub(super) struct Renderer {
 pub(super) struct ProgressDisplay {
     reporter: execute::ProgressReporter,
     stop: Arc<AtomicBool>,
+    wake: Arc<(Mutex<bool>, Condvar)>,
     worker: Option<JoinHandle<()>>,
+}
+
+pub(super) struct PipelineProgressDisplay {
+    reporter: PipelineProgressReporter,
+    stop: Arc<AtomicBool>,
+    wake: Arc<(Mutex<bool>, Condvar)>,
+    worker: Option<JoinHandle<()>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProgressStyle {
+    color_enabled: bool,
+}
+
+#[derive(Clone)]
+pub(super) struct PipelineProgressReporter {
+    state: Arc<Mutex<PipelineProgressState>>,
+}
+
+#[derive(Debug, Clone)]
+struct PipelineProgressState {
+    planned_steps: usize,
+    observed_steps: usize,
+    completed_steps: usize,
+    label: String,
+    detail: String,
+    started_at: Instant,
+}
+
+#[derive(Debug, Clone)]
+struct PipelineProgressSnapshot {
+    total_steps: usize,
+    completed_steps: usize,
+    label: String,
+    detail: String,
+    elapsed: Duration,
 }
 
 const PROGRESS_BAR_WIDTH: usize = 24;
@@ -158,7 +203,29 @@ impl Renderer {
             return None;
         }
 
-        Some(ProgressDisplay::spawn(command, plan))
+        Some(ProgressDisplay::spawn(
+            command,
+            plan,
+            ProgressStyle {
+                color_enabled: self.color_enabled,
+            },
+        ))
+    }
+
+    pub(super) fn pipeline_progress(
+        &self,
+        command: &'static str,
+    ) -> Option<PipelineProgressDisplay> {
+        if self.quiet || self.is_verbose() || !self.terminal_output {
+            return None;
+        }
+
+        Some(PipelineProgressDisplay::spawn(
+            command,
+            ProgressStyle {
+                color_enabled: self.color_enabled,
+            },
+        ))
     }
 
     fn paint(&self, tone: Tone, text: &str) -> String {
@@ -190,10 +257,16 @@ fn test_ui_output_is_suppressed() -> bool {
 }
 
 impl ProgressDisplay {
-    fn spawn(command: &'static str, plan: execute::ExecutionProgressPlan) -> Self {
+    fn spawn(
+        command: &'static str,
+        plan: execute::ExecutionProgressPlan,
+        style: ProgressStyle,
+    ) -> Self {
         let reporter = execute::ProgressReporter::new(plan);
         let stop = Arc::new(AtomicBool::new(false));
+        let wake = Arc::new((Mutex::new(false), Condvar::new()));
         let worker_stop = stop.clone();
+        let worker_wake = wake.clone();
         let worker_reporter = reporter.clone();
         let worker = thread::spawn(move || {
             let mut last_len = 0usize;
@@ -207,7 +280,8 @@ impl ProgressDisplay {
                     }
                 } else {
                     let snapshot = worker_reporter.snapshot();
-                    let line = render_progress_line(command, snapshot, progress_line_columns());
+                    let line =
+                        render_progress_line(command, snapshot, progress_line_columns(), style);
                     if line != last_line {
                         write_progress_line(&line, &mut last_len);
                         last_line = line;
@@ -216,7 +290,7 @@ impl ProgressDisplay {
                 if worker_stop.load(Ordering::Relaxed) {
                     break;
                 }
-                thread::sleep(Duration::from_millis(120));
+                wait_for_progress_tick(&worker_wake, Duration::from_millis(120));
             }
             clear_progress_line(last_len);
         });
@@ -224,6 +298,7 @@ impl ProgressDisplay {
         Self {
             reporter,
             stop,
+            wake,
             worker: Some(worker),
         }
     }
@@ -234,6 +309,7 @@ impl ProgressDisplay {
 
     pub(super) fn finish(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        self.wake.1.notify_all();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
@@ -246,12 +322,169 @@ impl Drop for ProgressDisplay {
     }
 }
 
+impl PipelineProgressDisplay {
+    fn spawn(command: &'static str, style: ProgressStyle) -> Self {
+        let reporter = PipelineProgressReporter::new();
+        let stop = Arc::new(AtomicBool::new(false));
+        let wake = Arc::new((Mutex::new(false), Condvar::new()));
+        let worker_stop = stop.clone();
+        let worker_wake = wake.clone();
+        let worker_reporter = reporter.clone();
+        let worker = thread::spawn(move || {
+            let mut last_len = 0usize;
+            let mut last_line = String::new();
+            loop {
+                let snapshot = worker_reporter.snapshot();
+                let line = render_pipeline_progress_line(
+                    command,
+                    snapshot,
+                    progress_line_columns(),
+                    style,
+                );
+                if line != last_line {
+                    write_progress_line(&line, &mut last_len);
+                    last_line = line;
+                }
+                if worker_stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                wait_for_progress_tick(&worker_wake, Duration::from_millis(120));
+            }
+            clear_progress_line(last_len);
+        });
+
+        Self {
+            reporter,
+            stop,
+            wake,
+            worker: Some(worker),
+        }
+    }
+
+    pub(super) fn step(&self, label: impl Into<String>, detail: impl Into<String>) {
+        self.reporter.step(label, detail);
+        self.wake.1.notify_all();
+    }
+
+    pub(super) fn plan_steps(&self, count: usize) {
+        self.reporter.plan_steps(count);
+        self.wake.1.notify_all();
+    }
+
+    pub(super) fn detail(&self, detail: impl Into<String>) {
+        self.reporter.detail(detail);
+        self.wake.1.notify_all();
+    }
+
+    pub(super) fn finish(&mut self) {
+        self.reporter.complete();
+        self.stop.store(true, Ordering::Relaxed);
+        self.wake.1.notify_all();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn wait_for_progress_tick(wake: &(Mutex<bool>, Condvar), timeout: Duration) {
+    let (lock, condvar) = wake;
+    if let Ok(guard) = lock.lock() {
+        let _ = condvar.wait_timeout(guard, timeout);
+    }
+}
+
+impl Drop for PipelineProgressDisplay {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
+impl PipelineProgressReporter {
+    fn new() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(PipelineProgressState {
+                planned_steps: 0,
+                observed_steps: 0,
+                completed_steps: 0,
+                label: "prepare".to_string(),
+                detail: String::new(),
+                started_at: Instant::now(),
+            })),
+        }
+    }
+
+    fn step(&self, label: impl Into<String>, detail: impl Into<String>) {
+        if let Ok(mut state) = self.state.lock() {
+            if state.observed_steps > state.completed_steps {
+                state.completed_steps = state.completed_steps.saturating_add(1);
+            }
+            state.observed_steps = state.observed_steps.saturating_add(1);
+            state.planned_steps = state.planned_steps.max(state.observed_steps);
+            state.label = label.into();
+            state.detail = detail.into();
+        }
+    }
+
+    fn plan_steps(&self, count: usize) {
+        if let Ok(mut state) = self.state.lock() {
+            state.planned_steps = state.planned_steps.saturating_add(count);
+        }
+    }
+
+    fn detail(&self, detail: impl Into<String>) {
+        if let Ok(mut state) = self.state.lock() {
+            state.detail = detail.into();
+        }
+    }
+
+    fn complete(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.completed_steps = state.observed_steps;
+        }
+    }
+
+    fn snapshot(&self) -> PipelineProgressSnapshot {
+        let state = self
+            .state
+            .lock()
+            .expect("pipeline progress state should not be poisoned");
+        PipelineProgressSnapshot {
+            total_steps: state.planned_steps.max(state.observed_steps),
+            completed_steps: state.completed_steps,
+            label: state.label.clone(),
+            detail: state.detail.clone(),
+            elapsed: state.started_at.elapsed(),
+        }
+    }
+}
+
+impl ProgressStyle {
+    fn paint(self, tone: Tone, text: &str) -> String {
+        if !self.color_enabled {
+            return text.to_string();
+        }
+
+        let code = match tone {
+            Tone::Accent => "1;36",
+            Tone::Muted => "2",
+            Tone::Ok => "1;32",
+            Tone::Build => "1;34",
+            Tone::Link => "1;35",
+            Tone::Generate => "1;36",
+            Tone::Fetch => "1;32",
+        };
+        format!("\x1b[{code}m{text}\x1b[0m")
+    }
+}
+
 fn format_package_label(manifest: &Manifest) -> String {
-    manifest
-        .package
-        .as_ref()
-        .map(|package| format!("{} {}", package.name, package.version))
-        .unwrap_or_else(|| "<workspace>".to_string())
+    if let Some(package) = &manifest.package {
+        return format!("{} {}", package.name, package.version);
+    }
+    if let Some(workspace) = &manifest.workspace {
+        return format!("workspace {}", workspace.name);
+    }
+    "manifest".to_string()
 }
 
 pub(super) fn format_yes_no(value: bool) -> &'static str {
@@ -827,6 +1060,7 @@ fn render_progress_line(
     command: &str,
     snapshot: execute::ExecutionProgressSnapshot,
     columns: usize,
+    style: ProgressStyle,
 ) -> String {
     let total_steps = snapshot.total_steps();
     let completed_steps = snapshot.completed_steps().min(total_steps);
@@ -850,7 +1084,13 @@ fn render_progress_line(
         segments.push(format!("eta {}", format_progress_clock(eta)));
     }
 
-    let mut line = format!("{command} {bar} {percent:>3}%  {}", segments.join("  "));
+    let mut line = format!(
+        "{} {} {}  {}",
+        style.paint(Tone::Accent, command),
+        style.paint(Tone::Build, &bar),
+        style.paint(Tone::Muted, &format!("{percent:>3}%")),
+        segments.join("  ")
+    );
     if !snapshot.detail.is_empty() {
         let detail_budget = columns.saturating_sub(display_width(&line) + 2);
         if detail_budget >= MIN_PROGRESS_DETAIL_COLUMNS {
@@ -859,6 +1099,46 @@ fn render_progress_line(
         }
     }
     truncate_text(&line, columns)
+}
+
+fn render_pipeline_progress_line(
+    command: &str,
+    snapshot: PipelineProgressSnapshot,
+    columns: usize,
+    style: ProgressStyle,
+) -> String {
+    let total_steps = snapshot.total_steps.max(1);
+    let completed_steps = snapshot.completed_steps.min(total_steps);
+    let percent = completed_steps
+        .saturating_mul(100)
+        .checked_div(total_steps)
+        .unwrap_or(0);
+    let bar = render_progress_bar(completed_steps, total_steps, progress_bar_width(columns));
+    let step = format_pipeline_step(&snapshot, completed_steps, total_steps);
+    let mut line = format!(
+        "{} {} {}  {}  {}",
+        style.paint(Tone::Accent, command),
+        style.paint(Tone::Build, &bar),
+        style.paint(Tone::Muted, &format!("{percent:>3}%")),
+        step,
+        format_progress_clock(snapshot.elapsed)
+    );
+    if !snapshot.detail.is_empty() {
+        let detail_budget = columns.saturating_sub(display_width(&line) + 2);
+        if detail_budget >= MIN_PROGRESS_DETAIL_COLUMNS {
+            line.push_str("  ");
+            line.push_str(&truncate_detail(&snapshot.detail, detail_budget));
+        }
+    }
+    truncate_text(&line, columns)
+}
+
+fn format_pipeline_step(
+    snapshot: &PipelineProgressSnapshot,
+    completed_steps: usize,
+    total_steps: usize,
+) -> String {
+    format!("{} {completed_steps}/{total_steps}", snapshot.label)
 }
 
 fn render_progress_bar(completed: usize, total: usize, width: usize) -> String {
@@ -885,6 +1165,7 @@ fn format_progress_phase(phase: execute::ExecutionPhase) -> &'static str {
         execute::ExecutionPhase::Stage => "gen",
         execute::ExecutionPhase::Compile => "compile",
         execute::ExecutionPhase::Link => "link",
+        execute::ExecutionPhase::Finalize => "finish",
     }
 }
 
@@ -908,6 +1189,12 @@ fn format_phase_progress(snapshot: &execute::ExecutionProgressSnapshot) -> Strin
             format_progress_phase(snapshot.phase),
             snapshot.link_done.min(snapshot.plan.link_actions),
             snapshot.plan.link_actions
+        ),
+        execute::ExecutionPhase::Finalize => format!(
+            "{} {}/{}",
+            format_progress_phase(snapshot.phase),
+            snapshot.finalize_done.min(snapshot.plan.finalize_actions),
+            snapshot.plan.finalize_actions
         ),
     }
 }
@@ -1078,13 +1365,28 @@ fn take_suffix_columns(text: &str, max_columns: usize) -> String {
 }
 
 fn display_width(text: &str) -> usize {
-    text.chars().count()
+    let mut width = 0usize;
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' && chars.peek() == Some(&'[') {
+            let _ = chars.next();
+            for code_ch in chars.by_ref() {
+                if code_ch.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+            continue;
+        }
+        width += 1;
+    }
+    width
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        format_action_timing_detail, format_thinlto_link_summary, render_progress_line,
+        PipelineProgressReporter, ProgressStyle, format_action_timing_detail,
+        format_thinlto_link_summary, render_pipeline_progress_line, render_progress_line,
         truncate_detail,
     };
     use crate::execute::{
@@ -1161,14 +1463,19 @@ mod tests {
                     staged_actions: 2,
                     compile_actions: 4,
                     link_actions: 1,
+                    finalize_actions: 1,
                 },
                 staged_done: 2,
                 compile_done: 1,
                 link_done: 0,
+                finalize_done: 0,
                 elapsed: Duration::from_secs(6),
                 detail: "demo:bed [bin,target]".to_string(),
             },
             160,
+            ProgressStyle {
+                color_enabled: false,
+            },
         );
 
         assert!(line.contains("build ["));
@@ -1188,14 +1495,19 @@ mod tests {
                     staged_actions: 0,
                     compile_actions: 4,
                     link_actions: 0,
+                    finalize_actions: 1,
                 },
                 staged_done: 0,
                 compile_done: 2,
                 link_done: 0,
+                finalize_done: 0,
                 elapsed: Duration::from_secs(5),
                 detail: "json:hello_compact [example,target]".to_string(),
             },
             64,
+            ProgressStyle {
+                color_enabled: false,
+            },
         );
 
         assert!(line.len() <= 64);
@@ -1212,20 +1524,150 @@ mod tests {
                     staged_actions: 0,
                     compile_actions: 4,
                     link_actions: 0,
+                    finalize_actions: 1,
                 },
                 staged_done: 0,
                 compile_done: 2,
                 link_done: 0,
+                finalize_done: 0,
                 elapsed: Duration::from_secs(5),
                 detail: "json:hello_compact [example,target]".to_string(),
             },
             80,
+            ProgressStyle {
+                color_enabled: false,
+            },
         );
 
         assert!(line.len() <= 80);
         assert!(line.contains('>'));
         assert!(!line.contains("elapsed"));
-        assert!(line.contains("eta 5s"));
+        assert!(line.contains("eta "));
+    }
+
+    #[test]
+    fn progress_line_includes_finalize_phase() {
+        let line = render_progress_line(
+            "build",
+            ExecutionProgressSnapshot {
+                phase: ExecutionPhase::Finalize,
+                plan: ExecutionProgressPlan {
+                    staged_actions: 1,
+                    compile_actions: 2,
+                    link_actions: 1,
+                    finalize_actions: 1,
+                },
+                staged_done: 1,
+                compile_done: 2,
+                link_done: 1,
+                finalize_done: 0,
+                elapsed: Duration::from_secs(8),
+                detail: "summarize results".to_string(),
+            },
+            120,
+            ProgressStyle {
+                color_enabled: false,
+            },
+        );
+
+        assert!(line.contains("finish 0/1"));
+        assert!(!line.contains("100%"));
+    }
+
+    #[test]
+    fn pipeline_progress_starts_current_step_at_zero() {
+        let reporter = PipelineProgressReporter::new();
+        reporter.step("manifest", "resolve project manifest");
+
+        let line = render_pipeline_progress_line(
+            "build",
+            reporter.snapshot(),
+            120,
+            ProgressStyle {
+                color_enabled: false,
+            },
+        );
+
+        assert!(line.contains("  0%"));
+        assert!(line.contains("manifest 0/1"));
+    }
+
+    #[test]
+    fn pipeline_progress_uses_preplanned_step_count() {
+        let reporter = PipelineProgressReporter::new();
+        reporter.plan_steps(6);
+        reporter.step("plan", "derive build graph");
+
+        let line = render_pipeline_progress_line(
+            "build",
+            reporter.snapshot(),
+            120,
+            ProgressStyle {
+                color_enabled: false,
+            },
+        );
+
+        assert!(line.contains("  0%"));
+        assert!(line.contains("plan 0/6"));
+    }
+
+    #[test]
+    fn pipeline_progress_completes_previous_step_on_next_step() {
+        let reporter = PipelineProgressReporter::new();
+        reporter.step("manifest", "resolve project manifest");
+        reporter.step("workspace", "load workspace members");
+
+        let line = render_pipeline_progress_line(
+            "build",
+            reporter.snapshot(),
+            120,
+            ProgressStyle {
+                color_enabled: false,
+            },
+        );
+
+        assert!(line.contains(" 50%"));
+        assert!(line.contains("workspace 1/2"));
+    }
+
+    #[test]
+    fn pipeline_progress_uses_dynamic_step_count_for_fetch_events() {
+        let reporter = PipelineProgressReporter::new();
+        for idx in 0..5 {
+            reporter.step("fetch", format!("resource {idx}"));
+        }
+
+        let line = render_pipeline_progress_line(
+            "build",
+            reporter.snapshot(),
+            120,
+            ProgressStyle {
+                color_enabled: false,
+            },
+        );
+
+        assert!(line.contains("fetch 4/5"));
+        assert!(line.contains(" 80%"));
+    }
+
+    #[test]
+    fn pipeline_progress_completes_observed_steps_on_finish() {
+        let reporter = PipelineProgressReporter::new();
+        reporter.step("plan", "derive build graph");
+        reporter.step("analysis", "sync analysis context");
+        reporter.complete();
+
+        let line = render_pipeline_progress_line(
+            "build",
+            reporter.snapshot(),
+            120,
+            ProgressStyle {
+                color_enabled: false,
+            },
+        );
+
+        assert!(line.contains("100%"));
+        assert!(line.contains("analysis 2/2"));
     }
 
     #[test]

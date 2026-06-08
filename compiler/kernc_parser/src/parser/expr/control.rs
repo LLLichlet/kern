@@ -1,3 +1,10 @@
+//! Control-flow, block, pattern, and match parsing.
+//!
+//! These routines own the grammar with the most recovery surface: block
+//! statements, trailing block values, `for` desugaring, `match` arms, and
+//! pattern syntax.  Recovery is intentionally local so a bad arm or statement
+//! does not discard the rest of the enclosing block.
+
 use super::super::{ParseResult, Parser};
 use super::Precedence;
 use kernc_ast::*;
@@ -15,10 +22,12 @@ enum PatternLead {
 
 impl<'a> Parser<'a> {
     pub fn parse_block_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
+        self.check_canceled()?;
         let mut stmts = Vec::new();
         let mut result = None;
 
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let before = self.peek().span;
             let attributes = self.parse_attributes(false).unwrap_or_default();
             if self.check(TokenType::Defer) {
@@ -54,6 +63,8 @@ impl<'a> Parser<'a> {
             if self.match_token(&[TokenType::Semicolon]) {
                 self.push_expr_stmt(&mut stmts, attributes, expr);
             } else if self.check(TokenType::RBrace) {
+                // No semicolon before `}` means this expression is the block's
+                // value unless it was already consumed as a statement above.
                 if !attributes.is_empty() {
                     self.add_error(
                         attributes[0].span,
@@ -62,6 +73,8 @@ impl<'a> Parser<'a> {
                 }
                 result = Some(Box::new(expr));
             } else if expr.is_block_like() {
+                // Block-like expressions can stand as statements without a
+                // semicolon, matching common control-flow syntax.
                 self.push_expr_stmt(&mut stmts, attributes, expr);
             } else {
                 let span = self.peek().span;
@@ -148,9 +161,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_if_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
-        self.expect(TokenType::LParen)?;
         let cond = self.parse_expression(Precedence::Lowest)?;
-        self.expect(TokenType::RParen)?;
         let then_branch = self.parse_expression(Precedence::Lowest)?;
         let mut else_branch = None;
         if self.match_token(&[TokenType::Else]) {
@@ -173,20 +184,16 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_for_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
-        self.expect(TokenType::LParen)?;
         let pattern = self.parse_let_pattern()?;
-        self.expect(TokenType::Colon)?;
-        let iter = self.parse_expression(Precedence::Lowest)?;
-        self.expect(TokenType::RParen)?;
+        self.expect(TokenType::In)?;
+        let iter = self.parse_for_iter_expr()?;
 
         let body = self.parse_expression(Precedence::Lowest)?;
         Ok(self.desugar_for_expr(start_span, pattern, iter, body))
     }
 
     pub(super) fn parse_while_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
-        self.expect(TokenType::LParen)?;
         let cond = self.parse_expression(Precedence::Lowest)?;
-        self.expect(TokenType::RParen)?;
         let body = self.parse_expression(Precedence::Lowest)?;
 
         Ok(Expr {
@@ -207,6 +214,8 @@ impl<'a> Parser<'a> {
         body: Expr,
     ) -> Expr {
         let block_id = self.new_id();
+        // `for p in iter body` lowers in the parser to a block that owns the
+        // iterator binding, then repeatedly calls `next()` and breaks on None.
         let iter_sym = self
             .session
             .intern(&format!("\0kern_for_iter_{}", block_id.0));
@@ -355,6 +364,16 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_for_iter_expr(&mut self) -> ParseResult<Expr> {
+        let expr = self.parse_expression(Precedence::Lowest)?;
+        if self.check(TokenType::Ellipsis) || self.check(TokenType::DotDotEqual) {
+            let op_token = self.advance();
+            self.parse_infix_range_expr(expr, op_token)
+        } else {
+            Ok(expr)
+        }
+    }
+
     fn parse_match_body(&mut self) -> ParseResult<Expr> {
         if self.check(TokenType::LBrace) {
             let t = self.advance();
@@ -367,13 +386,12 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_match_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
-        self.expect(TokenType::LParen)?;
         let target = self.parse_expression(Precedence::Lowest)?;
-        self.expect(TokenType::RParen)?;
         self.expect(TokenType::LBrace)?;
 
         let mut arms = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let before = self.peek().span;
             match self.parse_match_arm() {
                 Ok(arm) => arms.push(arm),
@@ -400,7 +418,12 @@ impl<'a> Parser<'a> {
     fn synchronize_match_arm(&mut self) {
         self.panic_mode = false;
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            if self.check_canceled().is_err() {
+                return;
+            }
             if self.match_token(&[TokenType::Comma]) {
+                // Match arms are comma-separated, so a comma is the safest
+                // boundary after an arm-local parse error.
                 return;
             }
             self.advance();
@@ -440,6 +463,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::LBrace)?;
         let mut arms = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             arms.push(self.parse_let_else_arm()?);
         }
         self.expect(TokenType::RBrace)?;
@@ -449,6 +473,7 @@ impl<'a> Parser<'a> {
     fn parse_match_patterns(&mut self) -> ParseResult<Vec<MatchPattern>> {
         let mut patterns = Vec::new();
         loop {
+            self.check_canceled()?;
             let before = self.peek().span;
             patterns.push(self.parse_single_match_pattern()?);
             if !self.continue_after_comma(&[TokenType::Arrow]) {
@@ -466,6 +491,8 @@ impl<'a> Parser<'a> {
         let pat_start = self.peek().span;
 
         if self.looks_like_call_shaped_payload_pattern() {
+            // Older call-shaped enum payload syntax is rejected with a targeted
+            // hint while still preserving a value-shaped pattern for recovery.
             let expr = self.parse_dotted_value_pattern_expr()?;
             let span = self.peek().span;
             self.session
@@ -534,6 +561,7 @@ impl<'a> Parser<'a> {
         };
 
         while self.match_token(&[TokenType::Dot]) {
+            self.check_canceled()?;
             let field = self.expect(TokenType::Identifier)?;
             let field_id = self.intern_token(field);
             expr = Expr {
@@ -594,10 +622,11 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
 
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            self.check_canceled()?;
             let field_tok = self.expect(TokenType::Identifier)?;
             let field_name = self.intern_token(field_tok);
             let pattern = if self.match_token(&[TokenType::Colon]) {
-                Box::new(self.parse_pattern()?)
+                Box::new(self.parse_destructure_field_pattern()?)
             } else {
                 Box::new(Pattern {
                     span: field_tok.span,
@@ -631,6 +660,19 @@ impl<'a> Parser<'a> {
                 target_type,
                 fields,
             }),
+        })
+    }
+
+    fn parse_destructure_field_pattern(&mut self) -> ParseResult<Pattern> {
+        let start_span = self.peek().span;
+        if let Some(lead) = self.classify_pattern_lead(true) {
+            return self.parse_pattern_from_lead(start_span, lead);
+        }
+
+        let expr = self.parse_match_value_pattern_expr()?;
+        Ok(Pattern {
+            span: expr.span,
+            kind: PatternKind::Value(Box::new(expr)),
         })
     }
 
@@ -785,6 +827,9 @@ impl<'a> Parser<'a> {
             let mut depth = 1;
             index += 1;
             while depth > 0 {
+                if self.check_canceled().is_err() {
+                    return None;
+                }
                 match self.stream.peek_tag_nth(index) {
                     TokenType::LBracket => depth += 1,
                     TokenType::RBracket => depth -= 1,
@@ -804,6 +849,9 @@ impl<'a> Parser<'a> {
         while self.stream.peek_tag_nth(index) == TokenType::Dot
             && self.stream.peek_tag_nth(index + 1) == TokenType::Identifier
         {
+            if self.check_canceled().is_err() {
+                return None;
+            }
             index = self.lookahead_type_path_segment_end(index + 1)?;
             segments += 1;
         }
@@ -815,6 +863,9 @@ impl<'a> Parser<'a> {
         let mut index = start;
 
         loop {
+            if self.check_canceled().is_err() {
+                return None;
+            }
             if self.stream.peek_tag_nth(index) == TokenType::RBrace {
                 return Some(index + 1);
             }

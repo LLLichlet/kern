@@ -1,10 +1,82 @@
+//! Trait impl coherence and method-contract validation.
+//!
+//! This module checks that impls do not overlap ambiguously, that required trait
+//! methods are implemented, and that impl method signatures satisfy the trait
+//! declaration after generic and associated-type substitution.
+
 use super::*;
 use kernc_utils::FastHashMap;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
+    pub(super) fn validate_trait_impl_method_contracts(&mut self) {
+        let trait_impl_entries = self.ctx.trait_impl_entries();
+        for entry in trait_impl_entries {
+            let impl_def = entry.def;
+            let Some(resolved_trait_ty) = impl_def.resolved_trait_ty else {
+                continue;
+            };
+            self.validate_trait_impl_method_contract(&impl_def, resolved_trait_ty);
+        }
+    }
+
+    fn validate_trait_impl_method_contract(
+        &mut self,
+        impl_def: &ImplDef,
+        resolved_trait_ty: TypeId,
+    ) {
+        if impl_def.is_imported || resolved_trait_ty == TypeId::ERROR {
+            return;
+        }
+
+        let resolved_trait_ty = self.ctx.type_registry.normalize(resolved_trait_ty);
+        let TypeKind::TraitObject(trait_def_id, _, _) =
+            self.ctx.type_registry.get(resolved_trait_ty).clone()
+        else {
+            return;
+        };
+        let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize).cloned()
+        else {
+            return;
+        };
+
+        let implemented_methods = impl_def
+            .methods
+            .iter()
+            .filter_map(|method_id| match self.ctx.defs.get(method_id.0 as usize) {
+                Some(Def::Function(function)) => Some(function.name),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        let trait_name = self.ctx.resolve(trait_def.name).to_string();
+
+        for method in &trait_def.methods {
+            if method.default_impl.is_some() || implemented_methods.contains(&method.signature.name)
+            {
+                continue;
+            }
+
+            let method_name = self.ctx.resolve(method.signature.name).to_string();
+            self.ctx
+                .struct_error(
+                    impl_def.span,
+                    format!(
+                        "impl of trait `{}` is missing required method `{}`",
+                        trait_name, method_name
+                    ),
+                )
+                .with_code(kernc_utils::DiagnosticCode::MissingTraitImplMethod)
+                .with_span_label(impl_def.span, "this trait impl is incomplete")
+                .with_span_label(method.signature.name_span, "required method declared here")
+                .with_hint(format!("add method stub `{}` to this impl", method_name))
+                .emit();
+        }
+    }
+
     pub(super) fn validate_trait_impl_coherence(&mut self) {
         let trait_impl_groups = self.ctx.trait_impl_groups().clone();
         for trait_impl_ids in trait_impl_groups.into_values() {
+            // Coherence is pairwise within each trait lookup key. Specific impls may overlap
+            // generic impls only when the solver can order one as strictly more specific.
             for (index, left_impl_id) in trait_impl_ids.iter().copied().enumerate() {
                 for right_impl_id in trait_impl_ids.iter().copied().skip(index + 1) {
                     let Some(overlap) =

@@ -11,9 +11,9 @@
 //! This root is injected only when runtime startup is selected. It is not a
 //! public prelude and it does not mirror higher-level library APIs.
 
-#[if(!libc)]
+#[if !libc]
 mod memory_fallbacks;
-#[if(!libc)]
+#[if !libc]
 mod math_fallbacks;
-#[if(runtime_entry != "none" or rt_role == "entry")]
+#[if runtime_entry != "none" or rt_role == "entry"]
 mod entry;

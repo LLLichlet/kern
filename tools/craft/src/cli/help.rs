@@ -1,3 +1,9 @@
+//! Help and usage text rendering for Craft commands.
+//!
+//! The help module centralizes command descriptions, option summaries, and
+//! topic-specific usage so parser errors and explicit help requests stay
+//! consistent.
+
 use crate::error::{Error, Result};
 use shared_cli::{ColorChoice, HelpDoc, HelpSection};
 
@@ -20,7 +26,10 @@ fn overview_doc() -> HelpDoc {
         .section(
             HelpSection::new("Popular Commands")
                 .entry("init", "Create a package in the selected directory")
-                .entry("clean", "Remove derived .craft state for a package")
+                .entry(
+                    "clean",
+                    "Remove derived .craft outputs, caches, and analysis state",
+                )
                 .entry(
                     "check",
                     "Validate manifests, scripts, sources, and analysis inputs",
@@ -100,7 +109,7 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
         ),
         "clean" => command_template(
             "clean",
-            "Remove derived .craft build, cache, and analysis state for the selected package",
+            "Remove derived .craft build outputs, fetched sources/resources, docs, and analysis state while preserving locks",
             &["craft clean [OPTIONS]"],
             HelpSection::new("Options")
                 .entry(

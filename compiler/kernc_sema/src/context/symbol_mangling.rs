@@ -1,3 +1,10 @@
+//! Deterministic symbol/type mangling for semantic definitions.
+//!
+//! Mangled names are derived from semantic parents, impl receivers, trait
+//! context, generic arguments, and canonical type structure.  The format is
+//! compiler-internal but intentionally deterministic so codegen-unit planning
+//! and cached backend artifacts can compare names reliably.
+
 use super::*;
 
 impl<'a> SemaContext<'a> {
@@ -55,6 +62,7 @@ impl<'a> SemaContext<'a> {
 
         let mut qualified = String::from("Q");
         for component in path_components.into_iter().rev() {
+            // Length-prefix components avoid separator escaping rules.
             qualified.push_str(&format!("{}{}", component.len(), component));
         }
         qualified.push_str(&format!("{}{}", base_name.len(), base_name));

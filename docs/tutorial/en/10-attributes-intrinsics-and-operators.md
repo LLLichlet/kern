@@ -20,7 +20,7 @@ Outer attributes apply to the next declaration:
 ```kern
 #[export_name("_start")]
 fn kmain() void {
-    while (true) {}
+    while true {}
     @unreachable();
 }
 ```
@@ -29,7 +29,7 @@ Inner attributes apply to the current lexical scope, often at the start of a
 file or module:
 
 ```kern
-#![if(os == "linux")]
+#![if os == "linux"]
 ```
 
 Attribute content is either a conditional-compilation expression or metadata
@@ -40,10 +40,10 @@ tags. Do not mix both categories in one `#[...]`.
 Conditional attributes prune code before semantic analysis:
 
 ```kern
-#[if(os == "linux")]
+#[if os == "linux"]
 mod linux;
 
-#[if(os == "windows")]
+#[if os == "windows"]
 mod windows;
 ```
 
@@ -51,7 +51,7 @@ Conditions use Kern boolean syntax: `and`, `or`, and `!`. They can also read
 compiler configuration definitions:
 
 ```kern
-#[if((os == "linux" or os == "darwin") and !libc)]
+#[if os == "linux" or os == "darwin" and !libc]
 mod posix_no_libc;
 ```
 
@@ -123,7 +123,7 @@ fn exit_now(code: i32) ! {
 }
 
 fn expect_nonzero(value: i32) i32 {
-    if (value == 0) {
+    if value == 0 {
         @trap();
     }
     return value;
@@ -255,7 +255,7 @@ results are `boolxN`, which cannot be used directly as scalar `if` conditions.
 Reduce them explicitly:
 
 ```kern
-if (@simdAny(mask)) {
+if @simdAny(mask) {
     @breakpoint();
 }
 ```
@@ -306,7 +306,7 @@ fn first_non_space(chunk: &u8) usize {
         (bytes == @simdSplat[u8x16](b'\t'));
 
     let non_spaces = @simdBitmask(!spaces);
-    if (non_spaces == 0) {
+    if non_spaces == 0 {
         return 16usize;
     }
     return @ctz(non_spaces);

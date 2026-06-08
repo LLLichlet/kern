@@ -1,3 +1,5 @@
+//! CLI integration tests for SIMD features.
+
 use kernc_cli::test_support::{
     build_and_run, compile_source_with_args as compile_with_args,
     emit_llvm_ir_with_args as emit_ir_with_args,

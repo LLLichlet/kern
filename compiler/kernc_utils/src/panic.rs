@@ -1,3 +1,9 @@
+//! Panic hook that reports unexpected Rust panics as compiler ICEs.
+//!
+//! Structured compiler errors should flow through diagnostics.  This hook is a
+//! last-resort boundary for bugs that still panic, formatting them in the same
+//! issue-reporting style as explicit ICE diagnostics.
+
 use std::backtrace::Backtrace;
 use std::panic::{self, PanicHookInfo};
 use std::sync::Once;
@@ -7,6 +13,8 @@ static INSTALL: Once = Once::new();
 pub fn install_compiler_panic_hook(program_name: &'static str) {
     INSTALL.call_once(|| {
         panic::set_hook(Box::new(move |info| {
+            // Keep the panic hook independent from `Session`: panics may happen
+            // before a session exists or after compilation state has unwound.
             eprintln!("ICE: Kern Compiler Internal Error");
             eprintln!("This is a bug in the compiler. Please report this issue at:");
             eprintln!("https://github.com/kern-project/kern/issues");

@@ -1,3 +1,10 @@
+//! High-level compiler driver state and public analysis API.
+//!
+//! `CompilerDriver` ties frontend caches, semantic analysis, lowering,
+//! partitioning, codegen, linking, and editor analysis artifacts together. The
+//! submodules own each stage, while this file defines shared reports and cache
+//! keys.
+
 mod analysis;
 mod codegen_units;
 mod completion;
@@ -27,12 +34,12 @@ pub use kernc_flow::{
     AnalysisFlowSingleSourceUse, AnalysisFlowSummary, AnalysisFlowUseDef,
 };
 use kernc_sema::SemaStructureSnapshot;
-use kernc_sema::def::DefId;
-use kernc_sema::scope::ScopeId;
+use kernc_sema::def::{Def, DefId};
+use kernc_sema::scope::{ScopeId, SymbolInfo, SymbolKind};
 use kernc_sema::ty::TypeId;
-use kernc_utils::Session;
-use kernc_utils::SymbolId;
 use kernc_utils::config::CompileOptions;
+pub use kernc_utils::{Canceled, CancellationToken};
+use kernc_utils::{Session, SymbolId};
 
 use crate::frontend::FrontendDatabase;
 
@@ -126,6 +133,38 @@ pub struct AnalysisDefinitionLink {
     pub linked_definition_span: kernc_utils::Span,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnalysisDocumentLink {
+    pub origin_span: kernc_utils::Span,
+    pub target_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnalysisCall {
+    pub kind: AnalysisCallKind,
+    pub call_span: kernc_utils::Span,
+    pub callee_span: kernc_utils::Span,
+    pub callee_definition_span: Option<kernc_utils::Span>,
+    pub caller_definition_span: kernc_utils::Span,
+    pub dynamic_dispatch_targets: Vec<kernc_utils::Span>,
+    pub indirect_targets: Vec<kernc_utils::Span>,
+    pub indirect_target_completeness: AnalysisCallTargetCompleteness,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalysisCallKind {
+    Direct,
+    DynamicDispatch,
+    Indirect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalysisCallTargetCompleteness {
+    Exact,
+    Partial,
+    Unknown,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnalysisTypeHintKind {
     Variable,
@@ -152,6 +191,7 @@ pub enum AnalysisSemanticKind {
     Namespace,
     Struct,
     Enum,
+    EnumMember,
     Interface,
     Type,
     TypeParameter,
@@ -195,6 +235,7 @@ pub struct AnalysisCompletionItem {
     pub kind: AnalysisCompletionKind,
     pub detail: Option<String>,
     pub insert_text: Option<String>,
+    pub documentation: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -273,6 +314,29 @@ pub struct AnalysisDeadStore {
     pub name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnalysisTraitImplStub {
+    pub impl_span: kernc_utils::Span,
+    pub method_name: String,
+    pub insertion_offset: usize,
+    pub insert_text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnalysisImportCandidate {
+    pub name: String,
+    pub path: String,
+    pub insertion_offset: usize,
+    pub insert_text: String,
+    pub definition_span: kernc_utils::Span,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ImportInsertionSite {
+    module_id: DefId,
+    insertion_offset: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct AnalysisSymbol {
     pub name: String,
@@ -292,6 +356,7 @@ pub struct AnalysisArtifact {
     pub type_hints: Vec<AnalysisTypeHint>,
     pub definition_links: Vec<AnalysisDefinitionLink>,
     pub semantic_entries: Vec<AnalysisSemanticEntry>,
+    pub calls: Vec<AnalysisCall>,
     asts: Vec<(DefId, ast::Module)>,
     resolved_globals: Vec<ResolvedGlobalType>,
     completion_model: completion::CompletionModel,
@@ -300,6 +365,7 @@ pub struct AnalysisArtifact {
     unused_items: Vec<AnalysisUnusedItem>,
     unused_bindings: Vec<AnalysisUnusedBinding>,
     dead_stores: Vec<AnalysisDeadStore>,
+    trait_impl_stubs: Vec<AnalysisTraitImplStub>,
 }
 
 pub struct AnalysisNavigationArtifact {
@@ -310,6 +376,26 @@ pub struct AnalysisNavigationArtifact {
     pub hovers: Vec<AnalysisHover>,
     pub type_hints: Vec<AnalysisTypeHint>,
     pub definition_links: Vec<AnalysisDefinitionLink>,
+    pub semantic_entries: Vec<AnalysisSemanticEntry>,
+    pub calls: Vec<AnalysisCall>,
+}
+
+pub struct AnalysisSemanticArtifact {
+    pub session: Session,
+    pub succeeded: bool,
+    pub symbols: Vec<AnalysisSymbol>,
+    pub references: Vec<AnalysisReference>,
+    pub hovers: Vec<AnalysisHover>,
+    pub type_hints: Vec<AnalysisTypeHint>,
+    pub semantic_entries: Vec<AnalysisSemanticEntry>,
+}
+
+pub struct AnalysisSemanticTokenArtifact {
+    pub session: Session,
+    pub succeeded: bool,
+    pub symbols: Vec<AnalysisSymbol>,
+    pub references: Vec<AnalysisReference>,
+    pub hovers: Vec<AnalysisHover>,
     pub semantic_entries: Vec<AnalysisSemanticEntry>,
 }
 
@@ -331,7 +417,6 @@ pub struct ParsedModuleArtifact {
 
 #[derive(Clone)]
 struct ParsedModule {
-    name: String,
     file_id: kernc_utils::FileId,
     source_path: PathBuf,
     path: PathBuf,
@@ -363,6 +448,7 @@ pub struct StructureArtifact {
     symbols: Vec<AnalysisSymbol>,
     snapshot: SemaStructureSnapshot,
     completion_model: completion::CompletionModel,
+    trait_impl_stubs: Vec<AnalysisTraitImplStub>,
 }
 
 #[derive(Clone)]
@@ -530,6 +616,10 @@ impl AnalysisArtifact {
 
     pub fn dead_stores(&self) -> Vec<AnalysisDeadStore> {
         self.dead_stores.clone()
+    }
+
+    pub fn trait_impl_stubs(&self) -> Vec<AnalysisTraitImplStub> {
+        self.trait_impl_stubs.clone()
     }
 }
 
@@ -709,6 +799,148 @@ impl AnalysisSurfaceArtifact {
 }
 
 impl StructureArtifact {
+    pub fn session(&self) -> &Session {
+        &self.session
+    }
+
+    pub fn trait_impl_stubs(&self) -> &[AnalysisTraitImplStub] {
+        &self.trait_impl_stubs
+    }
+
+    pub fn completion_items(
+        &self,
+        target_path: &Path,
+        offset: usize,
+    ) -> Vec<AnalysisCompletionItem> {
+        self.completion_model.completion_items(target_path, offset)
+    }
+
+    pub fn document_links(&self, target_path: &Path) -> Vec<AnalysisDocumentLink> {
+        let mut links = Vec::new();
+        for (module_id, module_ast) in &self.asts {
+            let Some(kernc_sema::def::Def::Module(module_def)) =
+                self.snapshot.defs.get(module_id.0 as usize)
+            else {
+                continue;
+            };
+            let Some(module_path) = self
+                .session
+                .source_manager
+                .get_file_path(module_def.file_id)
+            else {
+                continue;
+            };
+            if module_path != target_path {
+                continue;
+            }
+            let import_spans = import_binding_spans(module_ast);
+
+            for decl in &module_ast.decls {
+                if !matches!(decl.kind, ast::DeclKind::Mod { decls: None }) {
+                    continue;
+                }
+                let Some(submodule_id) = module_def.submodules.get(&decl.name) else {
+                    continue;
+                };
+                let Some(kernc_sema::def::Def::Module(submodule_def)) =
+                    self.snapshot.defs.get(submodule_id.0 as usize)
+                else {
+                    continue;
+                };
+                let Some(target_path) = self
+                    .session
+                    .source_manager
+                    .get_file_path(submodule_def.file_id)
+                else {
+                    continue;
+                };
+                links.push(AnalysisDocumentLink {
+                    origin_span: decl.name_span,
+                    target_path: target_path.clone(),
+                });
+            }
+            for (_name, info) in self.snapshot.scopes.symbols_in_scope(module_def.scope_id) {
+                if !import_spans.contains(&info.span) {
+                    continue;
+                }
+                if info.kind != kernc_sema::scope::SymbolKind::Module {
+                    continue;
+                }
+                let Some(def_id) = info.def_id else {
+                    continue;
+                };
+                let Some(target_module_id) = document_link_target_module(&self.snapshot, def_id)
+                else {
+                    continue;
+                };
+                if target_module_id == *module_id {
+                    continue;
+                }
+                let Some(kernc_sema::def::Def::Module(target_module)) =
+                    self.snapshot.defs.get(target_module_id.0 as usize)
+                else {
+                    continue;
+                };
+                let Some(target_path) = self
+                    .session
+                    .source_manager
+                    .get_file_path(target_module.file_id)
+                else {
+                    continue;
+                };
+                links.push(AnalysisDocumentLink {
+                    origin_span: info.span,
+                    target_path: target_path.clone(),
+                });
+            }
+        }
+        links.sort_by_key(|link| (link.origin_span.file.0, link.origin_span.start));
+        links.dedup();
+        links
+    }
+
+    pub fn import_candidates_for_unresolved_name(
+        &self,
+        target_path: &Path,
+        unresolved_span: kernc_utils::Span,
+        name: &str,
+        type_only: bool,
+    ) -> Vec<AnalysisImportCandidate> {
+        import_candidates_for_unresolved_name_from_structure(
+            &self.session,
+            &self.asts,
+            &self.snapshot,
+            target_path,
+            unresolved_span,
+            name,
+            type_only,
+        )
+    }
+}
+
+impl ImportedStructureArtifact {
+    pub fn session(&self) -> &Session {
+        &self.session
+    }
+
+    pub fn import_candidates_for_unresolved_name(
+        &self,
+        target_path: &Path,
+        unresolved_span: kernc_utils::Span,
+        name: &str,
+        type_only: bool,
+    ) -> Vec<AnalysisImportCandidate> {
+        import_candidates_for_unresolved_name_from_structure(
+            &self.session,
+            &self.asts,
+            &self.snapshot,
+            target_path,
+            unresolved_span,
+            name,
+            type_only,
+        )
+    }
+
     pub fn completion_items(
         &self,
         target_path: &Path,
@@ -718,14 +950,474 @@ impl StructureArtifact {
     }
 }
 
-impl ImportedStructureArtifact {
-    pub fn completion_items(
-        &self,
-        target_path: &Path,
-        offset: usize,
-    ) -> Vec<AnalysisCompletionItem> {
-        self.completion_model.completion_items(target_path, offset)
+fn import_candidates_for_unresolved_name_from_structure(
+    session: &Session,
+    asts: &[(DefId, ast::Module)],
+    snapshot: &SemaStructureSnapshot,
+    target_path: &Path,
+    unresolved_span: kernc_utils::Span,
+    name: &str,
+    type_only: bool,
+) -> Vec<AnalysisImportCandidate> {
+    let Some(site) = import_insertion_site_for_path_and_span(
+        session,
+        asts,
+        snapshot,
+        target_path,
+        unresolved_span,
+    ) else {
+        return Vec::new();
+    };
+    let Some(target_module) = structure_module_def(snapshot, site.module_id) else {
+        return Vec::new();
+    };
+    let Some(name_symbol) = lookup_structure_symbol(session, snapshot, name) else {
+        return Vec::new();
+    };
+    if snapshot
+        .scopes
+        .resolve_from(target_module.scope_id, name_symbol)
+        .is_some()
+    {
+        return Vec::new();
     }
+
+    let mut candidates = Vec::new();
+    for def in snapshot.defs.iter() {
+        let Def::Module(owner_module) = def else {
+            continue;
+        };
+        if owner_module.id == site.module_id {
+            continue;
+        }
+        let Some(info) = snapshot
+            .scopes
+            .resolve_in(owner_module.scope_id, name_symbol)
+        else {
+            continue;
+        };
+        if !import_candidate_kind_matches(info.kind, type_only) {
+            continue;
+        }
+        if !symbol_visible_from_module(snapshot, info, owner_module.id, site.module_id) {
+            continue;
+        }
+        let Some(path) =
+            import_path_between_modules(session, snapshot, site.module_id, owner_module.id, name)
+        else {
+            continue;
+        };
+        candidates.push(AnalysisImportCandidate {
+            name: name.to_string(),
+            path: path.clone(),
+            insertion_offset: site.insertion_offset,
+            insert_text: format!("use {};\n", path),
+            definition_span: info.span,
+        });
+    }
+
+    candidates.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then_with(|| left.definition_span.file.cmp(&right.definition_span.file))
+            .then_with(|| left.definition_span.start.cmp(&right.definition_span.start))
+    });
+    candidates.dedup_by(|left, right| left.path == right.path);
+    candidates
+}
+
+fn import_insertion_site_for_path_and_span(
+    session: &Session,
+    asts: &[(DefId, ast::Module)],
+    snapshot: &SemaStructureSnapshot,
+    target_path: &Path,
+    span: kernc_utils::Span,
+) -> Option<ImportInsertionSite> {
+    asts.iter()
+        .filter_map(|(module_id, module_ast)| {
+            let module = structure_module_def(snapshot, *module_id)?;
+            let path = session.source_manager.get_file_path(module.file_id)?;
+            if path != target_path {
+                return None;
+            }
+            let module_span = module_span(module_ast, module.file_id);
+            if !span_within(module_span, span) {
+                return None;
+            }
+            let file = session.source_manager.get_file(module.file_id)?;
+            let site = find_import_insertion_site_in_decls(
+                snapshot,
+                file,
+                *module_id,
+                &module_ast.decls,
+                span,
+                module_span.start,
+            )?;
+            Some((site, module_span))
+        })
+        .min_by_key(|(_, module_span)| module_span.end.saturating_sub(module_span.start))
+        .map(|(site, _)| site)
+        .or_else(|| {
+            snapshot.defs.iter().find_map(|def| {
+                let Def::Module(module) = def else {
+                    return None;
+                };
+                let path = session.source_manager.get_file_path(module.file_id)?;
+                (path == target_path).then_some(ImportInsertionSite {
+                    module_id: module.id,
+                    insertion_offset: 0,
+                })
+            })
+        })
+}
+
+fn lookup_structure_symbol(
+    session: &Session,
+    snapshot: &SemaStructureSnapshot,
+    name: &str,
+) -> Option<SymbolId> {
+    snapshot
+        .scopes
+        .all_symbols()
+        .map(|(symbol, _)| symbol)
+        .find(|symbol| session.resolve(*symbol) == name)
+}
+
+fn find_import_insertion_site_in_decls(
+    snapshot: &SemaStructureSnapshot,
+    file: &kernc_utils::SourceFile,
+    module_id: DefId,
+    decls: &[ast::Decl],
+    span: kernc_utils::Span,
+    module_start: usize,
+) -> Option<ImportInsertionSite> {
+    for decl in decls {
+        let ast::DeclKind::Mod {
+            decls: Some(child_decls),
+        } = &decl.kind
+        else {
+            continue;
+        };
+        if !span_within(decl.span, span) {
+            continue;
+        }
+        let module = structure_module_def(snapshot, module_id)?;
+        let child_module_id = module.submodules.get(&decl.name).copied()?;
+        let child_start = inline_module_body_start(file, decl)?;
+        return find_import_insertion_site_in_decls(
+            snapshot,
+            file,
+            child_module_id,
+            child_decls,
+            span,
+            child_start,
+        );
+    }
+
+    Some(ImportInsertionSite {
+        module_id,
+        insertion_offset: import_insertion_offset_in_decls(file, decls, module_start),
+    })
+}
+
+fn import_insertion_offset_in_decls(
+    file: &kernc_utils::SourceFile,
+    decls: &[ast::Decl],
+    module_start: usize,
+) -> usize {
+    let mut offset = module_start;
+    for decl in decls {
+        if matches!(decl.kind, ast::DeclKind::Use { .. }) {
+            offset = decl.span.end;
+            if file.src.as_bytes().get(offset) == Some(&b'\n') {
+                offset += 1;
+            }
+        }
+    }
+    offset
+}
+
+fn inline_module_body_start(file: &kernc_utils::SourceFile, decl: &ast::Decl) -> Option<usize> {
+    let search_start = decl.name_span.end.min(file.src.len());
+    let search_end = decl.span.end.min(file.src.len());
+    let relative = file.src.get(search_start..search_end)?.find('{')?;
+    let mut offset = search_start + relative + 1;
+    if file.src.as_bytes().get(offset) == Some(&b'\n') {
+        offset += 1;
+    }
+    Some(offset)
+}
+
+fn import_candidate_kind_matches(kind: SymbolKind, type_only: bool) -> bool {
+    if type_only {
+        return matches!(
+            kind,
+            SymbolKind::Struct
+                | SymbolKind::Union
+                | SymbolKind::Enum
+                | SymbolKind::Trait
+                | SymbolKind::TypeAlias
+        );
+    }
+    matches!(
+        kind,
+        SymbolKind::Function
+            | SymbolKind::Const
+            | SymbolKind::Static
+            | SymbolKind::Struct
+            | SymbolKind::Union
+            | SymbolKind::Enum
+            | SymbolKind::Trait
+            | SymbolKind::TypeAlias
+            | SymbolKind::Module
+    )
+}
+
+fn import_path_between_modules(
+    session: &Session,
+    snapshot: &SemaStructureSnapshot,
+    from_module_id: DefId,
+    owner_module_id: DefId,
+    name: &str,
+) -> Option<String> {
+    let from_root = structure_module_root(snapshot, from_module_id);
+    let owner_root = structure_module_root(snapshot, owner_module_id);
+    if from_root == owner_root {
+        let mut components = structure_module_path_below_root(session, snapshot, owner_module_id)?;
+        components.push(name.to_string());
+        return Some(format!("/{}", components.join(".")));
+    }
+
+    let mut components = vec![
+        session
+            .resolve(structure_module_def(snapshot, owner_root)?.name)
+            .to_string(),
+    ];
+    components.extend(structure_module_path_below_root(
+        session,
+        snapshot,
+        owner_module_id,
+    )?);
+    components.push(name.to_string());
+    Some(components.join("."))
+}
+
+fn structure_module_path_below_root(
+    session: &Session,
+    snapshot: &SemaStructureSnapshot,
+    module_id: DefId,
+) -> Option<Vec<String>> {
+    let root = structure_module_root(snapshot, module_id);
+    let mut ids = Vec::new();
+    let mut current = Some(module_id);
+    while let Some(id) = current {
+        ids.push(id);
+        if id == root {
+            break;
+        }
+        current = structure_module_def(snapshot, id)?.parent;
+    }
+    ids.reverse();
+    if !ids.is_empty() {
+        ids.remove(0);
+    }
+    Some(
+        ids.into_iter()
+            .filter_map(|id| {
+                structure_module_def(snapshot, id)
+                    .map(|module| session.resolve(module.name).to_string())
+            })
+            .collect(),
+    )
+}
+
+fn structure_module_root(snapshot: &SemaStructureSnapshot, module_id: DefId) -> DefId {
+    let mut current = module_id;
+    while let Some(parent) =
+        structure_module_def(snapshot, current).and_then(|module| module.parent)
+    {
+        current = parent;
+    }
+    current
+}
+
+fn structure_module_def(
+    snapshot: &SemaStructureSnapshot,
+    module_id: DefId,
+) -> Option<&kernc_sema::def::ModuleDef> {
+    match snapshot.defs.get(module_id.0 as usize) {
+        Some(Def::Module(module)) => Some(module),
+        _ => None,
+    }
+}
+
+fn symbol_visible_from_module(
+    snapshot: &SemaStructureSnapshot,
+    info: &SymbolInfo,
+    owner_module: DefId,
+    current_module: DefId,
+) -> bool {
+    match info.vis {
+        kernc_ast::Visibility::Public => true,
+        kernc_ast::Visibility::Private => current_module == owner_module,
+        kernc_ast::Visibility::Super => {
+            let Some(parent_module) =
+                structure_module_def(snapshot, owner_module).and_then(|module| module.parent)
+            else {
+                return false;
+            };
+            module_is_same_or_descendant_of(snapshot, current_module, parent_module)
+        }
+        kernc_ast::Visibility::Package => {
+            structure_module_root(snapshot, current_module)
+                == structure_module_root(snapshot, owner_module)
+        }
+    }
+}
+
+fn module_is_same_or_descendant_of(
+    snapshot: &SemaStructureSnapshot,
+    module_id: DefId,
+    ancestor_module_id: DefId,
+) -> bool {
+    let mut current = Some(module_id);
+    while let Some(id) = current {
+        if id == ancestor_module_id {
+            return true;
+        }
+        current = structure_module_def(snapshot, id).and_then(|module| module.parent);
+    }
+    false
+}
+
+fn module_span(module: &ast::Module, file_id: kernc_utils::FileId) -> kernc_utils::Span {
+    let start = module
+        .decls
+        .first()
+        .map(|decl| decl.span.start)
+        .unwrap_or(0);
+    let end = module
+        .decls
+        .last()
+        .map(|decl| decl.span.end)
+        .unwrap_or(start);
+    kernc_utils::Span {
+        file: file_id,
+        start,
+        end,
+    }
+}
+
+fn span_within(outer: kernc_utils::Span, inner: kernc_utils::Span) -> bool {
+    outer.file == inner.file && outer.start <= inner.start && inner.end <= outer.end
+}
+
+fn import_binding_spans(module: &ast::Module) -> std::collections::BTreeSet<kernc_utils::Span> {
+    let mut spans = std::collections::BTreeSet::new();
+    for decl in &module.decls {
+        let ast::DeclKind::Use { target, .. } = &decl.kind else {
+            continue;
+        };
+        collect_import_binding_spans(target, decl.name_span, &mut spans);
+    }
+    spans
+}
+
+fn collect_import_binding_spans(
+    target: &ast::UseTarget,
+    module_binding_span: kernc_utils::Span,
+    spans: &mut std::collections::BTreeSet<kernc_utils::Span>,
+) {
+    match target {
+        ast::UseTarget::Module(_) => {
+            spans.insert(module_binding_span);
+        }
+        ast::UseTarget::Tree(items) => {
+            for item in items {
+                collect_import_tree_binding_spans(item, spans);
+            }
+        }
+    }
+}
+
+fn collect_import_tree_binding_spans(
+    tree: &ast::UseTree,
+    spans: &mut std::collections::BTreeSet<kernc_utils::Span>,
+) {
+    match tree {
+        ast::UseTree::SelfModule { binding_span, .. } => {
+            spans.insert(*binding_span);
+        }
+        ast::UseTree::Path {
+            nested,
+            binding_span,
+            ..
+        } => {
+            spans.insert(*binding_span);
+            if let Some(nested) = nested {
+                for child in nested {
+                    collect_import_tree_binding_spans(child, spans);
+                }
+            }
+        }
+    }
+}
+
+fn document_link_target_module(snapshot: &SemaStructureSnapshot, def_id: DefId) -> Option<DefId> {
+    match snapshot.defs.get(def_id.0 as usize)? {
+        kernc_sema::def::Def::Module(_) => Some(def_id),
+        _ => document_link_def_parent_module(snapshot, def_id),
+    }
+}
+
+fn document_link_def_parent_module(
+    snapshot: &SemaStructureSnapshot,
+    def_id: DefId,
+) -> Option<DefId> {
+    let parent = match snapshot.defs.get(def_id.0 as usize)? {
+        kernc_sema::def::Def::Module(module) => module.parent,
+        kernc_sema::def::Def::Function(function) => match function.parent {
+            Some(parent_id) => match snapshot.defs.get(parent_id.0 as usize) {
+                Some(kernc_sema::def::Def::Module(_)) => Some(parent_id),
+                Some(kernc_sema::def::Def::Impl(impl_def)) => impl_def.parent_module,
+                _ => None,
+            },
+            None => None,
+        },
+        kernc_sema::def::Def::Struct(def) => def.parent_module,
+        kernc_sema::def::Def::Union(def) => def.parent_module,
+        kernc_sema::def::Def::Impl(def) => def.parent_module,
+        kernc_sema::def::Def::Global(global) => match global.parent {
+            Some(parent_id) => match snapshot.defs.get(parent_id.0 as usize) {
+                Some(kernc_sema::def::Def::Module(_)) => Some(parent_id),
+                Some(kernc_sema::def::Def::Impl(impl_def)) => impl_def.parent_module,
+                _ => None,
+            },
+            None => None,
+        },
+        kernc_sema::def::Def::AssociatedType(def) => {
+            if let Some(parent_impl) = def.parent_impl {
+                match snapshot.defs.get(parent_impl.0 as usize) {
+                    Some(kernc_sema::def::Def::Impl(impl_def)) => impl_def.parent_module,
+                    _ => None,
+                }
+            } else {
+                def.parent_trait
+                    .and_then(|trait_id| document_link_def_parent_module(snapshot, trait_id))
+            }
+        }
+        kernc_sema::def::Def::Enum(_)
+        | kernc_sema::def::Def::Trait(_)
+        | kernc_sema::def::Def::TypeAlias(_) => None,
+    };
+    parent.or_else(|| {
+        snapshot.defs.iter().find_map(|def| match def {
+            kernc_sema::def::Def::Module(module) if module.items.contains(&def_id) => {
+                Some(module.id)
+            }
+            _ => None,
+        })
+    })
 }
 
 #[cfg(test)]

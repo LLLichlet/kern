@@ -92,7 +92,7 @@ fn parse_value() ParseResult {
 
 ```kern
 fn code_score(code: u8) i32 {
-    return match (code) {
+    return match code {
         0 => 10,
         1 => 20,
         _ => -1,
@@ -104,7 +104,7 @@ fn code_score(code: u8) i32 {
 expression on the right:
 
 ```kern
-match (value) {
+match value {
     pattern => expr,
     pattern => expr,
 }
@@ -114,7 +114,7 @@ Arms can contain multiple patterns and range patterns:
 
 ```kern
 fn class_of(byte: u8) i32 {
-    return match (byte) {
+    return match byte {
         b'0' ..= b'9' => 1,
         b'a' ..= b'z', b'A' ..= b'Z' => 2,
         b'_', b'-' => 3,
@@ -138,7 +138,7 @@ impl IsCommand : Pattern[&[u8]] {
     type Bind = void;
 
     fn apply(value: &[u8]) ?Bind {
-        if (value == self.name) {
+        if value == self.name {
             return .{ Some: {} };
         }
         return .None;
@@ -146,7 +146,7 @@ impl IsCommand : Pattern[&[u8]] {
 }
 
 fn command_id(command: &[u8]) i32 {
-    return match (command) {
+    return match command {
         IsCommand.{ name: "run" } => 1,
         IsCommand.{ name: "test" } => 2,
         _ => 0,
@@ -170,7 +170,7 @@ impl Prefix : Pattern[&[u8]] {
     type Bind = struct { rest: &[u8] };
 
     fn apply(value: &[u8]) ?Bind {
-        if (value.@len() == 0 or value.[0] != self.byte) {
+        if value.@len() == 0 or value.[0] != self.byte {
             return .None;
         }
         return .{ Some: .{ rest: value.&[1...] } };
@@ -178,7 +178,7 @@ impl Prefix : Pattern[&[u8]] {
 }
 
 fn after_dash(text: &[u8]) ?&[u8] {
-    return match (text) {
+    return match text {
         Prefix.{ byte: b'-' } => .{ Some: rest },
         _ => .None,
     };
@@ -191,7 +191,7 @@ shape: the same field names, field types, and binding mutability. This is why
 patterns, keep the names aligned:
 
 ```kern
-match (value) {
+match value {
     .{ A: item }, .{ B: item } => use(item),
     // .{ A: left }, .{ B: right } => ...   // different bind names
 }
@@ -201,7 +201,7 @@ For enums, patterns can test the variant and unpack payloads:
 
 ```kern
 fn describe(result: ParseResult) void {
-    match (result) {
+    match result {
         .{ Number: value } => "number = {}".fmt(.{value}).println(),
         .Missing => "missing".println(),
     }
@@ -235,7 +235,7 @@ enum Leaf {
 };
 
 fn leaf_score(leaf: Leaf) i32 {
-    return match (leaf) {
+    return match leaf {
         .Empty => 0,
         .{ Full: .Zero } => 1,
         .{ Full: .One } => 2,
@@ -263,9 +263,9 @@ a nullable pointer and does not have hidden ABI privileges.
 ```kern
 fn first_digit(text: &[u8]) ?u8 {
     let mut i = 0;
-    while (i < text.@len()) {
+    while i < text.@len() {
         let byte = text.[i];
-        if (byte >= b'0' and byte <= b'9') {
+        if byte >= b'0' and byte <= b'9' {
             return .{ Some: byte };
         }
         i += 1;
@@ -277,7 +277,7 @@ fn first_digit(text: &[u8]) ?u8 {
 Use `match` to unpack it:
 
 ```kern
-match (first_digit("abc3")) {
+match first_digit("abc3") {
     .{ Some: byte } => "digit = {}".fmt(.{byte}).println(),
     .None => "no digit".println(),
 }
@@ -286,7 +286,7 @@ match (first_digit("abc3")) {
 If you only care whether a value exists, use `is_some()` / `is_none()`:
 
 ```kern
-if (first_digit("abc3").is_some()) {
+if first_digit("abc3").is_some() {
     "found a digit".println();
 }
 ```
@@ -322,7 +322,7 @@ enum Error {
 };
 
 fn first(text: &[u8]) u8!Error {
-    if (text.@len() == 0) {
+    if text.@len() == 0 {
         return .{ Err: .Empty };
     }
     return .{ Ok: text.[0] };
@@ -332,7 +332,7 @@ fn first(text: &[u8]) u8!Error {
 You can handle results with `match`:
 
 ```kern
-match (first("kern")) {
+match first("kern") {
     .{ Ok: byte } => "first = {}".fmt(.{byte}).println(),
     .{ Err: .Empty } => "error: empty input".println(),
 }
@@ -437,7 +437,7 @@ Anonymous enums express local state sets:
 
 ```kern
 fn classify(state: enum: u32 { Off = 0, On = 1, Error: i32 }) i32 {
-    return match (state) {
+    return match state {
         .Off => 0,
         .On => 1,
         .{ Error: code } => code,

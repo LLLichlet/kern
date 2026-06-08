@@ -79,7 +79,7 @@ For a minimal freestanding package, keep startup ownership explicit in
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8"
 
 [runtime]
 entry = "none"
@@ -96,7 +96,7 @@ The source file may export `_start` directly:
 ```kern
 #[export_name("_start")]
 fn kmain() void {
-    while (true) {}
+    while true {}
     @unreachable();
 }
 ```
@@ -176,6 +176,26 @@ This is the important model:
 All machine-local state owned by `craft` lives under `.craft/`. That tree is
 derived state, not part of the reproducibility surface, and does not belong in
 version control.
+
+Build outputs are arranged under `.craft/build/<profile>/<domain>/` for the
+current host target. The domain is either `target` for final package artifacts
+or `host` for build-time tools. When an explicit non-host target is selected,
+`craft` expands the domain to `<domain>-<target-key>`, where the target key
+includes architecture, vendor, operating system, and environment. This keeps
+host tools, target artifacts, and ABI variants isolated without making the
+default local development path noisy.
+
+Within that target-specific root, local workspace packages use the package
+name as their artifact directory. External package identities that can collide
+use a short stable hash suffix, such as `codegen~1a2b3c4d`. Package versions
+remain in manifests, the lockfile, and fingerprints; they are not used as a
+visible local artifact directory layer.
+
+Use `craft clean` to remove derived `.craft/` state instead of manually deleting
+`.craft/`. The command preserves `.craft/lock/` while removing build outputs,
+materialized sources/resources, docs, and analysis state so the next command can
+reconstruct them from `Craft.toml`, `Craft.lock`, package sources, and declared
+resources.
 
 `craft` maintains a root `.gitignore` entry for `.craft/` next to `Craft.toml`
 when it creates local state. The ignore rule belongs at the package or
@@ -358,7 +378,7 @@ Example:
 [package]
 name = "http"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8"
 
 [runtime]
 entry = "rt"
@@ -401,7 +421,7 @@ debug = false
 Manifest rules:
 
 - targets are explicit, except that package tests default to direct `tests/*.kn` roots when `[test].roots` is absent
-- `[package].kern` must match the current installed Kern toolchain version exactly
+- `[package].kern` declares the compatible Kern minor line, such as `0.8`; a full patch version such as `0.8.2` is also accepted for patch-specific packages
 - `[package].name` is always package-local; workspace inheritance never names a member package
 - a root `Craft.toml` cannot be both a package and a workspace
 - `Craft.toml` does not expose an `edition` field before Kern 1.0
@@ -455,7 +475,7 @@ json = { member = "json" }
 
 [workspace.package]
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8"
 description = "JSON parsing and document utilities for Kern"
 license = "MIT"
 authors = ["Example <dev@example.com>"]
@@ -799,7 +819,7 @@ pub fn build(b: &mut builder.Builder) void {
     b.cfg_bool("generated", true);
     b.define_string("entry", "generated");
 
-    match (b.target.os) {
+    match b.target.os {
         .windows => b.link_system_lib("ws2_32"),
         .darwin => b.link_framework("Security"),
         .linux => {},
@@ -1031,6 +1051,7 @@ This keeps package management, graph resolution, and code generation cleanly sep
 The command surface is intentionally narrow:
 
 - `craft help`
+- `craft clean`
 - `craft check`
 - `craft fetch`
 - `craft publish`
@@ -1058,6 +1079,8 @@ Command behavior:
   horizontal whitespace and enforcing final-newline consistency
 - `style` reports source metrics, public-doc coverage, and configurable
   advisory style suggestions without mutating source files
+- `clean` removes derived `.craft/` state for the selected package or workspace
+  while preserving lock files used to coordinate concurrent commands
 - `build` auto-synchronizes `Craft.lock` and executes the selected build plan
 - `install` auto-synchronizes `Craft.lock`, builds selected package `bin` targets, and copies them into the active install root's `bin/` directory
 - `uninstall` auto-synchronizes `Craft.lock` and removes installed package `bin` targets from that same install root

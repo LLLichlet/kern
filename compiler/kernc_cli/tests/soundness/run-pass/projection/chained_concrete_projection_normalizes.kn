@@ -29,5 +29,5 @@ fn project(value: Bytes) Bytes.Step.Mid.Finish.Out {
 fn main() i32 {
     let value = project("ok");
     let align = @alignOf[Bytes.Step.Mid.Finish.Out]();
-    return if (value == 7 and align == 4) { 0 } else { 1 };
+    return if value == 7 and align == 4 { 0 } else { 1 };
 }

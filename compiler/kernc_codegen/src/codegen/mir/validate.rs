@@ -1,3 +1,9 @@
+//! MIR-to-codegen validation helpers.
+//!
+//! Validation catches backend-facing mismatches before emitting LLVM, especially
+//! malformed MIR operands or type shapes that should have been rejected by
+//! earlier phases.
+
 use super::*;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {

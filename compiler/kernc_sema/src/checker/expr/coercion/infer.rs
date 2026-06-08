@@ -1,3 +1,9 @@
+//! Lvalue and mutability inference for assignment/coercion.
+//!
+//! These helpers decide whether an expression denotes a mutable storage place,
+//! following bindings, pointer dereferences, field accesses, and aggregate
+//! projections without doing the full place-analysis used by const evaluation.
+
 use super::*;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
@@ -64,10 +70,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             | ExprKind::Bool(_)
             | ExprKind::Char(_)
             | ExprKind::ByteChar(_)
-            | ExprKind::String(_)
             | ExprKind::Call { .. } => {
                 true // Materialized temporaries are owned by the current scope.
             }
+            ExprKind::String(_) => false,
 
             _ => false,
         }
@@ -280,7 +286,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         }
 
-        let mut selected: Option<(DefId, TypeId)> = None;
+        let mut applicable = Vec::new();
 
         for entry in self.ctx.trait_impl_entries() {
             let impl_id = entry.id;
@@ -324,20 +330,37 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     assoc_args,
                     *assoc_ty,
                 );
-                let replace = match selected {
-                    None => true,
-                    Some((selected_impl_id, _)) => matches!(
-                        crate::query::compare_impl_specificity(self.ctx, impl_id, selected_impl_id),
-                        crate::query::ImplSpecificity::LeftMoreSpecific
-                    ),
-                };
-                if replace {
-                    selected = Some((impl_id, assoc_ty));
-                }
+                applicable.push((impl_id, assoc_ty));
             }
         }
 
-        selected.map(|(_, assoc_ty)| assoc_ty)
+        let mut maximal = applicable
+            .iter()
+            .enumerate()
+            .filter(|(index, (impl_id, _))| {
+                !applicable
+                    .iter()
+                    .enumerate()
+                    .any(|(other_index, (other_impl_id, _))| {
+                        other_index != *index
+                            && matches!(
+                                crate::query::compare_impl_specificity(
+                                    self.ctx,
+                                    *other_impl_id,
+                                    *impl_id
+                                ),
+                                crate::query::ImplSpecificity::LeftMoreSpecific
+                            )
+                    })
+            })
+            .map(|(_, candidate)| *candidate)
+            .collect::<Vec<_>>();
+
+        if maximal.len() == 1 {
+            Some(maximal.remove(0).1)
+        } else {
+            None
+        }
     }
 
     fn generic_arg_contains_unresolved_params(&mut self, arg: crate::ty::GenericArg) -> bool {

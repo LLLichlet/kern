@@ -1,0 +1,14 @@
+// class: escaping-stack-state
+// source: returning a slice of a local array must be rejected
+// stderr: address of local value escapes into a return value
+// stderr: current function's stack frame
+// stderr-not: LLVM IR Verification Failed
+
+fn leak() &[u8] {
+    let bytes = [2]u8.{ b'a', b'b' };
+    return bytes.&[0...2];
+}
+
+fn main() i32 {
+    return leak().@len() as i32;
+}

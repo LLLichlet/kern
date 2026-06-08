@@ -1,3 +1,9 @@
+//! MIR lowering test suite.
+//!
+//! The tests in this module build small MAST programs directly and assert the
+//! produced MIR for scalar operations, data aggregates, control flow, SIMD, and
+//! post-lowering optimization pipeline behavior.
+
 mod builder_data;
 mod builder_flow;
 mod builder_scalar;

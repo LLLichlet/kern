@@ -1,3 +1,8 @@
+//! Outline-cache tests.
+//!
+//! These tests focus on parsed/outline cache reuse when edits do or do not
+//! affect top-level structure.
+
 use super::*;
 
 #[test]
@@ -18,12 +23,23 @@ fn analyze_outline_reuses_collected_cache_without_extra_frontend_parse() {
     let overrides = SourceOverrides::new();
 
     let parsed = driver
-        .parse_modules(main.to_str().unwrap(), &overrides)
+        .parse_modules(
+            main.to_str().unwrap(),
+            &overrides,
+            &CancellationToken::new(),
+        )
+        .unwrap()
         .expect("parsed modules should be available");
     assert!(!parsed.modules.is_empty());
     let parse_count = driver.uncached_parse_count();
 
-    let outline = driver.analyze_outline(main.to_str().unwrap(), &overrides);
+    let outline = driver
+        .analyze_outline(
+            main.to_str().unwrap(),
+            &overrides,
+            &CancellationToken::new(),
+        )
+        .unwrap();
     assert!(!outline.symbols.is_empty());
     assert_eq!(driver.uncached_parse_count(), parse_count);
 
@@ -48,7 +64,8 @@ fn analyze_outline_reuses_clean_collected_structure_for_body_only_overrides() {
     let clean = SourceOverrides::new();
 
     let parsed = driver
-        .parse_modules(main.to_str().unwrap(), &clean)
+        .parse_modules(main.to_str().unwrap(), &clean, &CancellationToken::new())
+        .unwrap()
         .expect("parsed modules should warm clean collected cache");
     assert!(!parsed.modules.is_empty());
     let reuse_count = driver.body_only_collected_reuse_count();
@@ -56,14 +73,18 @@ fn analyze_outline_reuses_clean_collected_structure_for_body_only_overrides() {
 
     let mut dirty = SourceOverrides::new();
     dirty.insert(main.clone(), "fn main() i32 { return 2; }".to_string());
-    let outline = driver.analyze_outline(main.to_str().unwrap(), &dirty);
+    let outline = driver
+        .analyze_outline(main.to_str().unwrap(), &dirty, &CancellationToken::new())
+        .unwrap();
     assert!(!outline.symbols.is_empty());
     assert_eq!(driver.body_only_collected_reuse_count(), reuse_count + 1);
 
     let dirty_parse_count = driver.uncached_parse_count();
     assert!(dirty_parse_count > parse_count);
 
-    let outline = driver.analyze_outline(main.to_str().unwrap(), &dirty);
+    let outline = driver
+        .analyze_outline(main.to_str().unwrap(), &dirty, &CancellationToken::new())
+        .unwrap();
     assert!(!outline.symbols.is_empty());
     assert_eq!(driver.body_only_collected_reuse_count(), reuse_count + 1);
     assert_eq!(driver.uncached_parse_count(), dirty_parse_count);
@@ -89,7 +110,8 @@ fn analyze_outline_does_not_reuse_clean_collected_structure_for_surface_changes(
     let clean = SourceOverrides::new();
 
     let parsed = driver
-        .parse_modules(main.to_str().unwrap(), &clean)
+        .parse_modules(main.to_str().unwrap(), &clean, &CancellationToken::new())
+        .unwrap()
         .expect("parsed modules should warm clean collected cache");
     assert!(!parsed.modules.is_empty());
     let reuse_count = driver.body_only_collected_reuse_count();
@@ -99,7 +121,9 @@ fn analyze_outline_does_not_reuse_clean_collected_structure_for_surface_changes(
         main.clone(),
         "fn main(value: i32) i32 { return value; }".to_string(),
     );
-    let outline = driver.analyze_outline(main.to_str().unwrap(), &dirty);
+    let outline = driver
+        .analyze_outline(main.to_str().unwrap(), &dirty, &CancellationToken::new())
+        .unwrap();
     assert!(!outline.symbols.is_empty());
     assert_eq!(driver.body_only_collected_reuse_count(), reuse_count);
 

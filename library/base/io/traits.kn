@@ -39,6 +39,9 @@ pub struct FormatSpec {
 /// A byte sink used by the formatting subsystem.
 pub/ trait Write {
     fn write(bytes: &[u8]) usize;
+    fn flush_write() bool {
+        return true;
+    }
 };
 
 /// A byte source used by generic input helpers.

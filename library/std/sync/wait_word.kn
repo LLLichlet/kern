@@ -1,0 +1,126 @@
+//! No-libc wait/wake helpers for hosted synchronization.
+//!
+//! This module is intentionally private. Public synchronization primitives use
+//! a single integer wait word so Linux can lower to futex, Windows can lower to
+//! WaitOnAddress, and Darwin can be validated behind the same shape. The Darwin
+//! ulock entry points are intentionally isolated here so platform CI can adjust
+//! the exact ABI without changing public `std.sync` types.
+
+use std.host.os;
+
+#[if os == "linux"]
+const SYS_FUTEX = 202usize;
+#[if os == "linux"]
+const FUTEX_WAIT = 0usize;
+#[if os == "linux"]
+const FUTEX_WAIT_PRIVATE = 128usize;
+#[if os == "linux"]
+const FUTEX_WAKE_PRIVATE = 129usize;
+
+#[if os == "darwin"]
+const UL_COMPARE_AND_WAIT = 1u32;
+#[if os == "darwin"]
+const ULF_WAKE_ALL = 256u32;
+
+#[if os == "darwin"]
+extern {
+    #[export_name("__ulock_wait")]
+    fn ulock_wait(operation: u32, addr: &mut i32, value: u64, timeout_us: u32) i32;
+    #[export_name("__ulock_wake")]
+    fn ulock_wake(operation: u32, addr: &mut i32, wake_value: u64) i32;
+}
+
+#[if os == "windows"]
+extern {
+    pub fn WaitOnAddress(
+        Address: &mut i32,
+        CompareAddress: &i32,
+        AddressSize: usize,
+        dwMilliseconds: u32,
+    )i32;
+    pub fn WakeByAddressSingle(Address: &mut i32) void;
+    pub fn WakeByAddressAll(Address: &mut i32) void;
+}
+
+pub/ fn wait(addr: &mut i32, expected: i32) void {
+    #[if os == "linux"] {
+        _ = os.linux.syscall6(
+            SYS_FUTEX,
+            addr as usize,
+            FUTEX_WAIT_PRIVATE,
+            expected as usize,
+            0,
+            0,
+            0,
+        );
+    }
+
+    #[if os == "darwin"] {
+        _ = ulock_wait(UL_COMPARE_AND_WAIT, addr, expected as u64, 0);
+    }
+
+    #[if os == "windows"] {
+        _ = WaitOnAddress(addr, expected.&, 4, ~0u32);
+    };
+}
+
+#[if os == "linux"]
+pub/ fn wait_linux_shared(addr: &mut i32, expected: i32) void {
+    _ = os.linux.syscall6(
+        SYS_FUTEX,
+        addr as usize,
+        FUTEX_WAIT,
+        expected as usize,
+        0,
+        0,
+        0,
+    );
+}
+
+#[if os != "linux"]
+pub/ fn wait_linux_shared(_: &mut i32, _: i32) void {
+}
+
+pub/ fn wake_one(addr: &mut i32) void {
+    #[if os == "linux"] {
+        _ = os.linux.syscall6(
+            SYS_FUTEX,
+            addr as usize,
+            FUTEX_WAKE_PRIVATE,
+            1,
+            0,
+            0,
+            0,
+        );
+    }
+
+    #[if os == "darwin"] {
+        _ = ulock_wake(UL_COMPARE_AND_WAIT, addr, 0);
+    }
+
+    #[if os == "windows"] {
+        WakeByAddressSingle(addr);
+    };
+}
+
+pub/ fn wake_all(addr: &mut i32) void {
+    #[if os == "linux"] {
+        _ = os.linux.syscall6(
+            SYS_FUTEX,
+            addr as usize,
+            FUTEX_WAKE_PRIVATE,
+            ~0usize,
+            0,
+            0,
+            0,
+        );
+    }
+
+    #[if os == "darwin"] {
+        _ = ulock_wake(UL_COMPARE_AND_WAIT | ULF_WAKE_ALL, addr, 0);
+    }
+
+    #[if os == "windows"] {
+        WakeByAddressAll(addr);
+    };
+}

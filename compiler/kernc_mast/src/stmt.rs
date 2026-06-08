@@ -1,3 +1,9 @@
+//! Block and statement nodes in MAST.
+//!
+//! Statements are intentionally minimal after lowering: local `let` bindings,
+//! expression statements, an optional block result, and deferred expressions
+//! waiting to be expanded along exit paths.
+
 use super::MastExpr;
 use kernc_ty::TypeId;
 use kernc_utils::SymbolId;

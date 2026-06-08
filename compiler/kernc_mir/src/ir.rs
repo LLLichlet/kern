@@ -1,3 +1,10 @@
+//! Core MIR data model.
+//!
+//! MIR is the compiler's typed, monomorphized, control-flow graph
+//! representation. It records modules, structs, globals, functions, blocks,
+//! locals, instructions, rvalues, places, terminators, and static initializers
+//! in a form ready for lightweight MIR passes and LLVM lowering.
+
 use crate::{MirBlockId, MirLocalId};
 use kernc_ast::MetaItem;
 use kernc_ast::{AssignmentOperator, BinaryOperator, UnaryOperator};
@@ -318,6 +325,7 @@ pub enum MirRvalue {
     },
     Cast {
         kind: MirCastKind,
+        target_ty: TypeId,
         operand: MirOperand,
     },
     BitIntrinsic {

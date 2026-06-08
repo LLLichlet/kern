@@ -9,18 +9,58 @@ mod iter;
 mod ranges;
 mod slice;
 mod string_impl;
+mod cow_string;
 mod tree_impl;
 
 use base.cmp.Ord;
 use base.hash.Hash;
 
 pub use .iter.{
+    EnumerateItem,
+    EnumerateIter,
     Iterator,
+    SkipIter,
+    SliceEnumerateIter,
     SliceIter,
+    SliceMutEnumerateIter,
     SliceMutIter,
+    SliceMutSkipEnumerateIter,
+    SliceMutSkipIter,
+    SliceSkipEnumerateIter,
+    SliceSkipIter,
+    enumerate_iter,
+    skip_iter,
 };
 pub use .list_impl.{InsertError, List};
-pub use .map_impl.Map;
+pub use .map_impl.{
+    Map,
+    MapEnumerateIter,
+    MapItem,
+    MapIter,
+    MapMutEnumerateIter,
+    MapMutItem,
+    MapMutIter,
+    MapMutSkipEnumerateIter,
+    MapMutSkipIter,
+    MapSkipEnumerateIter,
+    MapSkipIter,
+};
+pub use .ranges.{
+    RangeEnumerate,
+    RangeInclusiveEnumerate,
+    RangeInclusiveSkip,
+    RangeInclusiveSkipEnumerate,
+    RangeRev,
+    RangeRevEnumerate,
+    RangeRevInclusive,
+    RangeRevInclusiveEnumerate,
+    RangeRevInclusiveSkip,
+    RangeRevInclusiveSkipEnumerate,
+    RangeRevSkip,
+    RangeRevSkipEnumerate,
+    RangeSkip,
+    RangeSkipEnumerate,
+};
 pub use .slice.{
     bytes_eq,
     find_byte,
@@ -37,7 +77,24 @@ pub use .slice.{
     is_ascii_alnum,
 };
 pub use .string_impl.String;
-pub use .tree_impl.Tree;
+pub use .cow_string.{
+    CowString,
+    borrowed_string,
+    owned_string,
+};
+pub use .tree_impl.{
+    Tree,
+    TreeEnumerateIter,
+    TreeItem,
+    TreeIter,
+    TreeMutEnumerateIter,
+    TreeMutItem,
+    TreeMutIter,
+    TreeMutSkipEnumerateIter,
+    TreeMutSkipIter,
+    TreeSkipEnumerateIter,
+    TreeSkipIter,
+};
 
 /// Creates an empty growable list.
 pub fn list[T]() List[T] {

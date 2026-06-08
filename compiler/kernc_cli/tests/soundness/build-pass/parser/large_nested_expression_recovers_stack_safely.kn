@@ -1,0 +1,5 @@
+// source: deeply nested but valid expressions should compile without parser recursion or lowering failures
+fn main() i32 {
+    let value = ((((((((((((((((((((((((((((((1i32))))))))))))))))))))))))))))));
+    return value - 1i32;
+}

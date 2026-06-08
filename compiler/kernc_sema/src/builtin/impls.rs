@@ -1,3 +1,9 @@
+//! Builtin impl construction for primitive types and operator traits.
+//!
+//! These helpers fabricate small AST fragments and seed their semantic types so
+//! the normal impl applicability and method lookup code can handle primitive
+//! operations just like user-written trait impls.
+
 use super::*;
 
 impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
@@ -175,6 +181,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 Def::AssociatedType(AssociatedTypeDef {
                     id: assoc_def_id,
                     name: assoc_name,
+                    name_span: Span::default(),
                     parent_trait: Some(trait_def_id),
                     parent_impl: Some(impl_id),
                     implemented_trait_assoc: Some(trait_assoc_id),

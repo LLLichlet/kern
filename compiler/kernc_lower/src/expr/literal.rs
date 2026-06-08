@@ -1,3 +1,9 @@
+//! Literal and aggregate lowering.
+//!
+//! This file turns checked scalar, array, struct, union, enum, and anonymous
+//! data literals into MAST expressions, applying generic substitutions and
+//! reordering named aggregate fields into their physical layout order.
+
 use super::Lowerer;
 use std::collections::HashMap;
 
@@ -475,6 +481,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut ast_ordered_exprs = Vec::new();
         for f_def in &s.fields {
+            if self.check_canceled().is_err() {
+                break;
+            }
             let raw_f_ty = self
                 .ctx
                 .node_type(f_def.type_node.id)
@@ -484,6 +493,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let Some(init_f) = fields.iter().find(|f| f.name == f_def.name) {
                 ast_ordered_exprs.push(self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty)));
             } else {
+                let Some(default_value) = f_def.default_value.as_ref() else {
+                    ast_ordered_exprs.push(self.lower_error_expr(
+                        conc_f_ty,
+                        f_def.name_span,
+                        "Kern ICE (Lowering): missing default value for omitted struct field",
+                    ));
+                    continue;
+                };
                 // Field defaults are type-checked in the data type's own generic
                 // and module scope, so they must be lowered with that
                 // definition context rather than the caller's surrounding
@@ -492,11 +509,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 if let Some(owner_scope) = self.ctx.def_owner_scope(def_id) {
                     self.ctx.scopes.set_current_scope(owner_scope);
                 }
-                let lowered_default = self.lower_expr(
-                    f_def.default_value.as_ref().unwrap(),
-                    &struct_subst_map,
-                    Some(conc_f_ty),
-                );
+                let lowered_default =
+                    self.lower_expr(default_value, &struct_subst_map, Some(conc_f_ty));
                 if let Some(prev_scope) = prev_scope {
                     self.ctx.scopes.set_current_scope(prev_scope);
                 }
@@ -508,6 +522,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut physical_ordered_exprs = Vec::with_capacity(s.fields.len());
         for &ast_idx in &physical_to_ast {
+            if self.check_canceled().is_err() {
+                break;
+            }
             physical_ordered_exprs.push(ast_ordered_exprs[ast_idx].clone());
         }
 
@@ -583,6 +600,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let struct_id = self.instantiate_anon_struct(norm_ty);
         let mut ast_ordered_exprs = Vec::new();
         for field_def in &anon_fields {
+            if self.check_canceled().is_err() {
+                break;
+            }
             let Some(init_f) = fields.iter().find(|field| field.name == field_def.name) else {
                 return self.lower_literal_error(
                     Span::default(),
@@ -600,6 +620,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut physical_ordered_exprs = Vec::with_capacity(anon_fields.len());
         for &ast_idx in &physical_to_ast {
+            if self.check_canceled().is_err() {
+                break;
+            }
             physical_ordered_exprs.push(ast_ordered_exprs[ast_idx].clone());
         }
 
@@ -932,13 +955,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .kind;
         }
 
-        let target_is_mut = matches!(
-            self.ctx
-                .type_registry
-                .get(self.ctx.type_registry.normalize(target_ptr_ty)),
-            TypeKind::Pointer { is_mut: true, .. } | TypeKind::VolatilePtr { is_mut: true, .. }
-        );
-
         let (data_ptr_expr, data_ptr_ty, receiver_ty) = if l_is_fat_pointer_value {
             let boxed_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
                 is_mut: false,
@@ -953,46 +969,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 boxed_ptr_ty,
                 l.ty,
             )
-        } else if !target_is_mut {
-            match self.ctx.type_registry.get(l_norm).clone() {
-                TypeKind::Pointer { is_mut: true, elem } => {
-                    let shared_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
-                        is_mut: false,
-                        elem,
-                    });
-                    (
-                        MastExpr::new(
-                            shared_ptr_ty,
-                            MastExprKind::Cast {
-                                kind: MastCastKind::Bitcast,
-                                operand: Box::new(l.clone()),
-                            },
-                            span,
-                        ),
-                        shared_ptr_ty,
-                        shared_ptr_ty,
-                    )
-                }
-                TypeKind::VolatilePtr { is_mut: true, elem } => {
-                    let shared_ptr_ty = self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                        is_mut: false,
-                        elem,
-                    });
-                    (
-                        MastExpr::new(
-                            shared_ptr_ty,
-                            MastExprKind::Cast {
-                                kind: MastCastKind::Bitcast,
-                                operand: Box::new(l.clone()),
-                            },
-                            span,
-                        ),
-                        shared_ptr_ty,
-                        shared_ptr_ty,
-                    )
-                }
-                _ => (l.clone(), l.ty, l.ty),
-            }
         } else {
             (l.clone(), l.ty, l.ty)
         };

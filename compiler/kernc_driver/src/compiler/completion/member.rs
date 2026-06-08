@@ -1,3 +1,9 @@
+//! Member completion collection.
+//!
+//! Member completions resolve the receiver type and query visible fields,
+//! methods, associated items, and module/type namespace members at the target
+//! field-access span.
+
 use super::*;
 
 impl CompilerDriver {

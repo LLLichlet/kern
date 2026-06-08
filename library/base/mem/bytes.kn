@@ -1,4 +1,21 @@
+//! Byte-wise memory primitives.
+//!
+//! These are low-level building blocks for containers and allocators. Callers
+//! must still provide valid, live memory ranges; this module only handles the
+//! mechanics of overlapping copies once those preconditions hold.
+
+fn ranges_overlap_with_dest_inside_source(dest_addr: usize, src_addr: usize, len: usize) bool {
+    if dest_addr <= src_addr {
+        return false;
+    }
+    return dest_addr - src_addr < len;
+}
+
 /// Moves `len` bytes from `src` to `dest`, correctly handling overlap.
+///
+/// Safety:
+/// `[src, src + len)` must be readable and `[dest, dest + len)` must be
+/// writable for the lifetime of the call. The ranges may overlap.
 pub/ fn memmove(
     dest: &mut u8,
     src: &u8,
@@ -7,17 +24,17 @@ pub/ fn memmove(
     let d_addr = dest as usize;
     let s_addr = src as usize;
 
-    if (d_addr > s_addr and d_addr < (s_addr + len)) {
-                let mut i = len;
-        while (i > 0) {
+    if ranges_overlap_with_dest_inside_source(d_addr, s_addr, len) {
+        let mut i = len;
+        while i > 0 {
             i -= 1;
             let d = dest + i;
             let s = src + i;
             d.* = s.*;
         }
     } else {
-                let mut i = 0usize;
-        while (i < len) {
+        let mut i = 0usize;
+        while i < len {
             let d = dest + i;
             let s = src + i;
             d.* = s.*;

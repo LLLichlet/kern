@@ -1,8 +1,15 @@
+//! Pre-check expression type-reference resolution.
+//!
+//! Before full expression checking, this pass walks expression trees to resolve
+//! type syntax embedded in expressions: casts, type namespace expressions,
+//! annotations, static initializers, patterns, and local imports inside blocks.
+
 use super::*;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     fn resolve_pattern(&mut self, pattern: &ast::Pattern, scope: ScopeId) {
         match &pattern.kind {
+            ast::PatternKind::Value(value) => self.resolve_expr(value, scope),
             ast::PatternKind::Binding(_)
             | ast::PatternKind::Ignore
             | ast::PatternKind::Variant(_) => {
@@ -77,6 +84,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 for stmt in stmts {
                     match &stmt.kind {
                         ast::StmtKind::Use(use_stmt) => {
+                            // Local imports extend the block scope lazily. A new scope is needed
+                            // only when the import would shadow an existing binding or when this
+                            // block has not yet created a scope for previous local imports.
                             let import = ImportDef {
                                 path_kind: use_stmt.kind,
                                 path: use_stmt.path.clone(),

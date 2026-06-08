@@ -102,7 +102,7 @@ Use `.@len()` to read slice or array length:
 fn sum(items: &[i32]) i32 {
     let mut total = 0;
     let mut i = 0;
-    while (i < items.@len()) {
+    while i < items.@len() {
         total += items.[i];
         i += 1;
     }
@@ -122,7 +122,7 @@ iterators, and common consuming methods. The direct form is `for`:
 
 ```kern
 let mut total = 0;
-for (i: 1...4) {
+for i in 1...4 {
     total += i * i;
 }
 ```
@@ -131,7 +131,7 @@ Use `.rev()` on an existing range value when you want reverse traversal:
 
 ```kern
 let mut descending = 0;
-for (i: (1...4).rev()) {
+for i in (1...4).rev() {
     descending = descending * 10 + i;
 }
 ```
@@ -146,7 +146,7 @@ and argument boundaries, so iterating over a whole array is usually direct:
 let values = [3]i32.{ 1, 2, 3 };
 let mut total = 0;
 
-for (item: values.iter()) {
+for item in values.iter() {
     total += item;
 }
 ```
@@ -155,7 +155,7 @@ When you want to emphasize the slice boundary or iterate over part of an array,
 write the slice explicitly:
 
 ```kern
-for (item: values.&[1...].iter()) {
+for item in values.&[1...].iter() {
     total += item;
 }
 ```
@@ -164,7 +164,7 @@ Iterators are explicit state values. A `for` loop has roughly this shape:
 
 ```kern
 let mut iter = 1...4;
-while (true) {
+while true {
     let .{ Some: i } = iter..&.next() else break;
     total += i * i;
 }
@@ -188,7 +188,7 @@ impl &mut CountTo : Iterator {
     type Item = usize;
 
     pub fn next() ?Item {
-        if (self.current >= self.limit) {
+        if self.current >= self.limit {
             return .None;
         }
 
@@ -206,12 +206,16 @@ Mutable slice iteration yields mutable element pointers:
 
 ```kern
 let mut values = [3]i32.{ 1, 2, 3 };
-for (item: values..&[...].iter()) {
+for item in values..&[...].iter() {
     item.* += 1;
 }
 ```
 
 `values..&[...]` is `&mut [i32]`, so the iterator produces `&mut i32` values.
+Kern keeps the method name the same and lets the concrete receiver type carry
+the permission: `&[T].iter()` is read-only, while `&mut [T].iter()` is mutable.
+Owned containers follow the same rule; for example `list.&.iter()` reads a
+`List[T]`, while `list..&.iter()` can yield writable element pointers.
 
 ## Pointers
 
@@ -236,10 +240,19 @@ write_ptr.* = current + 1;
 `value.&` produces `&i32`; `value..&` produces `&mut i32`. `.*` is explicit
 dereference. Kern does not auto-dereference pointer targets.
 
-Library authors usually put read-only methods on `impl &T` and mutating
-methods on `impl &mut T`. A writable pointer can still call read-only methods
-where the library exposes them, so APIs can express which operations mutate
-through receiver type.
+`&T` and `&mut T` are distinct concrete types with distinct method sets.
+Library authors usually put read-only methods on `impl &T` and mutating methods
+on `impl &mut T`. When a caller has `&mut T` and wants to call a read-only
+receiver method, it must first narrow the pointer explicitly to a read-only view:
+
+```kern
+let read_view = write_ptr.view();
+```
+
+Likewise, `&mut [T]` can narrow to `&[T]` with `.view()`, and `^mut T` can
+narrow to `^T` with `.view()`. Keeping that narrowing explicit prevents
+writable permission and read-only views from collapsing into the same
+type-system meaning.
 
 ## `defer` And Explicit Release
 
@@ -284,15 +297,15 @@ let gpa = gpa().on(page)..&;
 let numbers = list[i32]()..&;
 defer numbers.deinit(gpa);
 
-if (!numbers.push(gpa, 3)) return;
-if (!numbers.push(gpa, 1)) return;
-if (!numbers.push(gpa, 2)) return;
+if !numbers.push(gpa, 3) return;
+if !numbers.push(gpa, 1) return;
+if !numbers.push(gpa, 2) return;
 
 let text = string()..&;
 defer text.deinit(gpa);
 
-if (!text.push_str(gpa, "Hello")) return;
-if (!text.push_str(gpa, ", Kern")) return;
+if !text.push_str(gpa, "Hello") return;
+if !text.push_str(gpa, ", Kern") return;
 ```
 
 The important pieces are:
@@ -301,6 +314,7 @@ The important pieces are:
 - `..&` obtains a writable receiver for `push` and `deinit`.
 - `push(gpa, value)` may allocate, so the allocator is explicit.
 - `deinit(gpa)` releases backing storage; the container does not magically know which allocator to use.
+- `numbers.view().len()` explicitly narrows `&mut List[i32]` to a read-only view before calling a read-only receiver method.
 
 This differs from C++ RAII: release is not automatically tied to object
 lifetime. The common Kern style is to keep the resource value in the current
@@ -331,26 +345,26 @@ fn main() i32 {
     let path = ".craft/example.txt".path();
     _ = path.remove_file_if_exists(gpa);
 
-    let written = match (path.write_all_atomic(gpa, "kern examples\n")) {
+    let written = match path.write_all_atomic(gpa, "kern examples\n") {
         .{ Ok: value } => value,
         .{ Err: _ } => return FAILURE,
     };
 
-    let mut text = match (path.read_to_string(gpa)) {
+    let mut text = match path.read_to_string(gpa) {
         .{ Ok: value } => value,
         .{ Err: _ } => return FAILURE,
     };
     defer text..&.deinit(gpa);
 
-    "wrote {} bytes: {}".fmt(.{written, text.&.as_str()}).println();
+    "wrote {} bytes: {}".fmt(.{written, text..&.view().as_str()}).println();
     _ = path.remove_file_if_exists(gpa);
     return SUCCESS;
 }
 ```
 
 `read_to_string` returns a string value that owns backing storage. The example
-binds it as `let mut text`, registers `deinit`, then uses `text.&.as_str()` for
-read-only formatting.
+binds it as `let mut text`, registers `deinit`, then uses
+`text..&.view().as_str()` for read-only formatting.
 
 ## `const` And `static`
 

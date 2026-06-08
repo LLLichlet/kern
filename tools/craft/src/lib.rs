@@ -1,3 +1,9 @@
+//! Craft package manager and build-tool library.
+//!
+//! The library exposes manifest parsing, workspace graphing, build planning,
+//! execution, formatting, publishing, and analysis-project support used by both
+//! the `craft` binary and editor integrations.
+
 pub mod analysis_context;
 pub mod cli;
 pub mod discover;

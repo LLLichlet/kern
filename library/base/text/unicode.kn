@@ -47,7 +47,7 @@ pub fn is_scalar(codepoint: u32) bool {
 
 /// Combines a validated UTF-16 surrogate pair into a scalar value.
 pub fn scalar_from_surrogates(high: u32, low: u32) ?u32 {
-    if (!is_high_surrogate(high) or !is_low_surrogate(low)) return .None;
+    if !is_high_surrogate(high) or !is_low_surrogate(low) return .None;
     return .{ Some: 0x10000u32
         + ((high - HIGH_SURROGATE_MIN) << 10)
         + (low - LOW_SURROGATE_MIN) };

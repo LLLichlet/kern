@@ -1,3 +1,9 @@
+//! Pratt-style expression parser.
+//!
+//! Prefix parsing handles literals, control-flow starts, type namespace syntax,
+//! and unary operators.  Infix parsing then extends the left expression while
+//! the next operator has higher precedence than the caller's binding power.
+
 mod control;
 mod data;
 mod literal;
@@ -88,6 +94,7 @@ fn binary_operator_from_token(token: TokenType) -> BinaryOperator {
         TokenType::Caret => BinaryOperator::BitwiseXor,
         TokenType::LShift => BinaryOperator::ShiftLeft,
         TokenType::RShift => BinaryOperator::ShiftRight,
+        // Callers only invoke this after `parse_infix` matched a binary token.
         _ => unreachable!("Token {:?} is not a binary operator", token),
     }
 }
@@ -105,6 +112,7 @@ fn assignment_operator_from_token(token: TokenType) -> AssignmentOperator {
         TokenType::CaretAssign => AssignmentOperator::BitwiseXorAssign,
         TokenType::LShiftAssign => AssignmentOperator::ShiftLeftAssign,
         TokenType::RShiftAssign => AssignmentOperator::ShiftRightAssign,
+        // Callers only invoke this after `parse_infix` matched an assignment token.
         _ => unreachable!("Token {:?} is not an assignment operator", token),
     }
 }
@@ -174,6 +182,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_expression(&mut self, precedence: Precedence) -> ParseResult<Expr> {
+        self.check_canceled()?;
         let current = self.peek();
         if Self::token_can_end_missing_expr(current.tag) {
             return Ok(self.error_expr(current.span, "Expected expression"));
@@ -183,9 +192,12 @@ impl<'a> Parser<'a> {
         let mut left = self.parse_prefix(prefix_token)?;
 
         while precedence < Precedence::from_token(self.peek().tag) {
+            self.check_canceled()?;
             let next_tag = self.peek().tag;
 
             if next_tag == TokenType::DotLBrace && !expr_can_prefix_data_init_type(&left) {
+                // `.{...}` can be anonymous data init, while `Type.{...}` needs
+                // a type-like left side.  Do not accidentally parse `value.{}`.
                 break;
             }
 
@@ -200,6 +212,8 @@ impl<'a> Parser<'a> {
             );
 
             if is_manifestly_void {
+                // Avoid attaching postfix operators to expressions that are
+                // syntactically known not to produce a value.
                 break;
             }
 
@@ -569,7 +583,10 @@ impl<'a> Parser<'a> {
         let mut args = Vec::new();
         if !self.check(TokenType::RParen) {
             loop {
+                self.check_canceled()?;
                 if token_ends_unclosed_call_argument_list(self.peek().tag) {
+                    // Recover from `f(a, b;` by stopping before the statement
+                    // boundary and letting delimiter recovery report the `)`.
                     break;
                 }
                 args.push(self.parse_expression(Precedence::Lowest)?);

@@ -1,3 +1,5 @@
+//! Execution tests for local package dependencies and runtime behavior.
+
 use super::*;
 
 #[test]
@@ -9,7 +11,7 @@ fn release_build_dead_strips_unused_std_sections() {
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "hello"
@@ -117,7 +119,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -148,7 +150,7 @@ return 1;
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -192,18 +194,15 @@ return 42;
 
     let summary = run(&build_plan, &action_plan, unit).unwrap();
     assert!(summary.executable.is_file());
-    validate_package_metadata_root(
-        &root
-            .join(".craft")
-            .join("build")
-            .join("dev")
-            .join("target")
-            .join("meta")
-            .join("util-0.1.0"),
-        "util",
-        Some("0.1.0"),
-    )
-    .unwrap();
+    let util_metadata_path = action_plan
+        .compile_actions
+        .iter()
+        .find(|action| {
+            action.package_id.name == "util" && action.target_kind == crate::plan::TargetKind::Lib
+        })
+        .and_then(|action| action.metadata_path.as_ref())
+        .expect("expected util metadata path");
+    validate_package_metadata_root(util_metadata_path, "util", Some("0.1.0")).unwrap();
 
     let _ = fs::remove_dir_all(root);
 }
@@ -231,7 +230,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -269,7 +268,7 @@ fn main() i32 {
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -349,7 +348,7 @@ fn builds_and_runs_package_with_resource_c_source() {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -449,7 +448,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -480,7 +479,7 @@ return 1;
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -538,7 +537,7 @@ fn builds_library_package_with_runtime_section_without_requiring_main() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -604,7 +603,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -635,7 +634,7 @@ return 1;
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"

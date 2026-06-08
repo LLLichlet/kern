@@ -1,4 +1,13 @@
+//! Shared compiler infrastructure used by every kernc stage.
+//!
+//! This crate deliberately stays small and dependency-light.  It owns the
+//! cross-cutting data structures that should not belong to any one frontend,
+//! semantic-analysis, MIR, or codegen crate: spans, source files, diagnostics,
+//! symbol interning, cancellation, target/configuration data, and a few small
+//! performance helpers.
+
 pub mod atomic;
+mod cancel;
 pub mod config;
 mod diagnostic;
 mod fast_hash;
@@ -11,6 +20,7 @@ mod source;
 mod span;
 
 pub use atomic::{AtomicOrdering, AtomicRmwOp};
+pub use cancel::{Canceled, CancellationToken, expect_uncancelable};
 pub use diagnostic::{
     Diagnostic, DiagnosticBuilder, DiagnosticCode, DiagnosticLevel, DiagnosticTag,
 };

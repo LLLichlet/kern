@@ -1,0 +1,426 @@
+//! Hosted synchronization namespace.
+//!
+//! Kern keeps lock-free and freestanding synchronization in `base.sync`.
+//! `std.sync` is the public hosted entry point. It re-exports the freestanding
+//! primitives and provides no-libc blocking `Mutex`, `RwLock`, `Condvar`, and
+//! `Channel` APIs, plus a low-level joinable `Thread` API with explicit stack
+//! size, entry, argument, and join ownership.
+//!
+//! Design policy:
+//! std must not depend on libc as a semantic foundation. Linux uses direct
+//! syscalls such as futex and clone; Windows uses kernel32 thread and wait/wake
+//! entry points; Darwin-specific fallbacks are isolated for platform
+//! validation. A lock should not become poisoned by hidden runtime state;
+//! callers that need panic recovery should build that policy above the
+//! primitive.
+
+use base.mem.{Layout, null_mut_ptr};
+use base.mem.alloc.{AllocError, Allocator};
+
+mod thread;
+pub/ mod wait_word;
+
+pub use base.sync.{
+    Atomic,
+    AtomicCas,
+    MemOrder,
+    Once,
+    SpinLock,
+    atomic,
+    fence,
+    once,
+    spin_lock,
+};
+
+/// No synchronization with other operations.
+pub const RELAXED: MemOrder = MemOrder.Relaxed;
+/// Acquire semantics for loads and read-modify-write operations.
+pub const ACQUIRE: MemOrder = MemOrder.Acquire;
+/// Release semantics for stores and read-modify-write operations.
+pub const RELEASE: MemOrder = MemOrder.Release;
+/// Combined acquire and release semantics.
+pub const ACQ_REL: MemOrder = MemOrder.AcqRel;
+/// Sequentially consistent ordering.
+pub const SEQ_CST: MemOrder = MemOrder.SeqCst;
+
+const MUTEX_UNLOCKED = 0i32;
+const MUTEX_LOCKED = 1i32;
+const MUTEX_CONTENDED = 2i32;
+
+/// Hosted synchronization operation failure.
+pub enum Error {
+    Closed,
+    OutOfMemory,
+    CapacityOverflow,
+    StackTooSmall,
+    SpawnFailed,
+    JoinFailed,
+};
+
+/// Minimum stack size accepted by `spawn`.
+pub const THREAD_MIN_STACK_SIZE = 16384usize;
+const THREAD_STACK_ALIGN = 16usize;
+
+/// Function entry accepted by `Thread`.
+///
+/// The entry is a thin function pointer plus an explicit raw context pointer.
+/// Capturing closures are intentionally not accepted because their stack
+/// environments cannot be allowed to escape into a spawned thread.
+pub type ThreadEntry = &fn(&mut void) usize;
+
+/// A joinable hosted OS thread.
+pub struct Thread {
+    handle: usize,
+    control: &mut ThreadControl,
+    stack: &mut u8,
+    stack_size: usize,
+    stack_align: usize,
+    joined: bool = false,
+};
+
+pub/ struct ThreadControl {
+    pub/ entry: ThreadEntry,
+    pub/ arg: &mut void,
+    pub/ result: usize = 0,
+    pub/ done: i32 = 0,
+    pub/ exited: i32 = 0,
+};
+
+/// A non-poisoning blocking mutex.
+pub struct Mutex {
+    state: i32 = MUTEX_UNLOCKED,
+};
+
+/// A condition variable paired with `Mutex`.
+pub struct Condvar {
+    seq: i32 = 0,
+};
+
+/// A non-poisoning reader-writer lock.
+pub struct RwLock {
+    mutex: Mutex = Mutex.{},
+    ready: Condvar = Condvar.{},
+    readers: usize = 0,
+    waiting_writers: usize = 0,
+    writer: bool = false,
+};
+
+struct ChannelNode[T] {
+    value: T,
+    next: &mut ChannelNode[T],
+};
+
+/// A small multi-producer/multi-consumer FIFO channel.
+pub struct Channel[T] {
+    mutex: Mutex = Mutex.{},
+    ready: Condvar = Condvar.{},
+    head: &mut ChannelNode[T] = null_mut_ptr[ChannelNode[T]](),
+    tail: &mut ChannelNode[T] = null_mut_ptr[ChannelNode[T]](),
+    closed: bool = false,
+};
+
+/// Creates a non-poisoning blocking mutex.
+pub const fn mutex() Mutex {
+    return .{};
+}
+
+/// Creates a condition variable.
+pub const fn condvar() Condvar {
+    return .{};
+}
+
+/// Creates a non-poisoning reader-writer lock.
+pub const fn rwlock() RwLock {
+    return .{};
+}
+
+/// Creates an empty channel.
+pub const fn channel[T]() Channel[T] {
+    return .{};
+}
+
+/// Spawns a thread with an explicit stack allocation size.
+pub fn spawn(
+    alloc: &mut Allocator,
+    stack_size: usize,
+    entry: ThreadEntry,
+    arg: &mut void,
+) Thread!Error {
+    if stack_size < THREAD_MIN_STACK_SIZE {
+        return .{ Err: .StackTooSmall };
+    }
+
+    let .{ Ok: control } = alloc.try_alloc_one[ThreadControl]() else {
+        .{ Err: err } => return .{ Err: match err {
+            .OutOfMemory => Error.OutOfMemory,
+            .CapacityOverflow => Error.CapacityOverflow,
+        } },
+    };
+    control.* = .{ entry: entry, arg: arg };
+
+    let stack_layout = Layout.{ size: stack_size, align: THREAD_STACK_ALIGN };
+    let .{ Some: stack } = alloc.alloc(stack_layout) else {
+        alloc.free_one[ThreadControl](control);
+        return .{ Err: .OutOfMemory };
+    };
+    let stack_items = stack..&[0...stack_size];
+
+    let .{ Some: handle } = thread.spawn(control, stack_items) else {
+        alloc.free(stack, stack_layout);
+        alloc.free_one[ThreadControl](control);
+        return .{ Err: .SpawnFailed };
+    };
+
+    return .{
+        Ok: .{
+            handle: handle,
+            control: control,
+            stack: stack,
+            stack_size: stack_size,
+            stack_align: THREAD_STACK_ALIGN,
+        },
+    };
+}
+
+pub/ fn run_thread_control(control: &mut ThreadControl) usize {
+    let entry = control.entry;
+    let result = entry(control.arg);
+    control.result = result;
+    @atomicStore[i32](control.done..&, 1, RELEASE);
+    wait_word.wake_all(control.done..&);
+    return result;
+}
+
+impl &mut Thread {
+    /// Waits for the thread to finish and releases its stack/control storage.
+    ///
+    /// A `Thread` must be joined exactly once. The allocator must be the same
+    /// allocator that was passed to `spawn`.
+    pub fn join(alloc: &mut Allocator) usize!Error {
+        if self.joined {
+            return .{ Err: .JoinFailed };
+        }
+        while @atomicLoad[i32](self.control.done.&, ACQUIRE) == 0 {
+            wait_word.wait(self.control.done..&, 0);
+        }
+        if !thread.join(self.handle, self.control) {
+            return .{ Err: .JoinFailed };
+        }
+        self.joined = true;
+
+        let result = self.control.result;
+        alloc.free(self.stack, Layout.{ size: self.stack_size, align: self.stack_align });
+        alloc.free_one[ThreadControl](self.control);
+        return .{ Ok: result };
+    }
+}
+
+impl &mut Mutex {
+    /// Locks this mutex, blocking the current thread when contended.
+    pub fn lock() void {
+        let fast = @atomicCas[i32](
+            self.state..&,
+            MUTEX_UNLOCKED,
+            MUTEX_LOCKED,
+            ACQUIRE,
+            RELAXED,
+        );
+        if fast.success {
+            return;
+        }
+
+        while true {
+            let previous = @atomicXchg[i32](self.state..&, MUTEX_CONTENDED, ACQUIRE);
+            if previous == MUTEX_UNLOCKED {
+                return;
+            }
+            wait_word.wait(self.state..&, MUTEX_CONTENDED);
+        }
+    }
+
+    /// Attempts to lock without blocking.
+    pub fn try_lock() bool {
+        return @atomicCas[i32](
+            self.state..&,
+            MUTEX_UNLOCKED,
+            MUTEX_LOCKED,
+            ACQUIRE,
+            RELAXED,
+        ).success;
+    }
+
+    /// Unlocks this mutex.
+    pub fn unlock() void {
+        let previous = @atomicXchg[i32](self.state..&, MUTEX_UNLOCKED, RELEASE);
+        if previous == MUTEX_CONTENDED {
+            wait_word.wake_one(self.state..&);
+        }
+    }
+
+    /// Runs `call_back` while holding the mutex.
+    pub fn with_lock[U](call_back: &Fn() U) U {
+        self.lock();
+        defer self.unlock();
+        return call_back();
+    }
+}
+
+impl &mut Condvar {
+    /// Waits for a notification while temporarily releasing `mutex`.
+    ///
+    /// Callers should guard the actual predicate with `mutex` and loop around
+    /// this method, because condition variables may wake spuriously.
+    pub fn wait(mutex: &mut Mutex) void {
+        let observed = @atomicLoad[i32](self.seq.&, ACQUIRE);
+        mutex.unlock();
+        wait_word.wait(self.seq..&, observed);
+        mutex.lock();
+    }
+
+    /// Wakes one waiter.
+    pub fn signal() void {
+        _ = @atomicRmwAdd[i32](self.seq..&, 1, RELEASE);
+        wait_word.wake_one(self.seq..&);
+    }
+
+    /// Wakes every waiter.
+    pub fn broadcast() void {
+        _ = @atomicRmwAdd[i32](self.seq..&, 1, RELEASE);
+        wait_word.wake_all(self.seq..&);
+    }
+}
+
+impl &mut RwLock {
+    /// Acquires shared read access.
+    pub fn read_lock() void {
+        self.mutex..&.lock();
+        while self.writer or self.waiting_writers != 0 {
+            self.ready..&.wait(self.mutex..&);
+        }
+        self.readers += 1;
+        self.mutex..&.unlock();
+    }
+
+    /// Releases shared read access.
+    pub fn read_unlock() void {
+        self.mutex..&.lock();
+        if self.readers != 0 {
+            self.readers -= 1;
+        }
+        if self.readers == 0 {
+            self.ready..&.broadcast();
+        }
+        self.mutex..&.unlock();
+    }
+
+    /// Acquires exclusive write access.
+    pub fn write_lock() void {
+        self.mutex..&.lock();
+        self.waiting_writers += 1;
+        while self.writer or self.readers != 0 {
+            self.ready..&.wait(self.mutex..&);
+        }
+        self.waiting_writers -= 1;
+        self.writer = true;
+        self.mutex..&.unlock();
+    }
+
+    /// Releases exclusive write access.
+    pub fn write_unlock() void {
+        self.mutex..&.lock();
+        self.writer = false;
+        self.ready..&.broadcast();
+        self.mutex..&.unlock();
+    }
+}
+
+impl[T] &mut Channel[T] {
+    fn is_empty_locked() bool {
+        return (self.head as usize) == 0;
+    }
+
+    fn push_node_locked(node: &mut ChannelNode[T]) void {
+        node.next = null_mut_ptr[ChannelNode[T]]();
+        if (self.tail as usize) == 0 {
+            self.head = node;
+            self.tail = node;
+            return;
+        }
+        self.tail.next = node;
+        self.tail = node;
+    }
+
+    fn pop_node_locked() ?&mut ChannelNode[T] {
+        if self.is_empty_locked() {
+            return .None;
+        }
+        let node = self.head;
+        self.head = node.next;
+        if (self.head as usize) == 0 {
+            self.tail = null_mut_ptr[ChannelNode[T]]();
+        }
+        node.next = null_mut_ptr[ChannelNode[T]]();
+        return .{ Some: node };
+    }
+
+    /// Sends one value to this channel.
+    pub fn send(alloc: &mut Allocator, value: T) bool!Error {
+        let .{ Ok: node } = alloc.try_alloc_one[ChannelNode[T]]() else {
+            .{ Err: err } => return .{ Err: match err {
+                .OutOfMemory => Error.OutOfMemory,
+                .CapacityOverflow => Error.CapacityOverflow,
+            } },
+        };
+        node.* = .{ value: value, next: null_mut_ptr[ChannelNode[T]]() };
+
+        self.mutex..&.lock();
+        if self.closed {
+            self.mutex..&.unlock();
+            alloc.free_one[ChannelNode[T]](node);
+            return .{ Err: .Closed };
+        }
+
+        self.push_node_locked(node);
+        self.ready..&.signal();
+        self.mutex..&.unlock();
+        return .{ Ok: true };
+    }
+
+    /// Receives one value, or `None` after the channel closes and drains.
+    pub fn recv(alloc: &mut Allocator) ?T {
+        self.mutex..&.lock();
+        while self.is_empty_locked() and !self.closed {
+            self.ready..&.wait(self.mutex..&);
+        }
+
+        let .{ Some: node } = self.pop_node_locked() else {
+            self.mutex..&.unlock();
+            return .None;
+        };
+        self.mutex..&.unlock();
+
+        let value = node.value;
+        alloc.free_one[ChannelNode[T]](node);
+        return .{ Some: value };
+    }
+
+    /// Closes the channel and wakes blocked receivers.
+    pub fn close() void {
+        self.mutex..&.lock();
+        self.closed = true;
+        self.ready..&.broadcast();
+        self.mutex..&.unlock();
+    }
+
+    /// Releases queued nodes. Stored values are moved out by `recv`; callers
+    /// remain responsible for cleaning up values that own nested resources.
+    pub fn deinit(alloc: &mut Allocator) void {
+        self.close();
+        self.mutex..&.lock();
+        while true {
+            let .{ Some: node } = self.pop_node_locked() else break;
+            alloc.free_one[ChannelNode[T]](node);
+        }
+        self.mutex..&.unlock();
+    }
+}

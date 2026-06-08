@@ -1,5 +1,9 @@
-use super::{AnalysisOutcome, TextDocumentContentChangeEvent};
-use crate::protocol::{Position, Range};
+//! Text, URI, and position conversion helpers for LSP analysis.
+//!
+//! Helpers normalize paths, translate UTF-16 positions to byte offsets, scan
+//! lexical contexts, and convert spans/ranges between compiler and IDE shapes.
+
+use super::{AnalysisOutcome, IdePosition, IdeRange, IdeTextDocumentChange};
 use kernc_lexer::{LexemeType, Token, TokenType, Tokenizer};
 use kernc_utils::FileId;
 use std::collections::hash_map::DefaultHasher;
@@ -79,7 +83,7 @@ const TYPE_KEYWORD_COMPLETIONS: &[&str] = &[
 pub(super) fn apply_content_change(
     path: &Path,
     text: &mut String,
-    change: &TextDocumentContentChangeEvent,
+    change: &IdeTextDocumentChange,
 ) -> Result<(), String> {
     let Some(range) = &change.range else {
         text.clear();
@@ -111,7 +115,7 @@ pub(super) fn apply_content_change(
 pub(super) fn match_position_in_file(
     file: &kernc_utils::SourceFile,
     target_path: &Path,
-    position: &Position,
+    position: &IdePosition,
 ) -> Option<usize> {
     if normalize_path(&file.path) != target_path {
         return None;
@@ -120,24 +124,30 @@ pub(super) fn match_position_in_file(
     position_to_byte_offset(file, position)
 }
 
-pub(super) fn span_to_range(session: &kernc_utils::Session, span: kernc_utils::Span) -> Range {
+pub(super) fn span_to_range(session: &kernc_utils::Session, span: kernc_utils::Span) -> IdeRange {
     let Some(file) = session.source_manager.get_file(span.file) else {
         return empty_range();
     };
 
-    Range {
+    IdeRange {
         start: byte_offset_to_position(file, span.start),
         end: byte_offset_to_position(file, span.end),
     }
 }
 
-pub(super) fn byte_offset_to_position(file: &kernc_utils::SourceFile, offset: usize) -> Position {
-    let clamped = offset.min(file.src.len());
+pub(super) fn byte_offset_to_position(
+    file: &kernc_utils::SourceFile,
+    offset: usize,
+) -> IdePosition {
+    let mut clamped = offset.min(file.src.len());
+    while clamped > 0 && !file.src.is_char_boundary(clamped) {
+        clamped -= 1;
+    }
     let line = file.lookup_line(clamped);
     let line_start = file.line_starts[line.saturating_sub(1)];
     let character = file.src[line_start..clamped].encode_utf16().count() as u32;
 
-    Position {
+    IdePosition {
         line: line.saturating_sub(1) as u32,
         character,
     }
@@ -145,7 +155,7 @@ pub(super) fn byte_offset_to_position(file: &kernc_utils::SourceFile, offset: us
 
 pub(super) fn position_to_byte_offset(
     file: &kernc_utils::SourceFile,
-    position: &Position,
+    position: &IdePosition,
 ) -> Option<usize> {
     let line_index = usize::try_from(position.line).ok()?;
     let line_start = *file.line_starts.get(line_index)?;
@@ -199,13 +209,13 @@ pub(super) fn span_contains_offset(span: kernc_utils::Span, offset: usize) -> bo
     offset >= span.start && offset < end
 }
 
-pub(super) fn empty_range() -> Range {
-    Range {
-        start: Position {
+pub(super) fn empty_range() -> IdeRange {
+    IdeRange {
+        start: IdePosition {
             line: 0,
             character: 0,
         },
-        end: Position {
+        end: IdePosition {
             line: 0,
             character: 0,
         },
@@ -216,14 +226,14 @@ pub(crate) fn single_server_diagnostic(uri: String, message: impl Into<String>) 
     AnalysisOutcome {
         bundles: vec![super::DiagnosticBundle {
             uri,
-            diagnostics: vec![crate::protocol::Diagnostic {
-                range: empty_range(),
-                severity: 2,
+            diagnostics: vec![super::ide::IdeDiagnostic {
+                range: empty_range().into(),
+                severity: super::ide::IdeDiagnosticSeverity::Warning,
                 source: "kern-lsp",
                 message: message.into(),
                 code: None,
-                tags: None,
-                related_information: None,
+                tags: Vec::new(),
+                related_information: Vec::new(),
             }],
         }],
     }
@@ -234,20 +244,7 @@ pub(super) fn uri_to_analysis_path(uri: &str) -> Option<PathBuf> {
 }
 
 pub(crate) fn uri_to_file_path(uri: &str) -> Option<PathBuf> {
-    let raw = uri.strip_prefix("file://")?;
-    let decoded = percent_decode(raw).ok()?;
-
-    #[cfg(windows)]
-    {
-        let trimmed = decoded.strip_prefix('/').unwrap_or(&decoded);
-        let with_separators = trimmed.replace('/', "\\");
-        Some(normalize_platform_path(PathBuf::from(with_separators)))
-    }
-
-    #[cfg(not(windows))]
-    {
-        Some(normalize_platform_path(PathBuf::from(decoded)))
-    }
+    crate::protocol::file_uri_to_path(uri).map(normalize_platform_path)
 }
 
 fn untitled_uri_to_path(uri: &str) -> Option<PathBuf> {
@@ -325,7 +322,7 @@ fn split_file_name(name: &str) -> (&str, &str) {
     }
 }
 
-pub(super) fn normalize_path(path: &Path) -> PathBuf {
+pub(crate) fn normalize_path(path: &Path) -> PathBuf {
     normalize_platform_path(fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
 }
 
@@ -428,10 +425,11 @@ fn hex_value(byte: u8) -> Option<u8> {
 }
 
 fn hex_digit(value: u8) -> char {
-    match value & 0x0f {
-        0..=9 => (b'0' + (value & 0x0f)) as char,
-        10..=15 => (b'A' + ((value & 0x0f) - 10)) as char,
-        _ => unreachable!(),
+    let value = value & 0x0f;
+    match value {
+        0..=9 => (b'0' + value) as char,
+        10..=15 => (b'A' + (value - 10)) as char,
+        _ => '?',
     }
 }
 

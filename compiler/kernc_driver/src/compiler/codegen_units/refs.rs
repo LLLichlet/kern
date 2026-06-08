@@ -1,3 +1,9 @@
+//! Item reference collection for codegen planning.
+//!
+//! Reference collection walks MAST bodies and static initializers to identify
+//! functions/globals each item needs, allowing planners to decide ownership and
+//! declaration imports between codegen units.
+
 use super::*;
 use kernc_mast::{MastBlock, MastExpr, MastExprKind, MastStmt};
 

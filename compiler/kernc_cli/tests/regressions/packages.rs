@@ -1,3 +1,5 @@
+//! Package, metadata, and import regression tests.
+
 use super::*;
 
 #[test]
@@ -79,6 +81,105 @@ fn main() i32 {
         main_source_arg.as_str(),
         "-o",
         exe_arg.as_str(),
+    ]);
+    assert_success(&app_output, "kernc app compile");
+
+    let run_output = Command::new(&executable).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "compiled program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn kmeta_import_preserves_const_trait_args_for_dispatch() {
+    let root = unique_temp_path("kernc_kmeta_const_trait_dispatch", "dir");
+    let lib_dir = root.join("lib");
+    let metadata_dir = root.join("kmeta");
+    let lib_entry = lib_dir.join("mod.kn");
+    let lib_object = root.join("util.o");
+    let main_source = root.join("main.kn");
+    let executable = root.join(if cfg!(windows) { "app.exe" } else { "app.out" });
+
+    fs::create_dir_all(&lib_dir).unwrap();
+    fs::create_dir_all(&metadata_dir).unwrap();
+
+    fs::write(
+        &lib_entry,
+        r#"
+pub trait Score[N: usize] {
+    fn value() i32;
+};
+
+pub struct X {};
+
+pub fn make() X {
+    return X.{};
+}
+
+impl &X: Score[1] {
+    fn value() i32 {
+        return 11;
+    }
+}
+
+impl &X: Score[2] {
+    fn value() i32 {
+        return 22;
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_entry_arg = lib_entry.to_string_lossy().into_owned();
+    let lib_object_arg = lib_object.to_string_lossy().into_owned();
+    let metadata_arg = metadata_dir.to_string_lossy().into_owned();
+    let lib_output = run_kernc([
+        "-c",
+        "--module-root-name",
+        "util",
+        "--metadata-output",
+        metadata_arg.as_str(),
+        lib_entry_arg.as_str(),
+        "-o",
+        lib_object_arg.as_str(),
+    ]);
+    assert_success(&lib_output, "kernc library compile");
+
+    fs::write(
+        &main_source,
+        r#"
+fn main() i32 {
+    let x = dep.make();
+    let score = (x.& as &dep.Score[2]);
+    return score.value() - 22;
+}
+"#,
+    )
+    .unwrap();
+
+    let main_source_arg = main_source.to_string_lossy().into_owned();
+    let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
+    let base_mapping = format!("base={}", repo_root().join("library/base").display());
+    let app_output = run_kernc([
+        "--runtime-entry",
+        "crt",
+        "--runtime-libc",
+        "yes",
+        "--module-path",
+        base_mapping.as_str(),
+        "--module-interface-path",
+        dep_mapping.as_str(),
+        "--link-input",
+        lib_object_arg.as_str(),
+        main_source_arg.as_str(),
+        "-o",
+        executable.to_string_lossy().as_ref(),
     ]);
     assert_success(&app_output, "kernc app compile");
 
@@ -609,7 +710,7 @@ pub mod inner;
     fs::write(
         &inner_entry,
         r#"
-#[if(runtime_entry != "none")]
+#[if runtime_entry != "none"]
 pub mod entry;
 
 pub fn answer() i32 {

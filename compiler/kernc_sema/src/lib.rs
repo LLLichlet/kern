@@ -1,3 +1,9 @@
+//! Semantic analysis for Kern source.
+//!
+//! This crate resolves names, builds semantic definition tables, checks types
+//! and expressions, injects language builtins, evaluates trait/impl lookup, and
+//! records per-node facts consumed by MIR/lowering and editor tooling.
+
 mod builtin;
 pub mod checker;
 mod context;

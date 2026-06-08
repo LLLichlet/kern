@@ -1,3 +1,10 @@
+//! Workload statistics for MIR modules.
+//!
+//! These counters summarize how much codegen work a module contains. The driver
+//! uses them for reporting and partitioning heuristics, so the visitor here
+//! deliberately counts both high-level items and detailed instruction/rvalue
+//! shapes.
+
 use crate::{MirCallTarget, MirInstruction, MirLocalKind, MirModule, MirRvalue, MirTerminator};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

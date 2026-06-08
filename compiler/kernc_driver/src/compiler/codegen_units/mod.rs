@@ -1,3 +1,9 @@
+//! Codegen-unit planning and materialization.
+//!
+//! This module partitions MAST functions/globals into codegen units, tracks
+//! inter-unit imports, materializes per-unit modules, and reports fallback or
+//! summary-driven planning decisions.
+
 mod materialize;
 mod plan;
 mod refs;

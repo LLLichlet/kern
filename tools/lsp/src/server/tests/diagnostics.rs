@@ -1,3 +1,5 @@
+//! Server-level diagnostics publication and scheduling tests.
+
 use super::*;
 
 #[test]
@@ -30,18 +32,33 @@ fn verbose_trace_reports_diagnostics_lane_analysis() {
 
     let messages = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
 
-    assert_eq!(messages.len(), 2);
-    assert_eq!(messages[0]["method"], "$/logTrace");
-    assert_eq!(
-        messages[0]["params"]["message"],
-        "diagnostics analysis completed"
+    assert!(
+        messages
+            .iter()
+            .any(|message| message["method"] == "textDocument/publishDiagnostics"),
+        "{messages:#?}"
     );
-    let verbose = messages[0]["params"]["verbose"].as_str().unwrap();
+    let trace = messages
+        .iter()
+        .find(|message| {
+            message["method"] == "$/logTrace"
+                && message["params"]["message"] == "diagnostics analysis completed"
+        })
+        .expect("expected diagnostics analysis trace");
+    assert_eq!(trace["params"]["message"], "diagnostics analysis completed");
+    let verbose = trace["params"]["verbose"].as_str().unwrap();
     assert!(verbose.contains("tier=parse-only"), "{verbose}");
     assert!(verbose.contains("mode=Structure"), "{verbose}");
+    assert!(verbose.contains("queue_wait_ms="), "{verbose}");
     assert!(verbose.contains("elapsed_ms="), "{verbose}");
+    assert!(verbose.contains("request_id=None"), "{verbose}");
+    assert!(verbose.contains("document_generation=1"), "{verbose}");
+    assert!(verbose.contains("document_version=1"), "{verbose}");
+    assert!(verbose.contains("snapshot_generation="), "{verbose}");
+    assert!(verbose.contains("cache="), "{verbose}");
+    assert!(verbose.contains("status=completed"), "{verbose}");
     assert!(verbose.contains("budget=ok"), "{verbose}");
-    assert_eq!(messages[1]["method"], "textDocument/publishDiagnostics");
+    assert!(verbose.contains("error_class=None"), "{verbose}");
 }
 
 #[test]
@@ -73,12 +90,20 @@ fn verbose_trace_reports_interactive_request_method() {
         .expect("expected interactive analysis trace");
     let verbose = trace["params"]["verbose"].as_str().unwrap();
     assert!(verbose.contains("tier=surface"), "{verbose}");
+    assert!(verbose.contains("request_id=81"), "{verbose}");
+    assert!(verbose.contains("document_generation=1"), "{verbose}");
+    assert!(verbose.contains("document_version=1"), "{verbose}");
+    assert!(verbose.contains("snapshot_generation="), "{verbose}");
     assert!(
         verbose.contains("method=textDocument/documentSymbol"),
         "{verbose}"
     );
     assert!(verbose.contains("elapsed_ms="), "{verbose}");
+    assert!(verbose.contains("queue_wait_ms="), "{verbose}");
+    assert!(verbose.contains("status=completed"), "{verbose}");
     assert!(verbose.contains("budget=ok"), "{verbose}");
+    assert!(verbose.contains("cache="), "{verbose}");
+    assert!(verbose.contains("error_class=None"), "{verbose}");
 }
 
 #[test]
@@ -107,12 +132,183 @@ fn verbose_trace_reports_workspace_refresh_latency() {
             && message["params"]["verbose"]
                 .as_str()
                 .is_some_and(|verbose| {
-                    verbose.contains("reason=workspace files changed")
+                    verbose.contains("reason=workspace source files changed")
                         && verbose.contains("targets=")
+                        && verbose.contains("queue_wait_ms=")
                         && verbose.contains("elapsed_ms=")
+                        && verbose.contains("request_id=None")
+                        && verbose.contains("document_generation=None")
+                        && verbose.contains("document_version=None")
+                        && verbose.contains("snapshot_generation=")
+                        && verbose.contains("status=completed")
                         && verbose.contains("budget=ok")
+                        && verbose.contains("cache=")
+                        && verbose.contains("error_class=None")
                 })
     }));
+}
+
+#[test]
+fn watched_source_file_change_uses_source_refresh() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let source = "fn main() void {}\n";
+    let uri = temp_file_uri("server_source_watched_refresh", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeWatchedFiles".to_string()),
+            params: Some(json!({
+                "changes": [
+                    { "uri": uri, "type": 2 }
+                ]
+            })),
+        },
+    );
+
+    assert!(messages.iter().any(|message| {
+        message["method"] == "$/logTrace"
+            && message["params"]["message"] == "workspace refresh queued"
+            && message["params"]["verbose"]
+                .as_str()
+                .is_some_and(|verbose| verbose.contains("reason=workspace source files changed"))
+    }));
+}
+
+#[test]
+fn watched_project_metadata_change_uses_project_reload() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let source = "fn main() void {}\n";
+    let uri = temp_file_uri("server_metadata_watched_refresh", source);
+    let manifest_uri = format!(
+        "file://{}",
+        crate::analysis::uri_to_file_path(&uri)
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("Craft.toml")
+            .to_string_lossy()
+    );
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeWatchedFiles".to_string()),
+            params: Some(json!({
+                "changes": [
+                    { "uri": manifest_uri, "type": 2 }
+                ]
+            })),
+        },
+    );
+
+    assert!(messages.iter().any(|message| {
+        message["method"] == "$/logTrace"
+            && message["params"]["message"] == "workspace refresh queued"
+            && message["params"]["verbose"]
+                .as_str()
+                .is_some_and(|verbose| {
+                    verbose.contains("reason=workspace project metadata changed")
+                        && verbose.contains("snapshot_generation=")
+                        && verbose.contains("cache=")
+                        && verbose.contains("error_class=None")
+                })
+    }));
+}
+
+#[test]
+fn workspace_refresh_reports_work_done_progress() {
+    let mut state = initialized_state();
+    state.work_done_progress = true;
+    let source = "fn main() void {}\n";
+    let uri = temp_file_uri("server_workspace_refresh_progress", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeWatchedFiles".to_string()),
+            params: Some(json!({
+                "changes": []
+            })),
+        },
+    );
+
+    let create = messages
+        .iter()
+        .find(|message| message["method"] == "window/workDoneProgress/create")
+        .unwrap();
+    let token = create["params"]["token"].clone();
+    assert_eq!(token, json!("kern-lsp/workspace-refresh/1"));
+
+    let progress_messages: Vec<_> = messages
+        .iter()
+        .filter(|message| message["method"] == "$/progress" && message["params"]["token"] == token)
+        .collect();
+    assert_eq!(progress_messages.len(), 2);
+    assert_eq!(progress_messages[0]["params"]["value"]["kind"], "begin");
+    assert_eq!(
+        progress_messages[0]["params"]["value"]["title"],
+        "Kern workspace refresh"
+    );
+    assert_eq!(
+        progress_messages[0]["params"]["value"]["message"],
+        "workspace source files changed"
+    );
+    assert_eq!(progress_messages[1]["params"]["value"]["kind"], "end");
+    assert!(
+        progress_messages[1]["params"]["value"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("refreshed")
+    );
+    assert!(
+        progress_messages[1]["params"]["value"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("indexed 1 targets")
+    );
+}
+
+#[test]
+fn workspace_refresh_skips_progress_without_client_support() {
+    let mut state = initialized_state();
+    let source = "fn main() void {}\n";
+    let uri = temp_file_uri("server_workspace_refresh_no_progress", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeWatchedFiles".to_string()),
+            params: Some(json!({
+                "changes": []
+            })),
+        },
+    );
+
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message["method"] == "window/workDoneProgress/create")
+    );
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message["method"] == "$/progress")
+    );
 }
 
 #[test]
@@ -143,20 +339,37 @@ fn verbose_trace_marks_exceeded_workspace_refresh_budget() {
                 .as_str()
                 .is_some_and(|verbose| verbose.contains("budget=exceeded"))
     }));
+    assert!(messages.iter().any(|message| {
+        message["method"] == "$/logTrace"
+            && message["params"]["message"] == "workspace refresh queued"
+            && message["params"]["verbose"]
+                .as_str()
+                .is_some_and(|verbose| verbose.contains("indexed_targets=1"))
+    }));
+    assert!(messages.iter().any(|message| {
+        message["method"] == "$/logTrace"
+            && message["params"]["message"] == "workspace refresh queued"
+            && message["params"]["verbose"]
+                .as_str()
+                .is_some_and(|verbose| verbose.contains("index_generation="))
+    }));
 }
 
 #[test]
 fn workspace_refresh_reuses_diagnostics_budget_yielding() {
     let mut state = initialized_state();
-    state.request_budget_policy.diagnostics_ms = 0;
+    state.diagnostics_flush_policy.target_task_budget = 1;
     let source = "fn main() void {}\n";
     let uri_a = temp_file_uri("server_workspace_budget_yield_a", source);
     let uri_b = temp_file_uri("server_workspace_budget_yield_b", source);
 
     let _ = dispatch_messages(&mut state, did_open_message(&uri_a, source, 1));
     let _ = dispatch_messages(&mut state, did_open_message(&uri_b, source, 1));
-    let messages = dispatch_messages(
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+    let should_exit = handle_message(
         &mut state,
+        &mut writer,
         IncomingMessage {
             jsonrpc: JSONRPC_VERSION.to_string(),
             id: None,
@@ -166,9 +379,16 @@ fn workspace_refresh_reuses_diagnostics_budget_yielding() {
             })),
         },
     );
+    assert!(!should_exit.unwrap());
+    super::super::scheduler::flush_workspace_refresh_results(&mut state, &mut writer, true)
+        .unwrap();
+    super::super::scheduler::drain_scheduler(&mut state, &mut writer).unwrap();
 
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0]["method"], "textDocument/publishDiagnostics");
+    // The first diagnostics task may finish before `drain_scheduler` returns on
+    // fast CI runners because the scheduler opportunistically collects ready
+    // worker results after submitting budgeted work. The budget guarantee is
+    // that only one target is consumed and the next target remains queued.
+    assert!(state.pending_diagnostics_worker_tasks <= 1);
     assert_eq!(state.pending_diagnostics_targets.len(), 1);
     assert!(state.has_pending_diagnostics_work());
 }

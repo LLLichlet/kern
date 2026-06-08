@@ -1,3 +1,9 @@
+//! Unary, binary, assignment, and operator-trait checking.
+//!
+//! Builtin operators are checked first with numeric inference support. When no
+//! builtin rule applies, the checker searches the relevant trait operation and
+//! reports diagnostics that distinguish missing traits from plain type mismatch.
+
 use super::{ExprChecker, NumericInferenceKind};
 use crate::def::Def;
 use crate::ty::{TypeId, TypeKind};
@@ -434,7 +440,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn immutable_slice_type_for_array(&mut self, ty: TypeId) -> Option<TypeId> {
+    pub(crate) fn immutable_slice_type_for_array(&mut self, ty: TypeId) -> Option<TypeId> {
         let norm = self.resolve_tv(ty);
         let (TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem }) =
             self.ctx.type_registry.get(norm).clone()
@@ -959,9 +965,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         let lhs_ty = self.check_expr(lhs, None);
-        if self.assignment_may_store_long_lived_pointer(lhs, op) {
-            self.reject_temporary_address_escape(rhs, "static storage");
-        }
+        let stores_long_lived_pointer = self.assignment_may_store_long_lived_pointer(lhs, op);
 
         // Defer to the inherited-mutability analysis.
         if !self.is_lvalue_mutable(lhs) && lhs_ty != TypeId::ERROR {
@@ -987,6 +991,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let rhs_ty_id = self.resolve_tv(rhs_ty);
         self.check_coercion(rhs, l_norm, rhs_ty_id);
+        if stores_long_lived_pointer {
+            self.reject_stack_pointer_escape(rhs, "static storage");
+        }
         TypeId::VOID
     }
 }

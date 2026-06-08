@@ -1,3 +1,5 @@
+//! Core language regression tests.
+
 use super::*;
 
 #[test]

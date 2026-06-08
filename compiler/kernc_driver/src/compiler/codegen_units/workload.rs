@@ -1,3 +1,8 @@
+//! MAST workload estimates for codegen planning.
+//!
+//! These rough recursive counts let the fallback planner balance codegen units
+//! when MIR summary information is unavailable.
+
 use kernc_mast::{MastBlock, MastExpr, MastExprKind, MastFunction, MastGlobal, MastStmt};
 
 pub(super) fn workload_for_function(function: &MastFunction) -> usize {

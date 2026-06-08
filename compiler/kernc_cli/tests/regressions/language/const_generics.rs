@@ -1,3 +1,5 @@
+//! Const-generic language regression tests.
+
 use super::*;
 #[test]
 fn rejects_infinite_polymorphic_recursion_with_instantiation_chain() {

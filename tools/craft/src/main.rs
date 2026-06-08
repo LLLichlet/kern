@@ -1,3 +1,8 @@
+//! Craft binary entry point.
+//!
+//! The executable installs shared CLI rendering, invokes the library command
+//! dispatcher, and maps structured command failures to process exit codes.
+
 use shared_cli::{ColorChoice, ErrorReport};
 
 fn main() {

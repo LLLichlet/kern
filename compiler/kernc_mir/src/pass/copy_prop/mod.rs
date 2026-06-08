@@ -1,3 +1,9 @@
+//! Local copy-propagation pass.
+//!
+//! This pass replaces immutable locals initialized from a simple operand when
+//! doing so cannot change place semantics. It then drops now-dead let
+//! instructions and reports both operand rewrites and removals.
+
 mod analysis;
 mod rewrite;
 mod uses;
@@ -31,7 +37,7 @@ pub(super) fn run_local_copy_propagation(module: &mut MirModule) -> MirPassRepor
 
 fn rewrite_body(body: &mut crate::MirBody) -> MirPassReport {
     let candidates = collect_copy_candidates(body);
-    let replacements = resolve_replacements(&candidates);
+    let replacements = resolve_replacements(body, &candidates);
     if replacements.is_empty() {
         return MirPassReport {
             name: "local_copy_propagation",

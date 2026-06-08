@@ -1,6 +1,26 @@
-use super::super::lifecycle::TraceValue;
+//! Server lifecycle, initialization, trace, and run-loop tests.
+
+use super::super::lifecycle::{TraceValue, emit_trace};
 use super::super::*;
 use super::*;
+use std::fs;
+use std::io::{self, Write};
+use std::path::PathBuf;
+use std::sync::{Arc, Barrier, Mutex};
+
+#[derive(Clone)]
+struct SharedOutput(Arc<Mutex<Vec<u8>>>);
+
+impl Write for SharedOutput {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
 
 #[test]
 fn initialize_result_advertises_precise_capabilities() {
@@ -9,13 +29,40 @@ fn initialize_result_advertises_precise_capabilities() {
     assert_eq!(result["positionEncoding"], "utf-16");
     assert_eq!(
         result["capabilities"]["completionProvider"]["resolveProvider"],
-        false
+        true
     );
     assert_eq!(
         result["capabilities"]["completionProvider"]["triggerCharacters"],
         json!(["."])
     );
     assert_eq!(result["capabilities"]["documentHighlightProvider"], true);
+    assert_eq!(
+        result["capabilities"]["codeLensProvider"]["resolveProvider"],
+        true
+    );
+    assert_eq!(result["capabilities"]["declarationProvider"], true);
+    assert_eq!(result["capabilities"]["typeDefinitionProvider"], true);
+    assert_eq!(result["capabilities"]["implementationProvider"], true);
+    assert_eq!(
+        result["capabilities"]["callHierarchyProvider"]["workDoneProgress"],
+        false
+    );
+    assert_eq!(
+        result["capabilities"]["referencesProvider"]["workDoneProgress"],
+        true
+    );
+    assert_eq!(result["capabilities"]["foldingRangeProvider"], true);
+    assert_eq!(result["capabilities"]["selectionRangeProvider"], true);
+    assert_eq!(
+        result["capabilities"]["documentLinkProvider"]["resolveProvider"],
+        true
+    );
+    assert_eq!(result["capabilities"]["documentFormattingProvider"], true);
+    assert_eq!(
+        result["capabilities"]["documentRangeFormattingProvider"],
+        true
+    );
+    assert_eq!(result["capabilities"]["workspaceSymbolProvider"], true);
     assert_eq!(
         result["capabilities"]["signatureHelpProvider"]["triggerCharacters"],
         json!(["(", ","])
@@ -25,14 +72,368 @@ fn initialize_result_advertises_precise_capabilities() {
         json!(["quickfix"])
     );
     assert_eq!(
+        result["capabilities"]["codeActionProvider"]["resolveProvider"],
+        true
+    );
+    assert_eq!(
         result["capabilities"]["semanticTokensProvider"]["range"],
-        false
+        true
     );
     assert_eq!(
         result["capabilities"]["semanticTokensProvider"]["full"]["delta"],
-        false
+        true
+    );
+    assert_eq!(
+        result["capabilities"]["semanticTokensProvider"]["legend"]["tokenTypes"],
+        json!([
+            "namespace",
+            "type",
+            "struct",
+            "enum",
+            "interface",
+            "typeParameter",
+            "parameter",
+            "variable",
+            "property",
+            "function",
+            "method",
+            "enumMember"
+        ])
     );
     assert_eq!(result["capabilities"]["inlayHintProvider"], true);
+    assert_eq!(
+        result["capabilities"]["workspace"]["workspaceFolders"]["supported"],
+        true
+    );
+    assert_eq!(
+        result["capabilities"]["workspace"]["workspaceFolders"]["changeNotifications"],
+        true
+    );
+}
+
+#[test]
+fn advertised_capabilities_have_dispatch_and_server_tests() {
+    let capabilities =
+        initialize_result(InitializeResultOptions::default())["capabilities"].clone();
+    let dispatch = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("server")
+            .join("dispatch.rs"),
+    )
+    .unwrap();
+    let tests_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("server")
+        .join("tests");
+    let mut tests = String::new();
+    for entry in fs::read_dir(tests_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+            tests.push_str(&fs::read_to_string(path).unwrap());
+            tests.push('\n');
+        }
+    }
+
+    for coverage in advertised_request_coverages(&capabilities) {
+        for method in coverage.methods {
+            assert!(
+                dispatch.contains(&format!("\"{method}\"")),
+                "advertised capability `{}` has no dispatch handler for `{method}`",
+                coverage.capability
+            );
+        }
+        for marker in coverage.test_markers {
+            assert!(
+                tests.contains(marker),
+                "advertised capability `{}` has no server test marker `{marker}`",
+                coverage.capability
+            );
+        }
+    }
+}
+
+struct CapabilityRequestCoverage {
+    capability: &'static str,
+    methods: &'static [&'static str],
+    test_markers: &'static [&'static str],
+}
+
+fn advertised_request_coverages(capabilities: &Value) -> Vec<CapabilityRequestCoverage> {
+    let mut coverages = Vec::new();
+    let mut push_bool = |capability: &'static str,
+                         methods: &'static [&'static str],
+                         test_markers: &'static [&'static str]| {
+        if capabilities[capability].as_bool() == Some(true) {
+            coverages.push(CapabilityRequestCoverage {
+                capability,
+                methods,
+                test_markers,
+            });
+        }
+    };
+
+    push_bool(
+        "documentSymbolProvider",
+        &["textDocument/documentSymbol"],
+        &["document_symbol_request_returns_top_level_symbols"],
+    );
+    push_bool(
+        "definitionProvider",
+        &["textDocument/definition"],
+        &["definition_request_returns_definition_location"],
+    );
+    push_bool(
+        "declarationProvider",
+        &["textDocument/declaration"],
+        &["declaration_request_returns_declaration_location"],
+    );
+    push_bool(
+        "typeDefinitionProvider",
+        &["textDocument/typeDefinition"],
+        &["type_definition_request_returns_type_symbol_definition"],
+    );
+    push_bool(
+        "implementationProvider",
+        &["textDocument/implementation"],
+        &["implementation_request_returns_trait_method_implementations"],
+    );
+    push_bool(
+        "documentHighlightProvider",
+        &["textDocument/documentHighlight"],
+        &["document_highlight_request_returns_same_file_spans"],
+    );
+    push_bool(
+        "hoverProvider",
+        &["textDocument/hover"],
+        &["hover_request_returns_signature_markup"],
+    );
+    push_bool(
+        "foldingRangeProvider",
+        &["textDocument/foldingRange"],
+        &["folding_range_request_returns_block_ranges"],
+    );
+    push_bool(
+        "selectionRangeProvider",
+        &["textDocument/selectionRange"],
+        &["selection_range_request_returns_parent_chain"],
+    );
+    push_bool(
+        "documentFormattingProvider",
+        &["textDocument/formatting"],
+        &["formatting_request_returns_text_edits_for_dirty_document"],
+    );
+    push_bool(
+        "documentRangeFormattingProvider",
+        &["textDocument/rangeFormatting"],
+        &["range_formatting_request_filters_unrelated_edits"],
+    );
+    push_bool(
+        "workspaceSymbolProvider",
+        &["workspace/symbol"],
+        &["workspace_symbol_request_returns_open_document_symbols"],
+    );
+    push_bool(
+        "inlayHintProvider",
+        &["textDocument/inlayHint"],
+        &["inlay_hint_request_returns_type_hints"],
+    );
+
+    if capabilities.get("callHierarchyProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "callHierarchyProvider",
+            methods: &[
+                "textDocument/prepareCallHierarchy",
+                "callHierarchy/incomingCalls",
+                "callHierarchy/outgoingCalls",
+            ],
+            test_markers: &["call_hierarchy_requests_return_direct_calls"],
+        });
+    }
+    if capabilities.get("codeLensProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "codeLensProvider",
+            methods: &["textDocument/codeLens", "codeLens/resolve"],
+            test_markers: &[
+                "code_lens_request_returns_deferred_craft_target_commands",
+                "code_lens_resolve_materializes_craft_target_command",
+            ],
+        });
+    }
+    if capabilities.get("referencesProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "referencesProvider",
+            methods: &["textDocument/references"],
+            test_markers: &["references_request_returns_sorted_locations"],
+        });
+    }
+    if capabilities.get("documentLinkProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "documentLinkProvider",
+            methods: &["textDocument/documentLink", "documentLink/resolve"],
+            test_markers: &[
+                "document_link_request_returns_deferred_import_targets",
+                "document_link_resolve_materializes_import_target",
+            ],
+        });
+    }
+    if capabilities.get("signatureHelpProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "signatureHelpProvider",
+            methods: &["textDocument/signatureHelp"],
+            test_markers: &["signature_help_request_returns_active_parameter_information"],
+        });
+    }
+    if capabilities.get("completionProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "completionProvider",
+            methods: &["textDocument/completion", "completionItem/resolve"],
+            test_markers: &[
+                "completion_request_returns_visible_items",
+                "completion_item_resolve_adds_documentation_from_resolve_data",
+            ],
+        });
+    }
+    if capabilities.get("semanticTokensProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "semanticTokensProvider",
+            methods: &[
+                "textDocument/semanticTokens/full",
+                "textDocument/semanticTokens/full/delta",
+                "textDocument/semanticTokens/range",
+            ],
+            test_markers: &[
+                "semantic_tokens_request_returns_encoded_token_data",
+                "semantic_tokens_delta_request_returns_edits",
+                "semantic_tokens_range_request_filters_token_data",
+            ],
+        });
+    }
+    if capabilities.get("codeActionProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "codeActionProvider",
+            methods: &["textDocument/codeAction", "codeAction/resolve"],
+            test_markers: &[
+                "code_action_request_returns_quick_fix_edits",
+                "code_action_resolve_materializes_deferred_edit",
+            ],
+        });
+    }
+    if capabilities.get("renameProvider").is_some() {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "renameProvider",
+            methods: &["textDocument/prepareRename", "textDocument/rename"],
+            test_markers: &[
+                "prepare_rename_request_returns_placeholder_and_range",
+                "rename_request_returns_workspace_edit",
+            ],
+        });
+    }
+    if capabilities["workspace"]["workspaceFolders"]["supported"] == true {
+        coverages.push(CapabilityRequestCoverage {
+            capability: "workspace.workspaceFolders",
+            methods: &["workspace/didChangeWorkspaceFolders"],
+            test_markers: &["workspace_folder_change_updates_roots_and_refreshes_index"],
+        });
+    }
+
+    coverages
+}
+
+#[test]
+fn initialize_negotiates_work_done_progress() {
+    let mut state = ServerState::new();
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(14)),
+            method: Some("initialize".to_string()),
+            params: Some(json!({
+                "capabilities": {
+                    "window": {
+                        "workDoneProgress": true
+                    }
+                }
+            })),
+        },
+    )
+    .unwrap();
+
+    assert!(state.work_done_progress);
+}
+
+#[test]
+fn initialize_records_root_uri_as_primary_workspace_root() {
+    let root = unique_temp_dir("server_initialize_root_uri");
+    let mut state = ServerState::new();
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(15)),
+            method: Some("initialize".to_string()),
+            params: Some(json!({
+                "rootUri": file_path_to_uri_for_test(&root),
+                "capabilities": {}
+            })),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        state.workspace_roots,
+        normalized_workspace_roots_for_test(vec![root])
+    );
+}
+
+#[test]
+fn initialize_records_all_workspace_folders() {
+    let root_a = unique_temp_dir("server_initialize_workspace_a");
+    let root_b = unique_temp_dir("server_initialize_workspace_b");
+    let mut state = ServerState::new();
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(16)),
+            method: Some("initialize".to_string()),
+            params: Some(json!({
+                "rootUri": file_path_to_uri_for_test(&root_b),
+                "trace": "verbose",
+                "workspaceFolders": [
+                    { "uri": file_path_to_uri_for_test(&root_a), "name": "a" },
+                    { "uri": file_path_to_uri_for_test(&root_b), "name": "b" }
+                ],
+                "capabilities": {}
+            })),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        state.workspace_roots,
+        normalized_workspace_roots_for_test(vec![root_a, root_b])
+    );
+    let messages = read_all_messages(&output);
+    assert!(messages.iter().any(|message| {
+        message["method"] == "$/logTrace"
+            && message["params"]["verbose"]
+                .as_str()
+                .is_some_and(|message| message.contains("workspaceRoots="))
+    }));
 }
 
 #[test]
@@ -91,6 +492,188 @@ fn accepts_common_post_initialize_notifications() {
     }
 
     assert!(output.is_empty());
+}
+
+#[test]
+fn did_change_configuration_updates_analysis_settings_and_refreshes_workspace() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_configuration_refresh", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        did_open_message(&uri, "fn main() void {}\n", 1),
+    )
+    .unwrap();
+    drain_scheduler_to_quiescence(&mut state, &mut writer);
+    drop(writer);
+    output.clear();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeConfiguration".to_string()),
+            params: Some(json!({
+                "settings": {
+                    "project": {
+                        "features": [" experimental ", "experimental", "simd"],
+                        "noDefaultFeatures": true,
+                        "libraryBundle": "base"
+                    }
+                }
+            })),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        state.analysis.settings().compile_options.craft_features,
+        vec!["experimental".to_string(), "simd".to_string()]
+    );
+    assert!(
+        !state
+            .analysis
+            .settings()
+            .compile_options
+            .craft_default_features
+    );
+    assert_eq!(
+        state.analysis.settings().compile_options.library_bundle,
+        kernc_utils::config::LibraryBundle::Base
+    );
+    drain_scheduler_to_quiescence(&mut state, &mut writer);
+    let messages = read_all_messages(&output);
+    assert!(messages.iter().any(|message| {
+        message["method"] == "textDocument/publishDiagnostics"
+            && message["params"]["uri"] == json!(uri)
+    }));
+}
+
+#[test]
+fn did_change_configuration_accepts_wrapped_vscode_section_settings() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_configuration_wrapped", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        did_open_message(&uri, "fn main() void {}\n", 1),
+    )
+    .unwrap();
+    drain_scheduler_to_quiescence(&mut state, &mut writer);
+    drop(writer);
+    output.clear();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeConfiguration".to_string()),
+            params: Some(json!({
+                "settings": {
+                    "kern": {
+                        "project": {
+                            "features": ["simd"],
+                            "noDefaultFeatures": true
+                        }
+                    }
+                }
+            })),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        state.analysis.settings().compile_options.craft_features,
+        vec!["simd".to_string()]
+    );
+    assert!(
+        !state
+            .analysis
+            .settings()
+            .compile_options
+            .craft_default_features
+    );
+    drain_scheduler_to_quiescence(&mut state, &mut writer);
+    let messages = read_all_messages(&output);
+    assert!(
+        messages
+            .iter()
+            .all(|message| message["method"] != "window/logMessage")
+    );
+    assert!(messages.iter().any(|message| {
+        message["method"] == "textDocument/publishDiagnostics"
+            && message["params"]["uri"] == json!(uri)
+    }));
+}
+
+#[test]
+fn did_change_configuration_ignores_equal_settings_without_refresh() {
+    let mut state = initialized_state();
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeConfiguration".to_string()),
+            params: Some(json!({
+                "settings": {
+                    "project": {
+                        "features": [],
+                        "noDefaultFeatures": false,
+                        "libraryBundle": "std"
+                    }
+                }
+            })),
+        },
+    )
+    .unwrap();
+
+    assert!(state.pending_workspace_refresh_reason.is_none());
+    assert!(output.is_empty());
+}
+
+#[test]
+fn did_change_configuration_reports_invalid_supported_settings() {
+    let mut state = initialized_state();
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    let err = handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeConfiguration".to_string()),
+            params: Some(json!({
+                "settings": {
+                    "project": {
+                        "features": ["ok", ""]
+                    }
+                }
+            })),
+        },
+    )
+    .unwrap_err();
+
+    assert!(matches!(err, ServerError::Protocol(message) if message.contains("empty feature")));
+    assert!(state.pending_workspace_refresh_reason.is_none());
 }
 
 #[test]
@@ -189,8 +772,51 @@ fn initialize_negotiates_capabilities_from_client_support() {
             .get("semanticTokensProvider")
             .is_some()
     );
+    assert_eq!(
+        messages[0]["result"]["capabilities"]["semanticTokensProvider"]["full"]["delta"],
+        false
+    );
     assert_eq!(messages[1]["method"], "window/logMessage");
     assert_eq!(messages[2]["method"], "window/logMessage");
+}
+
+#[test]
+fn initialize_disables_semantic_token_delta_without_client_support() {
+    let mut state = ServerState::new();
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    handle_message(
+        &mut state,
+        &mut writer,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(111)),
+            method: Some("initialize".to_string()),
+            params: Some(json!({
+                "capabilities": {
+                    "general": {
+                        "positionEncodings": ["utf-16"]
+                    },
+                    "textDocument": {
+                        "semanticTokens": {
+                            "requests": {
+                                "range": true,
+                                "full": { "delta": false }
+                            }
+                        }
+                    }
+                }
+            })),
+        },
+    )
+    .unwrap();
+
+    let messages = read_all_messages(&output);
+    assert_eq!(
+        messages[0]["result"]["capabilities"]["semanticTokensProvider"]["full"]["delta"],
+        false
+    );
 }
 
 #[test]
@@ -297,6 +923,52 @@ fn set_trace_updates_state_and_emits_trace_notification() {
 }
 
 #[test]
+fn kern_lsp_log_records_trace_without_client_trace() {
+    let mut state = ServerState::new();
+    let log_path = std::env::temp_dir().join(format!(
+        "kern_lsp_trace_{}_{}.jsonl",
+        std::process::id(),
+        UNIQUE_COUNTER.fetch_add(1, Ordering::SeqCst)
+    ));
+    let _ = fs::remove_file(&log_path);
+    state.trace_log_path = Some(log_path.clone());
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    emit_trace(
+        &state,
+        &mut writer,
+        "analysis tier selected",
+        Some("request_id=1 cache=none".to_string()),
+        true,
+    )
+    .unwrap();
+
+    assert!(output.is_empty());
+    let logged = fs::read_to_string(&log_path).unwrap();
+    let record: Value = serde_json::from_str(logged.trim()).unwrap();
+    assert_eq!(record["message"], json!("analysis tier selected"));
+    assert_eq!(record["verbose"], json!("request_id=1 cache=none"));
+    assert_eq!(record["verbose_only"], json!(true));
+    let _ = fs::remove_file(log_path);
+}
+
+#[test]
+fn kern_lsp_log_write_failure_does_not_fail_trace_delivery() {
+    let mut state = ServerState::new();
+    state.trace = TraceValue::Messages;
+    state.trace_log_path = Some(std::env::temp_dir());
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    emit_trace(&state, &mut writer, "still delivered", None, false).unwrap();
+
+    let response = read_single_response(&output);
+    assert_eq!(response["method"], "$/logTrace");
+    assert_eq!(response["params"]["message"], json!("still delivered"));
+}
+
+#[test]
 fn run_loop_reports_parse_errors_and_keeps_processing_messages() {
     let invalid = "{\"oops\":1";
     let valid = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"shutdown\",\"params\":{}}";
@@ -307,12 +979,12 @@ fn run_loop_reports_parse_errors_and_keeps_processing_messages() {
         valid.len(),
         valid
     );
-    let mut reader = MessageReader::new(Cursor::new(payload.as_bytes()));
+    let reader = MessageReader::new(Cursor::new(payload.into_bytes()));
     let mut output = Vec::new();
     let mut writer = MessageWriter::new(&mut output);
     let mut state = initialized_state();
 
-    run_message_loop(&mut state, &mut reader, &mut writer).unwrap();
+    run_message_loop(&mut state, reader, &mut writer).unwrap();
 
     let messages = read_all_messages(&output);
     assert_eq!(messages.len(), 2);
@@ -320,4 +992,88 @@ fn run_loop_reports_parse_errors_and_keeps_processing_messages() {
     assert_eq!(messages[0]["id"], json!(null));
     assert_eq!(messages[1]["id"], json!(1));
     assert_eq!(messages[1]["result"], json!(null));
+}
+
+#[test]
+fn run_loop_ignores_server_request_responses() {
+    let workspace_refresh = "{\"jsonrpc\":\"2.0\",\"method\":\"workspace/didChangeWatchedFiles\",\"params\":{\"changes\":[]}}";
+    let response = "{\"jsonrpc\":\"2.0\",\"id\":\"kern-lsp/1\",\"result\":null}";
+    let shutdown = "{\"jsonrpc\":\"2.0\",\"id\":72,\"method\":\"shutdown\",\"params\":{}}";
+    let payload = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        workspace_refresh.len(),
+        workspace_refresh,
+        response.len(),
+        response,
+        shutdown.len(),
+        shutdown
+    );
+    let reader = MessageReader::new(Cursor::new(payload.into_bytes()));
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+    let mut state = initialized_state();
+    state.work_done_progress = true;
+
+    run_message_loop(&mut state, reader, &mut writer).unwrap();
+
+    let messages = read_all_messages(&output);
+    assert!(messages.iter().any(|message| {
+        message["method"] == "window/workDoneProgress/create"
+            && message["id"] == json!("kern-lsp/1")
+    }));
+    assert!(messages.iter().any(|message| message["id"] == json!(72)));
+    assert!(
+        messages
+            .iter()
+            .all(|message| { message["error"]["message"] != "message did not contain a method" })
+    );
+}
+
+#[test]
+fn run_loop_accepts_second_request_while_first_worker_is_running() {
+    let uri = temp_file_uri(
+        "server_loop_parallel_hover",
+        "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n",
+    );
+    let first = format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":70,\"method\":\"textDocument/hover\",\"params\":{{\"textDocument\":{{\"uri\":\"{}\"}},\"position\":{{\"line\":1,\"character\":27}}}}}}",
+        uri
+    );
+    let second = format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":71,\"method\":\"textDocument/hover\",\"params\":{{\"textDocument\":{{\"uri\":\"{}\"}},\"position\":{{\"line\":1,\"character\":27}}}}}}",
+        uri
+    );
+    let payload = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        first.len(),
+        first,
+        second.len(),
+        second
+    );
+    let reader = MessageReader::new(Cursor::new(payload.into_bytes()));
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let mut writer = MessageWriter::new(SharedOutput(output.clone()));
+    let mut state = initialized_state();
+    let started = Arc::new(Barrier::new(3));
+    let release = Arc::new(Barrier::new(3));
+    *TEST_DOCUMENT_REQUEST_BARRIERS.lock().unwrap() = Some((started.clone(), release.clone()));
+
+    let handle = std::thread::spawn(move || {
+        run_message_loop(&mut state, reader, &mut writer).unwrap();
+    });
+
+    started.wait();
+    release.wait();
+    handle.join().unwrap();
+    *TEST_DOCUMENT_REQUEST_BARRIERS.lock().unwrap() = None;
+
+    let output = output.lock().unwrap();
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 2);
+    let mut ids = messages
+        .iter()
+        .map(|message| message["id"].as_i64().unwrap())
+        .collect::<Vec<_>>();
+    ids.sort();
+    assert_eq!(ids, vec![70, 71]);
 }

@@ -1,3 +1,9 @@
+//! Main LLVM code generator.
+//!
+//! `CodeGenerator` owns the LLVM context/module/builder, type registry, symbol
+//! maps, debug-info state, and phase timing. Submodules lower declarations,
+//! types, expressions, MIR bodies, aggregates, math helpers, and object emission.
+
 use crate::llvm_api::{
     Builder, Context as LlvmContext, FunctionValue, GlobalValue, InlineAsmDialect,
     Module as LlvmModule, PointerValue, StructType,
@@ -18,6 +24,7 @@ mod alloca;
 mod debug_info;
 mod decl;
 mod emit;
+mod ice;
 mod math;
 mod mir;
 mod refs;

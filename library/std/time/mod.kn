@@ -54,7 +54,7 @@ impl Duration {
     }
 
     pub const fn saturating_sub(other: Duration) Duration {
-        return if (self.nanos <= other.nanos) {
+        return if self.nanos <= other.nanos {
             zero_duration()
         } else {
             .{ nanos: self.nanos - other.nanos }
@@ -66,7 +66,7 @@ impl Duration {
     }
 
     pub const fn div_u64(divisor: u64) Duration {
-        return if (divisor == 0) {
+        return if divisor == 0 {
             zero_duration()
         } else {
             .{ nanos: self.nanos / divisor }
@@ -74,7 +74,7 @@ impl Duration {
     }
 
     pub const fn units_per_sec(units: u64) u64 {
-        if (units == 0 or self.nanos == 0) {
+        if units == 0 or self.nanos == 0 {
             return 0;
         }
 
@@ -86,7 +86,7 @@ impl Duration {
     }
 
     pub fn sleep() void {
-        if (self.is_zero()) {
+        if self.is_zero() {
             return;
         }
         platform_sleep_nanos(self.nanos);
@@ -101,8 +101,8 @@ impl Duration : Eq[Duration] {
 
 impl Duration : Comparable[Duration] {
     pub fn cmp(other: Duration) Ordering {
-        if (self.nanos < other.nanos) return LESS;
-        if (self.nanos > other.nanos) return GREATER;
+        if self.nanos < other.nanos return LESS;
+        if self.nanos > other.nanos return GREATER;
         return EQUAL;
     }
 }
@@ -137,8 +137,8 @@ impl Instant : Eq[Instant] {
 
 impl Instant : Comparable[Instant] {
     pub fn cmp(other: Instant) Ordering {
-        if (self.nanos < other.nanos) return LESS;
-        if (self.nanos > other.nanos) return GREATER;
+        if self.nanos < other.nanos return LESS;
+        if self.nanos > other.nanos return GREATER;
         return EQUAL;
     }
 }
@@ -159,40 +159,40 @@ impl Clock {
     }
 }
 
-#[if(os == "linux")]
+#[if os == "linux"]
 mod linux;
-#[if(os == "linux")]
+#[if os == "linux"]
 use .linux.{monotonic_now_nanos, sleep_nanos as platform_sleep_nanos};
 
-#[if(os == "darwin")]
+#[if os == "darwin"]
 mod darwin;
-#[if(os == "darwin")]
+#[if os == "darwin"]
 use .darwin.{monotonic_now_nanos, sleep_nanos as platform_sleep_nanos};
 
-#[if(os == "windows")]
+#[if os == "windows"]
 mod windows;
-#[if(os == "windows")]
+#[if os == "windows"]
 use .windows.{monotonic_now_nanos, sleep_nanos as platform_sleep_nanos};
 
 const fn saturating_mul_u64(lhs: u64, rhs: u64) u64 {
-    if (lhs == 0 or rhs == 0) {
+    if lhs == 0 or rhs == 0 {
         return 0;
     }
-    if (lhs > U64_MAX / rhs) {
+    if lhs > U64_MAX / rhs {
         return U64_MAX;
     }
     return lhs * rhs;
 }
 
 const fn saturating_add_u64(lhs: u64, rhs: u64) u64 {
-    if (lhs > U64_MAX - rhs) {
+    if lhs > U64_MAX - rhs {
         return U64_MAX;
     }
     return lhs + rhs;
 }
 
 fn duration_between(start_nanos: u64, end_nanos: u64) Duration {
-    if (end_nanos <= start_nanos) {
+    if end_nanos <= start_nanos {
         return zero_duration();
     }
     return .{ nanos: end_nanos - start_nanos };

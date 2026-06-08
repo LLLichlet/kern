@@ -1,10 +1,16 @@
+//! Open-document state transitions for the analysis engine.
+//!
+//! Document sync updates overlay text, invalidates derived caches, and returns
+//! scheduler actions for diagnostics publication.
+
 use super::*;
+use std::path::Path;
 
 impl AnalysisEngine {
     #[cfg(test)]
-    pub fn open_document(&mut self, params: DidOpenTextDocumentParams) -> AnalysisOutcome {
-        match self.open_document_state(params) {
-            DocumentSyncAction::ScheduleTarget { uri, mode } => match mode {
+    pub fn open_document(&mut self, params: impl IntoIdeOpenDocument) -> AnalysisOutcome {
+        match self.open_document_state(params.into_ide_open_document()) {
+            DocumentSyncAction::ScheduleTarget { uri, mode, .. } => match mode {
                 DiagnosticsAnalysisMode::Structure => self.analyze_document_structure(&uri),
                 DiagnosticsAnalysisMode::Full => self.analyze_document(&uri),
             },
@@ -12,8 +18,8 @@ impl AnalysisEngine {
         }
     }
 
-    pub fn open_document_state(&mut self, params: DidOpenTextDocumentParams) -> DocumentSyncAction {
-        let doc = params.text_document;
+    pub fn open_document_state(&mut self, doc: impl IntoIdeOpenDocument) -> DocumentSyncAction {
+        let doc = doc.into_ide_open_document();
         let uri = doc.uri.clone();
         let Some(path) = uri_to_analysis_path(&uri) else {
             return DocumentSyncAction::Immediate(single_server_diagnostic(
@@ -23,30 +29,33 @@ impl AnalysisEngine {
         };
 
         let is_dirty = Self::document_differs_from_disk(&path, &doc.text);
+        let text_hash = hash_source_text(&doc.text);
         self.documents.insert(
             uri.clone(),
             OpenDocument {
                 is_dirty,
-                text_hash: hash_source_text(&doc.text),
-                path,
+                text_hash,
+                path: path.clone(),
                 version: doc.version,
                 text: doc.text,
             },
         );
         self.invalidate_open_path_index();
         self.invalidate_dirty_document_snapshot();
-        self.invalidate_render_caches();
+        self.invalidate_lexical_cache_for_document(&uri);
+        self.retain_semantic_tokens_for_document_text(&path, text_hash);
 
         DocumentSyncAction::ScheduleTarget {
             uri,
             mode: DiagnosticsAnalysisMode::Structure,
+            prewarm: !is_dirty,
         }
     }
 
     #[cfg(test)]
-    pub fn change_document(&mut self, params: DidChangeTextDocumentParams) -> AnalysisOutcome {
-        match self.change_document_state(params) {
-            DocumentSyncAction::ScheduleTarget { uri, mode } => match mode {
+    pub fn change_document(&mut self, params: impl IntoIdeChangeDocument) -> AnalysisOutcome {
+        match self.change_document_state(params.into_ide_change_document()) {
+            DocumentSyncAction::ScheduleTarget { uri, mode, .. } => match mode {
                 DiagnosticsAnalysisMode::Structure => self.analyze_document_structure(&uri),
                 DiagnosticsAnalysisMode::Full => self.analyze_document(&uri),
             },
@@ -56,42 +65,44 @@ impl AnalysisEngine {
 
     pub fn change_document_state(
         &mut self,
-        params: DidChangeTextDocumentParams,
+        params: impl IntoIdeChangeDocument,
     ) -> DocumentSyncAction {
-        let Some(doc) = self.documents.get_mut(&params.text_document.uri) else {
+        let params = params.into_ide_change_document();
+        let Some(doc) = self.documents.get_mut(&params.uri) else {
             return DocumentSyncAction::Immediate(single_server_diagnostic(
-                params.text_document.uri,
+                params.uri,
                 "received didChange for a document that is not open",
             ));
         };
 
         let mut updated_text = doc.text.clone();
-        for change in params.content_changes {
+        for change in params.changes {
             if let Err(message) = apply_content_change(&doc.path, &mut updated_text, &change) {
                 return DocumentSyncAction::Immediate(single_server_diagnostic(
-                    params.text_document.uri.clone(),
-                    message,
+                    params.uri, message,
                 ));
             }
         }
 
         doc.text = updated_text;
-        doc.version = params.text_document.version;
+        doc.version = params.version;
         doc.is_dirty = Self::document_differs_from_disk(&doc.path, &doc.text);
         doc.text_hash = hash_source_text(&doc.text);
+        let path = doc.path.clone();
         self.invalidate_dirty_document_snapshot();
-        self.invalidate_render_caches();
+        self.invalidate_render_caches_for_document(&params.uri, &path);
 
         DocumentSyncAction::ScheduleTarget {
-            uri: params.text_document.uri,
+            uri: params.uri,
             mode: DiagnosticsAnalysisMode::Structure,
+            prewarm: false,
         }
     }
 
     #[cfg(test)]
-    pub fn close_document(&mut self, params: DidCloseTextDocumentParams) -> AnalysisOutcome {
-        match self.close_document_state(params) {
-            DocumentSyncAction::ScheduleTarget { uri, mode } => match mode {
+    pub fn close_document(&mut self, params: impl IntoIdeCloseDocument) -> AnalysisOutcome {
+        match self.close_document_state(params.into_ide_close_document()) {
+            DocumentSyncAction::ScheduleTarget { uri, mode, .. } => match mode {
                 DiagnosticsAnalysisMode::Structure => self.analyze_document_structure(&uri),
                 DiagnosticsAnalysisMode::Full => self.analyze_document(&uri),
             },
@@ -101,19 +112,18 @@ impl AnalysisEngine {
 
     pub fn close_document_state(
         &mut self,
-        params: DidCloseTextDocumentParams,
+        params: impl IntoIdeCloseDocument,
     ) -> DocumentSyncAction {
-        let _was_dirty = self
-            .documents
-            .remove(&params.text_document.uri)
-            .map(|doc| doc.is_dirty)
-            .unwrap_or(false);
+        let params = params.into_ide_close_document();
+        let closed_document = self.documents.remove(&params.uri);
         self.invalidate_open_path_index();
         self.invalidate_dirty_document_snapshot();
-        self.invalidate_render_caches();
+        if closed_document.is_some() {
+            self.invalidate_lexical_cache_for_document(&params.uri);
+        }
         DocumentSyncAction::Immediate(AnalysisOutcome {
             bundles: vec![DiagnosticBundle {
-                uri: params.text_document.uri,
+                uri: params.uri,
                 diagnostics: Vec::new(),
             }],
         })
@@ -127,9 +137,14 @@ impl AnalysisEngine {
             ));
         };
 
+        let was_dirty = doc.is_dirty;
         let is_dirty = Self::document_differs_from_disk(&doc.path, &doc.text);
         doc.is_dirty = is_dirty;
         self.invalidate_dirty_document_snapshot();
+        if was_dirty && !is_dirty {
+            recover_lock(&self.driver_cache).clear();
+            self.invalidate_artifact_cache();
+        }
 
         DocumentSyncAction::ScheduleTarget {
             uri,
@@ -138,25 +153,85 @@ impl AnalysisEngine {
             } else {
                 DiagnosticsAnalysisMode::Full
             },
+            prewarm: false,
         }
     }
 
+    #[cfg(test)]
+    pub fn reload_project_metadata_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
+        recover_lock(&self.project_cache).clear();
+        recover_lock(&self.driver_cache).clear();
+        self.refresh_workspace_targets()
+    }
+
+    pub(crate) fn reload_project_metadata_index_cancelable(
+        &mut self,
+        workspace_roots: Vec<PathBuf>,
+        cancellation: CancellationToken,
+    ) -> Result<WorkspaceIndexRefresh, String> {
+        recover_lock(&self.project_cache).clear();
+        recover_lock(&self.driver_cache).clear();
+        self.refresh_workspace_index_cancelable(workspace_roots, cancellation)
+    }
+
+    #[cfg(test)]
     pub fn refresh_workspace_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
-        self.project_cache.get_mut().clear();
-        self.driver_cache.get_mut().clear();
+        recover_lock(&self.driver_cache).clear();
         self.invalidate_artifact_cache();
         self.invalidate_render_caches();
+        self.workspace_refresh_targets()
+    }
+
+    pub(crate) fn refresh_workspace_index_cancelable(
+        &mut self,
+        workspace_roots: Vec<PathBuf>,
+        cancellation: CancellationToken,
+    ) -> Result<WorkspaceIndexRefresh, String> {
+        recover_lock(&self.driver_cache).clear();
+        self.invalidate_artifact_cache();
+        self.invalidate_render_caches();
+        if cancellation.is_canceled() {
+            return Err("request was canceled".to_string());
+        }
+        let targets = self.workspace_refresh_targets();
+        let (indexed_targets, failed_targets) =
+            self.warm_workspace_symbol_indexes_cancelable(workspace_roots, cancellation)?;
+        let stats = self.finish_workspace_index_refresh(indexed_targets, failed_targets);
+        Ok(WorkspaceIndexRefresh {
+            targets,
+            indexed_targets: stats.indexed_targets,
+            failed_targets: stats.failed_targets,
+            generation: stats.generation,
+        })
+    }
+
+    fn workspace_refresh_targets(&self) -> Vec<(String, DiagnosticsAnalysisMode)> {
         self.documents
             .iter()
-            .map(|(uri, document)| {
-                let mode = if document.is_dirty {
-                    DiagnosticsAnalysisMode::Structure
-                } else {
-                    DiagnosticsAnalysisMode::Full
-                };
-                (uri.clone(), mode)
-            })
+            .map(|(uri, _document)| (uri.clone(), DiagnosticsAnalysisMode::Structure))
             .collect()
+    }
+
+    pub fn watched_files_require_project_reload(uris: &[String]) -> bool {
+        uris.iter()
+            .filter_map(|uri| uri_to_file_path(uri))
+            .any(|path| Self::watched_path_requires_project_reload(&path))
+    }
+
+    fn watched_path_requires_project_reload(path: &Path) -> bool {
+        let file_name = path.file_name().and_then(|name| name.to_str());
+        if matches!(file_name, Some("Craft.toml" | "Craft.lock")) {
+            return true;
+        }
+
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == "analysis.toml")
+            && path
+                .parent()
+                .and_then(|parent| parent.file_name())
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == ".craft")
     }
 
     pub fn document_uris(&self) -> Vec<String> {

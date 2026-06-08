@@ -1,10 +1,20 @@
 [package]
-name = "shared_ops"
+name = "kern-shared-ops"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+description = "Shared SDK installation, archive, and release operations for Kern tooling."
+repository = "https://github.com/kern-project/kern"
+homepage = "https://github.com/kern-project/kern"
+keywords = ["kern", "sdk", "toolchain"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
+flate2 = "1.1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"
+tar = "0.4"
+zip = { version = "5.1", default-features = false, features = ["deflate-flate2"] }

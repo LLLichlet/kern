@@ -10,7 +10,7 @@ struct framebuffer_request {
 static REQUEST = framebuffer_request.{ response: (?&u8).None };
 
 fn main() i32 {
-    return match (REQUEST.response) {
+    return match REQUEST.response {
         .None => 0,
         .{ Some: _ } => 1,
     };

@@ -1,9 +1,14 @@
 [package]
-name = "shared_cli"
+name = "kern-shared-cli"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+description = "Terminal help and error rendering helpers for Kern command-line tools."
+repository = "https://github.com/kern-project/kern"
+homepage = "https://github.com/kern-project/kern"
+keywords = ["kern", "cli"]
+categories = ["command-line-interface"]
 
 [lib]
 name = "shared_cli"

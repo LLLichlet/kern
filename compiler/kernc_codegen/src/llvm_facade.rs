@@ -1,3 +1,9 @@
+//! Public facade over the internal LLVM wrapper layer.
+//!
+//! The backend imports LLVM through small typed wrappers instead of using raw
+//! `llvm-sys` handles everywhere. Re-exporting them here keeps codegen modules
+//! decoupled from the wrapper module layout.
+
 pub use crate::llvm_api::{
     AddressSpace, AtomicOrdering, AtomicRMWBinOp, FloatPredicate, IntPredicate, OptimizationLevel,
 };

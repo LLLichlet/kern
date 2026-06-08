@@ -1,3 +1,9 @@
+//! Small LLVM bitcode file probes shared by the driver and linker pipeline.
+//!
+//! Kern sometimes has to distinguish object files from raw or wrapped LLVM
+//! bitcode before handing linker inputs to LLVM's LTO path.  The check here is
+//! intentionally only a magic-number probe; it does not validate the module.
+
 use std::fs;
 use std::path::Path;
 

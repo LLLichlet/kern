@@ -1,3 +1,8 @@
+//! Source-root path matching for analysis project resolution.
+//!
+//! Path helpers map workspace files, generated copies, template sources, and
+//! declared targets back to the build unit the language server should analyze.
+
 use crate::build_plan::{BuildUnit, GeneratedFileOrigin, SourceRootBinding};
 use crate::plan::{PlanValue, TargetKind};
 use std::collections::BTreeMap;

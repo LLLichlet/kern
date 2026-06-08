@@ -1,3 +1,9 @@
+//! Match/propagation ADT metadata lowering.
+//!
+//! Pattern matching and `.?` propagation need concrete enum layout data. This
+//! module resolves named/anonymous enum information, tag types, payload variants,
+//! and monomorphized data ids used by control lowering.
+
 use super::*;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {

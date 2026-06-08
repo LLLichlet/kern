@@ -1,6 +1,6 @@
 // Constructing an immutable trait object from a mutable concrete pointer must
 // not use a trait impl whose receiver is `&mut Concrete`; the proof receiver
-// for `&Trait` is the shared pointer view.
+// for `&Trait` is the read-only pointer view.
 // stderr: the source pointer type must implement the target trait
 
 trait Base {

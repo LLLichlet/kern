@@ -1,3 +1,8 @@
+//! Completion fact aggregation.
+//!
+//! Fact collection indexes syntax regions that need special completion behavior,
+//! such as local block scopes, closure captures, if-let arms, and match arms.
+
 use super::model::push_completion_item;
 use super::*;
 
@@ -527,7 +532,7 @@ fn collect_pattern_binding_items(
         ast::PatternKind::Binding(binding) => {
             push_binding_item_from_span(items_by_span, binding.span, bindings);
         }
-        ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {}
+        ast::PatternKind::Ignore | ast::PatternKind::Variant(_) | ast::PatternKind::Value(_) => {}
         ast::PatternKind::Destructure(destructure) => {
             for field in &destructure.fields {
                 collect_pattern_binding_items(&field.pattern, items_by_span, bindings);

@@ -1,3 +1,9 @@
+//! Build-script validation and host bridge integration.
+//!
+//! Craft build scripts are compiled as host tools, then represented as
+//! structured actions that can generate sources, stage artifacts, and mutate
+//! compile/link configuration without bypassing planner validation.
+
 mod analysis;
 mod build_host;
 
@@ -140,6 +146,18 @@ pub struct ScriptTarget {
     pub arch: String,
     pub vendor: String,
     pub env: String,
+}
+
+impl ScriptTarget {
+    pub fn layout_key(&self) -> String {
+        sanitize_layout_segment(&format!(
+            "{}-{}-{}-{}",
+            self.arch,
+            self.vendor,
+            self.os.as_str(),
+            self.env
+        ))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -475,6 +493,15 @@ fn target_value(
 }
 
 impl ScriptOs {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Linux => "linux",
+            Self::Windows => "windows",
+            Self::Darwin => "darwin",
+        }
+    }
+
     fn tag(self) -> i128 {
         match self {
             Self::Unknown => SCRIPT_OS_UNKNOWN_TAG,
@@ -482,6 +509,23 @@ impl ScriptOs {
             Self::Windows => SCRIPT_OS_WINDOWS_TAG,
             Self::Darwin => SCRIPT_OS_DARWIN_TAG,
         }
+    }
+}
+
+fn sanitize_layout_segment(raw: &str) -> String {
+    let mut out = String::new();
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        "unknown".to_string()
+    } else {
+        trimmed.to_string()
     }
 }
 
@@ -589,7 +633,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 "#,
             std::path::Path::new("Craft.toml"),
         )
@@ -613,7 +657,7 @@ kern = "0.7.6"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [profile.release]
 codegen-units = 7
@@ -633,7 +677,7 @@ codegen-units = 7
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [profile.release]
 lto = "full"
@@ -653,7 +697,7 @@ lto = "full"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [profile.release]
 code-model = "kernel"

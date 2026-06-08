@@ -1,3 +1,9 @@
+//! Trait-object coercion and obligation matching.
+//!
+//! Trait-object upcasts compare required and available trait views, preserve
+//! explicitly requested associated-type bindings, and match candidate impl heads
+//! without mutating rigid generic parameters from the caller's obligation.
+
 use super::*;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
@@ -643,71 +649,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             if self.check_builtin_auto_trait_impl(source_ty, target_trait_ty) {
                 return true;
-            }
-
-            // If a mutable pointer or slice lacks a direct impl, try its immutable form.
-            let source_norm = self.resolve_tv(source_ty);
-            let downgraded = match self.ctx.type_registry.get(source_norm).clone() {
-                TypeKind::Pointer { is_mut: true, elem } => {
-                    Some(self.ctx.type_registry.intern(TypeKind::Pointer {
-                        is_mut: false,
-                        elem,
-                    }))
-                }
-                TypeKind::Pointer { is_mut, elem } => {
-                    match self.ctx.type_registry.get(elem).clone() {
-                        TypeKind::Slice {
-                            is_mut: true,
-                            elem: slice_elem,
-                        } => {
-                            let downgraded_slice = self.ctx.type_registry.intern(TypeKind::Slice {
-                                is_mut: false,
-                                elem: slice_elem,
-                            });
-                            Some(self.ctx.type_registry.intern(TypeKind::Pointer {
-                                is_mut,
-                                elem: downgraded_slice,
-                            }))
-                        }
-                        _ => None,
-                    }
-                }
-                TypeKind::VolatilePtr { is_mut: true, elem } => {
-                    Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                        is_mut: false,
-                        elem,
-                    }))
-                }
-                TypeKind::VolatilePtr { is_mut, elem } => {
-                    match self.ctx.type_registry.get(elem).clone() {
-                        TypeKind::Slice {
-                            is_mut: true,
-                            elem: slice_elem,
-                        } => {
-                            let downgraded_slice = self.ctx.type_registry.intern(TypeKind::Slice {
-                                is_mut: false,
-                                elem: slice_elem,
-                            });
-                            Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                                is_mut,
-                                elem: downgraded_slice,
-                            }))
-                        }
-                        _ => None,
-                    }
-                }
-                TypeKind::Slice { is_mut: true, elem } => {
-                    Some(self.ctx.type_registry.intern(TypeKind::Slice {
-                        is_mut: false,
-                        elem,
-                    }))
-                }
-                _ => None,
-            };
-
-            if let Some(down_ty) = downgraded {
-                let mut visited = FastHashSet::default(); // Restart the search with a fresh visited set.
-                return self.check_trait_impl_inner(down_ty, target_trait_ty, &mut visited);
             }
 
             false

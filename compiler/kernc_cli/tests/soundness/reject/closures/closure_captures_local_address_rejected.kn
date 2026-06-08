@@ -1,0 +1,16 @@
+// class: escaping-stack-state
+// source: returning a closure that captures a local address must report the address escape
+// stderr: address of local value escapes into a return value
+// stderr: cannot return a capturing closure
+// stderr-not: LLVM IR Verification Failed
+
+fn make() &Fn() &i32 {
+    let value = 7i32;
+    return [ptr = value.&]() &i32 {
+        return ptr;
+    };
+}
+
+fn main() i32 {
+    return make()().*;
+}

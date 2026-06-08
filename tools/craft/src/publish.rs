@@ -1,3 +1,9 @@
+//! Release-source proof validation for published Craft packages.
+//!
+//! Publish proofs tie lockfile source entries back to committed repository
+//! state so consumers can verify that fetched external packages match the
+//! metadata promised by a release.
+
 use crate::error::{Error, Result};
 use crate::graph::SourceId;
 use crate::manifest::Manifest;

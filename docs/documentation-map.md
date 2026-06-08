@@ -19,7 +19,10 @@ The important rule is simple:
 These are the current public reference documents.
 
 - [`README.md`](../README.md): default English repository front page, high-level language/toolchain overview, installation, and documentation entry points; the Simplified Chinese version is [`README.zh.md`](../README.zh.md)
+- [`docs/nix.md`](./nix.md): Nix and NixOS usage for installing Kern through flake configuration and entering the repository development shell
 - [`docs/install.md`](./install.md): SDK installation, installed layout, offline installs, source builds, local archive packaging, and reproducibility checks
+- [`docs/versioning.md`](./versioning.md): release numbering, Craft compatibility declarations, version bumping, and publish order
+- [`docs/licensing.md`](./licensing.md): GPL/MIT package boundaries and license-text locations
 - [`docs/tutorial/`](./tutorial/README.md): default English guided tour through tools, language basics, core semantics, library usage, and freestanding entry points; the Simplified Chinese version is [`docs/tutorial/zh/README.md`](./tutorial/zh/README.md)
 - [`docs/design.md`](./design.md): current language semantics and syntax
 - [`docs/kernc.md`](./kernc.md): `kernc` CLI/driver behavior
@@ -43,6 +46,7 @@ primary source for user-facing guide or tutorial copy.
 - [`compiler/kernc_mir_lower/README.md`](../compiler/kernc_mir_lower/README.md): staged MAST -> MIR lowering boundary
 - [`compiler/kernc_flow/README.md`](../compiler/kernc_flow/README.md): shared flow-analysis contracts
 - [`compiler/kernc_mono/README.md`](../compiler/kernc_mono/README.md): monomorphization identities and metadata
+- [`formal/README.md`](../formal/README.md): Lean models for small soundness-critical compiler invariants, including fake-reflection/projection safety and method lookup
 
 ## Tool Docs
 
@@ -62,5 +66,7 @@ When writing tutorials or guide material, prefer these sources:
 - compiler CLI behavior: [`docs/kernc.md`](./kernc.md)
 - package manager behavior: [`docs/craft.md`](./craft.md)
 - installation behavior and SDK layout: [`docs/install.md`](./install.md)
+- release numbering and compatibility declarations: [`docs/versioning.md`](./versioning.md)
+- license boundaries: [`docs/licensing.md`](./licensing.md)
 - platform release/distribution constraints: [`docs/unix-distribution.md`](./unix-distribution.md) and [`docs/windows-distribution.md`](./windows-distribution.md)
 - implementation architecture details: the relevant crate README files under [`compiler/`](../compiler/) and tool README files under [`tools/`](../tools/)

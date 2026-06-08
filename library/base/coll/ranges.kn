@@ -5,6 +5,7 @@
 //! `(a..=b).rev()` keep the range value as the single spelling for bounds.
 
 use base.coll.{
+    EnumerateItem,
     Iterator,
 };
 use ..iter.{
@@ -26,11 +27,71 @@ pub struct RangeRev[T] {
     end: T,
 };
 
+pub struct RangeRevSkip[T] {
+    inner: RangeRev[T],
+    remaining: usize,
+};
+
+pub struct RangeRevEnumerate[T] {
+    inner: RangeRev[T],
+    index: usize = 0,
+};
+
+pub struct RangeRevSkipEnumerate[T] {
+    inner: RangeRevSkip[T],
+    index: usize = 0,
+};
+
 /// Reverse iterator state for a closed range.
 pub struct RangeRevInclusive[T] {
     start: T,
     end: T,
     done: bool = false,
+};
+
+pub struct RangeRevInclusiveSkip[T] {
+    inner: RangeRevInclusive[T],
+    remaining: usize,
+};
+
+pub struct RangeRevInclusiveEnumerate[T] {
+    inner: RangeRevInclusive[T],
+    index: usize = 0,
+};
+
+pub struct RangeRevInclusiveSkipEnumerate[T] {
+    inner: RangeRevInclusiveSkip[T],
+    index: usize = 0,
+};
+
+pub struct RangeSkip[T] {
+    inner: T...T,
+    remaining: usize,
+};
+
+pub struct RangeEnumerate[T] {
+    inner: T...T,
+    index: usize = 0,
+};
+
+pub struct RangeSkipEnumerate[T] {
+    inner: RangeSkip[T],
+    index: usize = 0,
+};
+
+pub struct RangeInclusiveSkip[T] {
+    inner: T..=T,
+    remaining: usize,
+};
+
+pub struct RangeInclusiveEnumerate[T] {
+    inner: T..=T,
+    index: usize = 0,
+};
+
+pub struct RangeInclusiveSkipEnumerate[T] {
+    inner: RangeInclusiveSkip[T],
+    index: usize = 0,
 };
 
 impl[T] T...T
@@ -57,7 +118,7 @@ impl[T] &mut (T...T) : Iterator
     type Item = T;
 
     pub fn next() ?Item {
-        if (!(self.start < self.end)) return .None;
+        if !(self.start < self.end) return .None;
 
         let item = self.start;
         self.start += 1;
@@ -107,6 +168,98 @@ impl[T] &mut (T...T)
     pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
         return consume_find_map[T, U]((self as &mut Iterator[Item = T]), call_back);
     }
+
+    pub fn skip(count: usize) RangeSkip[T] {
+        return .{ inner: self.*, remaining: count };
+    }
+
+    pub fn enumerate() RangeEnumerate[T] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[T] T...T
+    where T: Integer + Lt[T] + Add[T, Out = T],
+{
+    pub fn skip(count: usize) RangeSkip[T] {
+        return .{ inner: self, remaining: count };
+    }
+
+    pub fn enumerate() RangeEnumerate[T] {
+        return .{ inner: self };
+    }
+}
+
+impl[T] &mut RangeSkip[T] : Iterator
+    where T: Integer + Lt[T] + Add[T, Out = T],
+{
+    type Item = T;
+
+    pub fn next() ?Item {
+        while self.remaining != 0 {
+            match self.inner..&.next() {
+                .{ Some: _ } => self.remaining -= 1,
+                .None => {
+                    self.remaining = 0;
+                    return .None;
+                },
+            }
+        }
+        return self.inner..&.next();
+    }
+}
+
+impl[T] &mut RangeSkip[T]
+    where T: Integer + Lt[T] + Add[T, Out = T],
+{
+    pub fn skip(count: usize) RangeSkip[T] {
+        self.remaining += count;
+        return self.*;
+    }
+
+    pub fn enumerate() RangeSkipEnumerate[T] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[T] RangeSkip[T]
+    where T: Integer + Lt[T] + Add[T, Out = T],
+{
+    pub fn enumerate() RangeSkipEnumerate[T] {
+        return .{ inner: self };
+    }
+}
+
+impl[T] &mut RangeEnumerate[T] : Iterator
+    where T: Integer + Lt[T] + Add[T, Out = T],
+{
+    type Item = EnumerateItem[T];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
+
+impl[T] &mut RangeSkipEnumerate[T] : Iterator
+    where T: Integer + Lt[T] + Add[T, Out = T],
+{
+    type Item = EnumerateItem[T];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
 }
 
 impl[T] &mut (T..=T) : Iterator
@@ -115,12 +268,12 @@ impl[T] &mut (T..=T) : Iterator
     type Item = T;
 
     pub fn next() ?Item {
-        if (!(self.start <= self.end)) return .None;
+        if !(self.start <= self.end) return .None;
 
         let item = self.start;
-        if (self.start == self.end) {
+        if self.start == self.end {
             let zero: T = self.start - self.start;
-            if (self.start <= zero) {
+            if self.start <= zero {
                 self.start += 1;
             } else {
                 self.end -= 1;
@@ -174,6 +327,98 @@ impl[T] &mut (T..=T)
     pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
         return consume_find_map[T, U]((self as &mut Iterator[Item = T]), call_back);
     }
+
+    pub fn skip(count: usize) RangeInclusiveSkip[T] {
+        return .{ inner: self.*, remaining: count };
+    }
+
+    pub fn enumerate() RangeInclusiveEnumerate[T] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[T] T..=T
+    where T: Integer + Eq[T] + Le[T] + Add[T, Out = T] + Sub[T, Out = T],
+{
+    pub fn skip(count: usize) RangeInclusiveSkip[T] {
+        return .{ inner: self, remaining: count };
+    }
+
+    pub fn enumerate() RangeInclusiveEnumerate[T] {
+        return .{ inner: self };
+    }
+}
+
+impl[T] &mut RangeInclusiveSkip[T] : Iterator
+    where T: Integer + Eq[T] + Le[T] + Add[T, Out = T] + Sub[T, Out = T],
+{
+    type Item = T;
+
+    pub fn next() ?Item {
+        while self.remaining != 0 {
+            match self.inner..&.next() {
+                .{ Some: _ } => self.remaining -= 1,
+                .None => {
+                    self.remaining = 0;
+                    return .None;
+                },
+            }
+        }
+        return self.inner..&.next();
+    }
+}
+
+impl[T] &mut RangeInclusiveSkip[T]
+    where T: Integer + Eq[T] + Le[T] + Add[T, Out = T] + Sub[T, Out = T],
+{
+    pub fn skip(count: usize) RangeInclusiveSkip[T] {
+        self.remaining += count;
+        return self.*;
+    }
+
+    pub fn enumerate() RangeInclusiveSkipEnumerate[T] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[T] RangeInclusiveSkip[T]
+    where T: Integer + Eq[T] + Le[T] + Add[T, Out = T] + Sub[T, Out = T],
+{
+    pub fn enumerate() RangeInclusiveSkipEnumerate[T] {
+        return .{ inner: self };
+    }
+}
+
+impl[T] &mut RangeInclusiveEnumerate[T] : Iterator
+    where T: Integer + Eq[T] + Le[T] + Add[T, Out = T] + Sub[T, Out = T],
+{
+    type Item = EnumerateItem[T];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
+
+impl[T] &mut RangeInclusiveSkipEnumerate[T] : Iterator
+    where T: Integer + Eq[T] + Le[T] + Add[T, Out = T] + Sub[T, Out = T],
+{
+    type Item = EnumerateItem[T];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
 }
 
 impl[T] &mut RangeRev[T] : Iterator
@@ -182,7 +427,7 @@ impl[T] &mut RangeRev[T] : Iterator
     type Item = T;
 
     pub fn next() ?Item {
-        if (!(self.start < self.end)) return .None;
+        if !(self.start < self.end) return .None;
 
         self.end -= 1;
         let item = self.end;
@@ -232,6 +477,98 @@ impl[T] &mut RangeRev[T]
     pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
         return consume_find_map[T, U]((self as &mut Iterator[Item = T]), call_back);
     }
+
+    pub fn skip(count: usize) RangeRevSkip[T] {
+        return .{ inner: self.*, remaining: count };
+    }
+
+    pub fn enumerate() RangeRevEnumerate[T] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[T] RangeRev[T]
+    where T: Integer + Lt[T] + Sub[T, Out = T],
+{
+    pub fn skip(count: usize) RangeRevSkip[T] {
+        return .{ inner: self, remaining: count };
+    }
+
+    pub fn enumerate() RangeRevEnumerate[T] {
+        return .{ inner: self };
+    }
+}
+
+impl[T] &mut RangeRevSkip[T] : Iterator
+    where T: Integer + Lt[T] + Sub[T, Out = T],
+{
+    type Item = T;
+
+    pub fn next() ?Item {
+        while self.remaining != 0 {
+            match self.inner..&.next() {
+                .{ Some: _ } => self.remaining -= 1,
+                .None => {
+                    self.remaining = 0;
+                    return .None;
+                },
+            }
+        }
+        return self.inner..&.next();
+    }
+}
+
+impl[T] &mut RangeRevSkip[T]
+    where T: Integer + Lt[T] + Sub[T, Out = T],
+{
+    pub fn skip(count: usize) RangeRevSkip[T] {
+        self.remaining += count;
+        return self.*;
+    }
+
+    pub fn enumerate() RangeRevSkipEnumerate[T] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[T] RangeRevSkip[T]
+    where T: Integer + Lt[T] + Sub[T, Out = T],
+{
+    pub fn enumerate() RangeRevSkipEnumerate[T] {
+        return .{ inner: self };
+    }
+}
+
+impl[T] &mut RangeRevEnumerate[T] : Iterator
+    where T: Integer + Lt[T] + Sub[T, Out = T],
+{
+    type Item = EnumerateItem[T];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
+
+impl[T] &mut RangeRevSkipEnumerate[T] : Iterator
+    where T: Integer + Lt[T] + Sub[T, Out = T],
+{
+    type Item = EnumerateItem[T];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
 }
 
 impl[T] &mut RangeRevInclusive[T] : Iterator
@@ -240,14 +577,14 @@ impl[T] &mut RangeRevInclusive[T] : Iterator
     type Item = T;
 
     pub fn next() ?Item {
-        if (self.done) return .None;
-        if (!(self.start <= self.end)) {
+        if self.done return .None;
+        if !(self.start <= self.end) {
             self.done = true;
             return .None;
         }
 
         let item = self.end;
-        if (self.start == self.end) {
+        if self.start == self.end {
             self.done = true;
         } else {
             self.end -= 1;
@@ -297,5 +634,97 @@ impl[T] &mut RangeRevInclusive[T]
 
     pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
         return consume_find_map[T, U]((self as &mut Iterator[Item = T]), call_back);
+    }
+
+    pub fn skip(count: usize) RangeRevInclusiveSkip[T] {
+        return .{ inner: self.*, remaining: count };
+    }
+
+    pub fn enumerate() RangeRevInclusiveEnumerate[T] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[T] RangeRevInclusive[T]
+    where T: Integer + Eq[T] + Le[T] + Sub[T, Out = T],
+{
+    pub fn skip(count: usize) RangeRevInclusiveSkip[T] {
+        return .{ inner: self, remaining: count };
+    }
+
+    pub fn enumerate() RangeRevInclusiveEnumerate[T] {
+        return .{ inner: self };
+    }
+}
+
+impl[T] &mut RangeRevInclusiveSkip[T] : Iterator
+    where T: Integer + Eq[T] + Le[T] + Sub[T, Out = T],
+{
+    type Item = T;
+
+    pub fn next() ?Item {
+        while self.remaining != 0 {
+            match self.inner..&.next() {
+                .{ Some: _ } => self.remaining -= 1,
+                .None => {
+                    self.remaining = 0;
+                    return .None;
+                },
+            }
+        }
+        return self.inner..&.next();
+    }
+}
+
+impl[T] &mut RangeRevInclusiveSkip[T]
+    where T: Integer + Eq[T] + Le[T] + Sub[T, Out = T],
+{
+    pub fn skip(count: usize) RangeRevInclusiveSkip[T] {
+        self.remaining += count;
+        return self.*;
+    }
+
+    pub fn enumerate() RangeRevInclusiveSkipEnumerate[T] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[T] RangeRevInclusiveSkip[T]
+    where T: Integer + Eq[T] + Le[T] + Sub[T, Out = T],
+{
+    pub fn enumerate() RangeRevInclusiveSkipEnumerate[T] {
+        return .{ inner: self };
+    }
+}
+
+impl[T] &mut RangeRevInclusiveEnumerate[T] : Iterator
+    where T: Integer + Eq[T] + Le[T] + Sub[T, Out = T],
+{
+    type Item = EnumerateItem[T];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
+
+impl[T] &mut RangeRevInclusiveSkipEnumerate[T] : Iterator
+    where T: Integer + Eq[T] + Le[T] + Sub[T, Out = T],
+{
+    type Item = EnumerateItem[T];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
     }
 }

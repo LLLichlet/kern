@@ -1,3 +1,9 @@
+//! Aggregate and static-data MIR builder tests.
+//!
+//! These cases exercise struct/union/array/string/static initializer lowering
+//! and ensure aggregate MIR preserves field order, payload shape, and global
+//! relocation information.
+
 use super::*;
 
 #[test]

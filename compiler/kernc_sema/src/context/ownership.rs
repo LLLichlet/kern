@@ -1,3 +1,9 @@
+//! Module ownership, package visibility, and alias-root bookkeeping.
+//!
+//! Semantic definitions can be collected from source files, imports, builtins,
+//! or generated items.  This module tracks which module owns each definition and
+//! implements visibility checks that depend on module ancestry or package roots.
+
 use super::*;
 
 #[derive(Clone, Default)]
@@ -67,6 +73,7 @@ impl<'a> SemaContext<'a> {
     pub fn module_root(&self, module_id: DefId) -> DefId {
         let mut current = module_id;
         while let Some(parent) = self.module_parent(current) {
+            // Module parents form a tree rooted at the package/module entry.
             current = parent;
         }
         current
@@ -105,6 +112,8 @@ impl<'a> SemaContext<'a> {
                 };
                 let current_root = self.module_root(current_module);
                 let owner_root = self.module_root(owner_module);
+                // Package names are preferred over root DefIds so aliased views
+                // of the same package still share package-level visibility.
                 match (
                     self.resolution
                         .module_ownership

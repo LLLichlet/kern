@@ -1,5 +1,10 @@
+//! Completion item construction and ranking.
+//!
+//! This module maps compiler completion entries and language keywords into IDE
+//! completion items with stable sort keys and snippets.
+
+use super::ide::{IdeCompletionItem, IdeCompletionKind};
 use super::text::CompletionContext;
-use crate::protocol::CompletionItem;
 use kernc_driver::{AnalysisCompletionItem, AnalysisCompletionKind};
 
 pub(super) fn completion_sort_key(
@@ -41,18 +46,16 @@ fn completion_context_rank(kind: AnalysisCompletionKind, context: CompletionCont
     }
 }
 
-pub(super) fn keyword_completion_item(label: &str) -> CompletionItem {
+pub(super) fn keyword_completion_item(label: &str) -> IdeCompletionItem {
     let insert_text = keyword_completion_insert_text(label);
-    let insert_text_format = insert_text
-        .as_deref()
-        .map(|text| if text.contains('$') { 2 } else { 1 });
 
-    CompletionItem {
+    IdeCompletionItem {
         label: label.to_string(),
-        kind: 14,
+        kind: IdeCompletionKind::Keyword,
         detail: Some("keyword".to_string()),
         insert_text,
-        insert_text_format,
+        documentation: None,
+        resolve_data: None,
     }
 }
 
@@ -64,10 +67,10 @@ fn keyword_completion_insert_text(label: &str) -> Option<String> {
         "const" => Some("const ${1:name}: ${2:Type} = ${0};".to_string()),
         "static" => Some("static ${1:name}: ${2:Type} = ${0};".to_string()),
         "type" => Some("type ${1:Name} = ${0};".to_string()),
-        "if" => Some("if (${1:cond}) {\n    $0\n}".to_string()),
-        "for" => Some("for (${1:item}: ${2:iter}) {\n    $0\n}".to_string()),
-        "while" => Some("while (${1:cond}) {\n    $0\n}".to_string()),
-        "match" => Some("match (${1:value}) {\n    $0\n}".to_string()),
+        "if" => Some("if ${1:cond} {\n    $0\n}".to_string()),
+        "for" => Some("for ${1:item} in ${2:iter} {\n    $0\n}".to_string()),
+        "while" => Some("while ${1:cond} {\n    $0\n}".to_string()),
+        "match" => Some("match ${1:value} {\n    $0\n}".to_string()),
         "use" => Some("use ${1:path};".to_string()),
         "impl" => Some("impl ${1:Type} {\n    $0\n}".to_string()),
         "mod" => Some("mod ${1:name};".to_string()),

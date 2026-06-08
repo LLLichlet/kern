@@ -1,4 +1,7 @@
+//! Execution tests for runtime package cache reuse.
+
 use super::*;
+use kernc_driver::CodegenPlanFallback;
 use kernc_utils::config::{CodeModel, LtoMode};
 
 #[test]
@@ -15,7 +18,7 @@ fn runtime_packages_are_reused_across_fresh_workspaces() {
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "hello"
@@ -79,7 +82,7 @@ fn runtime_packages_respect_profile_opt_level() {
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [profile.release]
 opt = {opt}
@@ -148,7 +151,7 @@ fn runtime_packages_respect_profile_codegen_units() {
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [profile.release]
 opt = 3
@@ -228,6 +231,16 @@ fn runtime_packages_preserve_multi_object_outputs_for_release_codegen_units() {
 
     assert_eq!(summary.compile_actions, 1);
     assert_eq!(summary.link_actions, 1);
+    let std_codegen_plan = summary
+        .action_timings
+        .iter()
+        .find(|timing| timing.label.starts_with("std ("))
+        .and_then(|timing| timing.codegen_plan.as_ref())
+        .expect("runtime std compile should report a codegen plan");
+    let std_fell_back_for_control_flow_asm = matches!(
+        std_codegen_plan.fallback_reason,
+        Some(CodegenPlanFallback::ContainsControlFlowAsm { .. })
+    );
 
     let profile_root = cache_root.join(super::runtime_profile_key(&profile));
     let std_object = profile_root
@@ -241,8 +254,14 @@ fn runtime_packages_preserve_multi_object_outputs_for_release_codegen_units() {
     if cfg!(windows) {
         assert!(!std_object_dir.is_dir());
         assert_eq!(linker_inputs.len(), 1);
+    } else if std_fell_back_for_control_flow_asm {
+        assert!(!std_object_dir.is_dir());
+        assert_eq!(linker_inputs, vec![std_object.clone()]);
     } else if cfg!(target_os = "linux") {
-        assert!(std_object_dir.is_dir());
+        assert!(
+            std_object_dir.is_dir(),
+            "expected multi-object runtime std output without codegen fallback; plan: {std_codegen_plan:#?}"
+        );
         assert!(linker_inputs.len() > 1);
     } else {
         if std_object_dir.is_dir() {
@@ -264,17 +283,10 @@ fn runtime_packages_preserve_multi_object_outputs_for_release_codegen_units() {
         .join("entry")
         .join("rt_entry_freestanding.o");
     assert!(rt_entry.is_file());
-    if cfg!(windows) || cfg!(target_os = "macos") {
-        assert!(
-            !super::has_llvm_bitcode_magic(&rt_entry),
-            "expected platform rt entry shim to remain a concrete object file"
-        );
-    } else {
-        assert!(
-            super::has_llvm_bitcode_magic(&rt_entry),
-            "expected ELF rt entry shim to follow the profile ThinLTO input flavor"
-        );
-    }
+    assert!(
+        !super::has_llvm_bitcode_magic(&rt_entry),
+        "expected platform rt entry shim to remain a concrete object file"
+    );
 
     let _ = fs::remove_dir_all(cache_root);
     let _ = fs::remove_dir_all(root);

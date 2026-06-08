@@ -1,3 +1,9 @@
+//! Expression lowering from MAST into MIR rvalues and operands.
+//!
+//! This module handles value-producing expressions, temporaries for control-flow
+//! expressions, calls, aggregates, atomics/SIMD operations, casts, loads, and the
+//! conversion between expression values, operands, places, and side effects.
+
 use super::*;
 
 impl MirFunctionBuilder {
@@ -175,6 +181,7 @@ impl MirFunctionBuilder {
                 };
                 Ok(Some(MirRvalue::Cast {
                     kind: lower_cast_kind(*kind),
+                    target_ty: expr.ty,
                     operand,
                 }))
             }

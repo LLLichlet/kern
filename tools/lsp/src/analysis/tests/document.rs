@@ -1,4 +1,7 @@
+//! Open document, URI, and incremental sync tests.
+
 use super::*;
+use std::sync::Arc;
 
 #[test]
 fn full_sync_replaces_document_text() {
@@ -61,6 +64,39 @@ fn close_document_clears_open_state_and_returns_empty_bundle() {
 }
 
 #[test]
+fn snapshot_preserves_open_document_view_after_later_changes() {
+    let mut analysis = AnalysisEngine::default();
+    let uri = temp_file_uri("snapshot_open_document", "let value = 1;");
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: "let value = 1;".to_string(),
+        },
+    });
+
+    let snapshot = analysis.snapshot(Vec::new(), CancellationToken::new());
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: "let value = 2;".to_string(),
+        }],
+    });
+
+    assert_eq!(snapshot.document(&uri).unwrap().version, 1);
+    assert_eq!(snapshot.document(&uri).unwrap().text, "let value = 1;");
+    assert_eq!(analysis.documents.get(&uri).unwrap().version, 2);
+    assert_eq!(analysis.documents.get(&uri).unwrap().text, "let value = 2;");
+}
+
+#[test]
 fn analysis_reuses_driver_for_repeated_requests_on_same_document() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn main() i32 { return 1; }\n";
@@ -90,6 +126,48 @@ fn analysis_reuses_driver_for_repeated_requests_on_same_document() {
         }],
     });
     assert_eq!(analysis.cached_driver_count(), 1);
+}
+
+#[test]
+fn analysis_serializes_shared_driver_queries_across_threads() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn main() i32 { return helper(); }\nfn helper() i32 { return 1; }\n";
+    let uri = temp_file_uri("driver_concurrent_queries", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let analysis = Arc::new(analysis);
+    let mut workers = Vec::new();
+    for _ in 0..8 {
+        let analysis = Arc::clone(&analysis);
+        let uri = uri.clone();
+        workers.push(std::thread::spawn(move || {
+            analysis.analyze_document_uri(&uri)
+        }));
+    }
+
+    for worker in workers {
+        let outcome = worker.join().unwrap();
+        let messages = outcome
+            .bundles
+            .iter()
+            .flat_map(|bundle| bundle.diagnostics.iter())
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            !messages
+                .iter()
+                .any(|message| message.contains("query cycle")),
+            "unexpected query-cycle diagnostic: {messages:?}"
+        );
+    }
 }
 
 #[test]
@@ -123,7 +201,7 @@ fn open_path_index_reuses_on_text_changes_and_invalidates_on_open_close() {
     });
 
     let changed_index = analysis.open_uri_by_normalized_path();
-    assert!(std::rc::Rc::ptr_eq(&initial_index, &changed_index));
+    assert!(Arc::ptr_eq(&initial_index, &changed_index));
 
     let sibling_uri = temp_file_uri("open_path_index_sibling", "fn sibling() void {}\n");
     let sibling_path = uri_to_file_path(&sibling_uri).unwrap();
@@ -137,7 +215,7 @@ fn open_path_index_reuses_on_text_changes_and_invalidates_on_open_close() {
     });
 
     let sibling_index = analysis.open_uri_by_normalized_path();
-    assert!(!std::rc::Rc::ptr_eq(&changed_index, &sibling_index));
+    assert!(!Arc::ptr_eq(&changed_index, &sibling_index));
     assert_eq!(
         sibling_index.get(&normalize_path(&sibling_path)),
         Some(&sibling_uri)
@@ -148,7 +226,7 @@ fn open_path_index_reuses_on_text_changes_and_invalidates_on_open_close() {
     });
 
     let closed_index = analysis.open_uri_by_normalized_path();
-    assert!(!std::rc::Rc::ptr_eq(&sibling_index, &closed_index));
+    assert!(!Arc::ptr_eq(&sibling_index, &closed_index));
     assert!(!closed_index.contains_key(&normalize_path(&path)));
     assert_eq!(
         closed_index.get(&normalize_path(&sibling_path)),

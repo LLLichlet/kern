@@ -1,0 +1,21 @@
+// class: escaping-stack-state
+// source: interprocedural storage summaries must reject storing a stack closure object argument
+// stderr: capturing closure environment escapes through function call
+// stderr: closure environment is stored in the current stack frame
+// stderr-not: LLVM IR Verification Failed
+
+static mut SINK: &Fn() i32 = []() i32 {
+    return 0;
+};
+
+fn store(cb: &Fn() i32) void {
+    SINK = cb;
+}
+
+fn main() i32 {
+    let base = 7i32;
+    store([base]() i32 {
+        return base;
+    });
+    return 0;
+}

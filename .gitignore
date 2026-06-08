@@ -1,4 +1,5 @@
 target/
+formal/.lake/
 .craft/
 .codex
 __pycache__/
@@ -6,8 +7,8 @@ __pycache__/
 /kern-*.tar.gz
 /kern-*.zip
 /kern-*.sha256
-/website/node_modules/
-/website/dist/
-/website/.astro/
-features.md
 .idea
+website/dist/
+website/node_modules/
+website/public/docs-data/
+website/src/generated/docs.ts

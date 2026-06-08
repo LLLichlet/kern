@@ -1,3 +1,9 @@
+//! MIR atomic instruction code generation.
+//!
+//! Atomic loads, stores, compare-exchange, read-modify-write, and fences are
+//! mapped to LLVM atomic instructions with Kern's ordering enum translated to
+//! LLVM's ordering constants.
+
 use super::*;
 
 pub(super) struct AtomicCasArgs<'a> {
@@ -64,23 +70,41 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .unwrap();
         }
         let llvm_elem_ty = self.get_llvm_type(elem_ty);
+        // SAFETY: `base_ptr` and `elem_ty` were recovered by
+        // `compile_mir_slice_base_parts`, which ties the pointer to the element
+        // type. `start_val` is the lowered MIR slice start index.
         let slice_ptr = unsafe {
             self.builder
                 .build_gep(llvm_elem_ty, base_ptr, &[start_val], "mir_slice_ptr")
                 .unwrap()
         };
-        let struct_ty = result_llvm_ty.into_struct_type();
+        let Some(struct_ty) = self.expect_struct_type(
+            result_llvm_ty,
+            Span::default(),
+            "MIR slice operation result type",
+        ) else {
+            return result_llvm_ty.const_zero();
+        };
         let mut slice_struct = struct_ty.get_undef();
-        slice_struct = self
+        let inserted_ptr = self
             .builder
             .build_insert_value(slice_struct, slice_ptr, 0, "mir_slice_insert_ptr")
-            .unwrap()
-            .into_struct_value();
-        slice_struct = self
+            .unwrap();
+        let Some(inserted_ptr) =
+            self.expect_struct_value(inserted_ptr, Span::default(), "MIR slice pointer field")
+        else {
+            return result_llvm_ty.const_zero();
+        };
+        slice_struct = inserted_ptr;
+        let inserted_len = self
             .builder
             .build_insert_value(slice_struct, slice_len, 1, "mir_slice_insert_len")
-            .unwrap()
-            .into_struct_value();
+            .unwrap();
+        let Some(slice_struct) =
+            self.expect_struct_value(inserted_len, Span::default(), "MIR slice length field")
+        else {
+            return result_llvm_ty.const_zero();
+        };
         slice_struct.into()
     }
 
@@ -101,7 +125,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     ) -> BasicValueEnum<'ctx> {
         let llvm_ty = self.get_llvm_type(result_ty);
         let llvm_order = Self::llvm_atomic_ordering(ordering);
-        let ptr_val = self.compile_mir_operand(body, ptr).into_pointer_value();
+        let ptr_value = self.compile_mir_operand(body, ptr);
+        let Some(ptr_val) =
+            self.expect_pointer_value(ptr_value, Span::default(), "MIR atomic rmw pointer")
+        else {
+            return self.get_undef_val(llvm_ty);
+        };
         if self.current_block_is_terminated() {
             return self.get_undef_val(llvm_ty);
         }
@@ -122,14 +151,24 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .builder
                 .build_pointer_cast(ptr_val, int_ptr_ty, "mir_atomic_xchg_ptr_cast")
                 .unwrap();
-            let result_ptr_ty = self.get_llvm_type(result_ty).into_pointer_type();
+            let result_llvm_ty = self.get_llvm_type(result_ty);
+            let Some(result_ptr_ty) = self.expect_pointer_type(
+                result_llvm_ty,
+                Span::default(),
+                "MIR atomic pointer xchg result type",
+            ) else {
+                return self.get_undef_val(llvm_ty);
+            };
+            let Some(value_ptr) = self.expect_pointer_value(
+                value_val,
+                Span::default(),
+                "MIR atomic pointer xchg value",
+            ) else {
+                return self.get_undef_val(llvm_ty);
+            };
             let cast_val = self
                 .builder
-                .build_ptr_to_int(
-                    value_val.into_pointer_value(),
-                    ptr_int_ty,
-                    "mir_atomic_xchg_val",
-                )
+                .build_ptr_to_int(value_ptr, ptr_int_ty, "mir_atomic_xchg_val")
                 .unwrap();
             let old_val = self
                 .builder
@@ -165,8 +204,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             AtomicRmwOp::UMin => crate::AtomicRMWBinOp::UMin,
         };
 
+        let Some(value_int) =
+            self.expect_int_value(value_val, Span::default(), "MIR atomic rmw integer value")
+        else {
+            return self.get_undef_val(llvm_ty);
+        };
         self.builder
-            .build_atomicrmw(llvm_op, ptr_val, value_val.into_int_value(), llvm_order)
+            .build_atomicrmw(llvm_op, ptr_val, value_int, llvm_order)
             .unwrap()
             .into()
     }
@@ -177,7 +221,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         cas: AtomicCasArgs<'_>,
     ) -> BasicValueEnum<'ctx> {
         let llvm_ty = self.get_llvm_type(cas.result_ty);
-        let ptr_val = self.compile_mir_operand(body, cas.ptr).into_pointer_value();
+        let ptr_value = self.compile_mir_operand(body, cas.ptr);
+        let Some(ptr_val) =
+            self.expect_pointer_value(ptr_value, Span::default(), "MIR cmpxchg pointer")
+        else {
+            return self.get_undef_val(llvm_ty);
+        };
         if self.current_block_is_terminated() {
             return self.get_undef_val(llvm_ty);
         }
@@ -218,6 +267,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 );
                 return self.get_undef_val(llvm_ty);
             };
+            // SAFETY: `cas_inst` is the LLVM instruction produced by the
+            // immediately preceding cmpxchg builder call; setting the weak bit
+            // mutates that instruction in place.
             unsafe { LLVMSetWeak(cas_inst.as_value_ref(), 1) };
         }
 
@@ -226,7 +278,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .build_extract_value(cas_pair, 0, "mir_cas_old")
             .unwrap();
         let old_val = if self.is_atomic_bool_ty(cmp_ty) {
-            self.atomic_i8_to_bool(old_val.into_int_value()).into()
+            let Some(old_int) =
+                self.expect_int_value(old_val, Span::default(), "MIR cmpxchg old bool value")
+            else {
+                return self.get_undef_val(llvm_ty);
+            };
+            self.atomic_i8_to_bool(old_int).into()
         } else {
             old_val
         };
@@ -247,21 +304,36 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return self.get_undef_val(llvm_ty);
         };
 
-        let struct_ty = self.get_llvm_type(cas.result_ty).into_struct_type();
+        let result_llvm_ty = self.get_llvm_type(cas.result_ty);
+        let Some(struct_ty) =
+            self.expect_struct_type(result_llvm_ty, Span::default(), "MIR cmpxchg result type")
+        else {
+            return self.get_undef_val(llvm_ty);
+        };
         let mut result = struct_ty.const_zero();
         if let Some(idx) = self.struct_field_index_by_name(struct_id, "success") {
-            result = self
+            let inserted = self
                 .builder
                 .build_insert_value(result, success_val, idx, "mir_cas_insert_success")
-                .unwrap()
-                .into_struct_value();
+                .unwrap();
+            let Some(inserted) =
+                self.expect_struct_value(inserted, Span::default(), "MIR cmpxchg success field")
+            else {
+                return self.get_undef_val(llvm_ty);
+            };
+            result = inserted;
         }
         if let Some(idx) = self.struct_field_index_by_name(struct_id, "value") {
-            result = self
+            let inserted = self
                 .builder
                 .build_insert_value(result, old_val, idx, "mir_cas_insert_value")
-                .unwrap()
-                .into_struct_value();
+                .unwrap();
+            let Some(inserted) =
+                self.expect_struct_value(inserted, Span::default(), "MIR cmpxchg value field")
+            else {
+                return self.get_undef_val(llvm_ty);
+            };
+            result = inserted;
         }
         result.into()
     }

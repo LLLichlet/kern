@@ -1,3 +1,9 @@
+//! Associated type resolution and impl contract validation.
+//!
+//! This module links impl-associated type definitions back to trait-associated
+//! declarations, canonicalizes generic parameters for stored trait bindings, and
+//! validates bounds/targets against the trait contract.
+
 use super::*;
 use crate::scope::SymbolNamespace;
 

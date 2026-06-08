@@ -27,13 +27,13 @@ fn main() i32 {
         .sum(@loc(), t);
 
     list.as_mut_slice().sort();
-    (list.as_slice() == [3]i32.{ 1, 2, 3 }).should().sum(@loc(), t);
+    (list.view().as_slice() == [3]i32.{ 1, 2, 3 }).should().sum(@loc(), t);
 
-    let found = list.position([](value: i32) bool {
+    let found = list.view().position([](value: i32) bool {
         return value == 2;
     }).should_some().sum(@loc(), t);
     (found == 1usize).should().sum(@loc(), t);
 
-    "collections: len={}, middle index={}".fmt(.{list.len(), found}).println();
+    "collections: len={}, middle index={}".fmt(.{list.view().len(), found}).println();
     return 0;
 }

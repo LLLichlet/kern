@@ -1,3 +1,9 @@
+//! Shared error model for the Craft command-line tool.
+//!
+//! Errors carry enough structured context for command handlers to render clear
+//! usage, filesystem, process, and validation failures without losing the path
+//! or operation that caused the problem.
+
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter};
 use std::io;

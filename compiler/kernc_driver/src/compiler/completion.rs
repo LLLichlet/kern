@@ -1,3 +1,9 @@
+//! Completion item collection.
+//!
+//! Completion combines parsed syntax, semantic symbols, member queries, and
+//! flow-derived facts to produce context-sensitive items for modules, members,
+//! blocks, closures, `if`, and `match` regions.
+
 mod facts;
 mod member;
 mod model;
@@ -13,6 +19,7 @@ use self::facts::{
 use self::model::push_completion_item;
 use super::{AnalysisCompletionItem, AnalysisCompletionKind, CompilerDriver};
 use crate::compiler::analysis::module_analysis_path_from_source;
+use crate::doc::render_hover_markdown;
 use crate::language::is_language_builtin_def_id;
 use kernc_ast as ast;
 use kernc_sema::def::DefId;
@@ -253,6 +260,7 @@ impl CompilerDriver {
                     kind: AnalysisCompletionKind::TypeParameter,
                     detail: Some("type".to_string()),
                     insert_text: None,
+                    documentation: None,
                 },
             );
         }
@@ -281,6 +289,7 @@ impl CompilerDriver {
                         .and_then(|params| params.get(index).copied())
                         .map(|ty| ctx.ty_to_string(ty)),
                     insert_text: None,
+                    documentation: None,
                 },
             );
         }
@@ -310,8 +319,9 @@ impl CompilerDriver {
         Some(AnalysisCompletionItem {
             label: label.to_string(),
             kind,
-            detail,
+            detail: detail.clone(),
             insert_text: symbol_completion_insert_text(ctx, label, info),
+            documentation: completion_documentation_for_def(ctx, detail.as_deref(), info.def_id),
         })
     }
 
@@ -481,9 +491,42 @@ impl CompilerDriver {
         Some(AnalysisCompletionItem {
             label: ctx.resolve(candidate.name).to_string(),
             kind: completion_kind_from_symbol_kind(candidate.kind),
-            detail,
+            detail: detail.clone(),
             insert_text: candidate_completion_insert_text(ctx, &candidate),
+            documentation: completion_documentation_for_def(
+                ctx,
+                detail.as_deref(),
+                candidate.def_id,
+            ),
         })
+    }
+}
+
+fn completion_documentation_for_def(
+    ctx: &SemaContext<'_>,
+    detail: Option<&str>,
+    def_id: Option<DefId>,
+) -> Option<String> {
+    let def_id = def_id?;
+    let docs = doc_block_for_def(ctx, def_id)?;
+    Some(render_hover_markdown(
+        detail.unwrap_or("symbol"),
+        Some(docs),
+    ))
+}
+
+fn doc_block_for_def<'a>(ctx: &'a SemaContext<'_>, def_id: DefId) -> Option<&'a ast::DocBlock> {
+    match &ctx.defs[def_id.0 as usize] {
+        kernc_sema::def::Def::Module(def) => def.docs.as_ref(),
+        kernc_sema::def::Def::Function(def) => def.docs.as_ref(),
+        kernc_sema::def::Def::Struct(def) => def.docs.as_ref(),
+        kernc_sema::def::Def::Union(def) => def.docs.as_ref(),
+        kernc_sema::def::Def::Enum(def) => def.docs.as_ref(),
+        kernc_sema::def::Def::Trait(def) => def.docs.as_ref(),
+        kernc_sema::def::Def::Global(def) => def.docs.as_ref(),
+        kernc_sema::def::Def::AssociatedType(def) => def.docs.as_ref(),
+        kernc_sema::def::Def::TypeAlias(def) => def.docs.as_ref(),
+        kernc_sema::def::Def::Impl(_) => None,
     }
 }
 

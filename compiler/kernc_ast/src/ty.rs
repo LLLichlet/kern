@@ -1,3 +1,10 @@
+//! Type syntax tree.
+//!
+//! Type nodes preserve the source form of paths, builtin type constructors,
+//! anonymous structural types, closure interfaces, generic arguments, and
+//! associated-type bindings.  Semantic analysis resolves these forms into the
+//! canonical type model used by later compiler stages.
+
 use super::{DocBlock, Expr, FuncParam, PathAnchor};
 use kernc_utils::{NodeId, Span, SymbolId};
 
@@ -14,7 +21,7 @@ pub enum TypeKind {
     Error,
 
     /// Segmented type path or projection chain such as `i32`, `std.io.File`,
-    /// `Map[K, V]`, or `T.Add[U].Out`.
+    /// `Map[K, V]`, `T.Add[U].Out`, or `Self.Trait.Assoc`.
     Path {
         anchor: Option<PathAnchor>,
         segments: Vec<TypePathSegment>,
@@ -120,8 +127,11 @@ pub struct TypePathSegment {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GenericArg {
+    /// Normal type argument, for example `Vec[i32]`.
     Type(TypeNode),
+    /// Const generic argument, for example `Array[u8, 16]`.
     ConstExpr(Expr),
+    /// Associated type equality constraint, for example `Iterator[Item = u8]`.
     AssocBinding {
         name: SymbolId,
         name_span: Span,

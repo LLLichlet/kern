@@ -1,7 +1,18 @@
 use base.cmp.Ord;
+use base.coll.{EnumerateItem, Iterator};
 use ..base.{
     Node,
     Tree,
+    TreeEnumerateIter,
+    TreeItem,
+    TreeIter,
+    TreeMutEnumerateIter,
+    TreeMutItem,
+    TreeMutIter,
+    TreeMutSkipEnumerateIter,
+    TreeMutSkipIter,
+    TreeSkipEnumerateIter,
+    TreeSkipIter,
     key_at,
     value_at,
     child_at,
@@ -10,11 +21,236 @@ use ..base.{
     last_hit,
     ceil_hit,
     floor_hit,
+    greater_hit,
 };
+
+impl[K, V] &mut TreeIter[K, V] : Iterator
+    where K: Ord[K],
+{
+    type Item = TreeItem[K, V];
+
+    pub fn next() ?Item {
+        let hit = self.next.?;
+        let key = key_at[K, V](hit.node, hit.index);
+        let value = value_at[K, V](hit.node, hit.index);
+        self.next = greater_hit[K, V](self.root, key);
+        return .{ Some: .{ key: key, value: value } };
+    }
+}
+
+impl[K, V] &mut TreeIter[K, V]
+    where K: Ord[K],
+{
+    pub fn skip(count: usize) TreeSkipIter[K, V] {
+        return .{ inner: self.*, remaining: count };
+    }
+
+    pub fn enumerate() TreeEnumerateIter[K, V] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[K, V] TreeIter[K, V]
+    where K: Ord[K],
+{
+    pub fn skip(count: usize) TreeSkipIter[K, V] {
+        return .{ inner: self, remaining: count };
+    }
+
+    pub fn enumerate() TreeEnumerateIter[K, V] {
+        return .{ inner: self };
+    }
+}
+
+impl[K, V] &mut TreeSkipIter[K, V] : Iterator
+    where K: Ord[K],
+{
+    type Item = TreeItem[K, V];
+
+    pub fn next() ?Item {
+        while self.remaining != 0 {
+            match self.inner..&.next() {
+                .{ Some: _ } => self.remaining -= 1,
+                .None => {
+                    self.remaining = 0;
+                    return .None;
+                },
+            }
+        }
+        return self.inner..&.next();
+    }
+}
+
+impl[K, V] &mut TreeSkipIter[K, V]
+    where K: Ord[K],
+{
+    pub fn skip(count: usize) TreeSkipIter[K, V] {
+        self.remaining += count;
+        return self.*;
+    }
+
+    pub fn enumerate() TreeSkipEnumerateIter[K, V] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[K, V] TreeSkipIter[K, V]
+    where K: Ord[K],
+{
+    pub fn enumerate() TreeSkipEnumerateIter[K, V] {
+        return .{ inner: self };
+    }
+}
+
+impl[K, V] &mut TreeEnumerateIter[K, V] : Iterator
+    where K: Ord[K],
+{
+    type Item = EnumerateItem[TreeItem[K, V]];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
+
+impl[K, V] &mut TreeSkipEnumerateIter[K, V] : Iterator
+    where K: Ord[K],
+{
+    type Item = EnumerateItem[TreeItem[K, V]];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
+
+impl[K, V] &mut TreeMutIter[K, V] : Iterator
+    where K: Ord[K],
+{
+    type Item = TreeMutItem[K, V];
+
+    pub fn next() ?Item {
+        let hit = self.next.?;
+        let key = key_at[K, V](hit.node, hit.index);
+        self.next = greater_hit[K, V](self.root, key);
+        return .{ Some: .{ key: key, value: hit.node.values.[hit.index]..& } };
+    }
+}
+
+impl[K, V] &mut TreeMutIter[K, V]
+    where K: Ord[K],
+{
+    pub fn skip(count: usize) TreeMutSkipIter[K, V] {
+        return .{ inner: self.*, remaining: count };
+    }
+
+    pub fn enumerate() TreeMutEnumerateIter[K, V] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[K, V] TreeMutIter[K, V]
+    where K: Ord[K],
+{
+    pub fn skip(count: usize) TreeMutSkipIter[K, V] {
+        return .{ inner: self, remaining: count };
+    }
+
+    pub fn enumerate() TreeMutEnumerateIter[K, V] {
+        return .{ inner: self };
+    }
+}
+
+impl[K, V] &mut TreeMutSkipIter[K, V] : Iterator
+    where K: Ord[K],
+{
+    type Item = TreeMutItem[K, V];
+
+    pub fn next() ?Item {
+        while self.remaining != 0 {
+            match self.inner..&.next() {
+                .{ Some: _ } => self.remaining -= 1,
+                .None => {
+                    self.remaining = 0;
+                    return .None;
+                },
+            }
+        }
+        return self.inner..&.next();
+    }
+}
+
+impl[K, V] &mut TreeMutSkipIter[K, V]
+    where K: Ord[K],
+{
+    pub fn skip(count: usize) TreeMutSkipIter[K, V] {
+        self.remaining += count;
+        return self.*;
+    }
+
+    pub fn enumerate() TreeMutSkipEnumerateIter[K, V] {
+        return .{ inner: self.* };
+    }
+}
+
+impl[K, V] TreeMutSkipIter[K, V]
+    where K: Ord[K],
+{
+    pub fn enumerate() TreeMutSkipEnumerateIter[K, V] {
+        return .{ inner: self };
+    }
+}
+
+impl[K, V] &mut TreeMutEnumerateIter[K, V] : Iterator
+    where K: Ord[K],
+{
+    type Item = EnumerateItem[TreeMutItem[K, V]];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
+
+impl[K, V] &mut TreeMutSkipEnumerateIter[K, V] : Iterator
+    where K: Ord[K],
+{
+    type Item = EnumerateItem[TreeMutItem[K, V]];
+
+    pub fn next() ?Item {
+        let value = match self.inner..&.next() {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        let index = self.index;
+        self.index += 1;
+        return .{ Some: .{ index: index, value: value } };
+    }
+}
 
 impl[K, V] &Tree[K, V]
     where K: Ord[K],
 {
+    /// Returns an iterator over copied key-value pairs in sorted key order.
+    pub fn iter() TreeIter[K, V] {
+        return .{ root: self.root, next: first_hit[K, V](self.root) };
+    }
+
     fn compare(lhs: K, rhs: K) i32 {
         return lhs.cmp(rhs);
     }
@@ -23,8 +259,8 @@ impl[K, V] &Tree[K, V]
         let .{ Some: node } = node else return;
 
         let mut i = 0usize;
-                while (i < node.len) {
-            if (!node.is_leaf) {
+                while i < node.len {
+            if !node.is_leaf {
                 self.for_each_node(some_node[K, V](child_at[K, V](node, i)), visitor);
             }
             visitor(key_at[K, V](node, i), value_at[K, V](node, i));
@@ -32,7 +268,7 @@ impl[K, V] &Tree[K, V]
             i += 1;
         }
 
-        if (!node.is_leaf) {
+        if !node.is_leaf {
             self.for_each_node(some_node[K, V](child_at[K, V](node, node.len)), visitor);
         }
     }
@@ -46,8 +282,8 @@ impl[K, V] &Tree[K, V]
 
         let mut accum = init;
         let mut i = 0usize;
-                while (i < node.len) {
-            if (!node.is_leaf) {
+                while i < node.len {
+            if !node.is_leaf {
                 accum = self.fold_node(some_node[K, V](child_at[K, V](node, i)), accum, step);
             }
             accum = step(accum, key_at[K, V](node, i), value_at[K, V](node, i));
@@ -55,7 +291,7 @@ impl[K, V] &Tree[K, V]
             i += 1;
         }
 
-        if (!node.is_leaf) {
+        if !node.is_leaf {
             accum = self.fold_node(some_node[K, V](child_at[K, V](node, node.len)), accum, step);
         }
 
@@ -130,21 +366,21 @@ impl[K, V] &Tree[K, V]
         let root = self.root.?;
         let mut node = root;
 
-                while (true) {
+                while true {
             let mut index = 0usize;
-                        while (index < node.len) {
+                        while index < node.len {
                 let cmp = self.compare(key_at[K, V](node, index), key);
-                if (cmp == 0) {
+                if cmp == 0 {
                     return .{ Some: value_at[K, V](node, index) };
                 }
-                if (cmp > 0) {
+                if cmp > 0 {
                     break;
                 }
 
                 index += 1;
             }
 
-            if (node.is_leaf) {
+            if node.is_leaf {
                 return .None;
             }
 

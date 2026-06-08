@@ -1,3 +1,9 @@
+//! Pattern lowering.
+//!
+//! Checked patterns lower to binding plans and runtime tests against MAST
+//! expressions. This module handles destructuring, ignored bindings, field
+//! projection ordering, and user-pattern lowering for match/let constructs.
+
 use super::*;
 
 struct UserPatternPlanInput<'a> {
@@ -8,6 +14,45 @@ struct UserPatternPlanInput<'a> {
     bind_ty: TypeId,
     subst_map: &'a HashMap<SymbolId, kernc_sema::ty::GenericArg>,
     bindings: &'a mut Vec<PatternBindingPlan>,
+}
+
+pub(super) struct PatternPlan {
+    prelude: Vec<MastStmt>,
+    cond: MastExpr,
+}
+
+enum StructValuePatternField {
+    Written(ast::StructFieldInit),
+    Default {
+        name: SymbolId,
+        value: Expr,
+        span: Span,
+        owner_scope: Option<kernc_sema::scope::ScopeId>,
+        subst_map: HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+    },
+}
+
+impl StructValuePatternField {
+    fn name(&self) -> SymbolId {
+        match self {
+            Self::Written(field) => field.name,
+            Self::Default { name, .. } => *name,
+        }
+    }
+
+    fn span(&self) -> Span {
+        match self {
+            Self::Written(field) => field.span,
+            Self::Default { span, .. } => *span,
+        }
+    }
+
+    fn value(&self) -> &Expr {
+        match self {
+            Self::Written(field) => &field.value,
+            Self::Default { value, .. } => value,
+        }
+    }
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -142,6 +187,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 },
                 span,
             )),
+            ExprKind::Integer { .. }
+            | ExprKind::Float { .. }
+            | ExprKind::Char(_)
+            | ExprKind::ByteChar(_)
+            | ExprKind::Identifier(_)
+            | ExprKind::Unary {
+                op: ast::UnaryOperator::Negate,
+                ..
+            } => self.collect_scalar_const_value_pattern_plan(
+                span,
+                value,
+                target_expr,
+                target_ty,
+                subst_map,
+            ),
             ExprKind::EnumLiteral { variant, .. } => self
                 .build_enum_variant_condition(span, target_expr, target_ty, *variant)
                 .map(|(cond, _)| cond),
@@ -187,10 +247,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     )?;
                     Some(self.and_expr(span, tag_cond, inner))
                 } else {
+                    let expanded_fields =
+                        self.expand_struct_value_pattern_fields(span, target_ty, fields)?;
                     let mut cond = self.bool_expr(span, true);
-                    for field in fields {
+                    for field in &expanded_fields {
+                        let field_name = field.name();
+                        let field_span = field.span();
                         let (field_ty, struct_id, field_idx) =
-                            self.resolve_struct_pattern_field(target_ty, field.name, field.span)?;
+                            self.resolve_struct_pattern_field(target_ty, field_name, field_span)?;
                         let field_expr = MastExpr::new(
                             field_ty,
                             MastExprKind::FieldAccess {
@@ -198,59 +262,126 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 struct_id,
                                 field_idx,
                             },
-                            field.span,
+                            field_span,
                         );
-                        let inner = self.collect_value_pattern_plan(
-                            field.span,
-                            &field.value,
-                            &field_expr,
-                            field_ty,
-                            subst_map,
-                        )?;
-                        cond = self.and_expr(field.span, cond, inner);
+                        let inner = match field {
+                            StructValuePatternField::Written(_) => self
+                                .collect_value_pattern_plan(
+                                    field_span,
+                                    field.value(),
+                                    &field_expr,
+                                    field_ty,
+                                    subst_map,
+                                )?,
+                            StructValuePatternField::Default {
+                                owner_scope,
+                                subst_map,
+                                ..
+                            } => {
+                                let prev_scope = self.ctx.scopes.current_scope_id();
+                                if let Some(owner_scope) = *owner_scope {
+                                    self.ctx.scopes.set_current_scope(owner_scope);
+                                }
+                                let inner = self.collect_value_pattern_plan(
+                                    field_span,
+                                    field.value(),
+                                    &field_expr,
+                                    field_ty,
+                                    subst_map,
+                                );
+                                if let Some(prev_scope) = prev_scope {
+                                    self.ctx.scopes.set_current_scope(prev_scope);
+                                }
+                                inner?
+                            }
+                        };
+                        cond = self.and_expr(field_span, cond, inner);
                     }
                     Some(cond)
                 }
-            }
-            _ if self.value_pattern_can_use_builtin_equality(target_ty) => {
-                let value_expr = self.lower_expr(value, subst_map, Some(target_ty));
-                Some(MastExpr::new(
-                    TypeId::BOOL,
-                    MastExprKind::Binary {
-                        op: ast::BinaryOperator::Equal,
-                        lhs: Box::new(target_expr.clone()),
-                        rhs: Box::new(value_expr),
-                    },
-                    span,
-                ))
             }
             _ => None,
         }
     }
 
-    fn value_pattern_can_use_builtin_equality(&mut self, target_ty: TypeId) -> bool {
-        let norm = self.normalize_concrete_type(target_ty);
-        if norm == TypeId::BOOL
-            || self.ctx.type_registry.is_integer(norm)
-            || self.ctx.type_registry.is_float(norm)
-        {
-            return true;
+    fn collect_scalar_const_value_pattern_plan(
+        &mut self,
+        span: Span,
+        value: &Expr,
+        target_expr: &MastExpr,
+        target_ty: TypeId,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+    ) -> Option<MastExpr> {
+        let norm_target = self.ctx.type_registry.normalize(target_ty);
+        let rhs = if matches!(value.kind, ExprKind::Identifier(_)) {
+            let const_value = ConstEvaluator::new(self.ctx)
+                .with_type_substs(subst_map)
+                .eval_inner(value, 0)
+                .ok()?;
+            match const_value {
+                ConstValue::Int(raw) if self.ctx.type_registry.is_integer(norm_target) => {
+                    MastExpr::new(target_ty, MastExprKind::Integer(raw as u128), value.span)
+                }
+                ConstValue::Float(raw) if self.ctx.type_registry.is_float(norm_target) => {
+                    MastExpr::new(target_ty, MastExprKind::Float(raw), value.span)
+                }
+                ConstValue::Bool(raw) if norm_target == TypeId::BOOL => {
+                    MastExpr::new(TypeId::BOOL, MastExprKind::Bool(raw), value.span)
+                }
+                ConstValue::Enum { tag, .. } => {
+                    MastExpr::new(target_ty, MastExprKind::Integer(tag as u128), value.span)
+                }
+                _ => return None,
+            }
+        } else {
+            self.lower_expr(value, subst_map, Some(target_ty))
+        };
+
+        Some(MastExpr::new(
+            TypeId::BOOL,
+            MastExprKind::Binary {
+                op: ast::BinaryOperator::Equal,
+                lhs: Box::new(target_expr.clone()),
+                rhs: Box::new(rhs),
+            },
+            span,
+        ))
+    }
+
+    fn collect_nested_value_pattern_plan(
+        &mut self,
+        span: Span,
+        value: &Expr,
+        target_expr: &MastExpr,
+        target_ty: TypeId,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+        bindings: &mut Vec<PatternBindingPlan>,
+    ) -> PatternPlan {
+        if let Some(bind_ty) = self.ctx.match_value_pattern_bind_ty(value.id) {
+            let (prelude, cond) = self.collect_user_pattern_plan(UserPatternPlanInput {
+                span,
+                value,
+                target_expr,
+                target_ty,
+                bind_ty,
+                subst_map,
+                bindings,
+            });
+            return PatternPlan { prelude, cond };
         }
 
-        match self.ctx.type_registry.get(norm).clone() {
-            TypeKind::Enum(def_id, _) => {
-                let Def::Enum(def) = &self.ctx.defs[def_id.0 as usize] else {
-                    return false;
-                };
-                def.variants
-                    .iter()
-                    .all(|variant| variant.payload_type.is_none())
-            }
-            TypeKind::AnonymousEnum(def) => def
-                .variants
-                .iter()
-                .all(|variant| variant.payload_ty.is_none()),
-            _ => false,
+        let cond = self
+            .collect_value_pattern_plan(span, value, target_expr, target_ty, subst_map)
+            .unwrap_or_else(|| {
+                self.lower_error_expr(
+                    TypeId::BOOL,
+                    span,
+                    "cannot lower invalid match value pattern",
+                )
+            });
+        PatternPlan {
+            prelude: Vec::new(),
+            cond,
         }
     }
 
@@ -408,6 +539,70 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         (vec![matched_let], cond)
     }
 
+    fn expand_struct_value_pattern_fields(
+        &mut self,
+        span: Span,
+        target_ty: TypeId,
+        fields: &[ast::StructFieldInit],
+    ) -> Option<Vec<StructValuePatternField>> {
+        let norm_target = self.ctx.type_registry.normalize(target_ty);
+        let TypeKind::Def(def_id, gen_args) = self.ctx.type_registry.get(norm_target).clone()
+        else {
+            return Some(
+                fields
+                    .iter()
+                    .cloned()
+                    .map(StructValuePatternField::Written)
+                    .collect(),
+            );
+        };
+        let Def::Struct(def) = self.ctx.defs.get(def_id.0 as usize)? else {
+            return Some(
+                fields
+                    .iter()
+                    .cloned()
+                    .map(StructValuePatternField::Written)
+                    .collect(),
+            );
+        };
+        if fields.len() >= def.fields.len() {
+            return Some(
+                fields
+                    .iter()
+                    .cloned()
+                    .map(StructValuePatternField::Written)
+                    .collect(),
+            );
+        }
+
+        let mut expanded = Vec::with_capacity(def.fields.len());
+        let mut struct_subst_map = HashMap::new();
+        for (index, param) in def.generics.iter().enumerate() {
+            if let Some(arg) = gen_args.get(index).copied() {
+                struct_subst_map.insert(param.name, arg);
+            }
+        }
+
+        for field_def in &def.fields {
+            if let Some(field) = fields.iter().find(|field| field.name == field_def.name) {
+                expanded.push(StructValuePatternField::Written(field.clone()));
+                continue;
+            }
+
+            let default_value = field_def.default_value.as_deref()?;
+            let owner_scope = self.ctx.def_owner_scope(def_id);
+            expanded.push(StructValuePatternField::Default {
+                name: field_def.name,
+                value: default_value.clone(),
+                span,
+                owner_scope,
+                subst_map: struct_subst_map.clone(),
+            });
+        }
+
+        Some(expanded)
+    }
+
     fn value_pattern_is_qualified_enum_variant(
         &mut self,
         value: &Expr,
@@ -441,8 +636,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         pattern: &ast::Pattern,
         target_expr: &MastExpr,
         target_ty: TypeId,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         bindings: &mut Vec<PatternBindingPlan>,
-    ) -> MastExpr {
+    ) -> PatternPlan {
         match &pattern.kind {
             ast::PatternKind::Binding(binding) => {
                 if !self.is_ignored_binding(binding.name) {
@@ -453,13 +649,35 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         init: target_expr.clone(),
                     });
                 }
-                self.bool_expr(span, true)
+                PatternPlan {
+                    prelude: Vec::new(),
+                    cond: self.bool_expr(span, true),
+                }
             }
-            ast::PatternKind::Ignore => self.bool_expr(span, true),
-            ast::PatternKind::Variant(variant) => self
-                .build_enum_variant_condition(span, target_expr, target_ty, variant.variant_name)
-                .map(|(cond, _)| cond)
-                .unwrap_or_else(|| self.bool_expr(span, false)),
+            ast::PatternKind::Ignore => PatternPlan {
+                prelude: Vec::new(),
+                cond: self.bool_expr(span, true),
+            },
+            ast::PatternKind::Value(value) => self.collect_nested_value_pattern_plan(
+                span,
+                value,
+                target_expr,
+                target_ty,
+                subst_map,
+                bindings,
+            ),
+            ast::PatternKind::Variant(variant) => PatternPlan {
+                prelude: Vec::new(),
+                cond: self
+                    .build_enum_variant_condition(
+                        span,
+                        target_expr,
+                        target_ty,
+                        variant.variant_name,
+                    )
+                    .map(|(cond, _)| cond)
+                    .unwrap_or_else(|| self.bool_expr(span, false)),
+            },
             ast::PatternKind::Destructure(destructure) => {
                 let norm_target = self.ctx.type_registry.normalize(target_ty);
                 if matches!(
@@ -467,15 +685,24 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
                 ) {
                     let Some(field) = destructure.fields.first() else {
-                        return self.bool_expr(span, true);
+                        return PatternPlan {
+                            prelude: Vec::new(),
+                            cond: self.bool_expr(span, true),
+                        };
                     };
                     let Some((tag_cond, payload_info)) =
                         self.build_enum_variant_condition(span, target_expr, target_ty, field.name)
                     else {
-                        return self.bool_expr(span, false);
+                        return PatternPlan {
+                            prelude: Vec::new(),
+                            cond: self.bool_expr(span, false),
+                        };
                     };
                     let Some((variant_idx, payload_ty, mono_id)) = payload_info else {
-                        return tag_cond;
+                        return PatternPlan {
+                            prelude: Vec::new(),
+                            cond: tag_cond,
+                        };
                     };
                     let Some(payload_expr) = self.build_payload_extract_expr(
                         span,
@@ -484,23 +711,34 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         variant_idx,
                         payload_ty,
                     ) else {
-                        return self.bool_expr(span, false);
+                        return PatternPlan {
+                            prelude: Vec::new(),
+                            cond: self.bool_expr(span, false),
+                        };
                     };
                     let inner = self.collect_pattern_plan(
                         span,
                         &field.pattern,
                         &payload_expr,
                         payload_ty,
+                        subst_map,
                         bindings,
                     );
-                    self.and_expr(span, tag_cond, inner)
+                    PatternPlan {
+                        prelude: inner.prelude,
+                        cond: self.and_expr(span, tag_cond, inner.cond),
+                    }
                 } else {
+                    let mut prelude = Vec::new();
                     let mut cond = self.bool_expr(span, true);
                     for field in &destructure.fields {
                         let Some((field_ty, struct_id, field_idx)) =
                             self.resolve_struct_pattern_field(target_ty, field.name, field.span)
                         else {
-                            return self.bool_expr(span, false);
+                            return PatternPlan {
+                                prelude,
+                                cond: self.bool_expr(span, false),
+                            };
                         };
                         let field_expr = MastExpr::new(
                             field_ty,
@@ -516,11 +754,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             &field.pattern,
                             &field_expr,
                             field_ty,
+                            subst_map,
                             bindings,
                         );
-                        cond = self.and_expr(field.span, cond, inner);
+                        prelude.extend(inner.prelude);
+                        cond = self.and_expr(field.span, cond, inner.cond);
                     }
-                    cond
+                    PatternPlan { prelude, cond }
                 }
             }
         }
@@ -613,6 +853,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             "        lower_let_binding_forward_value_init",
                             |this| this.lower_expr(init, subst_map, Some(target_ty)),
                         );
+                        if !self.types_match_for_forwarding(init.ty, target_ty) {
+                            return self.measure_phase("        lower_let_binding_emit", |_| {
+                                vec![MastStmt::Let {
+                                    name: binding.name,
+                                    ty: target_ty,
+                                    is_mut: binding.is_mut,
+                                    init,
+                                }]
+                            });
+                        }
                         self.measure_phase(
                             "        lower_let_binding_forward_value_record",
                             |this| {
@@ -691,15 +941,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             });
 
         let mut bindings = Vec::new();
-        let condition = self.measure_phase("        lower_let_pattern_plan", |this| {
+        let pattern_plan = self.measure_phase("        lower_let_pattern_plan", |this| {
             this.collect_pattern_plan(
                 expr.span,
                 &pattern.pattern,
                 &target_var_expr,
                 target_ty,
+                subst_map,
                 &mut bindings,
             )
         });
+        let PatternPlan {
+            prelude: condition_prelude,
+            cond: condition,
+        } = pattern_plan;
 
         if let Some(else_clause) = else_clause {
             let mut outer_stmts = Vec::new();
@@ -784,10 +1039,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             );
 
             self.measure_phase("        lower_let_else_emit", |_| {
+                let mut block_stmts = vec![target_let];
+                block_stmts.extend(condition_prelude);
                 outer_stmts.push(MastStmt::Expr(MastExpr::new(
                     TypeId::VOID,
                     MastExprKind::Block(MastBlock {
-                        stmts: vec![target_let],
+                        stmts: block_stmts,
                         result: Some(Box::new(if_expr)),
                         defers: vec![],
                     }),
@@ -807,6 +1064,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             outer_stmts
         } else {
             let mut stmts = vec![target_let];
+            stmts.extend(condition_prelude);
             self.measure_phase("        lower_let_pattern_bindings", |this| {
                 for binding in bindings {
                     this.bind_local_type(
@@ -842,15 +1100,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let arm = &arms[arm_index];
         let mut bindings = Vec::new();
-        let cond = self.measure_phase("          lower_let_else_arm_plan", |this| {
+        let pattern_plan = self.measure_phase("          lower_let_else_arm_plan", |this| {
             this.collect_pattern_plan(
                 arm.span,
                 &arm.pattern,
                 target_var_expr,
                 target_ty,
+                subst_map,
                 &mut bindings,
             )
         });
+        let PatternPlan {
+            prelude: cond_prelude,
+            cond,
+        } = pattern_plan;
         let then_branch = self.measure_phase("          lower_let_else_arm_body", |this| {
             this.lower_match_pattern_body(&arm.body, bindings, subst_map, TypeId::VOID)
         });
@@ -864,7 +1127,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             )
         });
 
-        MastExpr::new(
+        let if_expr = MastExpr::new(
             TypeId::VOID,
             MastExprKind::If {
                 cond: Box::new(cond),
@@ -876,7 +1139,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }),
             },
             arm.span,
-        )
+        );
+
+        if cond_prelude.is_empty() {
+            if_expr
+        } else {
+            MastExpr::new(
+                TypeId::VOID,
+                MastExprKind::Block(MastBlock {
+                    stmts: cond_prelude,
+                    result: Some(Box::new(if_expr)),
+                    defers: vec![],
+                }),
+                arm.span,
+            )
+        }
     }
 
     pub(crate) fn lower_match(
@@ -984,9 +1261,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         inner,
                         match_context.target_var_expr,
                         match_context.target_ty,
+                        match_context.subst_map,
                         &mut bindings,
                     );
-                    (Vec::new(), cond, bindings)
+                    (cond.prelude, cond.cond, bindings)
                 })
             }
         };

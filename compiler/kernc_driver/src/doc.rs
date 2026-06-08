@@ -1,3 +1,9 @@
+//! Documentation extraction and rendering.
+//!
+//! This module collects doc comments from semantic definitions, normalizes them
+//! into structured sections/entries, and renders package metadata documentation
+//! for Kmeta consumers.
+
 use crate::language::is_language_builtin_def;
 use kernc_ast as ast;
 use kernc_sema::SemaContext;
@@ -1297,6 +1303,7 @@ mod tests {
         let service_trait_id = ctx.add_def(Def::Trait(TraitDef {
             id: DefId(1),
             name: service_name,
+            name_span: Span::default(),
             vis: Visibility::Public,
             is_imported: false,
             generics: Vec::new(),
@@ -1461,6 +1468,7 @@ mod tests {
         let service_trait_id = ctx.add_def(Def::Trait(TraitDef {
             id: DefId(2),
             name: service_name,
+            name_span: Span::default(),
             vis: Visibility::Public,
             is_imported: true,
             generics: Vec::new(),
@@ -1803,6 +1811,7 @@ mod tests {
         ctx.add_def(Def::Struct(StructDef {
             id: DefId(1),
             name: config_name,
+            name_span: Span::default(),
             vis: Visibility::Public,
             parent_module: Some(DefId(0)),
             is_imported: false,

@@ -1,3 +1,10 @@
+//! Top-level and nested declaration nodes.
+//!
+//! Declarations cover module items, imports, type definitions, trait/impl
+//! blocks, extern blocks, and function/static bindings.  The parser records
+//! syntactic shape and source spans here; name resolution and type checking add
+//! cross-reference meaning later.
+
 use super::{
     AssociatedTypeDecl, Attribute, BindingPattern, DocBlock, EnumVariant, Expr, StructFieldDef,
     TraitMethodDef, TypeNode,
@@ -14,7 +21,9 @@ pub enum Visibility {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PathAnchor {
+    /// `..name` starts lookup from the parent module.
     Parent,
+    /// `/name` starts lookup from the current package root.
     Package,
 }
 
@@ -32,6 +41,8 @@ impl Visibility {
 pub struct Decl {
     pub id: NodeId,
     pub span: Span,
+    /// Span of the declared binding name, kept separate for precise rename and
+    /// duplicate-name diagnostics.
     pub name_span: Span,
     pub name: SymbolId,
     pub vis: Visibility,
@@ -153,7 +164,9 @@ pub enum UsePathKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UseTarget {
+    /// Plain module import, optionally renamed by `as`.
     Module(Option<SymbolId>),
+    /// Brace-tree import such as `use std.{io, mem as memory}`.
     Tree(Vec<UseTree>),
 }
 

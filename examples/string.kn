@@ -26,8 +26,8 @@ fn main() i32 {
         .should_ok()
         .sum(@loc(), t);
 
-    (text.as_str() == "Hello, Kern").should().sum(@loc(), t);
-    "string: {}".fmt(.{text}).println();
+    (text.view().as_str() == "Hello, Kern").should().sum(@loc(), t);
+    "string: {}".fmt(.{text.view()}).println();
 
     return 0;
 }

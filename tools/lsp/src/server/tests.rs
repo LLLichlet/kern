@@ -1,8 +1,11 @@
+//! Shared server test harness and fixtures.
+
 mod basics;
 mod completion;
 mod diagnostics;
 mod requests;
 mod scheduler;
+mod stress;
 
 pub(super) use super::*;
 pub(super) use crate::analysis::{AnalysisOutcome, DiagnosticBundle};
@@ -15,7 +18,7 @@ pub(super) use crate::transport::{MessageReader, MessageWriter};
 pub(super) use serde_json::{Value, json};
 pub(super) use std::fs;
 pub(super) use std::io::Cursor;
-pub(super) use std::path::PathBuf;
+pub(super) use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 pub(super) use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -38,7 +41,74 @@ pub(super) fn dispatch_messages(state: &mut ServerState, message: IncomingMessag
     let mut writer = MessageWriter::new(&mut output);
     let should_exit = handle_message(state, &mut writer, message).unwrap();
     assert!(!should_exit);
+    flush_started_work_to_quiescence(state, &mut writer);
     read_all_messages(&output)
+}
+
+pub(super) fn flush_started_work_to_quiescence(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl std::io::Write>,
+) {
+    // Message dispatch should wait for work that production dispatch already
+    // submitted, but it must not turn deferred diagnostics targets into new
+    // worker jobs. Several didChange tests assert that boundary explicitly.
+    while state.pending_workspace_refresh_tasks > 0
+        || state.pending_diagnostics_worker_tasks > 0
+        || state.pending_prewarm_tasks > 0
+        || state.has_pending_document_request_work()
+        || !state.pending_diagnostics.is_empty()
+    {
+        if state.pending_prewarm_tasks > 0 {
+            super::scheduler::flush_prewarm_results(state, writer, true).unwrap();
+        }
+        if state.pending_workspace_refresh_tasks > 0 {
+            super::scheduler::flush_workspace_refresh_results(state, writer, true).unwrap();
+        }
+        if state.pending_diagnostics_worker_tasks > 0 {
+            super::scheduler::flush_diagnostics_results(state, writer, true).unwrap();
+        }
+        if state.has_pending_document_request_work() {
+            super::scheduler::flush_document_request_results(state, writer, true).unwrap();
+        }
+        if !state.pending_diagnostics.is_empty() {
+            super::scheduler::publish_pending_diagnostics(state, writer).unwrap();
+        }
+    }
+}
+
+pub(super) fn drain_scheduler_to_quiescence(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl std::io::Write>,
+) {
+    // Explicit scheduler tests and stress tests use this stronger helper when
+    // they need to materialize every queued diagnostics target.
+    while state.pending_workspace_refresh_tasks > 0
+        || state.pending_diagnostics_worker_tasks > 0
+        || state.pending_prewarm_tasks > 0
+        || state.has_pending_document_request_work()
+        || !state.pending_diagnostics.is_empty()
+        || !state.pending_diagnostics_targets.is_empty()
+    {
+        if state.pending_prewarm_tasks > 0 {
+            super::scheduler::flush_prewarm_results(state, writer, true).unwrap();
+        }
+        if state.pending_workspace_refresh_tasks > 0 {
+            super::scheduler::flush_workspace_refresh_results(state, writer, true).unwrap();
+        }
+        if state.pending_diagnostics_worker_tasks > 0 {
+            super::scheduler::flush_diagnostics_results(state, writer, true).unwrap();
+        }
+        if state.has_pending_document_request_work() {
+            super::scheduler::flush_document_request_results(state, writer, true).unwrap();
+        }
+        if state.pending_workspace_refresh_reason.is_some()
+            || !state.pending_diagnostics.is_empty()
+            || (!state.pending_diagnostics_targets.is_empty()
+                && state.pending_diagnostics_worker_tasks == 0)
+        {
+            super::scheduler::drain_scheduler(state, writer).unwrap();
+        }
+    }
 }
 
 pub(super) fn did_open_message(uri: &str, text: &str, version: i64) -> IncomingMessage {
@@ -95,7 +165,22 @@ pub(super) fn temp_file_uri(prefix: &str, initial_text: &str) -> String {
         fs::create_dir_all(parent).unwrap();
     }
     fs::write(&path, initial_text).unwrap();
-    format!("file://{}", path.to_string_lossy())
+    file_path_to_uri_for_test(&path)
+}
+
+pub(super) fn invalid_manifest_document_uri(prefix: &str, source: &str) -> String {
+    let root = unique_temp_file_path(prefix);
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("Craft.toml"), "not valid craft toml").unwrap();
+    let source_path = root.join("src/main.kn");
+    fs::write(&source_path, source).unwrap();
+    file_path_to_uri_for_test(&source_path)
+}
+
+pub(super) fn unique_temp_dir(prefix: &str) -> PathBuf {
+    let path = unique_temp_file_path(prefix);
+    fs::create_dir_all(&path).unwrap();
+    path
 }
 
 fn unique_temp_file_path(prefix: &str) -> PathBuf {
@@ -111,6 +196,36 @@ fn unique_temp_file_path(prefix: &str) -> PathBuf {
         nanos,
         counter
     ))
+}
+
+pub(super) fn file_path_to_uri_for_test(path: &Path) -> String {
+    let mut rendered = std::fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .replace('\\', "/");
+    if let Some(stripped) = rendered.strip_prefix("//?/UNC/") {
+        rendered = format!("//{stripped}");
+    } else if let Some(stripped) = rendered.strip_prefix("//?/") {
+        rendered = stripped.to_string();
+    }
+    if !rendered.starts_with('/') {
+        rendered.insert(0, '/');
+    }
+    format!("file://{rendered}")
+}
+
+pub(super) fn normalized_workspace_roots_for_test(roots: Vec<PathBuf>) -> Vec<PathBuf> {
+    super::lifecycle::normalize_workspace_roots(roots)
+}
+
+pub(super) fn assert_uri_path_ends_with(uri: &str, suffix: impl AsRef<Path>) {
+    let path = crate::analysis::uri_to_file_path(uri)
+        .unwrap_or_else(|| panic!("expected file uri path, got {uri}"));
+    assert!(
+        path.ends_with(suffix.as_ref()),
+        "expected {path:?} to end with {:?}",
+        suffix.as_ref()
+    );
 }
 
 pub(super) fn read_single_response(output: &[u8]) -> Value {

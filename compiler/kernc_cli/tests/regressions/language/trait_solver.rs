@@ -1,3 +1,5 @@
+//! Trait solver language regression tests.
+
 use super::*;
 #[test]
 fn rejects_uninstantiated_generic_function_items_in_value_position() {

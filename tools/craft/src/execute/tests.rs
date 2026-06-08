@@ -1,3 +1,9 @@
+//! Integration-style execution tests for Craft.
+//!
+//! The suite builds temporary packages to validate compile/link scheduling,
+//! generated sources, runtime package reuse, local/external dependencies, and
+//! test target execution.
+
 use super::orchestrate::{build, check};
 use super::runtime::{run, test};
 use super::{
@@ -262,7 +268,7 @@ fn build_release_hello_workspace(root: &Path, profile_body: &str) -> super::Exec
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 {profile_body}
 
@@ -297,7 +303,7 @@ root = "src/main.kn"
 #[test]
 fn release_thinlto_build_produces_runnable_binary() {
     let root = temp_dir("craft-release-thinlto-run");
-    let _summary = build_release_hello_workspace(
+    build_release_hello_workspace(
         &root,
         r#"
 [profile.release]
@@ -307,15 +313,31 @@ lto = "thin"
 "#,
     );
 
-    let executable = root
-        .join(".craft")
-        .join("build")
-        .join("release")
-        .join("target")
-        .join("out")
-        .join("hello-0.1.0")
-        .join("bin")
-        .join("hello");
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        true,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..FeatureSelection::default()
+        },
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let executable = action_plan
+        .link_actions
+        .iter()
+        .find(|action| {
+            action.package_id.name == "hello" && action.target_kind == crate::plan::TargetKind::Bin
+        })
+        .map(|action| action.artifact_path.clone())
+        .expect("expected hello executable");
     let output = run_binary_with_retry(&executable, 0);
     assert!(output.status.success());
 
@@ -336,7 +358,7 @@ fn build_succeeds_for_linux_freestanding_bin_without_program_main() {
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 entry = "none"
@@ -403,7 +425,7 @@ fn build_reports_invalid_pointer_static_initializer_failure() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -468,7 +490,7 @@ fn build_script_can_attach_relative_link_arg_path_for_freestanding_bin() {
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 entry = "none"
@@ -565,7 +587,7 @@ fn freestanding_link_rebuilds_when_link_arg_path_contents_change() {
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 entry = "none"
@@ -673,7 +695,7 @@ fn build_script_can_link_native_static_library_from_root_package_path() {
 [package]
 name = "native"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -767,7 +789,7 @@ fn build_script_can_compile_and_link_c_source() {
 [package]
 name = "native"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -902,7 +924,7 @@ fn relinks_when_project_local_native_library_changes() {
 [package]
 name = "native"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -1020,7 +1042,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -1131,7 +1153,7 @@ int craft_appears_value(void) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [runtime]
 entry = "rt"
@@ -1261,9 +1283,9 @@ fn add_repository_to_manifest(manifest: &str, repo: &Path) -> String {
         return manifest.to_string();
     }
     manifest.replacen(
-        "kern = \"0.7.6\"",
+        "kern = \"0.8.2\"",
         &format!(
-            "kern = \"0.7.6\"\ndescription = \"Test package\"\nlicense = \"MIT\"\nauthors = [\"Craft Tests <craft-tests@example.invalid>\"]\nreadme = \"README.md\"\nrepository = \"{}\"",
+            "kern = \"0.8.2\"\ndescription = \"Test package\"\nlicense = \"MIT\"\nauthors = [\"Craft Tests <craft-tests@example.invalid>\"]\nreadme = \"README.md\"\nrepository = \"{}\"",
             toml_string_literal(repo)
         ),
         1,

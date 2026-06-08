@@ -1,3 +1,8 @@
+//! Attribute syntax attached to modules, declarations, and statements.
+//!
+//! Attribute payloads remain expression-like at this layer.  Semantic analysis
+//! decides which marker names and argument forms are valid for each attribute.
+
 use super::Expr;
 use kernc_utils::{Span, SymbolId};
 
@@ -11,7 +16,7 @@ pub struct Attribute {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttributeKind {
-    /// Conditional compilation such as `#[if(os == "linux" and arch == "x86")]`.
+    /// Conditional compilation such as `#[if os == "linux" and arch == "x86"]`.
     /// The payload is stored as a regular expression AST.
     If(Box<Expr>),
 

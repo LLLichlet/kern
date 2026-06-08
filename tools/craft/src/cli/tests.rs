@@ -1,3 +1,8 @@
+//! CLI parser and command integration tests.
+//!
+//! These tests exercise command-line syntax, workspace locking, lockfile sync,
+//! publish policy, install/uninstall behavior, and subprocess execution paths.
+
 use super::{
     ColorChoice, Command, HelpTopic, InstallSelection, RunSelection, UiOptions, Verbosity,
     parse_args, run_command, summarize_check_sources, summarize_source_security,
@@ -54,7 +59,15 @@ fn copy_dir_recursive(source: &Path, destination: &Path) {
 
 fn copy_kernlib_workspace(destination: &Path) {
     let source_root = repo_root().join("library");
-    for item in ["Craft.toml", "Craft.lock", "README.md", "base", "std", "rt"] {
+    for item in [
+        "Craft.toml",
+        "Craft.lock",
+        "README.md",
+        "base",
+        "kernlib-test",
+        "std",
+        "rt",
+    ] {
         let source = source_root.join(item);
         let destination = destination.join(item);
         if source.is_dir() {
@@ -74,7 +87,7 @@ fn write_minimal_bin_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -93,7 +106,7 @@ fn write_minimal_lib_package(root: &Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -111,7 +124,7 @@ fn write_publishable_bin_package(root: &Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 description = "Demo package"
 license = "MIT"
 authors = ["Demo <demo@example.com>"]
@@ -149,7 +162,7 @@ members = ["{member_name}"]
 [package]
 name = "{member_name}"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "{member_name}"
@@ -306,7 +319,7 @@ fn write_arg_check_bin_package(root: &std::path::Path, first: &str, second: &str
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -329,7 +342,7 @@ fn write_arg_check_test_package(root: &std::path::Path, first: &str, second: &st
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [test]
 roots = ["tests/smoke.kn"]
@@ -351,7 +364,7 @@ fn write_multi_test_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [test]
 roots = ["tests/alpha.kn", "tests/beta.kn"]
@@ -379,7 +392,7 @@ fn write_bin_and_test_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -407,7 +420,7 @@ fn write_bin_and_example_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -434,7 +447,7 @@ fn write_multi_bin_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -464,7 +477,7 @@ fn write_workspace_with_member_test_package(root: &std::path::Path) -> PathBuf {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [test]
 roots = ["tests/smoke.kn"]
@@ -620,7 +633,7 @@ fn write_generated_build_script_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -672,6 +685,14 @@ fn run_kill_recovery_case(root: &std::path::Path, mode: KillRecoveryMode, failpo
 
 fn demo_executable_name() -> String {
     format!("demo{}", std::env::consts::EXE_SUFFIX)
+}
+
+fn target_build_root(root: &Path) -> PathBuf {
+    root.join(".craft").join("build").join("dev").join("target")
+}
+
+fn package_build_dir(root: &Path, area: &str, package: &str, kind: &str) -> PathBuf {
+    target_build_root(root).join(area).join(package).join(kind)
 }
 
 #[test]
@@ -1690,6 +1711,45 @@ fn build_command_waits_for_workspace_lock() {
 }
 
 #[test]
+fn run_command_waits_for_workspace_lock() {
+    let root = temp_dir("craft-cli-run-workspace-lock");
+    write_minimal_bin_package(&root);
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let root_for_holder = root.clone();
+
+    let holder = thread::spawn(move || {
+        let _lock = WorkspaceOperationLock::acquire(&root_for_holder, "build").unwrap();
+        ready_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+    });
+
+    ready_rx.recv().unwrap();
+    let root_for_run = root.clone();
+    let start = Instant::now();
+    let waiter = thread::spawn(move || {
+        run_command(Command::Run {
+            path: Some(root_for_run),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+            selection: RunSelection::DefaultBin,
+            runtime_args: Vec::new(),
+        })
+        .unwrap();
+        start.elapsed()
+    });
+
+    thread::sleep(Duration::from_millis(200));
+    release_tx.send(()).unwrap();
+
+    holder.join().unwrap();
+    let waited = waiter.join().unwrap();
+    assert!(waited >= Duration::from_millis(150));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn check_command_recovers_from_invalid_workspace_lock() {
     let root = temp_dir("craft-cli-check-invalid-workspace-lock");
     write_minimal_bin_package(&root);
@@ -1701,7 +1761,7 @@ fn check_command_recovers_from_invalid_workspace_lock() {
             feature_selection: FeatureSelection::default(),
             ui: UiOptions::default(),
         },
-        Duration::from_secs(30),
+        kill_recovery_command_timeout(),
     );
 
     assert!(!root.join(".craft/lock/workspace.lock").exists());
@@ -1722,12 +1782,12 @@ fn build_command_recovers_from_invalid_workspace_lock() {
             ui: UiOptions::default(),
             include_examples: false,
         },
-        Duration::from_secs(30),
+        kill_recovery_command_timeout(),
     );
 
     assert!(!root.join(".craft/lock/workspace.lock").exists());
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(demo_executable_name())
             .is_file()
     );
@@ -1744,23 +1804,14 @@ fn build_command_recovers_after_killed_process_leaves_partial_generated_state() 
         KillRecoveryMode::Build,
         FAILPOINT_AFTER_STAGED_OUTPUT_WRITE,
     );
+    let generated_src = package_build_dir(&root, "gen", "demo", "bin")
+        .join("demo")
+        .join("src");
+    assert!(generated_src.join("main.kn").exists());
+    assert!(generated_src.join("main.kn").is_file());
+    assert!(generated_src.join("helper.kn").is_file());
     assert!(
-        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("main.kn")
-            .exists()
-    );
-    assert!(
-        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("main.kn")
-            .is_file()
-    );
-    assert!(
-        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("helper.kn")
-            .is_file()
-    );
-    assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(demo_executable_name())
             .is_file()
     );
@@ -1780,17 +1831,17 @@ fn build_command_recovers_after_killed_process_leaves_partial_compile_state() {
     );
 
     assert!(
-        root.join(".craft/build/dev/target/obj/demo-0.1.0/bin")
+        package_build_dir(&root, "obj", "demo", "bin")
             .join("demo.o")
             .is_file()
     );
     assert!(
-        root.join(".craft/build/dev/target/obj/demo-0.1.0/bin")
+        package_build_dir(&root, "obj", "demo", "bin")
             .join(".demo.o.craft-state")
             .is_file()
     );
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(demo_executable_name())
             .is_file()
     );
@@ -1810,12 +1861,12 @@ fn build_command_recovers_after_killed_process_leaves_partial_link_state() {
     );
 
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(demo_executable_name())
             .is_file()
     );
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(format!(".{}.craft-state", demo_executable_name()))
             .is_file()
     );
@@ -1834,20 +1885,14 @@ fn check_command_recovers_after_killed_process_leaves_partial_generated_state() 
         FAILPOINT_AFTER_STAGED_OUTPUT_WRITE,
     );
 
-    assert!(
-        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("main.kn")
-            .is_file()
-    );
-    assert!(
-        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("helper.kn")
-            .is_file()
-    );
+    let generated_src = package_build_dir(&root, "gen", "demo", "bin")
+        .join("demo")
+        .join("src");
+    assert!(generated_src.join("main.kn").is_file());
+    assert!(generated_src.join("helper.kn").is_file());
     assert!(root.join(".craft/analysis.toml").is_file());
     assert!(
-        !root
-            .join(".craft/build/dev/target/obj/demo-0.1.0/bin")
+        !package_build_dir(&root, "obj", "demo", "bin")
             .join("demo.o")
             .exists()
     );
@@ -1867,14 +1912,12 @@ fn check_command_recovers_after_killed_process_leaves_partial_analysis_context()
     );
 
     assert!(root.join(".craft/analysis.toml").is_file());
+    let generated_src = package_build_dir(&root, "gen", "demo", "bin")
+        .join("demo")
+        .join("src");
+    assert!(generated_src.join("main.kn").is_file());
     assert!(
-        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
-            .join("main.kn")
-            .is_file()
-    );
-    assert!(
-        !root
-            .join(".craft/build/dev/target/obj/demo-0.1.0/bin")
+        !package_build_dir(&root, "obj", "demo", "bin")
             .join("demo.o")
             .exists()
     );
@@ -1894,7 +1937,7 @@ fn run_command_recovers_after_killed_process_leaves_partial_link_state() {
     );
 
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(demo_executable_name())
             .is_file()
     );
@@ -1913,7 +1956,7 @@ fn test_command_recovers_after_killed_process_leaves_partial_link_state() {
         FAILPOINT_AFTER_LINK_STATE_WRITE,
     );
 
-    let test_out_dir = root.join(".craft/build/dev/target/out/demo-0.1.0/test");
+    let test_out_dir = package_build_dir(&root, "out", "demo", "test");
     assert!(test_out_dir.is_dir());
     assert!(
         fs::read_dir(&test_out_dir)
@@ -1937,7 +1980,7 @@ fn build_resolves_runtime_packages_from_external_kernlib_workspace() {
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "hello"
@@ -2067,13 +2110,13 @@ fn build_command_skips_test_targets() {
     .unwrap();
 
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(format!("demo{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
     assert!(
-        !root
-            .join(".craft/build/dev/target/out/demo-0.1.0/test/smoke")
+        !package_build_dir(&root, "out", "demo", "test")
+            .join("smoke")
             .exists()
     );
 
@@ -2094,12 +2137,12 @@ fn build_command_can_include_examples() {
     .unwrap();
 
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        package_build_dir(&root, "out", "demo", "bin")
             .join(format!("demo{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/example")
+        package_build_dir(&root, "out", "demo", "example")
             .join(format!("sample{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
@@ -2188,13 +2231,12 @@ fn run_command_can_execute_selected_example() {
     .unwrap();
 
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/example")
+        package_build_dir(&root, "out", "demo", "example")
             .join(format!("sample{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
     assert!(
-        !root
-            .join(".craft/build/dev/target/out/demo-0.1.0/bin")
+        !package_build_dir(&root, "out", "demo", "bin")
             .join(format!("demo{}", std::env::consts::EXE_SUFFIX))
             .exists()
     );
@@ -2276,13 +2318,12 @@ fn test_command_can_execute_selected_test_target() {
     .unwrap();
 
     assert!(
-        root.join(".craft/build/dev/target/out/demo-0.1.0/test")
+        package_build_dir(&root, "out", "demo", "test")
             .join(format!("beta{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
     assert!(
-        !root
-            .join(".craft/build/dev/target/out/demo-0.1.0/test")
+        !package_build_dir(&root, "out", "demo", "test")
             .join(format!("alpha{}", std::env::consts::EXE_SUFFIX))
             .exists()
     );
@@ -2322,6 +2363,7 @@ fn init_command_scaffolds_minimal_bin_package() {
     .unwrap();
 
     let manifest = fs::read_to_string(root.join("Craft.toml")).unwrap();
+    assert!(manifest.contains("kern = \"0.8\""));
     assert!(manifest.contains("[[bin]]"));
     assert!(manifest.contains("root = \"src/main.kn\""));
     assert_eq!(
@@ -2331,7 +2373,9 @@ fn init_command_scaffolds_minimal_bin_package() {
     let lockfile = fs::read_to_string(root.join("Craft.lock")).unwrap();
     assert!(lockfile.contains("manifest = \"Craft.toml\""));
     assert!(lockfile.contains("name = \"craft_cli_init_minimal"));
-    assert!(root.join("src/main.kn").is_file());
+    let source = fs::read_to_string(root.join("src/main.kn")).unwrap();
+    assert!(source.contains("use std.io;"));
+    assert!(source.contains("\"Hello, Kern!\".println();"));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -2391,7 +2435,7 @@ fn build_command_uses_workspace_root_outputs_for_member_paths() {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "member"
@@ -2410,7 +2454,7 @@ root = "src/main.kn"
     .unwrap();
 
     assert!(
-        root.join(".craft/build/dev/target/out/member-0.1.0/bin")
+        package_build_dir(&root, "out", "member", "bin")
             .join(format!("member{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
@@ -2435,7 +2479,7 @@ fn build_command_member_path_uses_workspace_lock_and_output_root() {
     .unwrap();
 
     assert!(
-        root.join(".craft/build/dev/target/out/member-0.1.0/bin")
+        package_build_dir(&root, "out", "member", "bin")
             .join(format!("member{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
@@ -2569,7 +2613,7 @@ fn build_auto_syncs_lockfile_and_rebuilds_without_clean() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -2625,7 +2669,7 @@ fn build_updates_lockfile_after_manifest_changes() {
 [package]
 name = "demo"
 version = "0.2.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "demo"
@@ -2665,7 +2709,7 @@ fn member_build_recreates_deleted_workspace_lockfile() {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "member"
@@ -3034,7 +3078,7 @@ repository = "https://example.com/workspace"
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "member"

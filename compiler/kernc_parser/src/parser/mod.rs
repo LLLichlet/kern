@@ -1,3 +1,11 @@
+//! Parser core: construction, token helpers, diagnostics, docs, and recovery.
+//!
+//! Grammar-specific routines live in sibling modules.  This file keeps the
+//! shared parser invariants in one place: every parsed AST node gets a fresh
+//! `NodeId`, syntax errors enter panic mode until synchronization, cancellation
+//! is converted into `ParseError` internally, and doc comments are attached
+//! before item parsing begins.
+
 mod attr;
 mod decl;
 mod expr;
@@ -6,7 +14,10 @@ mod ty;
 use super::TokenStream;
 use kernc_ast::{Expr, ExprKind, TypeKind, TypeNode};
 use kernc_lexer::{Token, TokenType, Tokenizer};
-use kernc_utils::{DiagnosticCode, DiagnosticLevel, FileId, NodeId, Session, Span, SymbolId};
+use kernc_utils::{
+    Canceled, CancellationToken, DiagnosticCode, DiagnosticLevel, FileId, NodeId, Session, Span,
+    SymbolId,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseError;
@@ -22,6 +33,8 @@ pub struct Parser<'a> {
     source: &'a str,
     stream: TokenStream<'a>,
     session: &'a mut Session,
+    cancellation: Option<&'a CancellationToken>,
+    canceled: bool,
     // Parser-level error recovery state.
     panic_mode: bool,
     options: ParserOptions,
@@ -33,6 +46,22 @@ impl<'a> Parser<'a> {
             source,
             file_id,
             session,
+            None,
+            ParserOptions { collect_docs: true },
+        )
+    }
+
+    pub fn new_cancelable(
+        source: &'a str,
+        file_id: FileId,
+        session: &'a mut Session,
+        cancellation: &'a CancellationToken,
+    ) -> Self {
+        Self::new_with_options(
+            source,
+            file_id,
+            session,
+            Some(cancellation),
             ParserOptions { collect_docs: true },
         )
     }
@@ -42,6 +71,24 @@ impl<'a> Parser<'a> {
             source,
             file_id,
             session,
+            None,
+            ParserOptions {
+                collect_docs: false,
+            },
+        )
+    }
+
+    pub fn new_without_docs_cancelable(
+        source: &'a str,
+        file_id: FileId,
+        session: &'a mut Session,
+        cancellation: &'a CancellationToken,
+    ) -> Self {
+        Self::new_with_options(
+            source,
+            file_id,
+            session,
+            Some(cancellation),
             ParserOptions {
                 collect_docs: false,
             },
@@ -52,6 +99,7 @@ impl<'a> Parser<'a> {
         source: &'a str,
         file_id: FileId,
         session: &'a mut Session,
+        cancellation: Option<&'a CancellationToken>,
         options: ParserOptions,
     ) -> Self {
         let tokenizer = Tokenizer::new(source, file_id);
@@ -60,6 +108,8 @@ impl<'a> Parser<'a> {
             source,
             stream,
             session,
+            cancellation,
+            canceled: false,
             panic_mode: false,
             options,
         }
@@ -73,6 +123,29 @@ impl<'a> Parser<'a> {
         self.session.next_node_id()
     }
 
+    pub fn parse_module_cancelable(&mut self) -> Result<ParseResult<kernc_ast::Module>, Canceled> {
+        self.check_canceled().map_err(|_| Canceled)?;
+        let parsed = self.parse_module();
+        if self.canceled {
+            Err(Canceled)
+        } else {
+            Ok(parsed)
+        }
+    }
+
+    pub(super) fn check_canceled(&mut self) -> ParseResult<()> {
+        if let Some(cancellation) = self.cancellation
+            && cancellation.check().is_err()
+        {
+            // Most parser routines return `ParseResult`, so cancellation is
+            // recorded here and converted back to `Canceled` at the public
+            // parse-module boundary.
+            self.canceled = true;
+            return Err(ParseError);
+        }
+        Ok(())
+    }
+
     // ==========================================
     // Core Tools: Token Consumption
     // ==========================================
@@ -82,6 +155,7 @@ impl<'a> Parser<'a> {
     }
 
     fn advance(&mut self) -> Token {
+        let _ = self.check_canceled();
         self.stream.bump()
     }
 
@@ -105,12 +179,15 @@ impl<'a> Parser<'a> {
     }
 
     fn continue_after_comma(&mut self, end_tags: &[TokenType]) -> bool {
+        let _ = self.check_canceled();
         if self.peek().tag != TokenType::Comma {
             return false;
         }
         self.advance();
 
         let next = self.stream.peek_tag_nth(0);
+        // Trailing commas are accepted by returning false when the next token
+        // is the caller's closing delimiter.
         match end_tags {
             [single] => next != *single,
             [first, second] => next != *first && next != *second,
@@ -159,6 +236,7 @@ impl<'a> Parser<'a> {
             }
 
             diag.emit();
+            // Suppress cascaded errors until a synchronizing token is reached.
             self.panic_mode = true;
             Err(ParseError)
         }
@@ -210,6 +288,8 @@ impl<'a> Parser<'a> {
         let current = self.peek();
         let mut diag_span = current.span;
         if current.tag == TokenType::Eof {
+            // At EOF, underline the last useful token rather than the zero-width
+            // EOF sentinel; this usually points at the unterminated construct.
             diag_span = fallback_span;
         }
 
@@ -248,6 +328,9 @@ impl<'a> Parser<'a> {
 
         let mut depth = 0usize;
         while !self.check(TokenType::Eof) {
+            if self.check_canceled().is_err() {
+                return;
+            }
             let tag = self.advance().tag;
             if tag == open {
                 depth += 1;
@@ -298,6 +381,9 @@ impl<'a> Parser<'a> {
         let mut lines = Vec::new();
         let mut span = Span::default();
         while self.check(expected) {
+            if self.check_canceled().is_err() {
+                break;
+            }
             let token = self.advance();
             span = if lines.is_empty() {
                 token.span
@@ -305,6 +391,8 @@ impl<'a> Parser<'a> {
                 span.to(token.span)
             };
             if self.options.collect_docs {
+                // Some consumers only need syntactic success.  Keep spans even
+                // when docs are disabled, but skip allocating text strings.
                 let text = self.doc_text_for_token(token, expect_inner);
                 lines.push(kernc_ast::DocLine {
                     span: token.span,
@@ -332,6 +420,9 @@ impl<'a> Parser<'a> {
         let mut attributes = Vec::new();
 
         loop {
+            if self.check_canceled().is_err() {
+                break;
+            }
             if self.check(TokenType::DocCommentInner) {
                 if let Some(block) = self.parse_doc_block(true) {
                     Self::append_doc_block(&mut docs, block);
@@ -358,6 +449,9 @@ impl<'a> Parser<'a> {
         let mut attributes = Vec::new();
 
         loop {
+            if self.check_canceled().is_err() {
+                break;
+            }
             if self.check(TokenType::DocCommentOuter) {
                 if let Some(block) = self.parse_doc_block(false) {
                     Self::append_doc_block(&mut docs, block);
@@ -393,6 +487,9 @@ impl<'a> Parser<'a> {
         let mut docs = None;
 
         loop {
+            if self.check_canceled().is_err() {
+                break;
+            }
             if self.check(TokenType::DocCommentOuter) {
                 if let Some(block) = self.parse_doc_block(false) {
                     Self::append_doc_block(&mut docs, block);
@@ -465,10 +562,15 @@ impl<'a> Parser<'a> {
     pub fn synchronize(&mut self) {
         self.panic_mode = false;
         if !self.check(TokenType::Eof) {
+            // Drop the token that triggered the error before searching for a
+            // likely statement/item boundary.
             self.advance();
         }
 
         while !self.check(TokenType::Eof) {
+            if self.check_canceled().is_err() {
+                return;
+            }
             // A semicolon usually marks the end of the previous statement.
             if self.stream.peek_tag_nth(0) == TokenType::Semicolon {
                 self.advance();

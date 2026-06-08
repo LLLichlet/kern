@@ -41,8 +41,8 @@ impl[T] &List[T] {
     pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
         let items = self.as_slice();
         let mut i = 0usize;
-        while (i < items.@len()) {
-            match (call_back(items.[i])) {
+        while i < items.@len() {
+            match call_back(items.[i]) {
                 .{ Some: value } => return .{ Some: value },
                 .None => {},
             }
@@ -98,19 +98,19 @@ impl[T] &List[T]
     /// Performs lexicographic comparison against `other`.
     pub fn lex_cmp(other: &[T]) Ordering {
         let items = self.as_slice();
-        let shared = if (items.@len() < other.@len()) items.@len() else other.@len();
+        let shared = if items.@len() < other.@len() items.@len() else other.@len();
         let mut i = 0usize;
-        while (i < shared) {
+        while i < shared {
             let ord = items.[i].cmp(other.[i]);
-            if (ord != EQUAL) {
+            if ord != EQUAL {
                 return ord;
             }
 
             i += 1;
         }
 
-        if (items.@len() < other.@len()) return LESS;
-        if (items.@len() > other.@len()) return GREATER;
+        if items.@len() < other.@len() return LESS;
+        if items.@len() > other.@len() return GREATER;
         return EQUAL;
     }
 

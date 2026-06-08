@@ -1,8 +1,14 @@
+//! External package and resource fetching for Craft workspaces.
+//!
+//! This module materializes git/path dependencies, verifies publish proofs, and
+//! keeps fetched source/resource caches in a shape the build graph can consume.
+
 use crate::elaborate::ElaborationPlan;
 use crate::error::{Error, Result};
 use crate::graph::{PackageId, SourceId};
 use crate::local_state;
 use crate::manifest::{Manifest, ResourceSpec};
+use crate::operation_lock::CacheOperationLock;
 use crate::publish;
 use crate::resolver::{ExternalPackageId, ResolvedGraph};
 use std::fs;
@@ -11,15 +17,36 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const GIT_WAIT_REPORT_DELAY: Duration = Duration::from_secs(15);
-const GIT_WAIT_REPORT_INTERVAL: Duration = Duration::from_secs(30);
 const GIT_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(200);
+const GIT_LOCK_WAIT_REPORT_DELAY: Duration = Duration::from_secs(1);
+const GIT_LOCK_WAIT_REPORT_INTERVAL: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FetchSummary {
     pub created: usize,
     pub updated: usize,
     pub unchanged: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FetchProgressKind {
+    Package,
+    Resource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FetchProgressPhase {
+    Resolve,
+    Git,
+    Materialize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchProgress {
+    pub kind: FetchProgressKind,
+    pub phase: FetchProgressPhase,
+    pub name: String,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,12 +124,35 @@ struct ResolvedSourcePath {
 }
 
 pub fn fetch_external_packages(resolved: &ResolvedGraph) -> Result<Vec<FetchedPackage>> {
+    fetch_external_packages_with_progress(resolved, |_| {})
+}
+
+pub fn fetch_external_packages_with_progress(
+    resolved: &ResolvedGraph,
+    mut progress: impl FnMut(FetchProgress),
+) -> Result<Vec<FetchedPackage>> {
     let cache_root = resolved.workspace_root.join(".craft").join("sources");
     let mut packages = Vec::new();
 
     for package in &resolved.external_packages {
-        let resolved_source = source_path_for_external(resolved, &package.id)?;
+        progress(FetchProgress {
+            kind: FetchProgressKind::Package,
+            phase: FetchProgressPhase::Resolve,
+            name: package.id.package_name.clone(),
+            source: source_label(&package.id.source),
+        });
+        let resolved_source =
+            source_path_for_external_with_progress(resolved, &package.id, |event| {
+                progress(event);
+            })?;
+        progress(FetchProgress {
+            kind: FetchProgressKind::Package,
+            phase: FetchProgressPhase::Materialize,
+            name: package.id.package_name.clone(),
+            source: resolved_source.identity.locator.clone(),
+        });
         let cache_path = cache_path_for_external(&cache_root, &package.id)?;
+        let _cache_lock = CacheOperationLock::acquire(&cache_path, "materialize-source")?;
         let status = materialize_tree(&resolved_source.source_path, &cache_path)?;
         validate_fetched_manifest(&cache_path, &package.id.package_name)?;
         publish::validate_git_dependency_publish_proof(
@@ -122,7 +172,15 @@ pub fn fetch_external_packages(resolved: &ResolvedGraph) -> Result<Vec<FetchedPa
     Ok(packages)
 }
 
+#[cfg(test)]
 pub fn fetch_package_resources(elaboration: &ElaborationPlan) -> Result<Vec<FetchedResource>> {
+    fetch_package_resources_with_progress(elaboration, |_| {})
+}
+
+pub fn fetch_package_resources_with_progress(
+    elaboration: &ElaborationPlan,
+    mut progress: impl FnMut(FetchProgress),
+) -> Result<Vec<FetchedResource>> {
     let cache_root = elaboration
         .resolved_graph
         .workspace_root
@@ -141,14 +199,30 @@ pub fn fetch_package_resources(elaboration: &ElaborationPlan) -> Result<Vec<Fetc
             .parent()
             .unwrap_or_else(|| Path::new("."));
         for (name, spec) in &package.plan.resources {
-            let resolved_source = source_path_for_resource(
+            progress(FetchProgress {
+                kind: FetchProgressKind::Resource,
+                phase: FetchProgressPhase::Resolve,
+                name: format!("{}:{name}", package.package_id.name),
+                source: resource_source_label(spec),
+            });
+            let resolved_source = source_path_for_resource_with_progress(
                 package_root,
                 &elaboration.resolved_graph.workspace_root,
                 &package.package_id,
                 name,
                 spec,
+                |event| {
+                    progress(event);
+                },
             )?;
+            progress(FetchProgress {
+                kind: FetchProgressKind::Resource,
+                phase: FetchProgressPhase::Materialize,
+                name: format!("{}:{name}", package.package_id.name),
+                source: resolved_source.identity.locator.clone(),
+            });
             let cache_path = cache_path_for_resource(&cache_root, &package.package_id, name);
+            let _cache_lock = CacheOperationLock::acquire(&cache_path, "materialize-resource")?;
             let status = materialize_tree(&resolved_source.source_path, &cache_path)?;
             fetched.push(FetchedResource {
                 id: ResourceId {
@@ -219,9 +293,10 @@ pub fn analysis_source_root_for_external(
     }
 }
 
-fn source_path_for_external(
+fn source_path_for_external_with_progress(
     resolved: &ResolvedGraph,
     package: &ExternalPackageId,
+    mut progress: impl FnMut(FetchProgress),
 ) -> Result<ResolvedSourcePath> {
     match &package.source {
         SourceId::PathDependency { path } => {
@@ -245,7 +320,8 @@ fn source_path_for_external(
             branch,
             tag,
         } => {
-            let prepared = prepare_git_dependency_root(
+            let prepared = prepare_git_dependency_root_with_progress(
+                FetchProgressKind::Package,
                 &resolved.workspace_root,
                 &resolved.workspace_root,
                 package.package_name.as_str(),
@@ -253,6 +329,9 @@ fn source_path_for_external(
                 rev.as_deref(),
                 branch.as_deref(),
                 tag.as_deref(),
+                |event| {
+                    progress(event);
+                },
             )?;
             Ok(ResolvedSourcePath {
                 source_path: prepared.root,
@@ -269,12 +348,13 @@ fn source_path_for_external(
     }
 }
 
-fn source_path_for_resource(
+fn source_path_for_resource_with_progress(
     package_root: &Path,
     workspace_root: &Path,
     package_id: &PackageId,
     name: &str,
     spec: &ResourceSpec,
+    mut progress: impl FnMut(FetchProgress),
 ) -> Result<ResolvedSourcePath> {
     if let Some(path) = &spec.path {
         let absolute = package_root.join(path);
@@ -299,7 +379,8 @@ fn source_path_for_resource(
         });
     };
 
-    let prepared = prepare_git_dependency_root(
+    let prepared = prepare_git_dependency_root_with_progress(
+        FetchProgressKind::Resource,
         package_root,
         workspace_root,
         &format!("{}-{}", package_id.name, name),
@@ -307,6 +388,9 @@ fn source_path_for_resource(
         spec.rev.as_deref(),
         spec.branch.as_deref(),
         spec.tag.as_deref(),
+        |event| {
+            progress(event);
+        },
     )?;
     Ok(ResolvedSourcePath {
         source_path: prepared.root,
@@ -314,7 +398,8 @@ fn source_path_for_resource(
     })
 }
 
-fn prepare_git_dependency_root(
+fn prepare_git_dependency_root_with_progress(
+    kind: FetchProgressKind,
     config_root: &Path,
     workspace_root: &Path,
     package_name: &str,
@@ -322,6 +407,7 @@ fn prepare_git_dependency_root(
     rev: Option<&str>,
     branch: Option<&str>,
     tag: Option<&str>,
+    mut progress: impl FnMut(FetchProgress),
 ) -> Result<PreparedSource> {
     if let Some(local_repo_root) = resolve_local_git_repo(config_root, git_url) {
         return prepare_local_git_dependency_root(
@@ -343,36 +429,44 @@ fn prepare_git_dependency_root(
             "{:016x}",
             fnv1a64_update(0xcbf29ce484222325, git_locator.as_bytes())
         ));
+    let _cache_lock = CacheOperationLock::acquire(&cache_root, "git-source")?;
 
     if !cache_root.join(".git").is_dir() {
+        progress(FetchProgress {
+            kind,
+            phase: FetchProgressPhase::Git,
+            name: package_name.to_string(),
+            source: format!("initialize {git_url}"),
+        });
         if cache_root.exists() {
             fs::remove_dir_all(&cache_root).map_err(|err| Error::from_io(&cache_root, err))?;
         }
         local_state::ensure_parent_dir(&cache_root)?;
-        run_git(
-            config_root,
-            [
-                "-c",
-                "core.autocrlf=false",
-                "-c",
-                "core.eol=lf",
-                "clone",
-                "--no-checkout",
-                git_locator.as_str(),
-                &cache_root.to_string_lossy(),
-            ],
-        )?;
+        local_state::ensure_dir(&cache_root)?;
+        run_git(&cache_root, ["init"])?;
     }
 
     run_git(&cache_root, ["config", "core.autocrlf", "false"])?;
     run_git(&cache_root, ["config", "core.eol", "lf"])?;
-    run_git(
-        &cache_root,
-        ["remote", "set-url", "origin", git_locator.as_str()],
-    )?;
+    sync_git_origin(&cache_root, git_locator.as_str())?;
     if git_ref_needs_fetch(&cache_root, rev, branch, tag) {
+        progress(FetchProgress {
+            kind,
+            phase: FetchProgressPhase::Git,
+            name: package_name.to_string(),
+            source: format!(
+                "fetch {} from {git_url}",
+                git_selector_label(rev, branch, tag)
+            ),
+        });
         git_fetch_ref(&cache_root, rev, branch, tag)?;
     }
+    progress(FetchProgress {
+        kind,
+        phase: FetchProgressPhase::Git,
+        name: package_name.to_string(),
+        source: format!("checkout {}", git_selector_label(rev, branch, tag)),
+    });
     git_checkout_ref(&cache_root, rev, branch, tag)?;
     run_git(&cache_root, ["clean", "-ffdqx"])?;
     let resolved_revision = git_head_revision(&cache_root)?;
@@ -406,6 +500,7 @@ fn prepare_local_git_dependency_root(
             "{:016x}",
             fnv1a64_update(0xcbf29ce484222325, repo_root.to_string_lossy().as_bytes())
         ));
+    let _cache_lock = CacheOperationLock::acquire(&cache_root, "git-source")?;
 
     let head_revision = git_head_revision(&repo_root)?;
     validate_local_git_selector(&repo_root, &head_revision, rev, branch, tag)?;
@@ -463,6 +558,14 @@ fn validate_local_git_selector(
     Ok(())
 }
 
+fn sync_git_origin(repo_root: &Path, git_url: &str) -> Result<()> {
+    if git_output(repo_root, ["remote", "get-url", "origin"]).is_ok() {
+        run_git(repo_root, ["remote", "set-url", "origin", git_url])
+    } else {
+        run_git(repo_root, ["remote", "add", "origin", git_url])
+    }
+}
+
 fn copy_git_worktree(source: &Path, dest: &Path) -> Result<()> {
     local_state::ensure_dir(dest)?;
     for entry in fs::read_dir(source).map_err(|err| Error::from_io(source, err))? {
@@ -508,13 +611,37 @@ fn git_fetch_ref(
     tag: Option<&str>,
 ) -> Result<()> {
     if let Some(rev) = rev {
-        run_git(repo_root, ["fetch", "--tags", "--force", "origin", rev])
+        run_git_fetch(repo_root, rev)
     } else if let Some(branch) = branch {
-        run_git(repo_root, ["fetch", "--tags", "--force", "origin", branch])
+        let remote_ref = format!("refs/heads/{branch}:refs/remotes/origin/{branch}");
+        run_git_fetch(repo_root, &remote_ref)
     } else if let Some(tag) = tag {
-        run_git(repo_root, ["fetch", "--tags", "--force", "origin", tag])
+        let remote_ref = format!("refs/tags/{tag}:refs/tags/{tag}");
+        run_git_fetch(repo_root, &remote_ref)
     } else {
-        run_git(repo_root, ["fetch", "--tags", "--force", "origin"])
+        run_git_fetch(repo_root, "HEAD")
+    }
+}
+
+fn run_git_fetch(repo_root: &Path, refspec: &str) -> Result<()> {
+    let shallow_args = [
+        "fetch",
+        "--force",
+        "--depth=1",
+        "--filter=blob:none",
+        "origin",
+        refspec,
+    ];
+    match run_git_args(repo_root, &shallow_args) {
+        Ok(()) => Ok(()),
+        Err(shallow_err) => {
+            let full_args = ["fetch", "--force", "--filter=blob:none", "origin", refspec];
+            run_git_args(repo_root, &full_args).map_err(|full_err| {
+                Error::Execution(format!(
+                    "shallow git fetch failed: {shallow_err}\nfull git fetch failed: {full_err}"
+                ))
+            })
+        }
     }
 }
 
@@ -595,14 +722,89 @@ fn git_selector_from_parts(
     }
 }
 
+fn source_label(source: &SourceId) -> String {
+    match source {
+        SourceId::PathDependency { path } => format!("path {path}"),
+        SourceId::GitDependency {
+            git,
+            rev,
+            branch,
+            tag,
+        } => {
+            format!(
+                "git {git} ({})",
+                git_selector_label(rev.as_deref(), branch.as_deref(), tag.as_deref())
+            )
+        }
+        SourceId::Root => "root".to_string(),
+        SourceId::WorkspaceMember { path } => format!("workspace {path}"),
+    }
+}
+
+fn resource_source_label(spec: &ResourceSpec) -> String {
+    if let Some(path) = &spec.path {
+        return format!("path {path}");
+    }
+    if let Some(git) = &spec.git {
+        return format!(
+            "git {git} ({})",
+            git_selector_label(
+                spec.rev.as_deref(),
+                spec.branch.as_deref(),
+                spec.tag.as_deref()
+            )
+        );
+    }
+    "<unknown>".to_string()
+}
+
+fn git_selector_label(rev: Option<&str>, branch: Option<&str>, tag: Option<&str>) -> String {
+    if let Some(rev) = rev {
+        format!("rev {}", short_revision(rev))
+    } else if let Some(branch) = branch {
+        format!("branch {branch}")
+    } else if let Some(tag) = tag {
+        format!("tag {tag}")
+    } else {
+        "default HEAD".to_string()
+    }
+}
+
+fn short_revision(rev: &str) -> &str {
+    rev.get(..12).unwrap_or(rev)
+}
+
 fn run_git<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<()> {
-    let command_line = format_git_command(&args);
+    run_git_args(cwd, &args)
+}
+
+fn run_git_args(cwd: &Path, args: &[&str]) -> Result<()> {
+    let command_line = format_git_command(args);
+    let mut wait_started = None;
+    let mut last_report_at = None;
+    loop {
+        match run_git_args_once(cwd, args, &command_line)? {
+            GitRunStatus::Success => return Ok(()),
+            GitRunStatus::RetryAfterLock => {
+                report_git_lock_wait(cwd, &command_line, &mut wait_started, &mut last_report_at);
+                thread::sleep(GIT_WAIT_POLL_INTERVAL);
+            }
+        }
+    }
+}
+
+enum GitRunStatus {
+    Success,
+    RetryAfterLock,
+}
+
+fn run_git_args_once(cwd: &Path, args: &[&str], command_line: &str) -> Result<GitRunStatus> {
     let mut child = Command::new("git")
         .args(args)
         .current_dir(cwd)
         .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|err| {
             Error::Execution(format!(
@@ -611,8 +813,6 @@ fn run_git<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<()> {
             ))
         })?;
 
-    let started = Instant::now();
-    let mut last_report = None;
     loop {
         let status = match child.try_wait() {
             Ok(status) => status,
@@ -626,45 +826,77 @@ fn run_git<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<()> {
             }
         };
         let Some(status) = status else {
-            report_git_wait(cwd, &command_line, started, &mut last_report);
             thread::sleep(GIT_WAIT_POLL_INTERVAL);
             continue;
         };
 
         if status.success() {
-            return Ok(());
+            let _ = child.wait_with_output();
+            return Ok(GitRunStatus::Success);
+        }
+
+        let output = child.wait_with_output().map_err(|err| {
+            Error::Execution(format!(
+                "failed to collect output for `{command_line}` in `{}`: {err}",
+                cwd.display()
+            ))
+        })?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let detail = if !stderr.trim().is_empty() {
+            format!(": {}", stderr.trim())
+        } else if !stdout.trim().is_empty() {
+            format!(": {}", stdout.trim())
+        } else {
+            String::new()
+        };
+        if git_failure_is_lock_contention(stderr.trim())
+            || git_failure_is_lock_contention(stdout.trim())
+        {
+            return Ok(GitRunStatus::RetryAfterLock);
         }
 
         return Err(Error::Execution(format!(
-            "`{command_line}` failed with status {status} in `{}`",
+            "`{command_line}` failed with status {status} in `{}`{detail}",
             cwd.display()
         )));
     }
 }
 
-fn report_git_wait(
+fn git_failure_is_lock_contention(output: &str) -> bool {
+    let output = output.to_ascii_lowercase();
+    output.contains("could not lock config file")
+        || output.contains(".git/config.lock")
+        || output.contains("index.lock")
+        || output.contains("another git process seems to be running")
+        || (output.contains("unable to create")
+            && output.contains(".lock")
+            && output.contains("file exists"))
+}
+
+fn report_git_lock_wait(
     cwd: &Path,
     command_line: &str,
-    started: Instant,
-    last_report: &mut Option<Instant>,
+    wait_started: &mut Option<Instant>,
+    last_report_at: &mut Option<Instant>,
 ) {
     let now = Instant::now();
-    let elapsed = now.saturating_duration_since(started);
-    if elapsed < GIT_WAIT_REPORT_DELAY {
+    let started = wait_started.get_or_insert(now);
+    let waited = now.saturating_duration_since(*started);
+    if waited < GIT_LOCK_WAIT_REPORT_DELAY {
         return;
     }
-    if let Some(last) = last_report
-        && now.saturating_duration_since(*last) < GIT_WAIT_REPORT_INTERVAL
+    if let Some(last) = last_report_at
+        && now.saturating_duration_since(*last) < GIT_LOCK_WAIT_REPORT_INTERVAL
     {
         return;
     }
-
     eprintln!(
-        "craft: waiting {}s for `{command_line}` in `{}`",
-        elapsed.as_secs(),
+        "craft: waiting {}s for git lock while running `{command_line}` in `{}`",
+        waited.as_secs(),
         cwd.display()
     );
-    *last_report = Some(now);
+    *last_report_at = Some(now);
 }
 
 fn format_git_command(args: &[&str]) -> String {
@@ -1016,6 +1248,19 @@ mod tests {
     }
 
     #[test]
+    fn git_lock_contention_detection_is_specific() {
+        assert!(super::git_failure_is_lock_contention(
+            "error: could not lock config file .git/config: File exists"
+        ));
+        assert!(super::git_failure_is_lock_contention(
+            "fatal: Unable to create '.git/index.lock': File exists.\n\nAnother git process seems to be running in this repository."
+        ));
+        assert!(!super::git_failure_is_lock_contention(
+            "fatal: unable to create temporary file: No space left on device"
+        ));
+    }
+
+    #[test]
     fn fetches_path_dependencies() {
         let root = temp_dir("craft-fetch-path");
         let package_root = root.join("vendor").join("log");
@@ -1026,7 +1271,7 @@ mod tests {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 log = { path = "vendor/log", version = "1" }
@@ -1039,7 +1284,7 @@ log = { path = "vendor/log", version = "1" }
 [package]
 name = "log"
 version = "1"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -1090,7 +1335,7 @@ root = "src/lib.kn"
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "kernel"
@@ -1142,7 +1387,7 @@ limine = { path = "vendor/limine" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -1196,7 +1441,7 @@ limine = { path = "vendor/limine" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "app"
@@ -1245,7 +1490,7 @@ limine = { path = "vendor/limine" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 log = { path = "vendor/log", version = "1" }
@@ -1258,7 +1503,7 @@ log = { path = "vendor/log", version = "1" }
 [package]
 name = "log"
 version = "1"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [lib]
 root = "src/lib.kn"
@@ -1309,7 +1554,7 @@ root = "src/lib.kn"
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 log = {{ git = "{}", branch = "main", version = "1" }}
@@ -1382,7 +1627,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 log = {{ git = "{}", branch = "main", version = "1" }}
@@ -1429,7 +1674,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 log = {{ git = "{}", branch = "main", version = "1" }}
@@ -1473,7 +1718,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "kernel"
@@ -1526,7 +1771,7 @@ limine = {{ git = "{}", branch = "main" }}
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [[bin]]
 name = "kernel"
@@ -1581,7 +1826,7 @@ limine = {{ git = "{}", tag = "v1.0.0" }}
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.6"
+kern = "0.8.2"
 
 [dependencies]
 log = {{ git = "{}", rev = "{}", version = "1" }}
@@ -1636,7 +1881,7 @@ log = {{ git = "{}", rev = "{}", version = "1" }}
 [package]
 name = "log"
 version = "1"
-kern = "0.7.6"
+kern = "0.8.2"
 description = "Log package"
 license = "MIT"
 authors = ["Craft Tests <craft-tests@example.invalid>"]

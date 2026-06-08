@@ -1,3 +1,11 @@
+//! Canonical semantic type model and type interning.
+//!
+//! The parser keeps source syntax in `kernc_ast`; this crate stores the
+//! resolved, deduplicated type shapes used by semantic analysis, MIR lowering,
+//! monomorphization, and codegen.  `TypeId` and `ConstExprId` are compact
+//! handles into append-only registries, which keeps larger compiler tables small
+//! and makes recursive type references representable.
+
 use kernc_utils::FastHashMap;
 use kernc_utils::{NodeId, Span, SymbolId};
 use std::fmt;
@@ -136,6 +144,9 @@ pub fn wrap_type_args(args: impl IntoIterator<Item = TypeId>) -> Vec<GenericArg>
 }
 
 pub fn erase_non_type_generic_args(args: &[GenericArg]) -> Vec<TypeId> {
+    // Some older code paths still expect a type-only generic argument list.
+    // Preserve vector shape and use ERROR for const arguments so callers can
+    // continue recovering without losing positional information.
     args.iter()
         .map(|arg| arg.as_type().unwrap_or(TypeId::ERROR))
         .collect()
@@ -334,6 +345,8 @@ impl AnonymousEnum {
             return None;
         }
 
+        // Builtin optionals are represented as small anonymous enums where the
+        // payload variant is the only variant that carries a type.
         self.variants
             .iter()
             .find(|variant| variant.payload_ty.is_some())
@@ -345,6 +358,8 @@ impl AnonymousEnum {
             return None;
         }
 
+        // Result layout records Ok before Err.  Searching from opposite ends
+        // keeps this helper robust if sentinel variants are added later.
         let ok = self
             .variants
             .iter()
@@ -446,7 +461,7 @@ impl TypeRegistry {
 
     fn add_primitive(&mut self, p: PrimitiveType) {
         let kind = TypeKind::Primitive(p);
-        let id = TypeId(self.types.len() as u32);
+        let id = TypeId(next_compact_id(self.types.len(), "type"));
         self.types.push(kind.clone());
         self.interner.insert(kind, id);
     }
@@ -457,7 +472,7 @@ impl TypeRegistry {
             return id;
         }
 
-        let id = TypeId(self.types.len() as u32);
+        let id = TypeId(next_compact_id(self.types.len(), "type"));
         self.types.push(kind.clone());
         self.interner.insert(kind, id);
         id
@@ -473,7 +488,7 @@ impl TypeRegistry {
             return id;
         }
 
-        let id = ConstExprId(self.const_exprs.len() as u32);
+        let id = ConstExprId(next_compact_id(self.const_exprs.len(), "const expression"));
         self.const_exprs.push(kind);
         self.const_expr_interner.insert(kind, id);
         id
@@ -514,6 +529,9 @@ impl TypeRegistry {
 
     pub fn fold_const_generic(&mut self, value: ConstGeneric) -> ConstGeneric {
         match value {
+            // Fold only when every operand is concrete and the operation can be
+            // represented by the target type.  Param/Error values stay symbolic
+            // so generic substitution can revisit them later.
             ConstGeneric::Expr(id) => match *self.const_expr(id) {
                 ConstExprKind::Unary { op, expr, ty } => {
                     let expr = self.fold_const_generic(expr);
@@ -576,6 +594,8 @@ impl TypeRegistry {
                     ConstExprBinaryOp::Multiply => lhs.wrapping_mul(rhs),
                     ConstExprBinaryOp::Divide => {
                         if rhs == 0 {
+                            // Leave division-by-zero expressions unfolded; the
+                            // checker owns the user-facing diagnostic.
                             return None;
                         }
                         lhs.wrapping_div(rhs)
@@ -591,6 +611,8 @@ impl TypeRegistry {
                     ConstExprBinaryOp::BitwiseXor => lhs ^ rhs,
                     ConstExprBinaryOp::ShiftLeft => {
                         let shift = u32::try_from(rhs).ok()?;
+                        // Oversized shifts fold to zero to match the existing
+                        // compile-time integer semantics used by array lengths.
                         lhs.checked_shl(shift).unwrap_or(0)
                     }
                     ConstExprBinaryOp::ShiftRight => {
@@ -619,6 +641,9 @@ impl TypeRegistry {
 
     fn coerce_const_scalar(&self, value: i128, ty: TypeId) -> Option<ConstGenericValue> {
         let norm = self.normalize(ty);
+        // Const generics currently accept integer-like scalar types.  `isize`
+        // and `usize` are normalized to the compiler's target-independent
+        // semantic width here; target layout handles machine details later.
         let bit_width = match self.get(norm) {
             TypeKind::Primitive(PrimitiveType::I8 | PrimitiveType::U8) => 8,
             TypeKind::Primitive(PrimitiveType::I16 | PrimitiveType::U16) => 16,
@@ -689,6 +714,8 @@ impl TypeRegistry {
         loop {
             match self.get(id) {
                 TypeKind::Alias(_, target) => {
+                    // Aliases are transparent for most type queries.  Preserve
+                    // the original alias only in diagnostics/formatting layers.
                     id = *target;
                 }
                 _ => return id,
@@ -805,6 +832,13 @@ impl TypeRegistry {
             _ => false,
         }
     }
+}
+
+fn next_compact_id(len: usize, kind: &str) -> u32 {
+    // Exhausting this space would mean the compiler has constructed more than
+    // four billion distinct interned entries in one session: treat it as an
+    // internal invariant failure rather than a recoverable user error.
+    u32::try_from(len).unwrap_or_else(|_| panic!("{kind} id space exhausted"))
 }
 
 #[cfg(test)]

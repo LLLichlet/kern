@@ -1,3 +1,5 @@
+//! Standard-library support module tests.
+
 use super::*;
 
 #[test]

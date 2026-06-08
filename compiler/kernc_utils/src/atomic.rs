@@ -1,3 +1,9 @@
+//! Atomic ABI vocabulary shared by semantic analysis, MIR, and LLVM lowering.
+//!
+//! Kern source represents memory orderings and read-modify-write operations as
+//! compile-time constants.  This module keeps the accepted ABI values and the
+//! operation names in one place so the checker and backend cannot drift.
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AtomicOrdering {
     Relaxed,
@@ -58,6 +64,8 @@ impl AtomicOrdering {
     pub fn failure_not_stronger_than(self, success: Self) -> bool {
         use AtomicOrdering as O;
 
+        // LLVM and C/C++ both reject a compare-exchange failure ordering that
+        // observes stronger synchronization than the success path.
         matches!(
             (self, success),
             (O::Relaxed, _)

@@ -1,3 +1,9 @@
+//! ABI classification helpers.
+//!
+//! These helpers decide how values are passed/returned at the LLVM boundary,
+//! including direct values, indirect sret-style returns, aggregate payloads, and
+//! platform-visible function signatures.
+
 use super::CodeGenerator;
 use crate::AtomicOrdering as LlvmAtomicOrdering;
 use crate::types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, IntType};
@@ -159,17 +165,24 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .unwrap();
 
         if !output_tys.is_empty() {
-            let asm_result = call_site.try_as_basic_value().unwrap_basic();
+            let result_ty = asm_fn_type
+                .get_return_type()
+                .unwrap_or_else(|| self.context.i8_type().into());
+            let asm_result =
+                self.expect_call_result(call_site, result_ty, Span::default(), "inline asm");
             for (i, target_ptr) in output_ptrs.iter().enumerate() {
                 let extracted_val = if output_tys.len() == 1 {
                     asm_result
                 } else {
+                    let Some(asm_result_struct) = self.expect_struct_value(
+                        asm_result,
+                        Span::default(),
+                        "multi-output inline asm result",
+                    ) else {
+                        return;
+                    };
                     self.builder
-                        .build_extract_value(
-                            asm_result.into_struct_value(),
-                            i as u32,
-                            &format!("asm_out_{}", i),
-                        )
+                        .build_extract_value(asm_result_struct, i as u32, &format!("asm_out_{}", i))
                         .unwrap()
                 };
                 self.builder

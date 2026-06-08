@@ -1,8 +1,10 @@
+//! Match exhaustiveness regression tests.
+
 use super::*;
 
 #[test]
 fn rejects_nested_enum_payload_gap_in_match_exhaustiveness() {
-    let output = compile_source(
+    let output = compile_source_with_std(
         r#"
 enum Inner {
     X,
@@ -182,6 +184,78 @@ fn main() i32 {
         "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn accepts_nested_slice_value_patterns_in_enum_payloads() {
+    let output = build_and_run_source(
+        r#"
+use base.coll;
+
+fn classify(arg: ?&[u8]) i32 {
+    return match (arg) {
+        .{ Some: "--help" } => 1,
+        .{ Some: "-h" } => 2,
+        .None => 3,
+        _ => 4,
+    };
+}
+
+fn main() i32 {
+    return classify(.{ Some: "--help" })
+        + classify(.{ Some: "-h" })
+        + classify(.{ Some: "build" })
+        + classify(.None)
+        - 10;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn treats_nested_slice_value_patterns_as_opaque_for_exhaustiveness() {
+    let output = compile_source_with_std(
+        r#"
+use base.coll;
+
+fn classify(arg: ?&[u8]) i32 {
+    return match (arg) {
+        .{ Some: "--help" } => 1,
+        .None => 2,
+    };
+}
+
+fn main() i32 {
+    return classify(.{ Some: "build" });
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("match expression is not exhaustive"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains(".{ Some: _ }"),
+        "unexpected stderr:\n{}",
+        stderr
     );
 }
 
@@ -1106,6 +1180,88 @@ fn main() i32 {
         - 14;
 }
 "#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn struct_value_patterns_with_defaults_match_full_literal_value() {
+    let output = build_and_run_source(
+        r#"
+struct Pair {
+    left: i32,
+    right: i32 = 2,
+};
+
+fn classify(pair: Pair) i32 {
+    return match (pair) {
+        Pair.{ left: 1 } => 5,
+        _ => 9,
+    };
+}
+
+fn main() i32 {
+    return classify(Pair.{ left: 1, right: 2 })
+        + classify(Pair.{ left: 1, right: 3 })
+        - 14;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn imported_struct_value_pattern_defaults_use_definition_scope() {
+    let output = compile_source_tree(
+        "main.kn",
+        &[
+            (
+                "settings.kn",
+                r#"
+type Mode = i32;
+
+const DEFAULT_MODE: Mode = 2;
+
+pub struct Settings {
+    pub id: i32,
+    pub mode: Mode = DEFAULT_MODE,
+}
+"#,
+            ),
+            (
+                "main.kn",
+                r#"
+mod settings;
+
+use .settings.Settings;
+
+fn classify(settings: Settings) i32 {
+    return match (settings) {
+        Settings.{ id: 7 } => 10,
+        _ => 30,
+    };
+}
+
+fn main() i32 {
+    return classify(Settings.{ id: 7, mode: 2 })
+        + classify(Settings.{ id: 7, mode: 3 })
+        - 40;
+}
+"#,
+            ),
+        ],
     );
 
     assert!(

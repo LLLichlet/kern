@@ -1,3 +1,9 @@
+//! Compile pipeline orchestration.
+//!
+//! The pipeline turns frontend/semantic artifacts into MAST, MIR, codegen unit
+//! plans, object files, optional ThinLTO output, metadata, and final reports. It
+//! is cancellation-aware so editor and CI callers can stop between phases.
+
 mod compile;
 mod partitioned;
 mod reporting;
@@ -9,8 +15,8 @@ use super::codegen_units::{
 #[cfg(test)]
 use super::flow::FlowModel;
 use super::{
-    CompileCacheStats, CompileReport, CompilerDriver, LinkTarget, PhaseTiming, SourceOverrides,
-    StructureArtifact, StructureCacheKey,
+    Canceled, CancellationToken, CompileCacheStats, CompileReport, CompilerDriver, LinkTarget,
+    PhaseTiming, SourceOverrides, StructureArtifact, StructureCacheKey,
 };
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -26,13 +32,13 @@ use kernc_flow::FlowLoweringHints;
 use kernc_lower::Lowerer;
 use kernc_sema::SemaContext;
 use kernc_sema::def::DefId;
-use kernc_utils::Session;
 use kernc_utils::config::{AsmDialect, CompileOptions, DriverMode, LtoMode};
+use kernc_utils::{Session, expect_uncancelable};
 
 use crate::frontend::FrontendDatabase;
 use crate::metadata;
 
-struct LoweredModuleReport {
+pub(in crate::compiler) struct LoweredModuleReport {
     module: kernc_mast::MastModule,
     phase_timings: Vec<PhaseTiming>,
     cache_stats: kernc_lower::LowerCacheStats,
@@ -142,6 +148,25 @@ impl CompilerDriver {
             .ok()
     }
 
+    pub fn analyze_structure_cancelable(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<StructureArtifact>, Canceled> {
+        let mut session = Session::new();
+        session.apply_options(&self.options);
+        match self.try_analyze_structure_cancelable(
+            session,
+            input_file,
+            source_overrides,
+            cancellation,
+        )? {
+            Ok(structure) => Ok(Some(structure)),
+            Err(_) => Ok(None),
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn lower_module<'a>(
         &self,
@@ -174,14 +199,33 @@ impl CompilerDriver {
         flow_lowering_hints: &FlowLoweringHints,
         reachable_items: &std::collections::HashSet<DefId>,
     ) -> Option<LoweredModuleReport> {
+        expect_uncancelable(
+            self.lower_module_with_flow_report_cancelable(
+                ctx,
+                flow_lowering_hints,
+                reachable_items,
+                &CancellationToken::new(),
+            ),
+            "lowering module for the compile pipeline",
+        )
+    }
+
+    pub(in crate::compiler) fn lower_module_with_flow_report_cancelable<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+        flow_lowering_hints: &FlowLoweringHints,
+        reachable_items: &std::collections::HashSet<DefId>,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<LoweredModuleReport>, Canceled> {
         let mut lowerer = Lowerer::new(ctx);
+        lowerer.set_cancellation_token(cancellation.clone());
         lowerer.set_reachable_module_items(reachable_items.clone());
         lowerer.set_flow_lowering_hints(flow_lowering_hints.clone());
-        let report = lowerer.lower_all_with_report();
+        let report = lowerer.lower_all_with_report_cancelable()?;
         if !Self::report_diagnostics_if_errors(lowerer.context()) {
-            return None;
+            return Ok(None);
         }
-        Some(LoweredModuleReport {
+        Ok(Some(LoweredModuleReport {
             module: report.module,
             phase_timings: report
                 .phase_timings
@@ -192,7 +236,7 @@ impl CompilerDriver {
                 })
                 .collect(),
             cache_stats: report.cache_stats,
-        })
+        }))
     }
 
     pub(super) fn module_name_for_codegen(&self, input_file: &str) -> String {
@@ -237,5 +281,44 @@ fn hash_text(text: &str) -> u64 {
 }
 
 fn normalize_cache_path(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    normalize_platform_path(std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+}
+
+fn normalize_platform_path(path: PathBuf) -> PathBuf {
+    let path = strip_windows_verbatim_prefix(path);
+    strip_macos_private_var_prefix(path)
+}
+
+#[cfg(windows)]
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(stripped) = raw.strip_prefix("\\\\?\\UNC\\") {
+        return PathBuf::from(format!("\\\\{stripped}"));
+    }
+    if let Some(stripped) = raw.strip_prefix("\\\\?\\") {
+        return PathBuf::from(stripped);
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    path
+}
+
+#[cfg(target_os = "macos")]
+fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(stripped) = raw.strip_prefix("/private/var/") {
+        return PathBuf::from(format!("/var/{stripped}"));
+    }
+    if raw == "/private/var" {
+        return PathBuf::from("/var");
+    }
+    path
+}
+
+#[cfg(not(target_os = "macos"))]
+fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
+    path
 }

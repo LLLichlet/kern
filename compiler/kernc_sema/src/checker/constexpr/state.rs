@@ -1,3 +1,9 @@
+//! Const-eval state and semantic lookup helpers.
+//!
+//! These helpers mediate between the evaluator's local stack and semantic
+//! context: resolving symbols, applying type substitutions, looking up owners,
+//! and normalizing types/const generics under the active call frame.
+
 use super::*;
 use crate::passes::TypeResolver;
 use crate::query::{MemberQuery, MemberQueryEnv};
@@ -81,6 +87,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 .as_deref()
                 .map(|ty| self.resolve_explicit_type_node(ty))
                 .unwrap_or(TypeId::ERROR),
+            ExprKind::Grouped { expr } => self.expr_type(expr),
             _ => TypeId::ERROR,
         }
     }

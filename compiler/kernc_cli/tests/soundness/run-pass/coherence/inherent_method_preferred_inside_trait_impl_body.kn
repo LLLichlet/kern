@@ -1,0 +1,29 @@
+// class: coherence
+// source: method lookup inside a trait impl body should prefer an inherent method over the current same-name trait method
+// exit: 0
+
+trait Sink {
+    fn flush() i32;
+};
+
+struct File {
+    value: i32,
+};
+
+impl &mut File {
+    pub fn flush() i32 {
+        return self.value;
+    }
+}
+
+impl &mut File : Sink {
+    pub fn flush() i32 {
+        return self.flush() + 1;
+    }
+}
+
+fn main() i32 {
+    let mut file = File.{ value: 41 };
+    let sink = (file..& as &mut Sink);
+    return sink.flush() - 42;
+}

@@ -1,0 +1,13 @@
+// source: mutable slices must be explicitly narrowed before passing to read-only slice parameters
+// stderr: mismatched types
+// stderr: expected `&[i32]`
+// stderr: found `&mut [i32]`
+
+fn len(values: &[i32]) usize {
+    return values.@len();
+}
+
+fn main() i32 {
+    let mut values = [2]i32.{ 1, 2 };
+    return len(values..&[0...2]) as i32;
+}

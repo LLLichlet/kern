@@ -1,3 +1,9 @@
+//! MIR rewriting for local copy propagation.
+//!
+//! Once analysis resolves a replacement map, this module walks instructions and
+//! terminators to replace operands and place roots while preserving projection
+//! structure and counting the number of rewritten uses.
+
 use crate::{
     MirBlock, MirCallTarget, MirInstruction, MirMemoryIntrinsic, MirOperand, MirPlace, MirRvalue,
     MirSliceBase,

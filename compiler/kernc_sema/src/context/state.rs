@@ -1,3 +1,9 @@
+//! Mutable analysis state and query caches carried by `SemaContext`.
+//!
+//! These structures are separate from the core definition/type/scope tables so
+//! snapshots can rewind the semantic graph while clearing derived caches,
+//! active proof stacks, timings, and escape-analysis work queues.
+
 use super::ownership::ModuleOwnershipState;
 use super::semantic_index::SemanticIndexState;
 use super::*;
@@ -6,6 +12,7 @@ use std::time::Duration;
 type NamedFieldQueryKey = (Option<DefId>, DefId, Vec<GenericArg>, SymbolId);
 type NamedFieldQueryValue = Option<crate::query::MemberCandidate>;
 type MemberResolutionQueryKey = (Option<DefId>, TypeId, SymbolId);
+type MethodResolutionQueryKey = (TypeId, SymbolId);
 type GenericBoundsCheckKey = (DefId, Vec<GenericArg>);
 
 #[derive(Clone, Default)]
@@ -30,6 +37,8 @@ pub(crate) struct SemaQueryCacheState {
     pub(crate) named_field_query_cache: FastHashMap<NamedFieldQueryKey, NamedFieldQueryValue>,
     pub(crate) member_resolution_query_cache:
         FastHashMap<MemberResolutionQueryKey, crate::query::MemberResolution>,
+    pub(crate) method_resolution_query_cache:
+        FastHashMap<MethodResolutionQueryKey, Option<crate::query::MemberResolution>>,
 }
 
 impl SemaQueryCacheState {
@@ -47,14 +56,18 @@ impl SemaQueryCacheState {
         self.generic_bounds_success_cache.clear();
         self.named_field_query_cache.clear();
         self.member_resolution_query_cache.clear();
+        self.method_resolution_query_cache.clear();
     }
 
     pub(crate) fn clear_active_bound_caches(&mut self) {
+        // Active generic bounds affect member lookup and impl applicability, but
+        // not field substitution or structural recursive-report state.
         self.bound_trait_match_cache.clear();
         self.impl_applicability_cache.clear();
         self.impl_method_query_cache.clear();
         self.generic_bounds_success_cache.clear();
         self.member_resolution_query_cache.clear();
+        self.method_resolution_query_cache.clear();
     }
 }
 
@@ -85,7 +98,7 @@ pub(crate) struct EscapeSummary {
 pub(crate) struct PendingEscapeCheck {
     pub(crate) callee: DefId,
     pub(crate) arg_index: usize,
-    pub(crate) address_span: Span,
+    pub(crate) origin: crate::checker::expr::PointerOrigin,
 }
 
 #[derive(Clone, Default)]

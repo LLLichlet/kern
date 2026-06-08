@@ -13,5 +13,6 @@ pub mod proc;
 pub mod msg;
 pub mod mem;
 pub mod time;
+pub mod sync;
 pub mod term;
 mod host;

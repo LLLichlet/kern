@@ -60,7 +60,7 @@ impl Check {
     pub fn sum[W](loc: Loc, report: &mut Report[W]) void
         where &mut W: Write,
     {
-        if (!self.passed) {
+        if !self.passed {
             report.fail_at(loc, self.message);
         }
     }
@@ -101,7 +101,7 @@ impl[T] ValueCheck[T] {
     pub fn eq(expected: T) Check
         where T: Eq[T],
     {
-        if (!self.passed) {
+        if !self.passed {
             return .{ passed: false, message: self.message };
         }
 
@@ -110,7 +110,7 @@ impl[T] ValueCheck[T] {
             return .{ passed: false, message };
         };
 
-        if (!(actual == expected)) {
+        if !(actual == expected) {
             static message = "expected values to be equal";
             return .{ passed: false, message };
         }
@@ -122,7 +122,7 @@ impl[T] ValueCheck[T] {
     pub fn sum[W](loc: Loc, report: &mut Report[W]) T
         where &mut W: Write,
     {
-        if (!self.passed) {
+        if !self.passed {
             report.fail_at(loc, self.message);
         }
 
@@ -138,7 +138,7 @@ impl[T] ValueCheck[T]
           &T: Formatable,
 {
     pub fn eq(expected: T) EqCheck[T] {
-        if (!self.passed) {
+        if !self.passed {
             return .{
                 passed: false,
                 actual: .None,
@@ -157,7 +157,7 @@ impl[T] ValueCheck[T]
             };
         };
 
-        if (!(actual == expected)) {
+        if !(actual == expected) {
             static message = "expected values to be equal";
             return .{
                 passed: false,
@@ -182,12 +182,12 @@ impl[T] EqCheck[T] {
         where &mut W: Write,
               &T: Formatable,
     {
-        if (self.passed) {
+        if self.passed {
             return;
         }
 
-        match (self.actual) {
-            .{ Some: actual } => match (self.expected) {
+        match self.actual {
+            .{ Some: actual } => match self.expected {
                 .{ Some: expected } => report.fail_eq_at(loc, actual, expected),
                 .None => report.fail_at(loc, self.message),
             },
@@ -198,7 +198,7 @@ impl[T] EqCheck[T] {
 
 impl[T] ?T {
     pub fn should_some() ValueCheck[T] {
-        match (self) {
+        match self {
             .{ Some: payload } => {
                 static message = "";
                 return .{
@@ -219,7 +219,7 @@ impl[T] ?T {
     }
 
     pub fn should_none() Check {
-        match (self) {
+        match self {
             .None => {
                 static message = "";
                 return .{ passed: true, message };
@@ -234,7 +234,7 @@ impl[T] ?T {
 
 impl[T, E] T!E {
     pub fn should_ok() ValueCheck[T] {
-        match (self) {
+        match self {
             .{ Ok: payload } => {
                 static message = "";
                 return .{
@@ -255,7 +255,7 @@ impl[T, E] T!E {
     }
 
     pub fn should_err() ValueCheck[E] {
-        match (self) {
+        match self {
             .{ Err: payload } => {
                 static message = "";
                 return .{

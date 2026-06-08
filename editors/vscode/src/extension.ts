@@ -21,6 +21,17 @@ import {
     resolveCraftCommand,
 } from "./craftContext";
 import {
+    isPathWithin,
+    manifestWorkingDirectory,
+    parseCraftBuildPackageArgs,
+    parseCraftRunTargetArgs,
+    parseCraftTestTargetArgs,
+    taskEnvironment,
+    type CraftBuildPackageArgs,
+    type CraftRunTargetArgs,
+    type CraftTestTargetArgs,
+} from "./craftCommands";
+import {
     type AutoSuggestMode,
     type AutoSuggestDocument,
     createAutoSuggestRequest,
@@ -84,6 +95,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(
         vscode.commands.registerCommand("kern.refreshCraftAnalysisContext", async () => {
             await refreshCraftAnalysisContext(context);
+        }),
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand("kern.craft.buildPackage", async (args) => {
+            await runCraftTargetCommand("build", args);
+        }),
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand("kern.craft.runTarget", async (args) => {
+            await runCraftTargetCommand("run", args);
+        }),
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand("kern.craft.testTarget", async (args) => {
+            await runCraftTargetCommand("test", args);
         }),
     );
 
@@ -494,7 +520,7 @@ async function refreshCraftAnalysisContext(
             appendOutput(
                 `Refreshing craft analysis context in ${root.fsPath}: ${command} ${args.join(" ")}`,
             );
-            await runCraftCheck(command, args, root.fsPath, env);
+            await runCraftCommand(command, args, root.fsPath, env);
         }
         appendOutput("Craft analysis context refreshed.");
         await restartLanguageServer(context, false);
@@ -514,7 +540,122 @@ async function refreshCraftAnalysisContext(
     }
 }
 
-function runCraftCheck(
+async function runCraftTargetCommand(
+    mode: "build" | "run" | "test",
+    rawArgs: unknown,
+): Promise<void> {
+    const args = parseCraftTargetArgs(mode, rawArgs);
+    if (!args.manifestPath) {
+        void vscode.window.showErrorMessage("Missing Craft manifest path for code lens command.");
+        return;
+    }
+
+    const cwd = manifestWorkingDirectory(args.manifestPath);
+    const config = vscode.workspace.getConfiguration("kern");
+    const command = resolveCraftCommand(config.get<string>("craft.path", ""), cwd);
+    const craftArgs = [
+        mode,
+        "--color=always",
+        ...projectAnalysisArgs(config),
+        "--project-path",
+        args.manifestPath,
+    ];
+    if (mode === "run") {
+        const runArgs = args as CraftRunTargetArgs;
+        if (runArgs.targetKind === "bin") {
+            if (runArgs.targetName) {
+                craftArgs.push("--bin", runArgs.targetName);
+            }
+        } else if (runArgs.targetKind === "example") {
+            if (!runArgs.targetName) {
+                void vscode.window.showErrorMessage("Missing Craft example target name.");
+                return;
+            }
+            craftArgs.push("--example", runArgs.targetName);
+        } else {
+            void vscode.window.showErrorMessage("Unsupported Craft run target kind.");
+            return;
+        }
+    }
+    if (mode === "test") {
+        const targetName = (args as CraftTestTargetArgs).targetName;
+        if (!targetName) {
+            void vscode.window.showErrorMessage("Missing Craft test target name.");
+            return;
+        }
+        craftArgs.push("--test", targetName);
+    }
+    const env = {
+        ...process.env,
+        ...configuredServerEnv(config),
+    };
+
+    setStatus(
+        `craft-${mode}`,
+        craftModeMessage(mode, "Running"),
+        vscode.LanguageStatusSeverity.Information,
+    );
+    appendOutput(`Running ${command} ${craftArgs.join(" ")} in ${cwd}`);
+
+    try {
+        await runCraftTerminalCommand(
+            command,
+            craftArgs,
+            cwd,
+            env,
+            craftModeTerminalName(mode),
+        );
+        setStatus(
+            `craft-${mode}-complete`,
+            craftModeMessage(mode, "Craft", "completed"),
+            vscode.LanguageStatusSeverity.Information,
+        );
+    } catch (error) {
+        appendOutput(`Craft ${mode} failed: ${formatError(error)}`);
+        setStatus(
+            `craft-${mode}-failed`,
+            craftModeMessage(mode, "Craft", "failed"),
+            vscode.LanguageStatusSeverity.Error,
+        );
+        void vscode.window.showErrorMessage(
+            `Craft ${mode} failed. See the Kern Language Server output for details.`,
+        );
+    }
+}
+
+function parseCraftTargetArgs(
+    mode: "build" | "run" | "test",
+    rawArgs: unknown,
+): CraftBuildPackageArgs | CraftRunTargetArgs | CraftTestTargetArgs {
+    if (mode === "build") {
+        return parseCraftBuildPackageArgs(rawArgs);
+    }
+    if (mode === "run") {
+        return parseCraftRunTargetArgs(rawArgs);
+    }
+    return parseCraftTestTargetArgs(rawArgs);
+}
+
+function craftModeTerminalName(mode: "build" | "run" | "test"): string {
+    if (mode === "build") {
+        return "Kern Craft Build";
+    }
+    if (mode === "run") {
+        return "Kern Craft Run";
+    }
+    return "Kern Craft Test";
+}
+
+function craftModeMessage(
+    mode: "build" | "run" | "test",
+    prefix: string,
+    suffix?: string,
+): string {
+    const noun = mode === "build" ? "build" : mode === "run" ? "run" : "test";
+    return suffix ? `${prefix} ${noun} ${suffix}` : `${prefix} craft ${noun}`;
+}
+
+function runCraftCommand(
     command: string,
     args: string[],
     cwd: string,
@@ -541,6 +682,74 @@ function runCraftCheck(
             reject(new Error(`craft exited with status ${code ?? "unknown"}`));
         });
     });
+}
+
+function runCraftTerminalCommand(
+    command: string,
+    args: string[],
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+    name: string,
+): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const task = new vscode.Task(
+            {
+                type: "kern",
+                command: "craft",
+                cwd,
+                args,
+            },
+            taskScopeForPath(cwd),
+            name,
+            "Kern",
+            new vscode.ProcessExecution(command, args, {
+                cwd,
+                env: taskEnvironment(env),
+            }),
+            [],
+        );
+        task.presentationOptions = {
+            reveal: vscode.TaskRevealKind.Always,
+            panel: vscode.TaskPanelKind.Shared,
+            clear: true,
+            showReuseMessage: true,
+            close: false,
+        };
+
+        let execution: vscode.TaskExecution | undefined;
+        const disposable = vscode.tasks.onDidEndTaskProcess((event) => {
+            if (event.execution !== execution) {
+                return;
+            }
+            disposable.dispose();
+            const code = event.exitCode;
+            if (code === 0) {
+                resolve();
+                return;
+            }
+            reject(new Error(`craft exited with status ${code ?? "unknown"}`));
+        });
+
+        vscode.tasks.executeTask(task).then(
+            (started) => {
+                execution = started;
+            },
+            (error) => {
+                disposable.dispose();
+                reject(error instanceof Error ? error : new Error(String(error)));
+            },
+        );
+    });
+}
+
+function taskScopeForPath(cwd: string): vscode.WorkspaceFolder | vscode.TaskScope {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    for (const folder of folders) {
+        if (isPathWithin(cwd, folder.uri.fsPath)) {
+            return folder;
+        }
+    }
+    return folders[0] ?? vscode.TaskScope.Workspace;
 }
 
 function createLanguageServerWatchers(): vscode.FileSystemWatcher[] {

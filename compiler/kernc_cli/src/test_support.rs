@@ -1,3 +1,9 @@
+//! Integration-test support utilities.
+//!
+//! The helpers here build temporary Kern programs, invoke the compiled `kernc`
+//! binary with bounded process concurrency/timeouts, inspect emitted IR/objects,
+//! and run produced executables.
+
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Read;

@@ -1,22 +1,79 @@
+//! Mutable server state shared by dispatch and scheduler code.
+//!
+//! `ServerState` records lifecycle flags, client capabilities, pending work,
+//! cancellation handles, worker channels, diagnostics generations, and published
+//! diagnostic ownership.
+
 use super::lifecycle::TraceValue;
-use crate::analysis::{AnalysisEngine, AnalysisOutcome};
+use crate::analysis::{AnalysisEngine, AnalysisOutcome, AnalysisTier, AnalysisTrace};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
+use std::sync::{
+    Arc, Mutex, MutexGuard,
+    atomic::{AtomicBool, Ordering},
+    mpsc,
+};
+use std::thread;
+
+const DEFAULT_WORKER_COUNT: usize = 4;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ServerOptions {
+    pub worker_threads: usize,
+}
+
+impl Default for ServerOptions {
+    fn default() -> Self {
+        Self {
+            worker_threads: DEFAULT_WORKER_COUNT,
+        }
+    }
+}
 
 pub(super) struct ServerState {
     pub(super) initialized: bool,
     pub(super) shutdown_requested: bool,
     pub(super) trace: TraceValue,
+    pub(super) trace_log_path: Option<PathBuf>,
+    pub(super) work_done_progress: bool,
+    pub(super) workspace_roots: Vec<PathBuf>,
     pub(super) diagnostics_flush_policy: DiagnosticsFlushPolicy,
     pub(super) request_budget_policy: RequestBudgetPolicy,
     pub(super) analysis: AnalysisEngine,
     pub(super) next_analysis_generation: u64,
+    next_server_request_id: u64,
+    next_progress_token: u64,
+    next_semantic_tokens_result_id: u64,
+    pending_server_request_ids: Vec<Value>,
+    semantic_tokens_results: BTreeMap<String, SemanticTokensResultState>,
     pub(super) latest_generation_by_target: BTreeMap<String, AnalysisGeneration>,
+    pub(super) active_document_uri: Option<String>,
     pub(super) canceled_request_ids: Vec<Value>,
+    active_request_cancellations: Vec<ActiveRequestCancellation>,
     pub(super) pending_diagnostics_targets: BTreeMap<String, ScheduledDiagnosticsTask>,
     pub(super) pending_workspace_refresh_reason: Option<String>,
+    pub(super) pending_workspace_refresh_kind: Option<WorkspaceRefreshKind>,
     pub(super) pending_diagnostics: BTreeMap<String, ScheduledDiagnosticsPublish>,
+    pub(super) document_request_results_rx: mpsc::Receiver<DocumentRequestTaskResult>,
+    pub(super) diagnostics_results_rx: mpsc::Receiver<DiagnosticsTaskResult>,
+    pub(super) workspace_refresh_results_rx: mpsc::Receiver<WorkspaceRefreshTaskResult>,
+    pub(super) prewarm_results_rx: mpsc::Receiver<PrewarmTaskResult>,
+    pub(super) interactive_worker_task_tx: mpsc::SyncSender<InteractiveWorkerTask>,
+    pub(super) background_worker_task_tx: mpsc::SyncSender<BackgroundWorkerTask>,
+    pub(super) pending_document_request_tasks: usize,
+    pub(super) pending_diagnostics_worker_tasks: usize,
+    pub(super) pending_workspace_refresh_tasks: usize,
+    pub(super) pending_prewarm_tasks: usize,
+    active_prewarm_cancellations: BTreeMap<String, Vec<GenerationCancellation>>,
     pub(super) published_by_target: BTreeMap<String, BTreeSet<String>>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct SemanticTokensResultState {
+    pub(super) uri: String,
+    pub(super) generation: Option<AnalysisGeneration>,
+    pub(super) data: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -27,6 +84,179 @@ pub(super) struct RequestContext {
     pub(super) id: Value,
     pub(super) target_uri: Option<String>,
     pub(super) generation: Option<AnalysisGeneration>,
+    pub(super) cancellation: Option<CancellationToken>,
+    pub(super) work_done_token: Option<Value>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct CancellationToken {
+    canceled: Arc<AtomicBool>,
+}
+
+#[derive(Debug)]
+struct ActiveRequestCancellation {
+    id: Value,
+    token: CancellationToken,
+}
+
+#[derive(Debug)]
+struct GenerationCancellation {
+    generation: AnalysisGeneration,
+    token: CancellationToken,
+}
+
+impl CancellationToken {
+    fn new() -> Self {
+        Self {
+            canceled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub(super) fn analysis_token(&self) -> crate::analysis::CancellationToken {
+        crate::analysis::CancellationToken::from_shared(self.canceled.clone())
+    }
+
+    pub(super) fn cancel(&self) {
+        self.canceled.store(true, Ordering::SeqCst);
+    }
+
+    pub(super) fn is_canceled(&self) -> bool {
+        self.canceled.load(Ordering::SeqCst)
+    }
+}
+
+impl RequestContext {
+    pub(super) fn is_canceled(&self) -> bool {
+        self.cancellation
+            .as_ref()
+            .is_some_and(CancellationToken::is_canceled)
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct DocumentRequestTaskResult {
+    pub(super) request: RequestContext,
+    pub(super) target_uri: String,
+    pub(super) lane: SchedulerLane,
+    pub(super) method: String,
+    pub(super) trace: TraceContext,
+    pub(super) queue_wait_ms: u128,
+    pub(super) elapsed_ms: u128,
+    pub(super) analysis_tier: Option<AnalysisTier>,
+    pub(super) analysis_trace: AnalysisTrace,
+    pub(super) canceled: bool,
+    pub(super) error_class: Option<LspErrorClass>,
+    pub(super) response: DocumentRequestResponse,
+}
+
+#[derive(Debug)]
+pub(super) struct ScheduledDocumentRequestTask {
+    pub(super) request: RequestContext,
+    pub(super) target_uri: String,
+    pub(super) lane: SchedulerLane,
+    pub(super) method: String,
+    pub(super) queued_at: std::time::Instant,
+}
+
+pub(super) struct DiagnosticsTaskResult {
+    pub(super) target_uri: String,
+    pub(super) generation: AnalysisGeneration,
+    pub(super) mode: DiagnosticsAnalysisMode,
+    pub(super) prewarm: bool,
+    pub(super) trace: TraceContext,
+    pub(super) queue_wait_ms: u128,
+    pub(super) elapsed_ms: u128,
+    pub(super) analysis_tier: Option<AnalysisTier>,
+    pub(super) analysis_trace: AnalysisTrace,
+    pub(super) error_class: Option<LspErrorClass>,
+    pub(super) outcome: AnalysisOutcome,
+}
+
+pub(super) struct WorkspaceRefreshTaskResult {
+    pub(super) reason: String,
+    pub(super) progress_token: Option<Value>,
+    pub(super) trace: TraceContext,
+    pub(super) queue_wait_ms: u128,
+    pub(super) elapsed_ms: u128,
+    pub(super) analysis_trace: AnalysisTrace,
+    pub(super) error_class: Option<LspErrorClass>,
+    pub(super) refresh: Result<crate::analysis::WorkspaceIndexRefresh, String>,
+}
+
+pub(super) struct PrewarmTaskResult {
+    pub(super) target_uri: String,
+    pub(super) generation: AnalysisGeneration,
+    pub(super) trace: TraceContext,
+    pub(super) queue_wait_ms: u128,
+    pub(super) elapsed_ms: u128,
+    pub(super) analysis_tier: Option<AnalysisTier>,
+    pub(super) analysis_trace: AnalysisTrace,
+    pub(super) error_class: Option<LspErrorClass>,
+}
+
+pub(super) enum InteractiveWorkerTask {
+    DocumentRequest(Box<dyn FnOnce() -> DocumentRequestTaskResult + Send + 'static>),
+}
+
+pub(super) enum BackgroundWorkerTask {
+    Diagnostics(Box<dyn FnOnce() -> DiagnosticsTaskResult + Send + 'static>),
+    WorkspaceRefresh(Box<dyn FnOnce() -> WorkspaceRefreshTaskResult + Send + 'static>),
+    Prewarm(Box<dyn FnOnce() -> PrewarmTaskResult + Send + 'static>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorkspaceRefreshKind {
+    Sources,
+    ProjectMetadata,
+}
+
+#[derive(Debug)]
+pub(super) enum DocumentRequestResponse {
+    Success(Value),
+    Null,
+    Error {
+        code: i64,
+        message: String,
+    },
+    SemanticTokensFull {
+        uri: String,
+        data: Vec<u32>,
+    },
+    SemanticTokensDelta {
+        uri: String,
+        previous_result_id: String,
+        data: Vec<u32>,
+    },
+}
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct TraceContext {
+    pub(super) request_id: Option<Value>,
+    pub(super) document_generation: Option<AnalysisGeneration>,
+    pub(super) document_version: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LspErrorClass {
+    ProjectUnavailable,
+    ProjectInvalid,
+    AnalysisFailed,
+    RequestCanceled,
+    InternalBug,
+    ProtocolError,
+}
+
+impl LspErrorClass {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::ProjectUnavailable => "ProjectUnavailable",
+            Self::ProjectInvalid => "ProjectInvalid",
+            Self::AnalysisFailed => "AnalysisFailed",
+            Self::RequestCanceled => "RequestCanceled",
+            Self::InternalBug => "InternalBug",
+            Self::ProtocolError => "ProtocolError",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +280,7 @@ pub(super) struct ScheduledDiagnosticsPublish {
 pub(super) struct ScheduledDiagnosticsTask {
     pub(super) generation: AnalysisGeneration,
     pub(super) mode: DiagnosticsAnalysisMode,
+    pub(super) prewarm: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -110,7 +341,19 @@ impl DiagnosticsFlushPolicy {
         }
     }
 
-    pub(super) fn should_force_drain_for_pending_work(self, state: &ServerState) -> bool {
+    pub(super) fn should_force_drain_after_message(
+        self,
+        method: &str,
+        state: &ServerState,
+    ) -> bool {
+        if !matches!(
+            method,
+            "textDocument/didChange"
+                | "workspace/didChangeConfiguration"
+                | "workspace/didChangeWatchedFiles"
+        ) {
+            return false;
+        }
         state.pending_workspace_refresh_reason.is_some()
             || state.pending_diagnostics_targets.len() >= self.target_task_budget
     }
@@ -157,25 +400,64 @@ impl ServerState {
         Self::with_analysis(AnalysisEngine::default())
     }
 
+    #[cfg(test)]
     pub(super) fn with_analysis(analysis: AnalysisEngine) -> Self {
+        Self::with_options(analysis, ServerOptions::default())
+    }
+
+    pub(super) fn with_options(analysis: AnalysisEngine, options: ServerOptions) -> Self {
+        let (document_request_results_tx, document_request_results_rx) = mpsc::channel();
+        let (diagnostics_results_tx, diagnostics_results_rx) = mpsc::channel();
+        let (workspace_refresh_results_tx, workspace_refresh_results_rx) = mpsc::channel();
+        let (prewarm_results_tx, prewarm_results_rx) = mpsc::channel();
+        let (interactive_worker_task_tx, background_worker_task_tx) = spawn_worker_threads(
+            options.worker_threads,
+            document_request_results_tx,
+            diagnostics_results_tx,
+            workspace_refresh_results_tx,
+            prewarm_results_tx,
+        );
         Self {
             initialized: false,
             shutdown_requested: false,
             trace: TraceValue::Off,
+            trace_log_path: std::env::var_os("KERN_LSP_LOG").map(PathBuf::from),
+            work_done_progress: false,
+            workspace_roots: Vec::new(),
             diagnostics_flush_policy: DiagnosticsFlushPolicy::new(),
             request_budget_policy: RequestBudgetPolicy::new(),
             analysis,
             next_analysis_generation: 0,
+            next_server_request_id: 0,
+            next_progress_token: 0,
+            next_semantic_tokens_result_id: 0,
+            pending_server_request_ids: Vec::new(),
+            semantic_tokens_results: BTreeMap::new(),
             latest_generation_by_target: BTreeMap::new(),
+            active_document_uri: None,
             canceled_request_ids: Vec::new(),
+            active_request_cancellations: Vec::new(),
             pending_diagnostics_targets: BTreeMap::new(),
             pending_workspace_refresh_reason: None,
+            pending_workspace_refresh_kind: None,
             pending_diagnostics: BTreeMap::new(),
+            document_request_results_rx,
+            diagnostics_results_rx,
+            workspace_refresh_results_rx,
+            prewarm_results_rx,
+            interactive_worker_task_tx,
+            background_worker_task_tx,
+            pending_document_request_tasks: 0,
+            pending_diagnostics_worker_tasks: 0,
+            pending_workspace_refresh_tasks: 0,
+            pending_prewarm_tasks: 0,
+            active_prewarm_cancellations: BTreeMap::new(),
             published_by_target: BTreeMap::new(),
         }
     }
 
     pub(super) fn begin_target_analysis(&mut self, target_uri: &str) -> AnalysisGeneration {
+        self.cancel_prewarm_tasks_for_target(target_uri);
         self.next_analysis_generation += 1;
         let generation = AnalysisGeneration(self.next_analysis_generation);
         self.latest_generation_by_target
@@ -191,11 +473,23 @@ impl ServerState {
         self.latest_generation_by_target.get(target_uri).copied() == Some(generation)
     }
 
+    pub(super) fn mark_active_document(&mut self, target_uri: &str) {
+        self.active_document_uri = Some(target_uri.to_string());
+    }
+
+    pub(super) fn clear_active_document(&mut self, target_uri: &str) {
+        if self.active_document_uri.as_deref() == Some(target_uri) {
+            self.active_document_uri = None;
+        }
+    }
+
     pub(super) fn request_context(&self, id: Value) -> RequestContext {
         RequestContext {
             id,
             target_uri: None,
             generation: None,
+            cancellation: None,
+            work_done_token: None,
         }
     }
 
@@ -208,10 +502,83 @@ impl ServerState {
             id,
             target_uri: Some(target_uri.to_string()),
             generation: self.latest_generation_by_target.get(target_uri).copied(),
+            cancellation: None,
+            work_done_token: None,
         }
     }
 
+    pub(super) fn next_server_request_id(&mut self) -> Value {
+        self.next_server_request_id += 1;
+        let id = Value::String(format!("kern-lsp/{}", self.next_server_request_id));
+        self.pending_server_request_ids.push(id.clone());
+        id
+    }
+
+    pub(super) fn next_progress_token(&mut self, label: &str) -> Value {
+        self.next_progress_token += 1;
+        Value::String(format!("kern-lsp/{label}/{}", self.next_progress_token))
+    }
+
+    pub(super) fn register_semantic_tokens_result(
+        &mut self,
+        uri: String,
+        generation: Option<AnalysisGeneration>,
+        data: Vec<u32>,
+    ) -> String {
+        self.next_semantic_tokens_result_id += 1;
+        let result_id = format!(
+            "kern-lsp/semantic-tokens/{}",
+            self.next_semantic_tokens_result_id
+        );
+        self.semantic_tokens_results.insert(
+            result_id.clone(),
+            SemanticTokensResultState {
+                uri,
+                generation,
+                data,
+            },
+        );
+        result_id
+    }
+
+    pub(super) fn semantic_tokens_result(
+        &self,
+        result_id: &str,
+    ) -> Option<&SemanticTokensResultState> {
+        self.semantic_tokens_results.get(result_id)
+    }
+
+    pub(super) fn clear_semantic_tokens_results_for_uri(&mut self, uri: &str) {
+        self.semantic_tokens_results
+            .retain(|_, result| result.uri != uri);
+    }
+
+    pub(super) fn is_pending_server_request(&mut self, id: Option<&Value>) -> bool {
+        let Some(id) = id else {
+            return false;
+        };
+        if let Some(index) = self
+            .pending_server_request_ids
+            .iter()
+            .position(|pending| pending == id)
+        {
+            self.pending_server_request_ids.swap_remove(index);
+            return true;
+        }
+        false
+    }
+
     pub(super) fn cancel_request(&mut self, id: Value) {
+        let mut canceled_active = false;
+        for active in &self.active_request_cancellations {
+            if active.id == id {
+                active.token.cancel();
+                canceled_active = true;
+            }
+        }
+        if canceled_active {
+            return;
+        }
         if self
             .canceled_request_ids
             .iter()
@@ -222,20 +589,55 @@ impl ServerState {
         self.canceled_request_ids.push(id);
     }
 
-    pub(super) fn should_skip_request(&mut self, request: &RequestContext) -> bool {
-        self.should_drop_response(request)
+    pub(super) fn register_request_cancellation(&mut self, request: &mut RequestContext) {
+        if request.cancellation.is_some() {
+            return;
+        }
+        let token = CancellationToken::new();
+        if self
+            .canceled_request_ids
+            .iter()
+            .any(|canceled| canceled == &request.id)
+        {
+            token.cancel();
+        }
+        self.active_request_cancellations
+            .push(ActiveRequestCancellation {
+                id: request.id.clone(),
+                token: token.clone(),
+            });
+        request.cancellation = Some(token);
+    }
+
+    pub(super) fn finish_request_cancellation(&mut self, id: &Value) {
+        self.active_request_cancellations
+            .retain(|active| &active.id != id);
+    }
+
+    pub(super) fn should_skip_request(&self, request: &RequestContext) -> bool {
+        self.is_stale_request(request)
     }
 
     pub(super) fn should_drop_response(&mut self, request: &RequestContext) -> bool {
+        let is_stale = self.is_stale_request(request);
+        let _ = self.take_pending_cancel(&request.id);
+        self.finish_request_cancellation(&request.id);
+        is_stale
+    }
+
+    pub(super) fn take_pending_cancel(&mut self, id: &Value) -> bool {
         if let Some(index) = self
             .canceled_request_ids
             .iter()
-            .position(|canceled| canceled == &request.id)
+            .position(|canceled| canceled == id)
         {
             self.canceled_request_ids.swap_remove(index);
             return true;
         }
+        false
+    }
 
+    fn is_stale_request(&self, request: &RequestContext) -> bool {
         match (&request.target_uri, request.generation) {
             (Some(target_uri), Some(generation)) => {
                 !self.is_current_generation(target_uri, generation)
@@ -264,6 +666,7 @@ impl ServerState {
         target_uri: String,
         generation: AnalysisGeneration,
         mode: DiagnosticsAnalysisMode,
+        prewarm: bool,
     ) {
         if self.pending_workspace_refresh_reason.is_some()
             || !self.is_current_generation(&target_uri, generation)
@@ -275,27 +678,236 @@ impl ServerState {
             .and_modify(|existing| {
                 existing.generation = generation;
                 existing.mode = existing.mode.merge(mode);
+                existing.prewarm |= prewarm;
             })
-            .or_insert(ScheduledDiagnosticsTask { generation, mode });
+            .or_insert(ScheduledDiagnosticsTask {
+                generation,
+                mode,
+                prewarm,
+            });
     }
 
-    pub(super) fn queue_workspace_refresh_task(&mut self, reason: String) {
+    pub(super) fn pop_next_diagnostics_target(
+        &mut self,
+    ) -> Option<(String, ScheduledDiagnosticsTask)> {
+        if let Some(active_uri) = self.active_document_uri.clone()
+            && let Some(task) = self.pending_diagnostics_targets.remove(&active_uri)
+        {
+            return Some((active_uri, task));
+        }
+        self.pending_diagnostics_targets.pop_first()
+    }
+
+    pub(super) fn queue_workspace_refresh_task(
+        &mut self,
+        reason: String,
+        kind: WorkspaceRefreshKind,
+    ) {
+        let reason = match (self.pending_workspace_refresh_reason.take(), kind) {
+            (Some(existing), WorkspaceRefreshKind::Sources) => existing,
+            (Some(_), WorkspaceRefreshKind::ProjectMetadata) => reason,
+            (None, WorkspaceRefreshKind::Sources) => reason,
+            (None, WorkspaceRefreshKind::ProjectMetadata) => reason,
+        };
+        let kind = match (self.pending_workspace_refresh_kind, kind) {
+            (Some(WorkspaceRefreshKind::ProjectMetadata), _)
+            | (_, WorkspaceRefreshKind::ProjectMetadata) => WorkspaceRefreshKind::ProjectMetadata,
+            _ => WorkspaceRefreshKind::Sources,
+        };
         self.pending_workspace_refresh_reason = Some(reason);
+        self.pending_workspace_refresh_kind = Some(kind);
         self.pending_diagnostics_targets.clear();
+        for uri in self.analysis.document_uris() {
+            self.begin_target_analysis(&uri);
+        }
     }
 
     pub(super) fn has_pending_diagnostics_work(&self) -> bool {
         !self.pending_diagnostics_targets.is_empty()
             || self.pending_workspace_refresh_reason.is_some()
+            || self.pending_workspace_refresh_kind.is_some()
             || !self.pending_diagnostics.is_empty()
+            || self.pending_diagnostics_worker_tasks > 0
+            || self.pending_workspace_refresh_tasks > 0
     }
 
     pub(super) fn should_drain_scheduler_after(&self, method: &str) -> bool {
-        self.has_pending_diagnostics_work()
+        (self.has_pending_diagnostics_work() || self.has_pending_document_request_work())
             && (self.diagnostics_flush_policy.decide_after_message(method)
                 == SchedulerDrainDecision::Drain
                 || self
                     .diagnostics_flush_policy
-                    .should_force_drain_for_pending_work(self))
+                    .should_force_drain_after_message(method, self))
+    }
+
+    pub(super) fn queue_document_request_task(&mut self) {
+        self.pending_document_request_tasks += 1;
+    }
+
+    pub(super) fn complete_document_request_task(&mut self) {
+        self.pending_document_request_tasks = self.pending_document_request_tasks.saturating_sub(1);
+    }
+
+    pub(super) fn has_pending_document_request_work(&self) -> bool {
+        self.pending_document_request_tasks > 0
+    }
+
+    pub(super) fn has_pending_worker_work(&self) -> bool {
+        self.has_pending_document_request_work()
+            || self.pending_workspace_refresh_reason.is_some()
+            || self.pending_workspace_refresh_kind.is_some()
+            || !self.pending_diagnostics_targets.is_empty()
+            || self.pending_diagnostics_worker_tasks > 0
+            || self.pending_workspace_refresh_tasks > 0
+            || self.pending_prewarm_tasks > 0
+            || !self.pending_diagnostics.is_empty()
+    }
+
+    pub(super) fn queue_diagnostics_worker_task(&mut self) {
+        self.pending_diagnostics_worker_tasks += 1;
+    }
+
+    pub(super) fn complete_diagnostics_worker_task(&mut self) {
+        self.pending_diagnostics_worker_tasks =
+            self.pending_diagnostics_worker_tasks.saturating_sub(1);
+    }
+
+    pub(super) fn queue_workspace_refresh_worker_task(&mut self) {
+        self.pending_workspace_refresh_tasks += 1;
+    }
+
+    pub(super) fn complete_workspace_refresh_worker_task(&mut self) {
+        self.pending_workspace_refresh_tasks =
+            self.pending_workspace_refresh_tasks.saturating_sub(1);
+    }
+
+    pub(super) fn queue_prewarm_worker_task(&mut self) {
+        self.pending_prewarm_tasks += 1;
+    }
+
+    pub(super) fn complete_prewarm_worker_task(&mut self) {
+        self.pending_prewarm_tasks = self.pending_prewarm_tasks.saturating_sub(1);
+    }
+
+    pub(super) fn register_prewarm_cancellation(
+        &mut self,
+        target_uri: &str,
+        generation: AnalysisGeneration,
+    ) -> CancellationToken {
+        let token = CancellationToken::new();
+        self.active_prewarm_cancellations
+            .entry(target_uri.to_string())
+            .or_default()
+            .push(GenerationCancellation {
+                generation,
+                token: token.clone(),
+            });
+        token
+    }
+
+    pub(super) fn finish_prewarm_cancellation(
+        &mut self,
+        target_uri: &str,
+        generation: AnalysisGeneration,
+    ) {
+        let Some(cancellations) = self.active_prewarm_cancellations.get_mut(target_uri) else {
+            return;
+        };
+        cancellations.retain(|cancellation| cancellation.generation != generation);
+        if cancellations.is_empty() {
+            self.active_prewarm_cancellations.remove(target_uri);
+        }
+    }
+
+    fn cancel_prewarm_tasks_for_target(&mut self, target_uri: &str) {
+        let Some(cancellations) = self.active_prewarm_cancellations.get(target_uri) else {
+            return;
+        };
+        for cancellation in cancellations {
+            cancellation.token.cancel();
+        }
+    }
+}
+
+fn spawn_worker_threads(
+    worker_count: usize,
+    document_request_results_tx: mpsc::Sender<DocumentRequestTaskResult>,
+    diagnostics_results_tx: mpsc::Sender<DiagnosticsTaskResult>,
+    workspace_refresh_results_tx: mpsc::Sender<WorkspaceRefreshTaskResult>,
+    prewarm_results_tx: mpsc::Sender<PrewarmTaskResult>,
+) -> (
+    mpsc::SyncSender<InteractiveWorkerTask>,
+    mpsc::SyncSender<BackgroundWorkerTask>,
+) {
+    let (interactive_task_tx, interactive_task_rx) =
+        mpsc::sync_channel::<InteractiveWorkerTask>(worker_count.max(1) * 2);
+    let (background_task_tx, background_task_rx) =
+        mpsc::sync_channel::<BackgroundWorkerTask>(worker_count.max(1) * 2);
+
+    let interactive_task_rx = Arc::new(Mutex::new(interactive_task_rx));
+    for _ in 0..worker_count.max(1) {
+        let interactive_task_rx = interactive_task_rx.clone();
+        let document_request_results_tx = document_request_results_tx.clone();
+        thread::spawn(move || {
+            loop {
+                let task = {
+                    let task_rx = recover_worker_queue_lock(&interactive_task_rx);
+                    task_rx.recv()
+                };
+                let Ok(task) = task else {
+                    break;
+                };
+                match task {
+                    InteractiveWorkerTask::DocumentRequest(task) => {
+                        let result = task();
+                        let _ = document_request_results_tx.send(result);
+                    }
+                }
+            }
+        });
+    }
+
+    let background_task_rx = Arc::new(Mutex::new(background_task_rx));
+    for _ in 0..worker_count.max(1) {
+        let background_task_rx = background_task_rx.clone();
+        let diagnostics_results_tx = diagnostics_results_tx.clone();
+        let workspace_refresh_results_tx = workspace_refresh_results_tx.clone();
+        let prewarm_results_tx = prewarm_results_tx.clone();
+        thread::spawn(move || {
+            loop {
+                let task = {
+                    let task_rx = recover_worker_queue_lock(&background_task_rx);
+                    task_rx.recv()
+                };
+                let Ok(task) = task else {
+                    break;
+                };
+                match task {
+                    BackgroundWorkerTask::Diagnostics(task) => {
+                        let result = task();
+                        let _ = diagnostics_results_tx.send(result);
+                    }
+                    BackgroundWorkerTask::WorkspaceRefresh(task) => {
+                        let result = task();
+                        let _ = workspace_refresh_results_tx.send(result);
+                    }
+                    BackgroundWorkerTask::Prewarm(task) => {
+                        let result = task();
+                        let _ = prewarm_results_tx.send(result);
+                    }
+                }
+            }
+        });
+    }
+
+    (interactive_task_tx, background_task_tx)
+}
+
+fn recover_worker_queue_lock<'a, T>(lock: &'a Mutex<T>) -> MutexGuard<'a, T> {
+    // A worker panic while holding the queue lock should not permanently kill
+    // the shared worker pool; the channel itself remains the source of truth.
+    match lock.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
     }
 }

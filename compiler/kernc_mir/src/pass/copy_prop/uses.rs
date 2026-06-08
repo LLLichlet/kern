@@ -1,3 +1,9 @@
+//! Local-use counting and rooted-place detection.
+//!
+//! Copy propagation needs two related views: ordinary operand use counts for
+//! dead-let removal, and rooted place uses where a local's address/projection
+//! identity must be preserved.
+
 use crate::{
     MirBody, MirCallTarget, MirInstruction, MirMemoryIntrinsic, MirOperand, MirPlace, MirRvalue,
     MirSliceBase,

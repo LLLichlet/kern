@@ -1,4 +1,11 @@
+//! Incremental analysis reuse helpers.
+//!
+//! Reuse compares normalized module paths, source contents, structure snapshots,
+//! and body-only changes so analysis can preserve cached semantic artifacts when
+//! edits do not invalidate them.
+
 use super::*;
+use kernc_utils::{Interner, SymbolId};
 
 pub(super) fn module_file_id(
     defs: &[kernc_sema::def::Def],
@@ -97,7 +104,9 @@ pub(super) fn module_source_changed(
 }
 
 pub(super) fn classify_function_body_decl_changes<'a>(
+    clean_session: &Session,
     clean_module: &ast::Module,
+    dirty_session: &Session,
     dirty_module: &ast::Module,
     item_ids: &mut std::slice::Iter<'a, DefId>,
     module_scope: ScopeId,
@@ -114,10 +123,20 @@ pub(super) fn classify_function_body_decl_changes<'a>(
                 let Some(def_id) = item_ids.next().copied() else {
                     return false;
                 };
-                if decls_equal_ignoring_ids_and_spans(clean_decl, dirty_decl) {
+                if decls_equal_ignoring_ids_and_spans(
+                    clean_session,
+                    clean_decl,
+                    dirty_session,
+                    dirty_decl,
+                ) {
                     continue;
                 }
-                if decls_equal_ignoring_body_only(clean_decl, dirty_decl) {
+                if decls_equal_ignoring_body_only(
+                    clean_session,
+                    clean_decl,
+                    dirty_session,
+                    dirty_decl,
+                ) {
                     worklist.push((def_id, module_scope));
                     replaced_spans.push(AnalysisSpanReplacement {
                         clean: clean_decl.span,
@@ -131,10 +150,20 @@ pub(super) fn classify_function_body_decl_changes<'a>(
                 let Some(def_id) = item_ids.next().copied() else {
                     return false;
                 };
-                if decls_equal_ignoring_ids_and_spans(clean_decl, dirty_decl) {
+                if decls_equal_ignoring_ids_and_spans(
+                    clean_session,
+                    clean_decl,
+                    dirty_session,
+                    dirty_decl,
+                ) {
                     continue;
                 }
-                if decls_equal_ignoring_body_only(clean_decl, dirty_decl) {
+                if decls_equal_ignoring_body_only(
+                    clean_session,
+                    clean_decl,
+                    dirty_session,
+                    dirty_decl,
+                ) {
                     worklist.push((def_id, module_scope));
                     if !collect_impl_method_replacements(clean_decl, dirty_decl, replaced_spans) {
                         return false;
@@ -148,7 +177,9 @@ pub(super) fn classify_function_body_decl_changes<'a>(
                 ast::DeclKind::ExternBlock { decls: dirty, .. },
             ) => {
                 if !classify_function_body_decls(
+                    clean_session,
                     clean,
+                    dirty_session,
                     dirty,
                     item_ids,
                     module_scope,
@@ -167,7 +198,12 @@ pub(super) fn classify_function_body_decl_changes<'a>(
                         return false;
                     };
                 }
-                if !decls_equal_ignoring_ids_and_spans(clean_decl, dirty_decl) {
+                if !decls_equal_ignoring_ids_and_spans(
+                    clean_session,
+                    clean_decl,
+                    dirty_session,
+                    dirty_decl,
+                ) {
                     return false;
                 }
             }
@@ -178,7 +214,9 @@ pub(super) fn classify_function_body_decl_changes<'a>(
 }
 
 fn classify_function_body_decls<'a>(
+    clean_session: &Session,
     clean_decls: &[ast::Decl],
+    dirty_session: &Session,
     dirty_decls: &[ast::Decl],
     item_ids: &mut std::slice::Iter<'a, DefId>,
     module_scope: ScopeId,
@@ -195,7 +233,12 @@ fn classify_function_body_decls<'a>(
                 let Some(_def_id) = item_ids.next().copied() else {
                     return false;
                 };
-                if !decls_equal_ignoring_ids_and_spans(clean_decl, dirty_decl) {
+                if !decls_equal_ignoring_ids_and_spans(
+                    clean_session,
+                    clean_decl,
+                    dirty_session,
+                    dirty_decl,
+                ) {
                     return false;
                 }
             }
@@ -247,19 +290,31 @@ fn collect_impl_method_replacements(
     true
 }
 
-fn decls_equal_ignoring_ids_and_spans(left: &ast::Decl, right: &ast::Decl) -> bool {
+fn decls_equal_ignoring_ids_and_spans(
+    left_session: &Session,
+    left: &ast::Decl,
+    right_session: &Session,
+    right: &ast::Decl,
+) -> bool {
     let mut left = left.clone();
     let mut right = right.clone();
     normalize_decl_for_reuse_comparison(&mut left);
     normalize_decl_for_reuse_comparison(&mut right);
+    canonicalize_decl_symbols_for_comparison(left_session, &mut left, right_session, &mut right);
     left == right
 }
 
-fn decls_equal_ignoring_body_only(left: &ast::Decl, right: &ast::Decl) -> bool {
+fn decls_equal_ignoring_body_only(
+    left_session: &Session,
+    left: &ast::Decl,
+    right_session: &Session,
+    right: &ast::Decl,
+) -> bool {
     let mut left = left.clone();
     let mut right = right.clone();
     normalize_decl_for_body_only_comparison(&mut left);
     normalize_decl_for_body_only_comparison(&mut right);
+    canonicalize_decl_symbols_for_comparison(left_session, &mut left, right_session, &mut right);
     left == right
 }
 
@@ -267,6 +322,9 @@ fn normalize_decl_for_reuse_comparison(decl: &mut ast::Decl) {
     decl.id = NodeId(0);
     decl.span = Span::default();
     decl.name_span = Span::default();
+    if let Some(docs) = &mut decl.docs {
+        normalize_doc_block_for_comparison(docs);
+    }
     normalize_attributes_for_body_only_comparison(&mut decl.attributes);
 
     match &mut decl.kind {
@@ -552,24 +610,768 @@ fn rebind_impl_methods<'a>(
     true
 }
 
-pub(super) fn modules_match_ignoring_body_only(left: &ast::Module, right: &ast::Module) -> bool {
+pub(super) fn modules_match_ignoring_body_only(
+    left_session: &Session,
+    left: &ast::Module,
+    right_session: &Session,
+    right: &ast::Module,
+) -> bool {
     let mut left = left.clone();
     let mut right = right.clone();
     normalize_module_for_body_only_comparison(&mut left);
     normalize_module_for_body_only_comparison(&mut right);
+    canonicalize_module_symbols_for_comparison(left_session, &mut left, right_session, &mut right);
     left == right
 }
 
 fn normalize_module_for_body_only_comparison(module: &mut ast::Module) {
+    if let Some(docs) = &mut module.docs {
+        normalize_doc_block_for_comparison(docs);
+    }
+    normalize_attributes_for_body_only_comparison(&mut module.attributes);
     for decl in &mut module.decls {
         normalize_decl_for_body_only_comparison(decl);
     }
+}
+
+fn normalize_doc_block_for_comparison(docs: &mut ast::DocBlock) {
+    docs.span = Span::default();
+    for line in &mut docs.lines {
+        line.span = Span::default();
+    }
+}
+
+fn canonicalize_module_symbols_for_comparison(
+    left_session: &Session,
+    left: &mut ast::Module,
+    right_session: &Session,
+    right: &mut ast::Module,
+) {
+    let mut canonical = Interner::new();
+    canonicalize_module_symbols(left_session, &mut canonical, left);
+    canonicalize_module_symbols(right_session, &mut canonical, right);
+}
+
+fn canonicalize_decl_symbols_for_comparison(
+    left_session: &Session,
+    left: &mut ast::Decl,
+    right_session: &Session,
+    right: &mut ast::Decl,
+) {
+    let mut canonical = Interner::new();
+    canonicalize_decl_symbols(left_session, &mut canonical, left);
+    canonicalize_decl_symbols(right_session, &mut canonical, right);
+}
+
+fn canonicalize_module_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    module: &mut ast::Module,
+) {
+    for attribute in &mut module.attributes {
+        canonicalize_attribute_symbols(session, canonical, attribute);
+    }
+    for decl in &mut module.decls {
+        canonicalize_decl_symbols(session, canonical, decl);
+    }
+}
+
+fn canonicalize_decl_symbols(session: &Session, canonical: &mut Interner, decl: &mut ast::Decl) {
+    canonicalize_symbol(session, canonical, &mut decl.name);
+    for attribute in &mut decl.attributes {
+        canonicalize_attribute_symbols(session, canonical, attribute);
+    }
+
+    match &mut decl.kind {
+        ast::DeclKind::Function {
+            generics,
+            where_clauses,
+            params,
+            ret_type,
+            body,
+            ..
+        } => {
+            canonicalize_generics_symbols(session, canonical, generics);
+            canonicalize_where_clause_symbols(session, canonical, where_clauses);
+            for param in params {
+                canonicalize_func_param_symbols(session, canonical, param);
+            }
+            canonicalize_type_symbols(session, canonical, ret_type);
+            if let Some(body) = body {
+                canonicalize_expr_symbols(session, canonical, body);
+            }
+        }
+        ast::DeclKind::Var {
+            type_node, value, ..
+        } => {
+            if let Some(type_node) = type_node {
+                canonicalize_type_symbols(session, canonical, type_node);
+            }
+            if let Some(value) = value {
+                canonicalize_expr_symbols(session, canonical, value);
+            }
+        }
+        ast::DeclKind::TypeAlias {
+            generics,
+            where_clauses,
+            target,
+            ..
+        } => {
+            canonicalize_generics_symbols(session, canonical, generics);
+            canonicalize_where_clause_symbols(session, canonical, where_clauses);
+            canonicalize_type_symbols(session, canonical, target);
+        }
+        ast::DeclKind::Struct {
+            generics,
+            where_clauses,
+            fields,
+            ..
+        }
+        | ast::DeclKind::Union {
+            generics,
+            where_clauses,
+            fields,
+            ..
+        } => {
+            canonicalize_generics_symbols(session, canonical, generics);
+            canonicalize_where_clause_symbols(session, canonical, where_clauses);
+            for field in fields {
+                canonicalize_struct_field_symbols(session, canonical, field);
+            }
+        }
+        ast::DeclKind::Enum {
+            generics,
+            where_clauses,
+            backing_type,
+            variants,
+            ..
+        } => {
+            canonicalize_generics_symbols(session, canonical, generics);
+            canonicalize_where_clause_symbols(session, canonical, where_clauses);
+            if let Some(backing_type) = backing_type {
+                canonicalize_type_symbols(session, canonical, backing_type);
+            }
+            for variant in variants {
+                canonicalize_enum_variant_symbols(session, canonical, variant);
+            }
+        }
+        ast::DeclKind::Trait {
+            generics,
+            where_clauses,
+            supertraits,
+            assoc_types,
+            methods,
+        } => {
+            canonicalize_generics_symbols(session, canonical, generics);
+            canonicalize_where_clause_symbols(session, canonical, where_clauses);
+            for supertrait in supertraits {
+                canonicalize_type_symbols(session, canonical, supertrait);
+            }
+            for assoc in assoc_types {
+                canonicalize_assoc_type_symbols(session, canonical, assoc);
+            }
+            for method in methods {
+                canonicalize_trait_method_symbols(session, canonical, method);
+            }
+        }
+        ast::DeclKind::Mod { decls } => {
+            if let Some(decls) = decls {
+                for child in decls {
+                    canonicalize_decl_symbols(session, canonical, child);
+                }
+            }
+        }
+        ast::DeclKind::Use { path, target, .. } => {
+            canonicalize_symbol_slice(session, canonical, path);
+            canonicalize_use_target_symbols(session, canonical, target);
+        }
+        ast::DeclKind::ExternBlock { decls, .. } => {
+            for child in decls {
+                canonicalize_decl_symbols(session, canonical, child);
+            }
+        }
+        ast::DeclKind::Impl {
+            generics,
+            where_clauses,
+            target_type,
+            trait_type,
+            decls,
+        } => {
+            canonicalize_generics_symbols(session, canonical, generics);
+            canonicalize_where_clause_symbols(session, canonical, where_clauses);
+            canonicalize_type_symbols(session, canonical, target_type);
+            if let Some(trait_type) = trait_type {
+                canonicalize_type_symbols(session, canonical, trait_type);
+            }
+            for child in decls {
+                canonicalize_decl_symbols(session, canonical, child);
+            }
+        }
+    }
+}
+
+fn canonicalize_attribute_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    attribute: &mut ast::Attribute,
+) {
+    match &mut attribute.kind {
+        ast::AttributeKind::If(expr) => canonicalize_expr_symbols(session, canonical, expr),
+        ast::AttributeKind::Meta(items) => {
+            for item in items {
+                match item {
+                    ast::MetaItem::Marker(name) => canonicalize_symbol(session, canonical, name),
+                    ast::MetaItem::Call(name, expr) => {
+                        canonicalize_symbol(session, canonical, name);
+                        canonicalize_expr_symbols(session, canonical, expr);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn canonicalize_generics_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    generics: &mut [ast::GenericParam],
+) {
+    for generic in generics {
+        canonicalize_symbol(session, canonical, &mut generic.name);
+        match &mut generic.kind {
+            ast::GenericParamKind::Type => {}
+            ast::GenericParamKind::Const { ty } => {
+                canonicalize_type_symbols(session, canonical, ty)
+            }
+        }
+    }
+}
+
+fn canonicalize_where_clause_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    clauses: &mut [ast::WhereClause],
+) {
+    for clause in clauses {
+        canonicalize_type_symbols(session, canonical, &mut clause.target_ty);
+        for bound in &mut clause.bounds {
+            canonicalize_type_symbols(session, canonical, bound);
+        }
+    }
+}
+
+fn canonicalize_func_param_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    param: &mut ast::FuncParam,
+) {
+    canonicalize_binding_pattern_symbols(session, canonical, &mut param.pattern);
+    canonicalize_type_symbols(session, canonical, &mut param.type_node);
+}
+
+fn canonicalize_binding_pattern_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    pattern: &mut ast::BindingPattern,
+) {
+    canonicalize_symbol(session, canonical, &mut pattern.name);
+}
+
+fn canonicalize_use_target_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    target: &mut ast::UseTarget,
+) {
+    match target {
+        ast::UseTarget::Module(alias) => {
+            if let Some(alias) = alias {
+                canonicalize_symbol(session, canonical, alias);
+            }
+        }
+        ast::UseTarget::Tree(items) => {
+            for item in items {
+                canonicalize_use_tree_symbols(session, canonical, item);
+            }
+        }
+    }
+}
+
+fn canonicalize_use_tree_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    tree: &mut ast::UseTree,
+) {
+    match tree {
+        ast::UseTree::SelfModule { alias, .. } => {
+            if let Some(alias) = alias {
+                canonicalize_symbol(session, canonical, alias);
+            }
+        }
+        ast::UseTree::Path {
+            path,
+            alias,
+            nested,
+            ..
+        } => {
+            canonicalize_symbol_slice(session, canonical, path);
+            if let Some(alias) = alias {
+                canonicalize_symbol(session, canonical, alias);
+            }
+            if let Some(nested) = nested {
+                for item in nested {
+                    canonicalize_use_tree_symbols(session, canonical, item);
+                }
+            }
+        }
+    }
+}
+
+fn canonicalize_type_symbols(session: &Session, canonical: &mut Interner, ty: &mut ast::TypeNode) {
+    match &mut ty.kind {
+        ast::TypeKind::Path { segments, .. } => {
+            for segment in segments {
+                canonicalize_symbol(session, canonical, &mut segment.name);
+                for arg in &mut segment.args {
+                    canonicalize_generic_arg_symbols(session, canonical, arg);
+                }
+            }
+        }
+        ast::TypeKind::Optional { inner } => canonicalize_type_symbols(session, canonical, inner),
+        ast::TypeKind::Result { ok, err } => {
+            canonicalize_type_symbols(session, canonical, ok);
+            canonicalize_type_symbols(session, canonical, err);
+        }
+        ast::TypeKind::Range { start, end, .. } => {
+            if let Some(start) = start {
+                canonicalize_type_symbols(session, canonical, start);
+            }
+            if let Some(end) = end {
+                canonicalize_type_symbols(session, canonical, end);
+            }
+        }
+        ast::TypeKind::Pointer { elem, .. }
+        | ast::TypeKind::VolatilePtr { elem, .. }
+        | ast::TypeKind::ArrayInfer { elem, .. }
+        | ast::TypeKind::Slice { elem, .. } => canonicalize_type_symbols(session, canonical, elem),
+        ast::TypeKind::Array { elem, len } => {
+            canonicalize_type_symbols(session, canonical, elem);
+            canonicalize_expr_symbols(session, canonical, len);
+        }
+        ast::TypeKind::Function { params, ret, .. }
+        | ast::TypeKind::ClosureInterface { params, ret } => {
+            for param in params {
+                canonicalize_type_symbols(session, canonical, param);
+            }
+            if let Some(ret) = ret {
+                canonicalize_type_symbols(session, canonical, ret);
+            }
+        }
+        ast::TypeKind::Struct { fields, .. } | ast::TypeKind::Union { fields, .. } => {
+            for field in fields {
+                canonicalize_struct_field_symbols(session, canonical, field);
+            }
+        }
+        ast::TypeKind::Enum {
+            backing_type,
+            variants,
+        } => {
+            if let Some(backing_type) = backing_type {
+                canonicalize_type_symbols(session, canonical, backing_type);
+            }
+            for variant in variants {
+                canonicalize_enum_variant_symbols(session, canonical, variant);
+            }
+        }
+        ast::TypeKind::Trait {
+            assoc_types,
+            methods,
+        } => {
+            for assoc in assoc_types {
+                canonicalize_assoc_type_symbols(session, canonical, assoc);
+            }
+            for method in methods {
+                canonicalize_trait_method_symbols(session, canonical, method);
+            }
+        }
+        ast::TypeKind::TypeOf(expr) => canonicalize_expr_symbols(session, canonical, expr),
+        ast::TypeKind::Error
+        | ast::TypeKind::Infer
+        | ast::TypeKind::SelfType
+        | ast::TypeKind::Never
+        | ast::TypeKind::Void => {}
+    }
+}
+
+fn canonicalize_generic_arg_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    arg: &mut ast::GenericArg,
+) {
+    match arg {
+        ast::GenericArg::Type(ty) => canonicalize_type_symbols(session, canonical, ty),
+        ast::GenericArg::ConstExpr(expr) => canonicalize_expr_symbols(session, canonical, expr),
+        ast::GenericArg::AssocBinding { name, value, .. } => {
+            canonicalize_symbol(session, canonical, name);
+            canonicalize_type_symbols(session, canonical, value);
+        }
+    }
+}
+
+fn canonicalize_struct_field_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    field: &mut ast::StructFieldDef,
+) {
+    canonicalize_symbol(session, canonical, &mut field.name);
+    canonicalize_type_symbols(session, canonical, &mut field.type_node);
+    if let Some(value) = &mut field.default_value {
+        canonicalize_expr_symbols(session, canonical, value);
+    }
+}
+
+fn canonicalize_enum_variant_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    variant: &mut ast::EnumVariant,
+) {
+    canonicalize_symbol(session, canonical, &mut variant.name);
+    if let Some(payload_type) = &mut variant.payload_type {
+        canonicalize_type_symbols(session, canonical, payload_type);
+    }
+    if let Some(value) = &mut variant.value {
+        canonicalize_expr_symbols(session, canonical, value);
+    }
+}
+
+fn canonicalize_assoc_type_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    assoc: &mut ast::AssociatedTypeDecl,
+) {
+    canonicalize_symbol(session, canonical, &mut assoc.name);
+    canonicalize_generics_symbols(session, canonical, &mut assoc.generics);
+    for bound in &mut assoc.bounds {
+        canonicalize_type_symbols(session, canonical, bound);
+    }
+    canonicalize_where_clause_symbols(session, canonical, &mut assoc.where_clauses);
+}
+
+fn canonicalize_trait_method_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    method: &mut ast::TraitMethodDef,
+) {
+    canonicalize_struct_field_symbols(session, canonical, &mut method.signature);
+    for param in &mut method.params {
+        canonicalize_func_param_symbols(session, canonical, param);
+    }
+    if let Some(body) = &mut method.body {
+        canonicalize_expr_symbols(session, canonical, body);
+    }
+}
+
+fn canonicalize_expr_symbols(session: &Session, canonical: &mut Interner, expr: &mut ast::Expr) {
+    match &mut expr.kind {
+        ast::ExprKind::Let {
+            pattern,
+            type_node,
+            init,
+            else_clause,
+            ..
+        } => {
+            canonicalize_let_pattern_symbols(session, canonical, pattern);
+            if let Some(type_node) = type_node {
+                canonicalize_type_symbols(session, canonical, type_node);
+            }
+            canonicalize_expr_symbols(session, canonical, init);
+            if let Some(else_clause) = else_clause {
+                canonicalize_let_else_clause_symbols(session, canonical, else_clause);
+            }
+        }
+        ast::ExprKind::Static {
+            pattern,
+            type_node,
+            init,
+            ..
+        } => {
+            canonicalize_binding_pattern_symbols(session, canonical, pattern);
+            if let Some(type_node) = type_node {
+                canonicalize_type_symbols(session, canonical, type_node);
+            }
+            if let Some(init) = init {
+                canonicalize_expr_symbols(session, canonical, init);
+            }
+        }
+        ast::ExprKind::Identifier(name) => canonicalize_symbol(session, canonical, name),
+        ast::ExprKind::AnchoredPath { name, .. } => {
+            canonicalize_symbol(session, canonical, name);
+        }
+        ast::ExprKind::TypeNode(type_node) => {
+            canonicalize_type_symbols(session, canonical, type_node);
+        }
+        ast::ExprKind::Binary { lhs, rhs, .. } | ast::ExprKind::Assign { lhs, rhs, .. } => {
+            canonicalize_expr_symbols(session, canonical, lhs);
+            canonicalize_expr_symbols(session, canonical, rhs);
+        }
+        ast::ExprKind::Range { start, end, .. } => {
+            if let Some(start) = start {
+                canonicalize_expr_symbols(session, canonical, start);
+            }
+            if let Some(end) = end {
+                canonicalize_expr_symbols(session, canonical, end);
+            }
+        }
+        ast::ExprKind::Unary { operand, .. } => {
+            canonicalize_expr_symbols(session, canonical, operand);
+        }
+        ast::ExprKind::Grouped { expr } => canonicalize_expr_symbols(session, canonical, expr),
+        ast::ExprKind::FieldAccess { lhs, field, .. } => {
+            canonicalize_expr_symbols(session, canonical, lhs);
+            canonicalize_symbol(session, canonical, field);
+        }
+        ast::ExprKind::IndexAccess { lhs, index, .. } => {
+            canonicalize_expr_symbols(session, canonical, lhs);
+            canonicalize_expr_symbols(session, canonical, index);
+        }
+        ast::ExprKind::Call { callee, args } => {
+            canonicalize_expr_symbols(session, canonical, callee);
+            for arg in args {
+                canonicalize_expr_symbols(session, canonical, arg);
+            }
+        }
+        ast::ExprKind::DataInit { type_node, literal } => {
+            if let Some(type_node) = type_node {
+                canonicalize_type_symbols(session, canonical, type_node);
+            }
+            canonicalize_data_literal_symbols(session, canonical, literal);
+        }
+        ast::ExprKind::EnumLiteral { variant, .. } => {
+            canonicalize_symbol(session, canonical, variant);
+        }
+        ast::ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            canonicalize_expr_symbols(session, canonical, cond);
+            canonicalize_expr_symbols(session, canonical, then_branch);
+            if let Some(else_branch) = else_branch {
+                canonicalize_expr_symbols(session, canonical, else_branch);
+            }
+        }
+        ast::ExprKind::Match { target, arms } => {
+            canonicalize_expr_symbols(session, canonical, target);
+            for arm in arms {
+                for pattern in &mut arm.patterns {
+                    canonicalize_match_pattern_symbols(session, canonical, pattern);
+                }
+                canonicalize_expr_symbols(session, canonical, &mut arm.body);
+            }
+        }
+        ast::ExprKind::Block { stmts, result } => {
+            for stmt in stmts {
+                for attribute in &mut stmt.attributes {
+                    canonicalize_attribute_symbols(session, canonical, attribute);
+                }
+                match &mut stmt.kind {
+                    ast::StmtKind::Use(use_stmt) => {
+                        canonicalize_symbol_slice(session, canonical, &mut use_stmt.path);
+                        canonicalize_use_target_symbols(session, canonical, &mut use_stmt.target);
+                    }
+                    ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
+                        canonicalize_expr_symbols(session, canonical, expr);
+                    }
+                }
+            }
+            if let Some(result) = result {
+                canonicalize_expr_symbols(session, canonical, result);
+            }
+        }
+        ast::ExprKind::While { cond, body } => {
+            canonicalize_expr_symbols(session, canonical, cond);
+            canonicalize_expr_symbols(session, canonical, body);
+        }
+        ast::ExprKind::SliceOp {
+            lhs, start, end, ..
+        } => {
+            canonicalize_expr_symbols(session, canonical, lhs);
+            if let Some(start) = start {
+                canonicalize_expr_symbols(session, canonical, start);
+            }
+            if let Some(end) = end {
+                canonicalize_expr_symbols(session, canonical, end);
+            }
+        }
+        ast::ExprKind::Defer { expr } => canonicalize_expr_symbols(session, canonical, expr),
+        ast::ExprKind::Return(value) => {
+            if let Some(value) = value {
+                canonicalize_expr_symbols(session, canonical, value);
+            }
+        }
+        ast::ExprKind::As { lhs, target } => {
+            canonicalize_expr_symbols(session, canonical, lhs);
+            canonicalize_type_symbols(session, canonical, target);
+        }
+        ast::ExprKind::Propagate { operand } => {
+            canonicalize_expr_symbols(session, canonical, operand);
+        }
+        ast::ExprKind::GenericInstantiation { target, args } => {
+            canonicalize_expr_symbols(session, canonical, target);
+            for arg in args {
+                canonicalize_generic_arg_symbols(session, canonical, arg);
+            }
+        }
+        ast::ExprKind::Closure {
+            captures,
+            params,
+            ret_type,
+            body,
+        } => {
+            for capture in captures {
+                canonicalize_symbol(session, canonical, &mut capture.name);
+                canonicalize_expr_symbols(session, canonical, &mut capture.value);
+            }
+            for param in params {
+                canonicalize_func_param_symbols(session, canonical, param);
+            }
+            canonicalize_type_symbols(session, canonical, ret_type);
+            canonicalize_expr_symbols(session, canonical, body);
+        }
+        ast::ExprKind::Error
+        | ast::ExprKind::Integer { .. }
+        | ast::ExprKind::Float { .. }
+        | ast::ExprKind::Bool(_)
+        | ast::ExprKind::Char(_)
+        | ast::ExprKind::ByteChar(_)
+        | ast::ExprKind::String(_)
+        | ast::ExprKind::Break
+        | ast::ExprKind::Continue
+        | ast::ExprKind::Undef
+        | ast::ExprKind::Infer
+        | ast::ExprKind::SelfValue => {}
+    }
+}
+
+fn canonicalize_let_else_clause_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    else_clause: &mut ast::LetElseClause,
+) {
+    match else_clause {
+        ast::LetElseClause::Expr(expr) => canonicalize_expr_symbols(session, canonical, expr),
+        ast::LetElseClause::Arms(arms) => {
+            for arm in arms {
+                canonicalize_pattern_symbols(session, canonical, &mut arm.pattern);
+                canonicalize_expr_symbols(session, canonical, &mut arm.body);
+            }
+        }
+    }
+}
+
+fn canonicalize_data_literal_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    literal: &mut ast::DataLiteralKind,
+) {
+    match literal {
+        ast::DataLiteralKind::Struct(fields) => {
+            for field in fields {
+                canonicalize_symbol(session, canonical, &mut field.name);
+                canonicalize_expr_symbols(session, canonical, &mut field.value);
+            }
+        }
+        ast::DataLiteralKind::Array(items) => {
+            for item in items {
+                canonicalize_expr_symbols(session, canonical, item);
+            }
+        }
+        ast::DataLiteralKind::Repeat { value, count } => {
+            canonicalize_expr_symbols(session, canonical, value);
+            canonicalize_expr_symbols(session, canonical, count);
+        }
+        ast::DataLiteralKind::Scalar(value) => canonicalize_expr_symbols(session, canonical, value),
+    }
+}
+
+fn canonicalize_let_pattern_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    pattern: &mut ast::LetPattern,
+) {
+    canonicalize_pattern_symbols(session, canonical, &mut pattern.pattern);
+}
+
+fn canonicalize_pattern_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    pattern: &mut ast::Pattern,
+) {
+    match &mut pattern.kind {
+        ast::PatternKind::Binding(binding) => {
+            canonicalize_binding_pattern_symbols(session, canonical, binding);
+        }
+        ast::PatternKind::Ignore => {}
+        ast::PatternKind::Value(value) => canonicalize_expr_symbols(session, canonical, value),
+        ast::PatternKind::Variant(variant) => {
+            canonicalize_symbol(session, canonical, &mut variant.variant_name);
+            if let Some(target_type) = &mut variant.target_type {
+                canonicalize_type_symbols(session, canonical, target_type);
+            }
+        }
+        ast::PatternKind::Destructure(destructure) => {
+            if let Some(target_type) = &mut destructure.target_type {
+                canonicalize_type_symbols(session, canonical, target_type);
+            }
+            for field in &mut destructure.fields {
+                canonicalize_symbol(session, canonical, &mut field.name);
+                canonicalize_pattern_symbols(session, canonical, &mut field.pattern);
+            }
+        }
+    }
+}
+
+fn canonicalize_match_pattern_symbols(
+    session: &Session,
+    canonical: &mut Interner,
+    pattern: &mut ast::MatchPattern,
+) {
+    match &mut pattern.kind {
+        ast::MatchPatternKind::Value(value) => canonicalize_expr_symbols(session, canonical, value),
+        ast::MatchPatternKind::Pattern(inner) => {
+            canonicalize_pattern_symbols(session, canonical, inner);
+        }
+    }
+}
+
+fn canonicalize_symbol_slice(
+    session: &Session,
+    canonical: &mut Interner,
+    symbols: &mut [SymbolId],
+) {
+    for symbol in symbols {
+        canonicalize_symbol(session, canonical, symbol);
+    }
+}
+
+fn canonicalize_symbol(session: &Session, canonical: &mut Interner, symbol: &mut SymbolId) {
+    let canonical_name;
+    let name = match session.interner.resolve(*symbol) {
+        Some(name) => name,
+        None => {
+            canonical_name = format!("\0unknown_symbol_{}", symbol.0);
+            canonical_name.as_str()
+        }
+    };
+    *symbol = canonical.intern(name);
 }
 
 fn normalize_decl_for_body_only_comparison(decl: &mut ast::Decl) {
     decl.id = NodeId(0);
     decl.span = Span::default();
     decl.name_span = Span::default();
+    if let Some(docs) = &mut decl.docs {
+        normalize_doc_block_for_comparison(docs);
+    }
     normalize_attributes_for_body_only_comparison(&mut decl.attributes);
 
     match &mut decl.kind {
@@ -829,6 +1631,9 @@ fn normalize_type_for_body_only_comparison(ty: &mut ast::TypeNode) {
             methods,
         } => {
             for assoc in assoc_types {
+                if let Some(docs) = &mut assoc.docs {
+                    normalize_doc_block_for_comparison(docs);
+                }
                 assoc.name_span = Span::default();
                 assoc.span = Span::default();
                 for bound in &mut assoc.bounds {
@@ -854,6 +1659,9 @@ fn normalize_type_for_body_only_comparison(ty: &mut ast::TypeNode) {
                 normalize_type_for_body_only_comparison(backing_type);
             }
             for variant in variants {
+                if let Some(docs) = &mut variant.docs {
+                    normalize_doc_block_for_comparison(docs);
+                }
                 variant.span = Span::default();
                 variant.name_span = Span::default();
                 if let Some(payload_type) = &mut variant.payload_type {
@@ -876,6 +1684,9 @@ fn normalize_type_for_body_only_comparison(ty: &mut ast::TypeNode) {
 fn normalize_struct_field_for_body_only_comparison(field: &mut ast::StructFieldDef) {
     field.span = Span::default();
     field.name_span = Span::default();
+    if let Some(docs) = &mut field.docs {
+        normalize_doc_block_for_comparison(docs);
+    }
     normalize_type_for_body_only_comparison(&mut field.type_node);
     field.default_value = None;
 }
@@ -883,6 +1694,9 @@ fn normalize_struct_field_for_body_only_comparison(field: &mut ast::StructFieldD
 fn normalize_enum_variant_for_body_only_comparison(variant: &mut ast::EnumVariant) {
     variant.span = Span::default();
     variant.name_span = Span::default();
+    if let Some(docs) = &mut variant.docs {
+        normalize_doc_block_for_comparison(docs);
+    }
     if let Some(payload_type) = &mut variant.payload_type {
         normalize_type_for_body_only_comparison(payload_type);
     }
@@ -898,6 +1712,9 @@ fn normalize_trait_items_for_body_only_comparison(
     for assoc in assoc_types {
         assoc.name_span = Span::default();
         assoc.span = Span::default();
+        if let Some(docs) = &mut assoc.docs {
+            normalize_doc_block_for_comparison(docs);
+        }
         normalize_generics_for_body_only_comparison(&mut assoc.generics);
         for bound in &mut assoc.bounds {
             normalize_type_for_body_only_comparison(bound);
@@ -1155,6 +1972,7 @@ fn normalize_pattern_for_body_only_comparison(pattern: &mut ast::Pattern) {
             normalize_binding_pattern_for_body_only_comparison(binding);
         }
         ast::PatternKind::Ignore => {}
+        ast::PatternKind::Value(value) => normalize_expr_for_body_only_comparison(value),
         ast::PatternKind::Variant(variant) => {
             variant.variant_span = Span::default();
             if let Some(target_type) = &mut variant.target_type {

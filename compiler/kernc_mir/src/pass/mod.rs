@@ -1,3 +1,9 @@
+//! MIR optimization and cleanup pass pipeline.
+//!
+//! The default pipeline runs small local rewrites after lowering: copy
+//! propagation, jump threading, branch folding, and unreachable-block pruning.
+//! Each pass reports what changed so the driver/tests can audit effectiveness.
+
 mod cfg;
 mod copy_prop;
 

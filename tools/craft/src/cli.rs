@@ -32,6 +32,7 @@ pub enum Command {
     Init {
         path: Option<PathBuf>,
         ui: UiOptions,
+        kind: Option<InitKind>,
     },
     Clean {
         path: Option<PathBuf>,
@@ -105,6 +106,12 @@ pub enum Command {
 pub enum HelpTopic {
     Overview,
     Command(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InitKind {
+    Lib,
+    Bin,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -308,10 +315,41 @@ where
 
     match cmd.as_str() {
         "init" => {
-            let options = parse_command_options(rest, init_option_mode())?;
+            let mut init_bin = false;
+            let mut init_lib = false;
+            let rest: Vec<String> = rest
+                .iter()
+                .filter(|arg| {
+                    if **arg == "--lib" {
+                        init_lib = true;
+                        false
+                    } else if **arg == "--bin" {
+                        init_bin = true;
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .cloned()
+                .collect();
+            if init_bin && init_lib {
+                return Err(Error::Usage(format!(
+                    "Both a library and binary???: {}",
+                    args.join(" ")
+                )))
+            }
+            let mut kind: Option<InitKind> = None;
+            if init_bin {
+                kind = Some(InitKind::Bin);
+            }
+            if init_lib {
+                kind = Some(InitKind::Lib);
+            }
+            let options = parse_command_options(&rest, init_option_mode())?;
             Ok(Command::Init {
                 path: options.path,
                 ui: options.ui,
+                kind,
             })
         }
         "clean" => {

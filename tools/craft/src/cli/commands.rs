@@ -22,6 +22,7 @@ use crate::resolver;
 use crate::source::{self, FetchProgress, FetchProgressKind, FetchProgressPhase};
 use crate::style;
 use crate::workspace;
+use crate::cli::InitKind;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -147,7 +148,7 @@ pub(super) fn run_command(command: Command) -> Result<()> {
             println!("{}", super::version_text());
             Ok(())
         }
-        Command::Init { path, ui } => run_init(path, ui),
+        Command::Init { path, ui , kind} => run_init(path, ui, kind),
         Command::Clean { path, ui } => run_clean(path, ui),
         Command::Check {
             path,
@@ -319,11 +320,11 @@ fn run_fmt(path: Option<PathBuf>, ui: super::UiOptions, check: bool) -> Result<(
     Ok(())
 }
 
-fn run_init(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
+fn run_init(path: Option<PathBuf>, ui: super::UiOptions, kind: Option<InitKind>) -> Result<()> {
     let render = Renderer::new(ui);
     let root = resolve_init_root(path.as_deref())?;
     let _workspace_lock = WorkspaceOperationLock::acquire(&root, "init")?;
-    let init = plan_init(&root)?;
+    let init = plan_init(&root, kind)?;
     let created = apply_init_plan(&root, &init)?;
     let manifest_path = root.join("Craft.toml");
     let manifest = Manifest::load(&manifest_path)?;
@@ -1813,6 +1814,7 @@ struct InitPlan {
     test_roots: Vec<String>,
     example_roots: Vec<String>,
     create_main_stub: bool,
+    create_lib_stub: bool,
 }
 
 impl InitPlan {
@@ -1872,7 +1874,7 @@ fn resolve_init_root(path: Option<&Path>) -> Result<PathBuf> {
     fs::canonicalize(&root).map_err(|err| Error::from_io(&root, err))
 }
 
-fn plan_init(root: &Path) -> Result<InitPlan> {
+fn plan_init(root: &Path, kind: Option<InitKind>) -> Result<InitPlan> {
     let manifest_path = root.join("Craft.toml");
     if manifest_path.exists() {
         match Manifest::load(&manifest_path).and_then(|manifest| manifest.validate(&manifest_path))
@@ -1892,17 +1894,25 @@ fn plan_init(root: &Path) -> Result<InitPlan> {
         }
     }
 
-    let lib_root = root
+    let (mut lib_root, mut bin_root) = match kind {
+        Some(InitKind::Lib) => (Some("src/lib.kn".to_string()), None),
+        Some(InitKind::Bin) => (None, Some("src/main.kn".to_string())),
+        None => ( root
         .join("src/lib.kn")
         .is_file()
-        .then(|| "src/lib.kn".to_string());
-    let mut bin_root = root
+        .then(|| "src/lib.kn".to_string()),
+        root
         .join("src/main.kn")
         .is_file()
-        .then(|| "src/main.kn".to_string());
-    let create_main_stub = lib_root.is_none() && bin_root.is_none();
+        .then(|| "src/main.kn".to_string()))
+    };
+    let create_main_stub = (kind == Some(InitKind::Bin)) && bin_root.is_none();
+    let create_lib_stub = (kind == Some(InitKind::Lib)) && lib_root.is_none();
     if create_main_stub {
         bin_root = Some("src/main.kn".to_string());
+    }
+    if create_lib_stub {
+        lib_root = Some("src/lib.kn".to_string());
     }
 
     Ok(InitPlan {
@@ -1912,6 +1922,7 @@ fn plan_init(root: &Path) -> Result<InitPlan> {
         test_roots: collect_kern_roots(root, "tests")?,
         example_roots: collect_kern_roots(root, "examples")?,
         create_main_stub,
+        create_lib_stub,
     })
 }
 
@@ -1924,6 +1935,14 @@ fn apply_init_plan(root: &Path, init: &InitPlan) -> Result<Vec<PathBuf>> {
         write_if_missing(
             &root.join("src/main.kn"),
             "use std.io;\n\nfn main() i32 {\n    \"Hello, Kern!\".println();\n    return 0;\n}\n",
+            &mut created,
+        )?;
+    }
+
+    if init.create_lib_stub {
+        write_if_missing(
+            &root.join("src/lib.kn"),
+            "use std.io;\n\n pub fn hello() void {\n    \"Hello from lib!\".println();\n}",
             &mut created,
         )?;
     }

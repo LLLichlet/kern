@@ -7,6 +7,7 @@ __pycache__/
 /kern-*.tar.gz
 /kern-*.zip
 /kern-*.sha256
+.idea
 website/dist/
 website/node_modules/
 website/public/docs-data/

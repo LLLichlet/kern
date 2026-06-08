@@ -10,3 +10,4 @@ __pycache__/
 /website/dist/
 /website/.astro/
 features.md
+.idea

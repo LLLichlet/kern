@@ -30,6 +30,7 @@ The installed tree contains:
 - `bin/kernc`: compiler, analysis, object emission, and linking driver
 - `bin/craft`: package manager and build orchestrator
 - `bin/kern-lsp`: language server for editor integration
+- `bin/kernup`: SDK installer and toolchain-manager entry point
 - `lib/kern`: official library workspace, including `base`, `rt`, `std`, and
   the internal `kernlib-test` workspace member
 - `toolchain/host`: bundled host LLVM/Clang runtime tools required by the SDK
@@ -255,7 +256,8 @@ cargo run -q -p kernworker -- release package --version v0.8.2 --target x86_64-w
 
 Then install the archive with either the platform installer or `kernup`.
 
-The same release packaging command also emits a small bootstrap archive named:
+The same release packaging command also includes `kernup` in the SDK `bin/`
+directory and emits a small bootstrap archive named:
 
 ```text
 kernup-<version>-<host-target>.<tar.gz|zip>
@@ -264,6 +266,9 @@ kernup-<version>-<host-target>.<tar.gz|zip>
 The repository-root installers should download this bootstrapper first and then
 invoke `kernup install`. Keeping SDK install logic in `kernup` prevents the Unix
 script, Windows script, and Rust installer from drifting apart.
+
+Passing `--skip-kernup` to `kernworker release package` skips only the separate
+bootstrap archive. The SDK itself still contains `bin/kernup`.
 
 The packaging command is intentionally host-native for the current release
 model. The archive label must match the current host and the binaries copied

@@ -20,7 +20,7 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const HOST_TOOL_BINARIES: &[&str] = &["kernc", "craft", "kern-lsp"];
+pub const HOST_TOOL_BINARIES: &[&str] = &["kernc", "craft", "kern-lsp", "kernup"];
 pub const OFFICIAL_LIBRARY_WORKSPACE_MEMBERS: &[&str] = &["base", "kernlib-test", "std", "rt"];
 pub const OFFICIAL_LIBRARY_LAYERS: &[&str] = &["base", "rt", "std"];
 pub const OFFICIAL_LIBRARY_ENTRY: &str = "lib.kn";

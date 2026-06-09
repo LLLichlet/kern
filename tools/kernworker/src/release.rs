@@ -41,7 +41,7 @@ pub fn package_release(args: ReleasePackageArgs) -> OpsResult<()> {
     let bundled_toolchain = resolve_bundled_toolchain(&host, args.toolchain_prefix.as_deref())?;
 
     if !args.skip_build {
-        build_release_binaries(&host, args.skip_kernup)?;
+        build_release_binaries(&host)?;
     }
 
     let dist_name = format!("kern-{version}-{}", host.archive_target);
@@ -248,16 +248,14 @@ fn ensure_host_native_target(target: &str, host: &shared_ops::HostTarget) -> Ops
     )))
 }
 
-fn build_release_binaries(host: &shared_ops::HostTarget, skip_kernup: bool) -> OpsResult<()> {
+fn build_release_binaries(host: &shared_ops::HostTarget) -> OpsResult<()> {
     println!("Building release binaries...");
-    let mut packages = vec![
+    let packages = [
         ("kernc_cli", Some("kernc")),
         ("craft", None),
         ("kern-lsp", None),
+        ("kernup", None),
     ];
-    if !skip_kernup {
-        packages.push(("kernup", None));
-    }
     for (package, bin) in packages {
         let mut cmd = vec![
             OsString::from("cargo"),
@@ -449,7 +447,7 @@ fn copy_license_files(root: &Path, dist_dir: &Path) -> OpsResult<()> {
 #[cfg(test)]
 mod tests {
     use super::checksum::wildcard_match;
-    use shared_ops::OFFICIAL_LIBRARY_WORKSPACE_MEMBERS;
+    use shared_ops::{HOST_TOOL_BINARIES, OFFICIAL_LIBRARY_WORKSPACE_MEMBERS};
     use std::collections::BTreeSet;
     use std::fs;
     use std::path::Path;
@@ -483,6 +481,11 @@ mod tests {
 
         assert_eq!(packaged, declared);
         assert!(packaged.contains("kernlib-test"));
+    }
+
+    #[test]
+    fn release_sdk_installs_kernup_command() {
+        assert!(HOST_TOOL_BINARIES.contains(&"kernup"));
     }
 
     fn parse_library_workspace_members(manifest: &str) -> BTreeSet<&str> {

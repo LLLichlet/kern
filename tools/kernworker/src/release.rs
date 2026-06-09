@@ -392,6 +392,7 @@ fn prepare_dist_dir(
     for text_file in ["README.md", "LICENSE"] {
         copy_path(&root.join(text_file), &dist_dir.join(text_file))?;
     }
+    copy_dir_recursive(&root.join("docs"), &dist_dir.join("docs"))?;
     copy_dir_recursive(&root.join("LICENSES"), &dist_dir.join("LICENSES"))?;
 
     let records = bundle_sdk_runtime_toolchain(dist_dir, host, bundled_toolchain)?;

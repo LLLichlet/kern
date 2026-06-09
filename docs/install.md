@@ -33,6 +33,7 @@ The installed tree contains:
 - `bin/kernup`: SDK installer and toolchain-manager entry point
 - `lib/kern`: official library workspace, including `base`, `rt`, `std`, and
   the internal `kernlib-test` workspace member
+- `docs`: installed copy of the public Kern documentation set
 - `toolchain/host`: bundled host LLVM/Clang runtime tools required by the SDK
 - `manifest/sdk.json`: SDK identity, host target, toolchain component records,
   checksums, sizes, and health-check expectations
@@ -200,6 +201,12 @@ Validate the default installation:
 
 ```sh
 cargo run -p kernup -- doctor
+```
+
+Locate installed documentation:
+
+```sh
+cargo run -p kernup -- doc tutorial
 ```
 
 The repository-root shell and PowerShell installers remain the zero-dependency

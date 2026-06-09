@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 enum Command {
     Install(InstallArgs),
     Doctor(DoctorArgs),
+    Doc(DocArgs),
     Target,
     Help,
 }
@@ -40,6 +41,13 @@ struct InstallArgs {
 struct DoctorArgs {
     dest: Option<PathBuf>,
     verbose: bool,
+}
+
+#[derive(Debug, Default)]
+struct DocArgs {
+    dest: Option<PathBuf>,
+    topic: Option<String>,
+    path_only: bool,
 }
 
 struct Ui {
@@ -73,6 +81,7 @@ fn run() -> OpsResult<()> {
     match parse_args(env::args().skip(1).collect())? {
         Command::Install(args) => install(args),
         Command::Doctor(args) => doctor(args),
+        Command::Doc(args) => doc(args),
         Command::Target => {
             println!("{}", detect_host_target()?.archive_target);
             Ok(())
@@ -93,6 +102,7 @@ fn parse_args(args: Vec<String>) -> OpsResult<Command> {
     match command {
         "install" => parse_install_args(&args[1..], verbose).map(Command::Install),
         "doctor" => parse_doctor_args(&args[1..], verbose).map(Command::Doctor),
+        "doc" => parse_doc_args(&args[1..]).map(Command::Doc),
         "target" => Ok(Command::Target),
         "help" | "--help" | "-h" => Ok(Command::Help),
         other => Err(OpsError::new(format!(
@@ -205,6 +215,42 @@ fn parse_doctor_args(args: &[String], verbose: bool) -> OpsResult<DoctorArgs> {
                 return Err(OpsError::new(format!(
                     "unexpected doctor argument `{other}`"
                 )));
+            }
+        }
+        index += 1;
+    }
+    Ok(parsed)
+}
+
+fn parse_doc_args(args: &[String]) -> OpsResult<DocArgs> {
+    let mut parsed = DocArgs::default();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--dest" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(OpsError::new("`--dest` requires a value"));
+                };
+                parsed.dest = Some(PathBuf::from(value));
+            }
+            "--path" => {
+                parsed.path_only = true;
+            }
+            "--help" | "-h" => {
+                print!("{}", doc_help().render(ColorChoice::Auto));
+                std::process::exit(0);
+            }
+            value if value.starts_with('-') => {
+                return Err(OpsError::new(format!("unexpected doc argument `{value}`")));
+            }
+            value => {
+                if parsed.topic.is_some() {
+                    return Err(OpsError::new(
+                        "`kernup doc` accepts at most one topic".to_string(),
+                    ));
+                }
+                parsed.topic = Some(value.to_string());
             }
         }
         index += 1;
@@ -350,6 +396,44 @@ fn doctor(args: DoctorArgs) -> OpsResult<()> {
     })?;
     ui.ok("SDK installation is healthy");
     Ok(())
+}
+
+fn doc(args: DocArgs) -> OpsResult<()> {
+    let host = detect_host_target()?;
+    let install_root = args.dest.unwrap_or(default_install_root(&host)?);
+    let relative = doc_topic_path(args.topic.as_deref())?;
+    let path = install_root.join(relative);
+    if !path.is_file() {
+        return Err(OpsError::new(format!(
+            "documentation topic `{}` is missing at `{}`; reinstall the SDK or run `kernup doctor`",
+            args.topic.as_deref().unwrap_or("index"),
+            path.display()
+        )));
+    }
+    if args.path_only {
+        println!("{}", path.display());
+    } else {
+        println!("Kern documentation: {}", path.display());
+    }
+    Ok(())
+}
+
+fn doc_topic_path(topic: Option<&str>) -> OpsResult<&'static str> {
+    match topic.unwrap_or("index") {
+        "index" | "map" | "docs" => Ok(shared_ops::SDK_DOC_ENTRY),
+        "install" => Ok("docs/install.md"),
+        "kernc" => Ok("docs/kernc.md"),
+        "craft" => Ok("docs/craft.md"),
+        "design" | "language" => Ok("docs/design.md"),
+        "runtime" => Ok("docs/runtime-architecture.md"),
+        "style" => Ok("docs/style.md"),
+        "nix" => Ok("docs/nix.md"),
+        "tutorial" => Ok("docs/tutorial/README.md"),
+        "tutorial-zh" | "zh" => Ok("docs/tutorial/zh/README.md"),
+        other => Err(OpsError::new(format!(
+            "unknown documentation topic `{other}`; try `index`, `tutorial`, `design`, `kernc`, `craft`, or `install`"
+        ))),
+    }
 }
 
 fn install_step_count(args: &InstallArgs) -> usize {
@@ -817,6 +901,7 @@ fn help() -> HelpDoc {
             HelpSection::new("Commands")
                 .entry("install", "Install a Kern SDK archive")
                 .entry("doctor", "Validate the active SDK installation")
+                .entry("doc", "Print the path to installed Kern documentation")
                 .entry("target", "Print the current host archive target")
                 .entry("help", "Show this help text"),
         )
@@ -829,6 +914,7 @@ fn help() -> HelpDoc {
             "download and install a release SDK",
         )
         .example("kernup doctor", "verify the default installation")
+        .example("kernup doc tutorial", "locate the installed tutorial")
         .note("kernup installs SDK archives only; it does not build Kern from source.")
         .note("For source builds, configure the host LLVM development environment and run Cargo directly.")
 }
@@ -870,6 +956,30 @@ fn doctor_help() -> HelpDoc {
         )
 }
 
+fn doc_help() -> HelpDoc {
+    HelpDoc::new("kernup doc")
+        .summary("Locate installed Kern documentation.")
+        .usage("kernup doc [topic] [--path] [--dest <path>]")
+        .section(
+            HelpSection::new("Options")
+                .entry("--path", "print only the resolved documentation path")
+                .entry(
+                    "--dest <path>",
+                    "installation directory; defaults to ~/.kern",
+                ),
+        )
+        .section(
+            HelpSection::new("Topics")
+                .entry("index", "documentation map")
+                .entry("tutorial", "English tutorial")
+                .entry("tutorial-zh", "Simplified Chinese tutorial")
+                .entry("design", "language design reference")
+                .entry("kernc", "compiler guide")
+                .entry("craft", "package and build guide")
+                .entry("install", "installation guide"),
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -884,6 +994,40 @@ mod tests {
             Command::Install(args) => assert!(args.verbose),
             _ => panic!("expected install command"),
         }
+    }
+
+    #[test]
+    fn parses_doc_topic_and_path_options() {
+        match parse_args(vec![
+            "doc".into(),
+            "tutorial".into(),
+            "--path".into(),
+            "--dest".into(),
+            "/tmp/kern-sdk".into(),
+        ])
+        .unwrap()
+        {
+            Command::Doc(args) => {
+                assert_eq!(args.topic.as_deref(), Some("tutorial"));
+                assert!(args.path_only);
+                assert_eq!(
+                    args.dest.as_deref(),
+                    Some(std::path::Path::new("/tmp/kern-sdk"))
+                );
+            }
+            _ => panic!("expected doc command"),
+        }
+    }
+
+    #[test]
+    fn maps_doc_topics_to_installed_markdown() {
+        assert_eq!(doc_topic_path(None).unwrap(), shared_ops::SDK_DOC_ENTRY);
+        assert_eq!(doc_topic_path(Some("craft")).unwrap(), "docs/craft.md");
+        assert_eq!(
+            doc_topic_path(Some("tutorial-zh")).unwrap(),
+            "docs/tutorial/zh/README.md"
+        );
+        assert!(doc_topic_path(Some("missing")).is_err());
     }
 
     #[test]

@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const HOST_TOOL_BINARIES: &[&str] = &["kernc", "craft", "kern-lsp", "kernup"];
+pub const SDK_DOC_ENTRY: &str = "docs/documentation-map.md";
 pub const OFFICIAL_LIBRARY_WORKSPACE_MEMBERS: &[&str] = &["base", "kernlib-test", "std", "rt"];
 pub const OFFICIAL_LIBRARY_LAYERS: &[&str] = &["base", "rt", "std"];
 pub const OFFICIAL_LIBRARY_ENTRY: &str = "lib.kn";
@@ -331,6 +332,12 @@ pub fn validate_sdk_root_with_progress(
         return Err(OpsError::new("SDK craft build modules are missing"));
     }
     tick("library");
+    if !sdk_root.join(SDK_DOC_ENTRY).is_file() {
+        return Err(OpsError::new(format!(
+            "SDK documentation entry `{SDK_DOC_ENTRY}` is missing"
+        )));
+    }
+    tick("docs");
     if !sdk_root.join("toolchain").join("host").join("bin").is_dir() {
         return Err(OpsError::new("SDK toolchain layout is incomplete"));
     }
@@ -437,6 +444,7 @@ fn sdk_validation_step_count(sdk_root: &Path) -> OpsResult<u64> {
     Ok(1 + HOST_TOOL_BINARIES.len() as u64
         + OFFICIAL_LIBRARY_WORKSPACE_MEMBERS.len() as u64
         + OFFICIAL_LIBRARY_LAYERS.len() as u64
+        + 1
         + 1
         + 1
         + sdk_toolchain_validation_step_count(sdk_root).unwrap_or(0))
@@ -2524,6 +2532,9 @@ mod tests {
         }
         fs::create_dir_all(library_root.join("craft")).unwrap();
         fs::write(library_root.join("craft").join("mod.kn"), "").unwrap();
+        let doc_entry = root.join(SDK_DOC_ENTRY);
+        fs::create_dir_all(doc_entry.parent().unwrap()).unwrap();
+        fs::write(doc_entry, "").unwrap();
         fs::create_dir_all(root.join("toolchain").join("host").join("bin")).unwrap();
         let manifest_dir = root.join("manifest");
         fs::create_dir_all(&manifest_dir).unwrap();

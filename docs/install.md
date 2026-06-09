@@ -30,7 +30,8 @@ The installed tree contains:
 - `bin/kernc`: compiler, analysis, object emission, and linking driver
 - `bin/craft`: package manager and build orchestrator
 - `bin/kern-lsp`: language server for editor integration
-- `lib/kern`: official library workspace, including `base`, `rt`, and `std`
+- `lib/kern`: official library workspace, including `base`, `rt`, `std`, and
+  the internal `kernlib-test` workspace member
 - `toolchain/host`: bundled host LLVM/Clang runtime tools required by the SDK
 - `manifest/sdk.json`: SDK identity, host target, toolchain component records,
   checksums, sizes, and health-check expectations

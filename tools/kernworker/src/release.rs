@@ -17,7 +17,7 @@ use archive::create_archive;
 use bundle::{bundle_host_toolchain, bundle_sdk_runtime_toolchain};
 use checksum::write_checksums;
 use shared_ops::{
-    BundledToolchain, HOST_TOOL_BINARIES, OFFICIAL_LIBRARY_LAYERS, OpsError, OpsResult,
+    BundledToolchain, HOST_TOOL_BINARIES, OFFICIAL_LIBRARY_WORKSPACE_MEMBERS, OpsError, OpsResult,
     copy_dir_recursive, copy_path, detect_host_target, load_workspace_version,
     remove_path_if_exists, repo_root, resolve_bundled_toolchain, resolve_official_library_root,
     run_command, run_command_with_env, sdk_manifest_json, toolchain_manifest_json,
@@ -372,15 +372,15 @@ fn prepare_dist_dir(
             )?;
         }
     }
-    for layer in OFFICIAL_LIBRARY_LAYERS {
-        let source = library_root.join(layer);
+    for member in OFFICIAL_LIBRARY_WORKSPACE_MEMBERS {
+        let source = library_root.join(member);
         if !source.is_dir() {
             return Err(OpsError::new(format!(
-                "expected library layer `{}`",
+                "expected library workspace member `{}`",
                 source.display()
             )));
         }
-        copy_dir_recursive(&source, &dist_dir.join("lib").join("kern").join(layer))?;
+        copy_dir_recursive(&source, &dist_dir.join("lib").join("kern").join(member))?;
     }
     let craft_sdk = root.join("tools").join("craft").join("sdk");
     if !craft_sdk.join("mod.kn").is_file() {
@@ -449,6 +449,10 @@ fn copy_license_files(root: &Path, dist_dir: &Path) -> OpsResult<()> {
 #[cfg(test)]
 mod tests {
     use super::checksum::wildcard_match;
+    use shared_ops::OFFICIAL_LIBRARY_WORKSPACE_MEMBERS;
+    use std::collections::BTreeSet;
+    use std::fs;
+    use std::path::Path;
 
     #[test]
     fn wildcard_matching_covers_release_globs() {
@@ -462,5 +466,48 @@ mod tests {
             "toolchain-dist/*",
             "toolchain-dist/nested/kern.tar.gz"
         ));
+    }
+
+    #[test]
+    fn release_sdk_packages_declared_library_workspace_members() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("kernworker manifest should live under tools/kernworker");
+        let manifest = fs::read_to_string(root.join("library").join("Craft.toml")).unwrap();
+        let declared = parse_library_workspace_members(&manifest);
+        let packaged = OFFICIAL_LIBRARY_WORKSPACE_MEMBERS
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(packaged, declared);
+        assert!(packaged.contains("kernlib-test"));
+    }
+
+    fn parse_library_workspace_members(manifest: &str) -> BTreeSet<&str> {
+        let mut in_members = false;
+        let mut members = BTreeSet::new();
+        for line in manifest.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("members = [") {
+                in_members = true;
+                continue;
+            }
+            if !in_members {
+                continue;
+            }
+            if trimmed.starts_with(']') {
+                break;
+            }
+            if let Some(member) = trimmed
+                .trim_end_matches(',')
+                .strip_prefix('"')
+                .and_then(|value| value.strip_suffix('"'))
+            {
+                members.insert(member);
+            }
+        }
+        members
     }
 }

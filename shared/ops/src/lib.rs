@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const HOST_TOOL_BINARIES: &[&str] = &["kernc", "craft", "kern-lsp"];
+pub const OFFICIAL_LIBRARY_WORKSPACE_MEMBERS: &[&str] = &["base", "kernlib-test", "std", "rt"];
 pub const OFFICIAL_LIBRARY_LAYERS: &[&str] = &["base", "rt", "std"];
 pub const OFFICIAL_LIBRARY_ENTRY: &str = "lib.kn";
 static COMMAND_LOGGING_ENABLED: AtomicBool = AtomicBool::new(true);
@@ -306,6 +307,14 @@ pub fn validate_sdk_root_with_progress(
             "SDK official library workspace manifest is missing",
         ));
     }
+    for member in OFFICIAL_LIBRARY_WORKSPACE_MEMBERS {
+        if !library_root.join(member).join("Craft.toml").is_file() {
+            return Err(OpsError::new(format!(
+                "SDK official library workspace member `{member}` is missing"
+            )));
+        }
+        tick("library");
+    }
     for layer in OFFICIAL_LIBRARY_LAYERS {
         if !library_root
             .join(layer)
@@ -426,6 +435,7 @@ pub fn validate_sdk_toolchain_manifest_with_progress(
 
 fn sdk_validation_step_count(sdk_root: &Path) -> OpsResult<u64> {
     Ok(1 + HOST_TOOL_BINARIES.len() as u64
+        + OFFICIAL_LIBRARY_WORKSPACE_MEMBERS.len() as u64
         + OFFICIAL_LIBRARY_LAYERS.len() as u64
         + 1
         + 1
@@ -2497,6 +2507,48 @@ mod tests {
         remove_path_if_exists(&root).unwrap();
     }
 
+    fn write_minimal_sdk_layout(root: &Path, host_target: &str) {
+        fs::create_dir_all(root.join("bin")).unwrap();
+        for binary in HOST_TOOL_BINARIES {
+            fs::write(root.join("bin").join(binary), "").unwrap();
+        }
+        let library_root = root.join("lib").join("kern");
+        fs::create_dir_all(&library_root).unwrap();
+        fs::write(library_root.join("Craft.toml"), "").unwrap();
+        for member in OFFICIAL_LIBRARY_WORKSPACE_MEMBERS {
+            fs::create_dir_all(library_root.join(member)).unwrap();
+            fs::write(library_root.join(member).join("Craft.toml"), "").unwrap();
+        }
+        for layer in OFFICIAL_LIBRARY_LAYERS {
+            fs::write(library_root.join(layer).join(OFFICIAL_LIBRARY_ENTRY), "").unwrap();
+        }
+        fs::create_dir_all(library_root.join("craft")).unwrap();
+        fs::write(library_root.join("craft").join("mod.kn"), "").unwrap();
+        fs::create_dir_all(root.join("toolchain").join("host").join("bin")).unwrap();
+        let manifest_dir = root.join("manifest");
+        fs::create_dir_all(&manifest_dir).unwrap();
+        write_json_value(
+            &manifest_dir.join("sdk.json"),
+            &sdk_manifest_json("v0.8.2", host_target, None, None),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn sdk_validation_rejects_missing_library_workspace_member() {
+        let root = make_temp_dir("shared-ops-sdk-library-member-test-").unwrap();
+        write_minimal_sdk_layout(&root, "x86_64-linux-gnu");
+        fs::remove_dir_all(root.join("lib").join("kern").join("kernlib-test")).unwrap();
+
+        let err = validate_sdk_root(&root, "x86_64-linux-gnu").unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("SDK official library workspace member `kernlib-test` is missing")
+        );
+        remove_path_if_exists(&root).unwrap();
+    }
+
     #[test]
     fn sdk_manifest_requires_clang_resource_dir() {
         let manifest = sdk_manifest_json(
@@ -2579,20 +2631,7 @@ mod tests {
     #[test]
     fn sdk_validation_rejects_missing_clang_resource_headers() {
         let root = make_temp_dir("shared-ops-sdk-resource-test-").unwrap();
-        fs::create_dir_all(root.join("bin")).unwrap();
-        for binary in HOST_TOOL_BINARIES {
-            fs::write(root.join("bin").join(binary), "").unwrap();
-        }
-        let library_root = root.join("lib").join("kern");
-        fs::create_dir_all(&library_root).unwrap();
-        fs::write(library_root.join("Craft.toml"), "").unwrap();
-        for layer in OFFICIAL_LIBRARY_LAYERS {
-            fs::create_dir_all(library_root.join(layer)).unwrap();
-            fs::write(library_root.join(layer).join(OFFICIAL_LIBRARY_ENTRY), "").unwrap();
-        }
-        fs::create_dir_all(library_root.join("craft")).unwrap();
-        fs::write(library_root.join("craft").join("mod.kn"), "").unwrap();
-        fs::create_dir_all(root.join("toolchain").join("host").join("bin")).unwrap();
+        write_minimal_sdk_layout(&root, "x86_64-linux-gnu");
         fs::create_dir_all(
             root.join("toolchain")
                 .join("host")
@@ -2602,7 +2641,6 @@ mod tests {
         )
         .unwrap();
         let manifest_dir = root.join("manifest");
-        fs::create_dir_all(&manifest_dir).unwrap();
         write_json_value(
             &manifest_dir.join("sdk.json"),
             &serde_json::json!({

@@ -70,6 +70,15 @@ workspace only when the repository needs more than one package, shared
 dependency declarations, or a package namespace that exports selected members
 to external users.
 
+For a library-only package, initialize with:
+
+```bash
+craft init --lib
+```
+
+This creates `[lib]` in `Craft.toml` and a `src/lib.kn` stub instead of a
+binary target.
+
 ## Freestanding Kernel Package
 
 For a minimal freestanding package, keep startup ownership explicit in

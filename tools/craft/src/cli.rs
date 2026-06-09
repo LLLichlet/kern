@@ -333,10 +333,10 @@ where
                 .cloned()
                 .collect();
             if init_bin && init_lib {
-                return Err(Error::Usage(format!(
-                    "Both a library and binary???: {}",
-                    args.join(" ")
-                )));
+                return Err(Error::Usage(
+                    "`craft init` accepts only one package kind; choose either `--lib` or `--bin`"
+                        .to_string(),
+                ));
             }
             let mut kind: Option<InitKind> = None;
             if init_bin {

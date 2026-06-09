@@ -90,11 +90,14 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
             &["craft init [OPTIONS]"],
             HelpSection::new("Options")
                 .entry("--project-path, -p <PATH>", "Directory to initialize")
+                .entry("--bin", "Create a binary package with src/main.kn")
+                .entry("--lib", "Create a library package with src/lib.kn")
                 .entry("--verbose, -v/-vv/-vvv", "Increase diagnostic detail")
                 .entry("--timings", "Print aggregated timing information")
                 .entry("--color <WHEN>", "Color mode: auto, always, never"),
             &[
                 ("craft init", "Initialize the current directory"),
+                ("craft init --lib", "Initialize a library package"),
                 (
                     "craft init --project-path demos/http",
                     "Initialize another directory",

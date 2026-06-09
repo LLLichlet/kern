@@ -2437,6 +2437,52 @@ fn init_command_scaffolds_minimal_bin_package() {
 }
 
 #[test]
+fn init_command_scaffolds_explicit_bin_package() {
+    let root = temp_dir("craft-cli-init-explicit-bin");
+
+    run_command(Command::Init {
+        path: Some(root.clone()),
+        ui: UiOptions::default(),
+        kind: Some(InitKind::Bin),
+    })
+    .unwrap();
+
+    let manifest = fs::read_to_string(root.join("Craft.toml")).unwrap();
+    assert!(manifest.contains("[[bin]]"));
+    assert!(manifest.contains("root = \"src/main.kn\""));
+    assert!(!manifest.contains("[lib]"));
+    let source = fs::read_to_string(root.join("src/main.kn")).unwrap();
+    assert!(source.contains("fn main() i32"));
+    assert!(!root.join("src/lib.kn").exists());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn init_command_scaffolds_explicit_lib_package() {
+    let root = temp_dir("craft-cli-init-explicit-lib");
+
+    run_command(Command::Init {
+        path: Some(root.clone()),
+        ui: UiOptions::default(),
+        kind: Some(InitKind::Lib),
+    })
+    .unwrap();
+
+    let manifest = fs::read_to_string(root.join("Craft.toml")).unwrap();
+    assert!(manifest.contains("[lib]"));
+    assert!(manifest.contains("root = \"src/lib.kn\""));
+    assert!(!manifest.contains("[[bin]]"));
+    let source = fs::read_to_string(root.join("src/lib.kn")).unwrap();
+    assert!(source.contains("pub fn hello() void"));
+    assert!(source.ends_with('\n'));
+    assert!(!source.contains("\n pub fn"));
+    assert!(!root.join("src/main.kn").exists());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn init_command_collects_existing_test_and_example_roots() {
     let root = temp_dir("craft-cli-init-existing-layout");
     fs::create_dir_all(root.join("src")).unwrap();

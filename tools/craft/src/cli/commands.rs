@@ -1894,20 +1894,18 @@ fn plan_init(root: &Path, kind: Option<InitKind>) -> Result<InitPlan> {
         }
     }
 
+    let existing_lib_root = root.join("src/lib.kn").is_file();
+    let existing_bin_root = root.join("src/main.kn").is_file();
     let (mut lib_root, mut bin_root) = match kind {
         Some(InitKind::Lib) => (Some("src/lib.kn".to_string()), None),
         Some(InitKind::Bin) => (None, Some("src/main.kn".to_string())),
         None => (
-            root.join("src/lib.kn")
-                .is_file()
-                .then(|| "src/lib.kn".to_string()),
-            root.join("src/main.kn")
-                .is_file()
-                .then(|| "src/main.kn".to_string()),
+            existing_lib_root.then(|| "src/lib.kn".to_string()),
+            existing_bin_root.then(|| "src/main.kn".to_string()),
         ),
     };
-    let mut create_main_stub = (kind == Some(InitKind::Bin)) && bin_root.is_none();
-    let create_lib_stub = (kind == Some(InitKind::Lib)) && lib_root.is_none();
+    let mut create_main_stub = (kind == Some(InitKind::Bin)) && !existing_bin_root;
+    let create_lib_stub = (kind == Some(InitKind::Lib)) && !existing_lib_root;
     if !create_main_stub && !create_lib_stub && lib_root.is_none() && bin_root.is_none() {
         create_main_stub = true;
     }
@@ -1945,7 +1943,7 @@ fn apply_init_plan(root: &Path, init: &InitPlan) -> Result<Vec<PathBuf>> {
     if init.create_lib_stub {
         write_if_missing(
             &root.join("src/lib.kn"),
-            "use std.io;\n\n pub fn hello() void {\n    \"Hello from lib!\".println();\n}",
+            "use std.io;\n\npub fn hello() void {\n    \"Hello from lib!\".println();\n}\n",
             &mut created,
         )?;
     }

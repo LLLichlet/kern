@@ -6,6 +6,7 @@
 
 use crate::analysis_context;
 use crate::build_plan;
+use crate::cli::InitKind;
 use crate::discover;
 use crate::doc;
 use crate::elaborate;
@@ -22,7 +23,6 @@ use crate::resolver;
 use crate::source::{self, FetchProgress, FetchProgressKind, FetchProgressPhase};
 use crate::style;
 use crate::workspace;
-use crate::cli::InitKind;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -148,7 +148,7 @@ pub(super) fn run_command(command: Command) -> Result<()> {
             println!("{}", super::version_text());
             Ok(())
         }
-        Command::Init { path, ui , kind} => run_init(path, ui, kind),
+        Command::Init { path, ui, kind } => run_init(path, ui, kind),
         Command::Clean { path, ui } => run_clean(path, ui),
         Command::Check {
             path,
@@ -1897,17 +1897,20 @@ fn plan_init(root: &Path, kind: Option<InitKind>) -> Result<InitPlan> {
     let (mut lib_root, mut bin_root) = match kind {
         Some(InitKind::Lib) => (Some("src/lib.kn".to_string()), None),
         Some(InitKind::Bin) => (None, Some("src/main.kn".to_string())),
-        None => ( root
-        .join("src/lib.kn")
-        .is_file()
-        .then(|| "src/lib.kn".to_string()),
-        root
-        .join("src/main.kn")
-        .is_file()
-        .then(|| "src/main.kn".to_string()))
+        None => (
+            root.join("src/lib.kn")
+                .is_file()
+                .then(|| "src/lib.kn".to_string()),
+            root.join("src/main.kn")
+                .is_file()
+                .then(|| "src/main.kn".to_string()),
+        ),
     };
-    let create_main_stub = (kind == Some(InitKind::Bin)) && bin_root.is_none();
+    let mut create_main_stub = (kind == Some(InitKind::Bin)) && bin_root.is_none();
     let create_lib_stub = (kind == Some(InitKind::Lib)) && lib_root.is_none();
+    if !create_main_stub && !create_lib_stub && lib_root.is_none() && bin_root.is_none() {
+        create_main_stub = true;
+    }
     if create_main_stub {
         bin_root = Some("src/main.kn".to_string());
     }

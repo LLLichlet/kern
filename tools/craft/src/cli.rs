@@ -336,7 +336,7 @@ where
                 return Err(Error::Usage(format!(
                     "Both a library and binary???: {}",
                     args.join(" ")
-                )))
+                )));
             }
             let mut kind: Option<InitKind> = None;
             if init_bin {

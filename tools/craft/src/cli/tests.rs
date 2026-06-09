@@ -4,8 +4,8 @@
 //! publish policy, install/uninstall behavior, and subprocess execution paths.
 
 use super::{
-    ColorChoice, Command, HelpTopic, InstallSelection, RunSelection, UiOptions, Verbosity,
-    parse_args, run_command, summarize_check_sources, summarize_source_security,
+    ColorChoice, Command, HelpTopic, InitKind, InstallSelection, RunSelection, UiOptions,
+    Verbosity, parse_args, run_command, summarize_check_sources, summarize_source_security,
     validate_check_source_policy,
 };
 use crate::elaborate::FeatureSelection;
@@ -737,12 +737,67 @@ fn parses_init_with_project_path() {
     .unwrap();
 
     match cmd {
-        Command::Init { path, ui } => {
+        Command::Init { path, ui, kind } => {
             assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
             assert_eq!(ui, UiOptions::default());
+            assert_eq!(kind, None);
         }
         other => panic!("expected init command, got {other:?}"),
     }
+}
+
+#[test]
+fn parses_init_with_project_path_and_binary_kind() {
+    let cmd = parse_args([
+        "init".to_string(),
+        "--project-path".to_string(),
+        "demo".to_string(),
+        "--bin".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Init { path, ui, kind } => {
+            assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
+            assert_eq!(ui, UiOptions::default());
+            assert_eq!(kind, Some(InitKind::Bin));
+        }
+        other => panic!("expected init command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_init_with_project_path_and_library_kind() {
+    let cmd = parse_args([
+        "init".to_string(),
+        "--project-path".to_string(),
+        "demo".to_string(),
+        "--lib".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Init { path, ui, kind } => {
+            assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
+            assert_eq!(ui, UiOptions::default());
+            assert_eq!(kind, Some(InitKind::Lib));
+        }
+        other => panic!("expected init command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_init_with_project_path_and_library_and_both_binary_kind() {
+    let cmd = parse_args([
+        "init".to_string(),
+        "--project-path".to_string(),
+        "demo".to_string(),
+        "--lib".to_string(),
+        "--bin".to_string(),
+    ])
+    .is_err();
+
+    assert!(cmd);
 }
 
 #[test]
@@ -2359,6 +2414,7 @@ fn init_command_scaffolds_minimal_bin_package() {
     run_command(Command::Init {
         path: Some(root.clone()),
         ui: UiOptions::default(),
+        kind: None,
     })
     .unwrap();
 
@@ -2401,6 +2457,7 @@ fn init_command_collects_existing_test_and_example_roots() {
     run_command(Command::Init {
         path: Some(root.clone()),
         ui: UiOptions::default(),
+        kind: None,
     })
     .unwrap();
 
